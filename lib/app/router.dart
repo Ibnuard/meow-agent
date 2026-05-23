@@ -74,13 +74,17 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         name: 'agentChat',
         builder: (context, state) {
           final id = state.pathParameters['id'] ?? 'default';
-          return ChatScreen(agentId: id);
+          final initial = state.uri.queryParameters['initialText'];
+          return ChatScreen(agentId: id, initialText: initial);
         },
       ),
       GoRoute(
         path: AppRoutes.defaultChat,
         name: 'defaultChat',
-        builder: (context, state) => const ChatScreen(agentId: 'default'),
+        builder: (context, state) {
+          final initial = state.uri.queryParameters['initialText'];
+          return ChatScreen(agentId: 'default', initialText: initial);
+        },
       ),
       GoRoute(
         path: AppRoutes.moduleStore,

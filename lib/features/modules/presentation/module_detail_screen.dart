@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
 
@@ -16,13 +17,29 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
   ConsumerState<ModuleDetailScreen> createState() => _ModuleDetailScreenState();
 }
 
-class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen> {
+class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
+    with WidgetsBindingObserver {
   ModuleModel? _module;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadModule();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-check accessibility status when user returns from settings.
+    if (state == AppLifecycleState.resumed) {
+      _syncAccessibilityState();
+    }
   }
 
   Future<void> _loadModule() async {
@@ -33,8 +50,84 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen> {
     }
   }
 
+  Future<void> _syncAccessibilityState() async {
+    if (_module == null || _module!.id != 'clipboard_ai') return;
+    final controller = ref.read(clipboardServiceControllerProvider);
+    final isEnabled = await controller.isAccessibilityEnabled();
+    final current = _module!.settings['accessibility_service'] ?? false;
+    if (isEnabled != current) {
+      // Directly update state without triggering the settings-open flow.
+      final updated = _module!.copyWith(
+        settings: {..._module!.settings, 'accessibility_service': isEnabled},
+      );
+      await ref.read(moduleRepositoryProvider).update(updated);
+      ref.invalidate(installedModulesProvider);
+      if (mounted) setState(() => _module = updated);
+    }
+  }
+
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
+
+    // Handle native service actions for clipboard_ai module.
+    if (_module!.id == 'clipboard_ai') {
+      final controller = ref.read(clipboardServiceControllerProvider);
+
+      if (key == 'persistent_notification') {
+        if (value) {
+          // Request notification permission first (Android 13+).
+          final granted = await controller.requestNotificationPermission();
+          if (!granted) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Notification permission required.'),
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+            return;
+          }
+          await controller.startNotificationService();
+        } else {
+          await controller.stopNotificationService();
+        }
+      }
+
+      if (key == 'accessibility_service') {
+        if (value) {
+          // Open accessibility settings for user to enable manually.
+          await controller.openAccessibilitySettings();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Enable "Meow Agent" in Accessibility settings.',
+                ),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          // Don't toggle yet — will sync when user returns.
+          return;
+        } else {
+          // Can't programmatically disable — inform user.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Disable the service in Accessibility settings.',
+                ),
+                duration: Duration(seconds: 3),
+              ),
+            );
+          }
+          await controller.openAccessibilitySettings();
+          return;
+        }
+      }
+    }
+
     final updated = _module!.copyWith(
       settings: {..._module!.settings, key: value},
     );
@@ -52,6 +145,13 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen> {
   }
 
   Future<void> _uninstall() async {
+    // Stop services before uninstalling.
+    if (_module?.id == 'clipboard_ai') {
+      final controller = ref.read(clipboardServiceControllerProvider);
+      await controller.stopNotificationService();
+    }
+
+    if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

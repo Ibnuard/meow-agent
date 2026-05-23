@@ -16,9 +16,10 @@ import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
-  const ChatScreen({super.key, required this.agentId});
+  const ChatScreen({super.key, required this.agentId, this.initialText});
 
   final String agentId;
+  final String? initialText;
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
@@ -44,6 +45,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _activeAgentId = agents.first.id;
     } else {
       _activeAgentId = widget.agentId;
+    }
+    // Pre-fill input if initial text was provided (e.g., from Clipboard AI).
+    if (widget.initialText != null && widget.initialText!.isNotEmpty) {
+      _input.text = widget.initialText!;
     }
     _loadHistory(_activeAgentId);
     _scroll.addListener(_onScroll);

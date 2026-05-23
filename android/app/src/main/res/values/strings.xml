@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Meow Agent Clipboard AI monitors your clipboard to automatically process copied text with AI. Enable this to get instant AI-powered text processing when you copy text in any app.</string>
+</resources>

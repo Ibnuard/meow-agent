@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
         android:label="meow_agent"
         android:name="${applicationName}"
@@ -31,6 +35,26 @@
                 <data android:mimeType="text/plain"/>
             </intent-filter>
         </activity>
+
+        <!-- Clipboard Foreground Service -->
+        <service
+            android:name=".ClipboardForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+
+        <!-- Clipboard Accessibility Service -->
+        <service
+            android:name=".ClipboardAccessibilityService"
+            android:exported="false"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

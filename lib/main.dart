@@ -46,11 +46,17 @@ class MeowAgentApp extends ConsumerStatefulWidget {
 
 class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     with WidgetsBindingObserver {
+  static const _channel = MethodChannel('com.meowagent/share');
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Check for shared text after first frame.
+
+    // Listen for incoming shared text pushed from native side.
+    _channel.setMethodCallHandler(_handleNativeCall);
+
+    // Check for shared text after first frame (cold start from intent).
     WidgetsBinding.instance.addPostFrameCallback((_) => _checkSharedText());
   }
 
@@ -62,21 +68,38 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Check again when app resumes (e.g., from share intent while running).
     if (state == AppLifecycleState.resumed) {
       _checkSharedText();
+    }
+  }
+
+  /// Handle method calls FROM native (when new intent arrives while running).
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    debugPrint('[MeowAgent] Native call: ${call.method}, args=${call.arguments}');
+    if (call.method == 'onSharedText') {
+      final text = call.arguments as String?;
+      if (text != null && text.isNotEmpty) {
+        debugPrint('[MeowAgent] Navigating with text length=${text.length}');
+        _navigateToProcess(text);
+      }
     }
   }
 
   Future<void> _checkSharedText() async {
     final service = ref.read(shareIntentServiceProvider);
     final text = await service.getSharedText();
+    debugPrint('[MeowAgent] _checkSharedText returned length=${text?.length}');
     if (text != null && text.isNotEmpty) {
-      final router = ref.read(goRouterProvider);
-      router.push(
-        '${AppRoutes.clipboardProcess}?text=${Uri.encodeComponent(text)}',
-      );
+      _navigateToProcess(text);
     }
+  }
+
+  void _navigateToProcess(String text) {
+    debugPrint('[MeowAgent] _navigateToProcess called');
+    final router = ref.read(goRouterProvider);
+    router.push(
+      '${AppRoutes.clipboardProcess}?text=${Uri.encodeComponent(text)}',
+    );
   }
 
   @override
