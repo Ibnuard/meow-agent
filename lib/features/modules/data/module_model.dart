@@ -71,7 +71,22 @@ class ModuleRegistry {
     },
   );
 
+  static const appControl = ModuleModel(
+    id: 'app_control',
+    name: 'App Control',
+    description:
+        'Let AI open apps, URLs, and system settings on your behalf.',
+    icon: '📱',
+    settings: {
+      'require_confirmation': true,
+      'allow_system_settings': false,
+      'allow_url_intents': true,
+      'show_execution_toast': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
+    appControl,
   ];
 }

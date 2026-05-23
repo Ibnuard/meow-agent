@@ -83,6 +83,38 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_control")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "openApp" -> {
+                        val pkg = call.argument<String>("package") ?: ""
+                        result.success(openApp(pkg))
+                    }
+                    "listInstalledApps" -> {
+                        result.success(listInstalledApps())
+                    }
+                    "openSettings" -> {
+                        val action = call.argument<String>("action") ?: Settings.ACTION_SETTINGS
+                        openSystemSettings(action)
+                        result.success(true)
+                    }
+                    "openUrl" -> {
+                        val url = call.argument<String>("url") ?: ""
+                        result.success(openUrl(url))
+                    }
+                    "openAppInfo" -> {
+                        val pkg = call.argument<String>("package") ?: packageName
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$pkg")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         if (sharedText != null) {
             val text = sharedText
             Handler(Looper.getMainLooper()).postDelayed({
@@ -252,5 +284,72 @@ class MainActivity : FlutterActivity() {
             }
         }
         return false
+    }
+
+    private fun openApp(packageName: String): Boolean {
+        return try {
+            val intent = packageManager.getLaunchIntentForPackage(packageName)
+            if (intent != null) {
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(intent)
+                Log.d(TAG, "Opened app: $packageName")
+                true
+            } else {
+                Log.d(TAG, "App not found: $packageName")
+                false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open app: $packageName", e)
+            false
+        }
+    }
+
+    private fun listInstalledApps(): List<Map<String, String>> {
+        return try {
+            val pm = packageManager
+            val apps = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+            apps
+                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+                .map { app ->
+                    mapOf(
+                        "name" to (pm.getApplicationLabel(app).toString()),
+                        "package" to app.packageName
+                    )
+                }
+                .sortedBy { it["name"] }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to list apps", e)
+            emptyList()
+        }
+    }
+
+    private fun openSystemSettings(action: String) {
+        try {
+            val intent = Intent(action).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            Log.d(TAG, "Opened settings: $action")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open settings: $action", e)
+            // Fallback to main settings.
+            startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+        }
+    }
+
+    private fun openUrl(url: String): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            Log.d(TAG, "Opened URL: $url")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open URL: $url", e)
+            false
+        }
     }
 }

@@ -31,7 +31,7 @@ If user rejects — set requires_tools to false.
 If user confirms — set requires_tools to true.'''
         : '';
 
-    return '''You are an AI agent runtime analyzer.
+    return '''You are an AI agent runtime analyzer running on an Android device.
 
 Your identity:
 ${workspace.soul}
@@ -45,9 +45,25 @@ $pendingBlock
 
 User message: "$userMessage"
 
-Analyze the user's intent and respond with ONLY valid JSON, no markdown, no explanation.
-If the user is just chatting, asking questions, or continuing a conversation, set requires_tools to false.
-Only set requires_tools to true if the user explicitly wants to use a system tool (clipboard, file, etc).
+Rules for requires_tools:
+- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps
+- Set true for phrases like: "buka [app]", "open [app]", "launch [app]", "buka [url]", "pergi ke [url]"
+- Set false if user is chatting, asking questions, or requesting information only
+- When in doubt and a tool exists that matches the request, set true
+
+Examples that require tools:
+- "buka wa" → app.resolve("wa") then app.open(packageName)
+- "buka youtube" → app.resolve("youtube") then app.open(packageName)
+- "buka toko ijo" → app.resolve("toko ijo") then app.open(packageName)
+- "buka google.com" → intent.open_url
+- "baca clipboard" → clipboard.read
+- "tulis ke clipboard" → clipboard.write
+- "buka pengaturan wifi" → settings.open
+- "app apa yang terinstall" → app.list_installed
+
+IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.
+
+Respond with ONLY valid JSON, no markdown, no explanation:
 
 {
   "intent": "short.intent.name",
@@ -152,12 +168,21 @@ Tool result:
 - Data: ${result.data}
 - Error: ${result.error ?? 'none'}
 
+CRITICAL RULES for final_response:
+- Reply in the SAME language as the user's original request (Indonesian if they used Indonesian).
+- NEVER mention internal tool names like "clipboard.write", "app.open", "intent.open_url".
+- NEVER say "the X tool executed successfully" or similar technical phrasing.
+- Speak naturally as a helpful assistant who just did the task.
+- Be concise (1-2 short sentences).
+- If the tool succeeded, confirm what was done in human terms (e.g., "Sudah saya tulis ke clipboard." or "WhatsApp sudah dibuka.").
+- If it failed, explain what went wrong in plain language and suggest a next step.
+
 Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation:
 
 If task is complete:
 {
   "status": "done",
-  "final_response": "your final response to the user incorporating the tool results"
+  "final_response": "natural human reply, no tool names"
 }
 
 If more steps needed:

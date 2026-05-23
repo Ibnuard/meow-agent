@@ -125,6 +125,12 @@ class ChatHistoryService {
     await db.delete('messages', where: 'agent_id = ?', whereArgs: [agentId]);
   }
 
+  /// Delete a single message by row id.
+  Future<void> deleteMessage(int id) async {
+    final db = await _database;
+    await db.delete('messages', where: 'id = ?', whereArgs: [id]);
+  }
+
   /// Clear all chat histories.
   Future<void> clearAll() async {
     final db = await _database;

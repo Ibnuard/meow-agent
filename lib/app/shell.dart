@@ -2,8 +2,10 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/chat/data/chat_runtime_manager.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -11,7 +13,7 @@ import 'theme.dart';
 ///
 /// Theme-aware: uses light surface in light mode, dark navy in dark mode.
 /// The dock floats above the system gesture area with proper safe-area padding.
-class AppShell extends StatelessWidget {
+class AppShell extends ConsumerWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
@@ -57,7 +59,7 @@ class AppShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final extras = context.extras;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentIndex = _currentIndex(context);
@@ -135,6 +137,7 @@ class AppShell extends StatelessWidget {
                     child: _FeaturedChatButton(
                       size: featuredSize,
                       onTap: () => context.go(AppRoutes.defaultChat),
+                      hasActivity: _hasAnyActiveSession(ref),
                     ),
                   ),
                 ),
@@ -144,6 +147,16 @@ class AppShell extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Returns true if any agent has a running runtime session.
+  /// Watching the manager triggers a rebuild when sessions update.
+  bool _hasAnyActiveSession(WidgetRef ref) {
+    final mgr = ref.watch(chatRuntimeManagerProvider);
+    // _sessions is private; read via sessionFor with a sentinel won't work.
+    // We expose state by relying on notifyListeners() rebuilding the widget.
+    // Iterate via the manager's own snapshot helper.
+    return mgr.hasAnyRunning;
   }
 }
 
@@ -278,78 +291,169 @@ class _RegularTab extends StatelessWidget {
 }
 
 class _FeaturedChatButton extends StatelessWidget {
-  const _FeaturedChatButton({required this.size, required this.onTap});
+  const _FeaturedChatButton({
+    required this.size,
+    required this.onTap,
+    this.hasActivity = false,
+  });
 
   final double size;
   final VoidCallback onTap;
+  final bool hasActivity;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: size,
       height: size,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(
-            colors: [AppShell._accentLight, AppShell._accentDark],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppShell._accent.withValues(alpha: 0.45),
-              blurRadius: 24,
-              spreadRadius: -2,
-              offset: const Offset(0, 8),
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.20),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            splashColor: Colors.white.withValues(alpha: 0.18),
-            highlightColor: Colors.white.withValues(alpha: 0.06),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  top: 1,
-                  left: 6,
-                  right: 6,
-                  child: Container(
-                    height: 12,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.white.withValues(alpha: 0.22),
-                          Colors.white.withValues(alpha: 0.0),
-                        ],
-                      ),
-                    ),
-                  ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [AppShell._accentLight, AppShell._accentDark],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppShell._accent.withValues(alpha: 0.45),
+                  blurRadius: 24,
+                  spreadRadius: -2,
+                  offset: const Offset(0, 8),
                 ),
-                const Icon(
-                  Icons.chat_bubble_rounded,
-                  color: Colors.white,
-                  size: 24,
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.20),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                splashColor: Colors.white.withValues(alpha: 0.18),
+                highlightColor: Colors.white.withValues(alpha: 0.06),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      top: 1,
+                      left: 6,
+                      right: 6,
+                      child: Container(
+                        height: 12,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.white.withValues(alpha: 0.22),
+                              Colors.white.withValues(alpha: 0.0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chat_bubble_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
+          if (hasActivity)
+            Positioned(
+              top: -2,
+              right: -2,
+              child: _ActivityPulse(),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+/// Soft glowing pulse dot indicating active runtime work.
+class _ActivityPulse extends StatefulWidget {
+  @override
+  State<_ActivityPulse> createState() => _ActivityPulseState();
+}
+
+class _ActivityPulseState extends State<_ActivityPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1400),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, _) {
+        final t = _ctrl.value;
+        // Pulse outer ring 1.0 → 1.8 with fade.
+        final ringScale = 1.0 + (t * 0.8);
+        final ringOpacity = (1.0 - t).clamp(0.0, 1.0);
+        return SizedBox(
+          width: 16,
+          height: 16,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Transform.scale(
+                scale: ringScale,
+                child: Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFF34D399)
+                        .withValues(alpha: 0.5 * ringOpacity),
+                  ),
+                ),
+              ),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFF34D399),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.9),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF34D399)
+                          .withValues(alpha: 0.6),
+                      blurRadius: 8,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

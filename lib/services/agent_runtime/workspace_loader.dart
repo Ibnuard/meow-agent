@@ -4,20 +4,25 @@ import 'package:path_provider/path_provider.dart';
 
 import 'runtime_models.dart';
 
-/// Loads and manages agent workspace files (soul.md, memory.md, etc.).
+/// Loads and manages agent workspace files.
+/// Standardized on UPPERCASE filenames matching the UI's WorkspaceService:
+///   - SOUL.md
+///   - MEMORY.md
+///   - SKILL.md
+///   - HEARTBEAT.md
 class WorkspaceLoader {
   /// Load workspace for a given agent.
   Future<AgentWorkspace> load(String agentId) async {
     final dir = await _workspaceDir(agentId);
     return AgentWorkspace(
-      soul: await _readFile(dir, 'soul.md'),
-      memory: await _readFile(dir, 'memory.md'),
-      skills: await _readFile(dir, 'skills.md'),
-      heartbeat: await _readFile(dir, 'heartbeat.md'),
+      soul: await _readFile(dir, 'SOUL.md'),
+      memory: await _readFile(dir, 'MEMORY.md'),
+      skills: await _readFile(dir, 'SKILL.md'),
+      heartbeat: await _readFile(dir, 'HEARTBEAT.md'),
     );
   }
 
-  /// Update heartbeat.md with current runtime state.
+  /// Update HEARTBEAT.md with current runtime state.
   Future<void> updateHeartbeat(
     String agentId, {
     required String state,
@@ -27,7 +32,7 @@ class WorkspaceLoader {
     String? lastError,
   }) async {
     final dir = await _workspaceDir(agentId);
-    final file = File('${dir.path}/heartbeat.md');
+    final file = File('${dir.path}/HEARTBEAT.md');
     final content = '''# Heartbeat
 
 Current state: $state
@@ -41,16 +46,70 @@ Updated at: ${DateTime.now().toIso8601String()}
   }
 
   /// Ensure workspace directory exists with default files.
+  /// Migrates legacy lowercase files to UPPERCASE.
   Future<void> ensureWorkspace(String agentId) async {
     final dir = await _workspaceDir(agentId);
     if (!dir.existsSync()) {
       await dir.create(recursive: true);
     }
 
-    await _ensureFile(dir, 'soul.md', _defaultSoul);
-    await _ensureFile(dir, 'memory.md', _defaultMemory);
-    await _ensureFile(dir, 'skills.md', _defaultSkills);
-    await _ensureFile(dir, 'heartbeat.md', _defaultHeartbeat);
+    // Migrate legacy lowercase files (one-time cleanup).
+    await _migrateLegacy(dir);
+
+    await _ensureFile(dir, 'SOUL.md', _defaultSoul);
+    await _ensureFile(dir, 'MEMORY.md', _defaultMemory);
+    // Always refresh SKILL.md tool list so new tools are available.
+    await _refreshSkills(dir);
+    await _ensureFile(dir, 'HEARTBEAT.md', _defaultHeartbeat);
+  }
+
+  /// One-time migration: copy lowercase content to UPPERCASE if UPPERCASE missing,
+  /// then delete lowercase duplicates.
+  Future<void> _migrateLegacy(Directory dir) async {
+    const pairs = {
+      'soul.md': 'SOUL.md',
+      'memory.md': 'MEMORY.md',
+      'skills.md': 'SKILL.md',
+      'heartbeat.md': 'HEARTBEAT.md',
+    };
+    for (final entry in pairs.entries) {
+      final lower = File('${dir.path}/${entry.key}');
+      final upper = File('${dir.path}/${entry.value}');
+      if (await lower.exists()) {
+        if (!await upper.exists()) {
+          await upper.writeAsString(await lower.readAsString());
+        }
+        await lower.delete();
+      }
+    }
+  }
+
+  /// Refresh SKILL.md while preserving custom sections above the tool list.
+  Future<void> _refreshSkills(Directory dir) async {
+    final file = File('${dir.path}/SKILL.md');
+    final marker = '<!-- BEGIN_RUNTIME_TOOLS -->';
+    final endMarker = '<!-- END_RUNTIME_TOOLS -->';
+
+    String existing = '';
+    if (await file.exists()) {
+      existing = await file.readAsString();
+    }
+
+    final toolBlock = '$marker\n$_defaultSkillsBlock\n$endMarker';
+
+    if (existing.contains(marker) && existing.contains(endMarker)) {
+      // Replace the existing tool block.
+      final start = existing.indexOf(marker);
+      final end = existing.indexOf(endMarker) + endMarker.length;
+      existing = existing.substring(0, start) + toolBlock + existing.substring(end);
+      await file.writeAsString(existing);
+    } else if (existing.isEmpty) {
+      // Fresh file — write defaults.
+      await file.writeAsString('$_defaultSkillsHeader\n\n$toolBlock\n');
+    } else {
+      // Existing custom content — append tool block at end.
+      await file.writeAsString('$existing\n\n$toolBlock\n');
+    }
   }
 
   Future<Directory> _workspaceDir(String agentId) async {
@@ -75,26 +134,37 @@ Updated at: ${DateTime.now().toIso8601String()}
   }
 }
 
-const _defaultSoul = '''# Soul
+const _defaultSoul = '''# SOUL.md
 
-You are a helpful AI assistant.
-You follow instructions carefully and respond concisely.
+You are a helpful AI assistant running on Android.
+You can call tools to control apps, clipboard, and system settings.
+Respond concisely and follow instructions carefully.
 ''';
 
-const _defaultMemory = '''# Memory
+const _defaultMemory = '''# MEMORY.md
 
 No memories recorded yet.
 ''';
 
-const _defaultSkills = '''# Skills
+const _defaultSkillsHeader = '''# SKILL.md
 
-## Available Tools
+This file lists tools and modules this agent can use.
+Custom notes can be added above or below the runtime tools section.''';
 
+const _defaultSkillsBlock = '''## Available Runtime Tools
+
+### Clipboard
 - clipboard.read: Read current clipboard text. Risk: safe.
 - clipboard.write: Write text to clipboard. Risk: sensitive. Requires confirmation.
-''';
 
-const _defaultHeartbeat = '''# Heartbeat
+### App Control
+- app.resolve: Resolve a friendly app name to a package. Use this BEFORE app.open. Risk: safe. Args: query (string).
+- app.open: Open an app by package name (use app.resolve first). Risk: sensitive. Requires confirmation. Args: package (string).
+- app.list_installed: List all installed launchable apps. Risk: safe.
+- settings.open: Open Android system settings. Risk: safe. Args: action (optional).
+- intent.open_url: Open a URL in the default browser. Risk: sensitive. Requires confirmation. Args: url (string).''';
+
+const _defaultHeartbeat = '''# HEARTBEAT.md
 
 Current state: idle
 Current task: none

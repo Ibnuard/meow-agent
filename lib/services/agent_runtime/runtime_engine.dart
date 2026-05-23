@@ -434,11 +434,14 @@ class AgentRuntimeEngine {
           logger.logStateChange(state, 'Tool requires confirmation: ${toolRequest.name}');
           emit(logger.events.last);
 
+          // Build a humanized confirmation summary that hides the tool name.
+          final summary = _humanizeConfirmation(toolRequest);
+
           // Store as pending action.
           final pending = PendingAction(
             toolName: toolRequest.name,
             toolArgs: toolRequest.args,
-            userFacingSummary: '${definition.description} Args: ${toolRequest.args}',
+            userFacingSummary: summary,
           );
           _pendingActions[request.agentId] = pending;
 
@@ -450,8 +453,7 @@ class AgentRuntimeEngine {
           );
 
           return AgentRuntimeResponse(
-            finalMessage:
-                'Agent ingin menjalankan aksi sensitif: ${definition.description} Lanjutkan?',
+            finalMessage: summary,
             success: true,
             state: AgentRuntimeState.waitingConfirmation,
             events: logger.events,
@@ -566,6 +568,36 @@ class AgentRuntimeEngine {
       state: AgentRuntimeState.failed,
       events: logger.events,
     );
+  }
+
+  /// Translate a raw tool request into a human-friendly Indonesian summary
+  /// that does not expose internal tool names.
+  String _humanizeConfirmation(ToolCallRequest req) {
+    String? truncate(String? s, [int n = 80]) {
+      if (s == null || s.isEmpty) return null;
+      return s.length > n ? '${s.substring(0, n)}…' : s;
+    }
+
+    switch (req.name) {
+      case 'clipboard.write':
+        final text = truncate(req.args['text'] as String?);
+        return text != null
+            ? 'Saya akan menulis ke clipboard:\n\n"$text"\n\nLanjutkan?'
+            : 'Saya akan menulis sesuatu ke clipboard. Lanjutkan?';
+      case 'app.open':
+        final pkg = req.args['package'] as String? ?? '';
+        final hint = pkg.isNotEmpty ? ' ($pkg)' : '';
+        return 'Saya akan membuka sebuah aplikasi$hint. Lanjutkan?';
+      case 'intent.open_url':
+        final url = truncate(req.args['url'] as String?, 60);
+        return url != null
+            ? 'Saya akan membuka URL:\n\n$url\n\nLanjutkan?'
+            : 'Saya akan membuka sebuah URL. Lanjutkan?';
+      case 'settings.open':
+        return 'Saya akan membuka pengaturan sistem. Lanjutkan?';
+      default:
+        return 'Saya ingin menjalankan sebuah aksi sensitif. Lanjutkan?';
+    }
   }
 }
 

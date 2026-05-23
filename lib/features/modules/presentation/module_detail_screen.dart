@@ -130,6 +130,22 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       }
     }
 
+    // App Control — settings are purely preference toggles, no native service.
+    // The runtime engine reads these before executing app control tools.
+    if (_module!.id == 'app_control') {
+      // No native service to start/stop — just persist the toggle.
+      if (value && key == 'allow_url_intents') {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('URL intents enabled. AI can now open URLs.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+
     final updated = _module!.copyWith(
       settings: {..._module!.settings, key: value},
     );
@@ -346,6 +362,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'floating_bubble': (
             'Floating Bubble',
             'Draggable bubble overlay on top of all apps.',
+          ),
+        };
+      case 'app_control':
+        return {
+          'require_confirmation': (
+            'Require Confirmation',
+            'Ask before opening apps or URLs.',
+          ),
+          'allow_system_settings': (
+            'Allow System Settings',
+            'AI can open Android system settings screens.',
+          ),
+          'allow_url_intents': (
+            'Allow URL Intents',
+            'AI can open URLs in the browser.',
+          ),
+          'show_execution_toast': (
+            'Show Execution Toast',
+            'Show a brief notification when an action runs.',
           ),
         };
       default:

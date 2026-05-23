@@ -44,13 +44,37 @@ class WorkspaceService {
   }
 
   /// Returns the workspace path for an agent, or null if it doesn't exist.
+  /// Also migrates any legacy lowercase files (one-time cleanup).
   Future<String?> getWorkspacePath(String agentId) async {
     final appDir = await getApplicationDocumentsDirectory();
     final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
     if (await workspaceDir.exists()) {
+      await _migrateLegacyFiles(workspaceDir);
       return workspaceDir.path;
     }
     return null;
+  }
+
+  /// One-time cleanup: copy lowercase files to UPPERCASE and delete duplicates.
+  Future<void> _migrateLegacyFiles(Directory dir) async {
+    const pairs = {
+      'soul.md': 'SOUL.md',
+      'memory.md': 'MEMORY.md',
+      'skills.md': 'SKILL.md',
+      'heartbeat.md': 'HEARTBEAT.md',
+    };
+    for (final entry in pairs.entries) {
+      final lower = File('${dir.path}/${entry.key}');
+      final upper = File('${dir.path}/${entry.value}');
+      if (await lower.exists()) {
+        if (!await upper.exists()) {
+          await upper.writeAsString(await lower.readAsString());
+        }
+        try {
+          await lower.delete();
+        } catch (_) {/* ignore */}
+      }
+    }
   }
 
   /// Deletes the workspace folder for an agent.
