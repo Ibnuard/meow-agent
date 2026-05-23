@@ -1,0 +1,303 @@
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+
+/// Manages per-agent workspace folders.
+///
+/// Each agent gets a folder at:
+///   `{appDocDir}/workspaces/{agentId}/`
+///
+/// Inside each workspace, 4 template files are generated on creation:
+///   - SKILL.md   — defines what tools/modules the agent can use
+///   - SOUL.md    — defines the agent's personality and system prompt
+///   - HEARTBEAT.md — defines periodic/background behaviors
+///   - MEMORY.md  — persistent memory and context across sessions
+class WorkspaceService {
+  /// Creates the workspace folder and generates template files for a new agent.
+  ///
+  /// If the workspace already exists (e.g. editing an agent), this is a no-op.
+  Future<String> createWorkspace({
+    required String agentId,
+    required String agentName,
+  }) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
+
+    if (await workspaceDir.exists()) {
+      return workspaceDir.path;
+    }
+
+    await workspaceDir.create(recursive: true);
+
+    // Generate template files.
+    await File('${workspaceDir.path}/SKILL.md')
+        .writeAsString(_skillTemplate(agentName));
+    await File('${workspaceDir.path}/SOUL.md')
+        .writeAsString(_soulTemplate(agentName));
+    await File('${workspaceDir.path}/HEARTBEAT.md')
+        .writeAsString(_heartbeatTemplate(agentName));
+    await File('${workspaceDir.path}/MEMORY.md')
+        .writeAsString(_memoryTemplate(agentName));
+
+    return workspaceDir.path;
+  }
+
+  /// Returns the workspace path for an agent, or null if it doesn't exist.
+  Future<String?> getWorkspacePath(String agentId) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
+    if (await workspaceDir.exists()) {
+      return workspaceDir.path;
+    }
+    return null;
+  }
+
+  /// Deletes the workspace folder for an agent.
+  Future<void> deleteWorkspace(String agentId) async {
+    final appDir = await getApplicationDocumentsDirectory();
+    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
+    if (await workspaceDir.exists()) {
+      await workspaceDir.delete(recursive: true);
+    }
+  }
+
+  // ─── Templates ──────────────────────────────────────────────────────
+
+  String _skillTemplate(String agentName) => '''# SKILL.md — $agentName
+
+## Overview
+
+This file defines the tools and modules available to this agent.
+Only enabled modules listed here can be invoked during a session.
+
+---
+
+## Enabled Modules
+
+<!-- Add modules this agent is allowed to use. -->
+
+- [ ] Browser Module
+- [ ] File Module
+- [ ] Webhook/API Module
+- [ ] Notification Listener Module
+- [ ] VM Module
+- [ ] Intent Module
+
+---
+
+## Custom Tools
+
+<!-- Define custom tool schemas the agent can call. -->
+
+```yaml
+tools: []
+```
+
+---
+
+## Constraints
+
+- Only use modules that are checked above.
+- Never assume a module is available unless explicitly enabled.
+- Respect the safety mode defined in SOUL.md.
+''';
+
+  String _soulTemplate(String agentName) => '''# SOUL.md
+
+## Agent Identity
+
+Name: $agentName
+
+Role:
+Android-native personal agentic AI assistant.
+
+Personality:
+- Calm
+- Helpful
+- Practical
+- Friendly
+
+Default Language:
+Indonesian
+
+---
+
+## User Identity
+
+Name: [Your Name]
+Nickname: [Optional Nickname]
+Preferred Language: Indonesian
+Timezone: [Your Timezone]
+
+Work/Role: [Your Role]
+Main Projects:
+- [Project Name]
+
+Communication Style:
+- Clear
+- Practical
+- Minimal
+
+---
+
+## First Introduction Rule
+
+Before handling normal tasks, check the `User Identity` section.
+
+If `Name` still contains placeholder values:
+1. Politely ask the user for their name.
+2. Offer to update the SOUL.md identity section automatically.
+3. Do not repeatedly ask after the identity is filled.
+
+Example:
+"Before we continue, boleh tahu nama kamu siapa? Nanti aku bantu isi identity profile kamu supaya nggak perlu setup manual lagi."
+
+---
+
+## Identity Update Rule
+
+When the user provides identity information:
+- update only the relevant fields
+- preserve existing formatting
+- never overwrite unrelated sections
+
+Allowed fields:
+- Name
+- Nickname
+- Preferred Language
+- Timezone
+- Work/Role
+- Main Projects
+- Communication Style
+
+---
+
+## Behavior Rules
+
+- Respect enabled permissions/modules.
+- Ask before sensitive actions.
+- Keep responses concise and practical.
+- Avoid exaggerated futuristic language.
+- Use Indonesian by default unless requested otherwise.
+
+---
+
+## Design Preference
+
+Preferred UI style:
+- Clean
+- Minimal
+- Soft futuristic
+- Dark navy surfaces
+- Minimal glow
+- Calm floating UI
+''';
+
+  String _heartbeatTemplate(String agentName) => '''# HEARTBEAT.md — $agentName
+
+## Overview
+
+This file defines periodic and background behaviors for this agent.
+Heartbeat tasks run on a schedule or in response to system events.
+
+---
+
+## Scheduled Tasks
+
+<!-- Define recurring tasks. Format: cron-like description + action. -->
+
+```yaml
+tasks: []
+```
+
+### Examples (inactive)
+
+```yaml
+# - schedule: "every 30 minutes"
+#   action: "Check notification queue and summarize unread"
+#
+# - schedule: "daily at 09:00"
+#   action: "Generate daily briefing from saved sources"
+```
+
+---
+
+## Event Triggers
+
+<!-- Define actions triggered by system events. -->
+
+```yaml
+triggers: []
+```
+
+### Examples (inactive)
+
+```yaml
+# - event: "notification_received"
+#   filter: "package:com.bank.app"
+#   action: "Extract amount and log to expense tracker"
+#
+# - event: "wifi_connected"
+#   filter: "ssid:HomeNetwork"
+#   action: "Sync pending file uploads"
+```
+
+---
+
+## Background Rules
+
+- Heartbeat tasks must respect the safety mode in SOUL.md.
+- Tasks that modify data or send network requests require approval unless autonomous mode is enabled.
+- Failed tasks should be logged, not retried silently.
+- Maximum background execution time per task: 30 seconds.
+''';
+
+  String _memoryTemplate(String agentName) => '''# MEMORY.md — $agentName
+
+## Overview
+
+This file stores persistent memory and context that carries across sessions.
+The agent can read and append to this file to maintain long-term awareness.
+
+---
+
+## Facts
+
+<!-- Key facts the agent should always remember. -->
+
+- Agent created: (auto-filled on first run)
+- Owner preferences: (to be learned)
+
+---
+
+## Session Notes
+
+<!-- The agent appends important context here after each session. -->
+
+---
+
+## Learned Preferences
+
+<!-- Patterns the agent has observed about the user. -->
+
+---
+
+## Bookmarks
+
+<!-- Important references, URLs, file paths, or data the agent should recall. -->
+
+---
+
+## Rules
+
+- Memory entries should be concise (1-2 lines each).
+- Remove outdated entries periodically.
+- Never store sensitive data (passwords, tokens, OTPs) in memory.
+- Maximum file size: 50KB. Prune oldest entries if exceeded.
+''';
+}
+
+final workspaceServiceProvider = Provider<WorkspaceService>(
+  (ref) => WorkspaceService(),
+);

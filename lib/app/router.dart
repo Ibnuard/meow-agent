@@ -1,0 +1,115 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+import '../features/activity/presentation/activity_screen.dart';
+import '../features/agents/presentation/agent_list_screen.dart';
+import '../features/agents/presentation/agent_manager_screen.dart';
+import '../features/chat/presentation/chat_screen.dart';
+import '../features/home/presentation/home_screen.dart';
+import '../features/providers/presentation/add_provider_screen.dart';
+import '../features/providers/presentation/provider_list_screen.dart';
+import '../features/settings/presentation/settings_screen.dart';
+import 'shell.dart';
+
+class AppRoutes {
+  static const home = '/';
+  static const activity = '/activity';
+  static const agents = '/agents';
+  static const settings = '/settings';
+  static const agentChat = '/agents/:id/chat';
+  static const addAgent = '/agents/new';
+  static const editAgent = '/agents/:id/edit';
+  static const addProvider = '/providers/new';
+  static const editProvider = '/providers/:id/edit';
+  static const providerList = '/providers';
+  // Chat with the default agent (used by the featured chat button).
+  static const defaultChat = '/chat';
+}
+
+final goRouterProvider = Provider<GoRouter>((ref) {
+  return GoRouter(
+    initialLocation: AppRoutes.home,
+    routes: [
+      // Standalone routes (no bottom bar).
+      GoRoute(
+        path: AppRoutes.addAgent,
+        name: 'addAgent',
+        builder: (context, state) => const AgentManagerScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.editAgent,
+        name: 'editAgent',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AgentManagerScreen(agentId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.addProvider,
+        name: 'addProvider',
+        builder: (context, state) => const AddProviderScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.providerList,
+        name: 'providerList',
+        builder: (context, state) => const ProviderListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.editProvider,
+        name: 'editProvider',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return AddProviderScreen(providerId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.agentChat,
+        name: 'agentChat',
+        builder: (context, state) {
+          final id = state.pathParameters['id'] ?? 'default';
+          return ChatScreen(agentId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.defaultChat,
+        name: 'defaultChat',
+        builder: (context, state) => const ChatScreen(agentId: 'default'),
+      ),
+
+      // Main app shell with bottom navigation.
+      ShellRoute(
+        builder: (context, state, child) => AppShell(child: child),
+        routes: [
+          GoRoute(
+            path: AppRoutes.home,
+            name: 'home',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: HomeScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.activity,
+            name: 'activity',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: ActivityScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.agents,
+            name: 'agents',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: AgentListScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppRoutes.settings,
+            name: 'settings',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: SettingsScreen(),
+            ),
+          ),
+        ],
+      ),
+    ],
+  );
+});
