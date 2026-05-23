@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/theme_mode_provider.dart';
+import '../data/llm_debug_provider.dart';
 
 import '../../providers/data/provider_repository.dart';
 
@@ -63,6 +64,24 @@ class SettingsScreen extends ConsumerWidget {
                     ref.read(themeModeProvider.notifier).set(
                           v ? ThemeMode.dark : ThemeMode.light,
                         );
+                  },
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 28),
+
+            // ─── DEVELOPER ───────────────────────────────────
+            _SectionHeader(label: 'DEVELOPER'),
+            const SizedBox(height: 10),
+            _SettingsGroup(
+              children: [
+                _SettingsToggleTile(
+                  icon: Icons.bug_report_outlined,
+                  label: 'LLM Debugging (Dev)',
+                  value: ref.watch(llmDebugModeProvider),
+                  onChanged: (v) {
+                    ref.read(llmDebugModeProvider.notifier).toggle(v);
                   },
                 ),
               ],

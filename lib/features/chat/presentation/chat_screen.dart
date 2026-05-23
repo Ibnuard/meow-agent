@@ -7,11 +7,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../services/agent_runtime/runtime_engine.dart';
+import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
+import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
 
@@ -35,6 +38,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _loadingOlder = false;
   bool _initialLoading = true;
   late String _activeAgentId;
+
+  // Runtime debug state.
+  final List<int> _debugMessageIndices = []; // Indices of debug messages to remove later.
+  String? _pendingToolName;
+  Map<String, dynamic>? _pendingToolArgs;
 
   @override
   void initState() {
@@ -138,17 +146,196 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToEnd();
 
     try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
+      if (enableAgentRuntimeV1) {
+        final debugMode = ref.read(llmDebugModeProvider);
+        final engine = ref.read(agentRuntimeEngineProvider);
+
+        // Clear previous debug messages.
+        _debugMessageIndices.clear();
+
+        final runtimeResponse = await engine.run(
+          AgentRuntimeRequest(
+            agentId: _activeAgentId,
+            userMessage: text,
+            recentMessages: _messages.take(10).toList(),
+          ),
+          provider: provider,
+          onEvent: debugMode
+              ? (event) {
+                  if (!mounted) return;
+                  final debugMsg = ChatMessage(
+                    role: 'assistant',
+                    content: '⚙️ ${event.message}',
+                  );
+                  setState(() {
+                    _messages.add(debugMsg);
+                    _debugMessageIndices.add(_messages.length - 1);
+                  });
+                  _scrollToEnd();
+                }
+              : null,
+        );
+        if (!mounted) return;
+
+        // Remove debug messages now that we have the final result.
+        if (debugMode && _debugMessageIndices.isNotEmpty) {
+          setState(() {
+            // Remove in reverse order to preserve indices.
+            for (final idx in _debugMessageIndices.reversed) {
+              if (idx < _messages.length) {
+                _messages.removeAt(idx);
+              }
+            }
+            _debugMessageIndices.clear();
+          });
+        }
+
+        // Store pending tool info for confirmation flow.
+        if (runtimeResponse.state == AgentRuntimeState.waitingConfirmation) {
+          _pendingToolName = runtimeResponse.pendingTool;
+          _pendingToolArgs = runtimeResponse.pendingToolArgs;
+        }
+
+        // Handle confirmation state — add special marker.
+        final isConfirmation =
+            runtimeResponse.state == AgentRuntimeState.waitingConfirmation;
+        final replyMsg = ChatMessage(
+          role: 'assistant',
+          content: isConfirmation
+              ? '🔐 ${runtimeResponse.finalMessage}\n\n[[CONFIRMATION_REQUIRED]]'
+              : runtimeResponse.finalMessage,
+        );
+        setState(() {
+          _messages.add(replyMsg);
+          _sending = false;
+        });
+        _persistMessage(replyMsg);
+        _scrollToEnd();
+      } else {
+        // Direct LLM call (legacy).
+        final llmConfig = LlmProviderConfig(
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+          model: provider.model,
+        );
+        final reply = await OpenAiCompatibleClient().chat(
+          config: llmConfig,
+          messages: _buildHistory(),
+        );
+        if (!mounted) return;
+        final replyMsg = ChatMessage(role: 'assistant', content: reply);
+        setState(() {
+          _messages.add(replyMsg);
+          _sending = false;
+        });
+        _persistMessage(replyMsg);
+        _scrollToEnd();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
+      setState(() {
+        _messages.add(errorMsg);
+        _sending = false;
+      });
+      _persistMessage(errorMsg);
+      _scrollToEnd();
+    }
+  }
+
+  void _handleConfirmation(String action, int msgIndex) {
+    final msg = _messages[msgIndex];
+    // Remove the confirmation marker from the message.
+    final cleaned = msg.content
+        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+        .trim();
+
+    // Update the message to remove buttons.
+    setState(() {
+      _messages[msgIndex] = ChatMessage(
+        role: 'assistant',
+        content: cleaned,
       );
-      final reply = await OpenAiCompatibleClient().chat(
-        config: llmConfig,
-        messages: _buildHistory(),
+    });
+
+    switch (action) {
+      case 'accept':
+      case 'always_accept':
+        _executeConfirmedTool(action == 'always_accept');
+        break;
+      case 'reject':
+        final responseMsg = ChatMessage(
+          role: 'assistant',
+          content: '❌ Action rejected by user.',
+        );
+        setState(() => _messages.add(responseMsg));
+        _persistMessage(responseMsg);
+        _scrollToEnd();
+        _pendingToolName = null;
+        _pendingToolArgs = null;
+        break;
+    }
+  }
+
+  Future<void> _executeConfirmedTool(bool alwaysAccept) async {
+    if (_pendingToolName == null) return;
+
+    final provider = _resolveProvider();
+    if (provider == null) return;
+
+    setState(() => _sending = true);
+    _scrollToEnd();
+
+    final debugMode = ref.read(llmDebugModeProvider);
+    final engine = ref.read(agentRuntimeEngineProvider);
+    _debugMessageIndices.clear();
+
+    try {
+      final runtimeResponse = await engine.executeConfirmed(
+        AgentRuntimeRequest(
+          agentId: _activeAgentId,
+          userMessage: _messages
+              .lastWhere((m) => m.role == 'user',
+                  orElse: () => ChatMessage(role: 'user', content: ''))
+              .content,
+          recentMessages: _messages.take(10).toList(),
+        ),
+        provider: provider,
+        toolName: _pendingToolName!,
+        toolArgs: _pendingToolArgs ?? {},
+        onEvent: debugMode
+            ? (event) {
+                if (!mounted) return;
+                final debugMsg = ChatMessage(
+                  role: 'assistant',
+                  content: '⚙️ ${event.message}',
+                );
+                setState(() {
+                  _messages.add(debugMsg);
+                  _debugMessageIndices.add(_messages.length - 1);
+                });
+                _scrollToEnd();
+              }
+            : null,
       );
       if (!mounted) return;
-      final replyMsg = ChatMessage(role: 'assistant', content: reply);
+
+      // Remove debug messages.
+      if (debugMode && _debugMessageIndices.isNotEmpty) {
+        setState(() {
+          for (final idx in _debugMessageIndices.reversed) {
+            if (idx < _messages.length) {
+              _messages.removeAt(idx);
+            }
+          }
+          _debugMessageIndices.clear();
+        });
+      }
+
+      final replyMsg = ChatMessage(
+        role: 'assistant',
+        content: runtimeResponse.finalMessage,
+      );
       setState(() {
         _messages.add(replyMsg);
         _sending = false;
@@ -164,6 +351,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       });
       _persistMessage(errorMsg);
       _scrollToEnd();
+    } finally {
+      _pendingToolName = null;
+      _pendingToolArgs = null;
     }
   }
 
@@ -507,7 +697,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 return const _ThinkingBubble();
                               }
                               return RepaintBoundary(
-                                child: _Bubble(msg: _messages[msgIndex]),
+                                child: _Bubble(
+                                  msg: _messages[msgIndex],
+                                  onConfirmAction: (action) =>
+                                      _handleConfirmation(action, msgIndex),
+                                ),
                               );
                             },
                           ),
@@ -526,14 +720,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.msg});
+  const _Bubble({required this.msg, this.onConfirmAction});
   final ChatMessage msg;
+  final void Function(String action)? onConfirmAction;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
     final isUser = msg.role == 'user';
+    final isConfirmation = msg.content.contains('[[CONFIRMATION_REQUIRED]]');
+    final displayContent =
+        msg.content.replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '').trim();
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -552,17 +751,22 @@ class _Bubble extends StatelessWidget {
           ),
           border: isUser ? null : Border.all(color: extras.subtleBorder),
         ),
-        child: isUser
-            ? Text(
-                msg.content.trim(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isUser)
+              Text(
+                displayContent,
                 style: TextStyle(
                   color: cs.onPrimary,
                   fontSize: 14,
                   height: 1.4,
                 ),
               )
-            : MarkdownBody(
-                data: msg.content.trim(),
+            else
+              MarkdownBody(
+                data: displayContent,
                 selectable: true,
                 shrinkWrap: true,
                 styleSheet: MarkdownStyleSheet(
@@ -591,6 +795,82 @@ class _Bubble extends StatelessWidget {
                   ),
                 ),
               ),
+            // Confirmation action buttons.
+            if (isConfirmation && onConfirmAction != null) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  _ConfirmButton(
+                    label: 'Accept',
+                    icon: Icons.check_rounded,
+                    color: cs.primary,
+                    onTap: () => onConfirmAction!('accept'),
+                  ),
+                  _ConfirmButton(
+                    label: 'Always',
+                    icon: Icons.done_all_rounded,
+                    color: Colors.green,
+                    onTap: () => onConfirmAction!('always_accept'),
+                  ),
+                  _ConfirmButton(
+                    label: 'Reject',
+                    icon: Icons.close_rounded,
+                    color: Colors.redAccent,
+                    onTap: () => onConfirmAction!('reject'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfirmButton extends StatelessWidget {
+  const _ConfirmButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withValues(alpha: 0.12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: color.withValues(alpha: 0.3)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -1,0 +1,141 @@
+import '../../features/chat/data/chat_history_service.dart';
+
+/// Feature flag for Agent Runtime v1.
+const bool enableAgentRuntimeV1 = true;
+
+/// Runtime states for the agentic loop.
+enum AgentRuntimeState {
+  idle,
+  analyzing,
+  planning,
+  selectingTool,
+  waitingConfirmation,
+  executingTool,
+  reviewing,
+  askingUser,
+  done,
+  failed,
+}
+
+/// Request to run the agent runtime.
+class AgentRuntimeRequest {
+  const AgentRuntimeRequest({
+    required this.agentId,
+    required this.userMessage,
+    this.recentMessages = const [],
+    this.metadata = const {},
+  });
+
+  final String agentId;
+  final String userMessage;
+  final List<ChatMessage> recentMessages;
+  final Map<String, dynamic> metadata;
+}
+
+/// Response from the agent runtime.
+class AgentRuntimeResponse {
+  const AgentRuntimeResponse({
+    required this.finalMessage,
+    required this.success,
+    required this.state,
+    this.events = const [],
+    this.pendingTool,
+    this.pendingToolArgs,
+  });
+
+  final String finalMessage;
+  final bool success;
+  final AgentRuntimeState state;
+  final List<RuntimeEvent> events;
+  /// Tool name awaiting confirmation (only set when state == waitingConfirmation).
+  final String? pendingTool;
+  /// Tool args awaiting confirmation.
+  final Map<String, dynamic>? pendingToolArgs;
+}
+
+/// A single event logged during runtime execution.
+class RuntimeEvent {
+  RuntimeEvent({
+    required this.type,
+    required this.message,
+    this.data,
+  })  : id = DateTime.now().microsecondsSinceEpoch.toString(),
+        createdAt = DateTime.now();
+
+  final String id;
+  final DateTime createdAt;
+  final String type; // state_change, llm_decision, tool_call, tool_result, error
+  final String message;
+  final Map<String, dynamic>? data;
+}
+
+/// A tool call requested by the LLM.
+class ToolCallRequest {
+  const ToolCallRequest({
+    required this.name,
+    this.args = const {},
+    required this.risk,
+    required this.requiresConfirmation,
+  });
+
+  final String name;
+  final Map<String, dynamic> args;
+  final String risk; // safe, sensitive, dangerous
+  final bool requiresConfirmation;
+
+  factory ToolCallRequest.fromJson(Map<String, dynamic> json) {
+    return ToolCallRequest(
+      name: json['name'] as String? ?? '',
+      args: (json['args'] as Map<String, dynamic>?) ?? {},
+      risk: json['risk'] as String? ?? 'safe',
+      requiresConfirmation: json['requires_confirmation'] as bool? ?? false,
+    );
+  }
+}
+
+/// Result of a tool execution.
+class ToolExecutionResult {
+  const ToolExecutionResult({
+    required this.success,
+    required this.toolName,
+    this.data,
+    this.error,
+  });
+
+  final bool success;
+  final String toolName;
+  final Map<String, dynamic>? data;
+  final String? error;
+}
+
+/// Registered tool definition with metadata.
+class ToolDefinition {
+  const ToolDefinition({
+    required this.name,
+    required this.description,
+    required this.risk,
+    required this.requiresConfirmation,
+    this.inputSchema = const {},
+  });
+
+  final String name;
+  final String description;
+  final String risk;
+  final bool requiresConfirmation;
+  final Map<String, String> inputSchema;
+}
+
+/// Agent workspace files loaded from storage.
+class AgentWorkspace {
+  const AgentWorkspace({
+    this.soul = '',
+    this.memory = '',
+    this.skills = '',
+    this.heartbeat = '',
+  });
+
+  final String soul;
+  final String memory;
+  final String skills;
+  final String heartbeat;
+}
