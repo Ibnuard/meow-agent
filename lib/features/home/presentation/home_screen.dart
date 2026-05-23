@@ -5,12 +5,14 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../agents/data/agent_repository.dart';
+import '../../modules/data/module_model.dart';
+import '../../modules/data/module_repository.dart';
 
 /// Home screen.
 ///
 /// Behavior:
 /// - Before any agent is set up: shows logo + a centered "Set Up" CTA.
-/// - After setup: shows the modules grid (currently empty placeholder).
+/// - After setup: shows the modules grid with installed modules.
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
@@ -25,7 +27,7 @@ class HomeScreen extends ConsumerWidget {
             const _LogoHeader(),
             Expanded(
               child: hasAgents
-                  ? const _ModulesEmptyState()
+                  ? const _ModulesSection()
                   : const _SetupCallToAction(),
             ),
           ],
@@ -94,68 +96,173 @@ class _LogoHeader extends StatelessWidget {
   }
 }
 
-class _ModulesEmptyState extends StatelessWidget {
-  const _ModulesEmptyState();
+class _ModulesSection extends ConsumerWidget {
+  const _ModulesSection();
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
     final extras = context.extras;
+    final modulesAsync = ref.watch(installedModulesProvider);
+
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Modules',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface,
-            ),
+          Row(
+            children: [
+              Text(
+                'Modules',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: cs.onSurface,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => context.push('/modules/store'),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Add'),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           Expanded(
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  color: extras.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: extras.subtleBorder),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.extension_outlined,
-                      size: 44,
-                      color: cs.primary.withValues(alpha: 0.7),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'No modules yet',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Modules will show up here once installed.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
+            child: modulesAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
+              error: (e, _) => const Center(
+                child: Text('Failed to load modules.'),
+              ),
+              data: (modules) {
+                if (modules.isEmpty) {
+                  return Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(28),
+                      decoration: BoxDecoration(
+                        color: extras.card,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: extras.subtleBorder),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.extension_outlined,
+                            size: 44,
+                            color: cs.primary.withValues(alpha: 0.7),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'No modules yet',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Tap "Add" to browse available modules.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                return ListView.builder(
+                  itemCount: modules.length,
+                  itemBuilder: (context, i) {
+                    final module = modules[i];
+                    return _ModuleCard(module: module);
+                  },
+                );
+              },
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ModuleCard extends StatelessWidget {
+  const _ModuleCard({required this.module});
+  final ModuleModel module;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final extras = context.extras;
+
+    return GestureDetector(
+      onTap: () => context.push('/modules/${module.id}'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: cs.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                module.icon,
+                style: const TextStyle(fontSize: 22),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    module.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    module.enabled ? 'Active' : 'Disabled',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: module.enabled
+                          ? cs.primary
+                          : cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: cs.onSurfaceVariant,
+              size: 20,
+            ),
+          ],
+        ),
       ),
     );
   }

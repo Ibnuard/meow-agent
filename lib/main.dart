@@ -7,6 +7,7 @@ import 'app/router.dart';
 import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
+import 'features/modules/data/share_intent_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,11 +37,50 @@ Future<void> main() async {
   );
 }
 
-class MeowAgentApp extends ConsumerWidget {
+class MeowAgentApp extends ConsumerStatefulWidget {
   const MeowAgentApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MeowAgentApp> createState() => _MeowAgentAppState();
+}
+
+class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Check for shared text after first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkSharedText());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Check again when app resumes (e.g., from share intent while running).
+    if (state == AppLifecycleState.resumed) {
+      _checkSharedText();
+    }
+  }
+
+  Future<void> _checkSharedText() async {
+    final service = ref.read(shareIntentServiceProvider);
+    final text = await service.getSharedText();
+    if (text != null && text.isNotEmpty) {
+      final router = ref.read(goRouterProvider);
+      router.push(
+        '${AppRoutes.clipboardProcess}?text=${Uri.encodeComponent(text)}',
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final router = ref.watch(goRouterProvider);
     final themeMode = ref.watch(themeModeProvider);
     return MaterialApp.router(

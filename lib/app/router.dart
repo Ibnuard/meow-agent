@@ -6,6 +6,9 @@ import '../features/agents/presentation/agent_list_screen.dart';
 import '../features/agents/presentation/agent_manager_screen.dart';
 import '../features/chat/presentation/chat_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/modules/presentation/clipboard_process_screen.dart';
+import '../features/modules/presentation/module_detail_screen.dart';
+import '../features/modules/presentation/module_store_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -24,6 +27,10 @@ class AppRoutes {
   static const providerList = '/providers';
   // Chat with the default agent (used by the featured chat button).
   static const defaultChat = '/chat';
+  // Modules.
+  static const moduleStore = '/modules/store';
+  static const moduleDetail = '/modules/:id';
+  static const clipboardProcess = '/modules/clipboard/process';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -74,6 +81,27 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.defaultChat,
         name: 'defaultChat',
         builder: (context, state) => const ChatScreen(agentId: 'default'),
+      ),
+      GoRoute(
+        path: AppRoutes.moduleStore,
+        name: 'moduleStore',
+        builder: (context, state) => const ModuleStoreScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.moduleDetail,
+        name: 'moduleDetail',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return ModuleDetailScreen(moduleId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.clipboardProcess,
+        name: 'clipboardProcess',
+        builder: (context, state) {
+          final text = state.uri.queryParameters['text'] ?? '';
+          return ClipboardProcessScreen(inputText: text);
+        },
       ),
 
       // Main app shell with bottom navigation.
