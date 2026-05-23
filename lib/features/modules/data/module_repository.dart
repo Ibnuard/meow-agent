@@ -12,9 +12,35 @@ class ModuleRepository {
   Future<List<ModuleModel>> getInstalled() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getStringList(_kInstalledModulesKey) ?? [];
-    return raw
+    final stored = raw
         .map((s) => ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>))
         .toList();
+
+    // Migrate: reconcile stored settings against the current registry so the
+    // UI reflects schema changes (added/removed keys) without reinstall.
+    var migrated = false;
+    final reconciled = <ModuleModel>[];
+    for (final m in stored) {
+      final spec = ModuleRegistry.available.where((r) => r.id == m.id).firstOrNull;
+      if (spec == null) {
+        reconciled.add(m);
+        continue;
+      }
+      final merged = <String, bool>{};
+      for (final entry in spec.settings.entries) {
+        // Keep existing user toggles, fall back to spec defaults for new keys.
+        merged[entry.key] = m.settings[entry.key] ?? entry.value;
+      }
+      if (merged.length != m.settings.length ||
+          !merged.keys.every(m.settings.containsKey)) {
+        migrated = true;
+      }
+      reconciled.add(m.copyWith(settings: merged));
+    }
+    if (migrated) {
+      await _save(reconciled);
+    }
+    return reconciled;
   }
 
   Future<void> install(ModuleModel module) async {

@@ -102,7 +102,7 @@ lib/
 | Actions | ✅ | Translate, Summarize, Rewrite, Explain, Fix Grammar, Draft Reply |
 | Agent selector | ✅ | Dropdown with provider info subtitle |
 | Persistent Notification | ✅ | ForegroundService + notification action |
-| Accessibility Service | ✅ | ClipboardChangedListener, auto-launch |
+| Floating Bubble | ✅ | Draggable overlay via SYSTEM_ALERT_WINDOW |
 | Service controller | ✅ | `com.meowagent/services` MethodChannel |
 | Toggle wiring | ✅ | Module detail toggles start/stop native services |
 
@@ -115,10 +115,9 @@ android/app/src/main/
 ├── kotlin/com/meowagent/meow_agent/
 │   ├── MainActivity.kt                    # Intent handling + platform channels
 │   ├── ClipboardForegroundService.kt      # Persistent notification service
-│   └── ClipboardAccessibilityService.kt   # Clipboard monitoring service
+│   └── FloatingBubbleService.kt           # Draggable bubble overlay
 ├── res/
-│   ├── xml/accessibility_service_config.xml
-│   └── values/strings.xml
+│   └── drawable/bubble_background.xml
 └── AndroidManifest.xml                    # Services, permissions, intent-filters
 ```
 
@@ -160,7 +159,7 @@ flutter_markdown: ^0.7.6
 | `/cron` command | LOW | Placeholder — needs HEARTBEAT.md parser |
 | Activity screen | LOW | Empty placeholder |
 | File attachment sending to LLM | MEDIUM | File picked but not yet encoded/sent in messages |
-| Accessibility Service Play Store policy | INFO | May need justification for Play Store review |
+| Floating bubble icon styling | LOW | Uses placeholder Material icon; can be replaced with branded asset |
 
 ---
 

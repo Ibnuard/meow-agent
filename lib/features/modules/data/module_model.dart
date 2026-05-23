@@ -67,7 +67,7 @@ class ModuleRegistry {
     settings: {
       'share_intent': true,
       'persistent_notification': false,
-      'accessibility_service': false,
+      'floating_bubble': false,
     },
   );
 

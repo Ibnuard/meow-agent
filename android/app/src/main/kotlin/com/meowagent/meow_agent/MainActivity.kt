@@ -3,6 +3,7 @@ package com.meowagent.meow_agent
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -31,7 +32,6 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         Log.d(TAG, "configureFlutterEngine called")
 
-        // Share intent channel — also used to push text TO Flutter.
         shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
         shareChannel!!.setMethodCallHandler { call, result ->
             when (call.method) {
@@ -44,7 +44,6 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // Services channel.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SERVICE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -57,23 +56,33 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "isNotificationServiceRunning" -> {
-                        result.success(isServiceRunning())
+                        result.success(isServiceRunning(ClipboardForegroundService::class.java))
                     }
                     "requestNotificationPermission" -> {
                         requestNotificationPermission(result)
                     }
-                    "isAccessibilityEnabled" -> {
-                        result.success(isAccessibilityServiceEnabled())
+                    "startBubbleService" -> {
+                        startBubbleService()
+                        result.success(true)
                     }
-                    "openAccessibilitySettings" -> {
-                        openAccessibilitySettings()
+                    "stopBubbleService" -> {
+                        stopBubbleService()
+                        result.success(true)
+                    }
+                    "isBubbleServiceRunning" -> {
+                        result.success(isServiceRunning(FloatingBubbleService::class.java))
+                    }
+                    "canDrawOverlays" -> {
+                        result.success(canDrawOverlays())
+                    }
+                    "requestOverlayPermission" -> {
+                        requestOverlayPermission()
                         result.success(true)
                     }
                     else -> result.notImplemented()
                 }
             }
 
-        // If we already have text from onCreate before engine was ready, push now.
         if (sharedText != null) {
             val text = sharedText
             Handler(Looper.getMainLooper()).postDelayed({
@@ -93,9 +102,8 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         Log.d(TAG, "onNewIntent, action=${intent.action}")
-        setIntent(intent)  // Update activity's intent so getIntent() returns this one.
+        setIntent(intent)
         handleIncomingIntent(intent)
-        // Push to Flutter immediately (app already running).
         if (sharedText != null) {
             val text = sharedText
             sharedText = null
@@ -111,14 +119,11 @@ class MainActivity : FlutterActivity() {
         Log.d(TAG, "onWindowFocusChanged, hasFocus=$hasFocus, sharedText=$sharedText, intentAction=${intent?.action}")
         if (hasFocus && sharedText == null && intent != null) {
             val action = intent.action
-            if (action == ClipboardForegroundService.ACTION_PROCESS ||
-                action == "com.meowagent.ACTION_CLIPBOARD_CHANGED") {
-                // Clear the action so we don't re-read on next focus change.
+            if (action == ClipboardForegroundService.ACTION_PROCESS) {
                 intent.action = null
-                // Delay to ensure activity is fully focused for clipboard access.
                 Handler(Looper.getMainLooper()).postDelayed({
                     Log.d(TAG, "Retrying clipboard read after focus")
-                    readClipboardWithToast()
+                    readClipboard()
                     if (sharedText != null) {
                         val text = sharedText
                         sharedText = null
@@ -138,21 +143,20 @@ class MainActivity : FlutterActivity() {
                 sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
                 Log.d(TAG, "Received SEND intent, text length=${sharedText?.length}")
             }
-            intent.action == ClipboardForegroundService.ACTION_PROCESS ||
-            intent.action == "com.meowagent.ACTION_CLIPBOARD_CHANGED" -> {
+            intent.action == ClipboardForegroundService.ACTION_PROCESS -> {
                 val clipText = intent.getStringExtra("clipboard_text")
                 if (!clipText.isNullOrBlank()) {
                     sharedText = clipText
                     Log.d(TAG, "Received intent with clipboard_text extra, length=${clipText.length}")
                 } else {
                     Log.d(TAG, "Intent without clipboard_text — reading from system clipboard")
-                    readClipboardWithToast()
+                    readClipboard()
                 }
             }
         }
     }
 
-    private fun readClipboardWithToast() {
+    private fun readClipboard() {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clip = clipboard.primaryClip
         if (clip != null && clip.itemCount > 0) {
@@ -211,34 +215,42 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopClipboardService() {
-        val serviceIntent = Intent(this, ClipboardForegroundService::class.java)
-        stopService(serviceIntent)
+        stopService(Intent(this, ClipboardForegroundService::class.java))
     }
 
-    private fun isServiceRunning(): Boolean {
+    private fun startBubbleService() {
+        val serviceIntent = Intent(this, FloatingBubbleService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
+    private fun stopBubbleService() {
+        stopService(Intent(this, FloatingBubbleService::class.java))
+    }
+
+    private fun canDrawOverlays(): Boolean {
+        return Settings.canDrawOverlays(this)
+    }
+
+    private fun requestOverlayPermission() {
+        val intent = Intent(
+            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:$packageName")
+        ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
+        startActivity(intent)
+    }
+
+    private fun isServiceRunning(serviceClass: Class<*>): Boolean {
         val manager = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
         @Suppress("DEPRECATION")
         for (service in manager.getRunningServices(Int.MAX_VALUE)) {
-            if (service.service.className == ClipboardForegroundService::class.java.name) {
+            if (service.service.className == serviceClass.name) {
                 return true
             }
         }
         return false
-    }
-
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val serviceName = "$packageName/${ClipboardAccessibilityService::class.java.canonicalName}"
-        val enabledServices = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ) ?: return false
-        return enabledServices.contains(serviceName)
-    }
-
-    private fun openAccessibilitySettings() {
-        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        startActivity(intent)
     }
 }

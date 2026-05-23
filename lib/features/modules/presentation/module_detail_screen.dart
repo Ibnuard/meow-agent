@@ -36,9 +36,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-check accessibility status when user returns from settings.
+    // Re-check overlay permission when user returns from settings.
     if (state == AppLifecycleState.resumed) {
-      _syncAccessibilityState();
+      _syncBubbleState();
     }
   }
 
@@ -50,32 +50,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
   }
 
-  Future<void> _syncAccessibilityState() async {
+  /// If user enabled floating_bubble but overlay permission was just granted,
+  /// start the service automatically.
+  Future<void> _syncBubbleState() async {
     if (_module == null || _module!.id != 'clipboard_ai') return;
+    final wantsBubble = _module!.settings['floating_bubble'] ?? false;
+    if (!wantsBubble) return;
+
     final controller = ref.read(clipboardServiceControllerProvider);
-    final isEnabled = await controller.isAccessibilityEnabled();
-    final current = _module!.settings['accessibility_service'] ?? false;
-    if (isEnabled != current) {
-      // Directly update state without triggering the settings-open flow.
-      final updated = _module!.copyWith(
-        settings: {..._module!.settings, 'accessibility_service': isEnabled},
-      );
-      await ref.read(moduleRepositoryProvider).update(updated);
-      ref.invalidate(installedModulesProvider);
-      if (mounted) setState(() => _module = updated);
+    final canDraw = await controller.canDrawOverlays();
+    final running = await controller.isBubbleServiceRunning();
+    if (canDraw && !running) {
+      await controller.startBubbleService();
     }
   }
 
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
 
-    // Handle native service actions for clipboard_ai module.
     if (_module!.id == 'clipboard_ai') {
       final controller = ref.read(clipboardServiceControllerProvider);
 
       if (key == 'persistent_notification') {
         if (value) {
-          // Request notification permission first (Android 13+).
           final granted = await controller.requestNotificationPermission();
           if (!granted) {
             if (mounted) {
@@ -94,36 +91,41 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         }
       }
 
-      if (key == 'accessibility_service') {
+      if (key == 'floating_bubble') {
         if (value) {
-          // Open accessibility settings for user to enable manually.
-          await controller.openAccessibilitySettings();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Enable "Meow Agent" in Accessibility settings.',
+          // Need POST_NOTIFICATIONS for the foreground service notification.
+          final notifGranted = await controller.requestNotificationPermission();
+          if (!notifGranted) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Notification permission required.'),
+                  duration: Duration(seconds: 2),
                 ),
-                duration: Duration(seconds: 3),
-              ),
-            );
+              );
+            }
+            return;
           }
-          // Don't toggle yet — will sync when user returns.
-          return;
+          // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
+          final canDraw = await controller.canDrawOverlays();
+          if (!canDraw) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Allow "Display over other apps" to use the bubble.',
+                  ),
+                  duration: Duration(seconds: 3),
+                ),
+              );
+            }
+            await controller.requestOverlayPermission();
+            // Don't toggle yet — will sync on resume.
+            return;
+          }
+          await controller.startBubbleService();
         } else {
-          // Can't programmatically disable — inform user.
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Disable the service in Accessibility settings.',
-                ),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-          await controller.openAccessibilitySettings();
-          return;
+          await controller.stopBubbleService();
         }
       }
     }
@@ -145,10 +147,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   }
 
   Future<void> _uninstall() async {
-    // Stop services before uninstalling.
     if (_module?.id == 'clipboard_ai') {
       final controller = ref.read(clipboardServiceControllerProvider);
       await controller.stopNotificationService();
+      await controller.stopBubbleService();
     }
 
     if (!mounted) return;
@@ -205,7 +207,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Module header card.
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -253,7 +254,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
           const SizedBox(height: 20),
 
-          // Master toggle.
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             decoration: BoxDecoration(
@@ -282,7 +282,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
           const SizedBox(height: 20),
 
-          // Trigger settings.
           Text(
             'Triggers',
             style: TextStyle(
@@ -332,7 +331,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  /// Human-readable labels for module settings.
   Map<String, (String, String)> _settingLabels(String moduleId) {
     switch (moduleId) {
       case 'clipboard_ai':
@@ -345,9 +343,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Persistent Notification',
             'Show a notification to quickly process clipboard.',
           ),
-          'accessibility_service': (
-            'Accessibility Service',
-            'Auto-detect clipboard changes (requires permission).',
+          'floating_bubble': (
+            'Floating Bubble',
+            'Draggable bubble overlay on top of all apps.',
           ),
         };
       default:
