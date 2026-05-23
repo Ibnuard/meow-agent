@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -26,9 +27,12 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  // Per-agent message history — loaded from local storage.
+  // Per-agent message history — paginated from local storage.
   final Map<String, List<ChatMessage>> _messagesByAgent = {};
+  final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
   bool _sending = false;
+  bool _loadingOlder = false;
+  bool _initialLoading = true;
   late String _activeAgentId;
 
   @override
@@ -42,16 +46,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _activeAgentId = widget.agentId;
     }
     _loadHistory(_activeAgentId);
+    _scroll.addListener(_onScroll);
   }
 
   List<ChatMessage> get _messages =>
       _messagesByAgent.putIfAbsent(_activeAgentId, () => []);
 
+  bool get _hasMore => !_fullyLoaded.contains(_activeAgentId);
+
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Detect scroll to top → load older messages.
+  void _onScroll() {
+    if (!_hasMore || _loadingOlder) return;
+    if (_scroll.position.pixels <= 80) {
+      _loadOlderMessages();
+    }
   }
 
   ProviderConfig? _resolveProvider() {
@@ -74,6 +90,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
+    FocusManager.instance.primaryFocus?.unfocus();
 
     // Handle slash commands locally.
     if (text.startsWith('/')) {
@@ -175,9 +192,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             'Biar aku bisa lebih personal bantu kamu."');
     }
 
+    // Only send the last 20 messages as context to save tokens.
+    final contextMessages = _messages.length > 20
+        ? _messages.sublist(_messages.length - 20)
+        : _messages;
+
     return [
       {'role': 'system', 'content': systemPrompt.toString().trim()},
-      ..._messages.map((m) => {'role': m.role, 'content': m.content}),
+      ...contextMessages.map((m) => {'role': m.role, 'content': m.content}),
     ];
   }
 
@@ -204,6 +226,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case '/clear':
         await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
         _messagesByAgent.remove(_activeAgentId);
+        _fullyLoaded.remove(_activeAgentId);
         setState(() {});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -265,14 +288,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _activeAgentId = agentId);
   }
 
+  /// Load the latest page of messages for an agent.
   Future<void> _loadHistory(String agentId) async {
-    if (_messagesByAgent.containsKey(agentId)) return;
-    final history =
-        await ref.read(chatHistoryServiceProvider).load(agentId);
+    if (_messagesByAgent.containsKey(agentId)) {
+      if (_initialLoading) setState(() => _initialLoading = false);
+      return;
+    }
+    final service = ref.read(chatHistoryServiceProvider);
+    final history = await service.loadLatest(agentId);
     if (mounted) {
-      setState(() => _messagesByAgent[agentId] = history);
+      setState(() {
+        _messagesByAgent[agentId] = history;
+        _initialLoading = false;
+      });
+      // If fewer than a full page, there are no older messages.
+      if (history.length < kMessagePageSize) {
+        _fullyLoaded.add(agentId);
+      }
       _scrollToEnd();
     }
+  }
+
+  /// Load older messages when scrolling to the top.
+  Future<void> _loadOlderMessages() async {
+    if (_loadingOlder || !_hasMore) return;
+    final messages = _messages;
+    if (messages.isEmpty) return;
+
+    final oldestId = messages.first.id;
+    if (oldestId == null) {
+      _fullyLoaded.add(_activeAgentId);
+      return;
+    }
+
+    _loadingOlder = true;
+    setState(() {}); // Show loading indicator.
+
+    final service = ref.read(chatHistoryServiceProvider);
+    final older = await service.loadOlder(
+      _activeAgentId,
+      beforeId: oldestId,
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      if (older.isEmpty) {
+        _fullyLoaded.add(_activeAgentId);
+      } else {
+        messages.insertAll(0, older);
+        if (older.length < kMessagePageSize) {
+          _fullyLoaded.add(_activeAgentId);
+        }
+      }
+      _loadingOlder = false;
+    });
   }
 
   Future<void> _persistMessage(ChatMessage message) async {
@@ -340,9 +410,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         currentAgentId: _activeAgentId,
         onSwitch: _switchAgent,
       ),
-      body: SafeArea(
-        child: agent == null
-            ? Center(
+      body: GestureDetector(
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        behavior: HitTestBehavior.translucent,
+        child: SafeArea(
+          child: agent == null
+              ? Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -380,19 +453,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             : Column(
                 children: [
                   Expanded(
-                    child: _messages.isEmpty && !_sending
-                        ? const _ChatEmptyState()
-                        : ListView.builder(
+                    child: _initialLoading
+                        ? const Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          )
+                        : _messages.isEmpty && !_sending
+                            ? const _ChatEmptyState()
+                            : ListView.builder(
                             controller: _scroll,
                             padding:
                                 const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                            itemCount:
-                                _messages.length + (_sending ? 1 : 0),
+                            // +1 for loading indicator at top, +1 for thinking at bottom.
+                            itemCount: (_loadingOlder ? 1 : 0) +
+                                _messages.length +
+                                (_sending ? 1 : 0),
                             itemBuilder: (context, i) {
-                              if (i == _messages.length && _sending) {
+                              // Loading indicator at top.
+                              if (_loadingOlder && i == 0) {
+                                return const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                              final msgIndex =
+                                  i - (_loadingOlder ? 1 : 0);
+                              // Thinking bubble at bottom.
+                              if (msgIndex == _messages.length && _sending) {
                                 return const _ThinkingBubble();
                               }
-                              return _Bubble(msg: _messages[i]);
+                              return RepaintBoundary(
+                                child: _Bubble(msg: _messages[msgIndex]),
+                              );
                             },
                           ),
                   ),
@@ -403,6 +508,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -435,14 +541,45 @@ class _Bubble extends StatelessWidget {
           ),
           border: isUser ? null : Border.all(color: extras.subtleBorder),
         ),
-        child: Text(
-          msg.content.trim(),
-          style: TextStyle(
-            color: isUser ? cs.onPrimary : cs.onSurface,
-            fontSize: 14,
-            height: 1.4,
-          ),
-        ),
+        child: isUser
+            ? Text(
+                msg.content.trim(),
+                style: TextStyle(
+                  color: cs.onPrimary,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+              )
+            : MarkdownBody(
+                data: msg.content.trim(),
+                selectable: true,
+                shrinkWrap: true,
+                styleSheet: MarkdownStyleSheet(
+                  p: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                  strong: TextStyle(
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  em: TextStyle(
+                    color: cs.onSurface,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  code: TextStyle(
+                    color: cs.primary,
+                    backgroundColor:
+                        cs.primary.withValues(alpha: 0.08),
+                    fontSize: 13,
+                  ),
+                  listBullet: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
       ),
     );
   }
