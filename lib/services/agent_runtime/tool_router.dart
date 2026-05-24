@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../../features/modules/notification_intelligence/notification_repository.dart';
+import '../../features/modules/notification_intelligence/notification_service.dart';
 import 'app_alias_resolver.dart';
 import 'runtime_models.dart';
 
@@ -172,6 +174,52 @@ class ToolRouter {
       requiresConfirmation: false,
     ),
 
+    // ── Notification Intelligence ───────────────────────────────────────
+    'notification.status': const ToolDefinition(
+      name: 'notification.status',
+      description: 'Check whether notification access is granted. Use this BEFORE other notification.* tools to verify availability.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'notification.read_recent': const ToolDefinition(
+      name: 'notification.read_recent',
+      description: 'Read the most recent Android notifications from the read-only cache. Returns app name, title, text, timestamp.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'limit': 'int (optional, default 10, max 100)'},
+    ),
+    'notification.summarize': const ToolDefinition(
+      name: 'notification.summarize',
+      description: 'Summarize recent notifications grouped by app. USE when user asks "ringkas notifikasi" or "ada notif apa".',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'limit': 'int (optional, default 25, max 100)'},
+    ),
+    'notification.classify': const ToolDefinition(
+      name: 'notification.classify',
+      description: 'Classify which recent notifications look important (urgent wording, mentions, deadlines). Read-only.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'limit': 'int (optional, default 15, max 100)'},
+    ),
+    'notification.reply_suggestion': const ToolDefinition(
+      name: 'notification.reply_suggestion',
+      description: 'Generate a SUGGESTED reply for a notification. DOES NOT SEND. User must copy or send manually.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'notificationId': 'string (required, id from notification.read_recent)',
+        'tone': 'string (optional: casual | formal | friendly. Default casual)',
+      },
+    ),
+    'notification.open_app': const ToolDefinition(
+      name: 'notification.open_app',
+      description: 'Open the source app of a specific notification. Resolves package then uses app.open flow.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'notificationId': 'string (required, id from notification.read_recent)'},
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -299,6 +347,18 @@ class ToolRouter {
         return _executeDeviceWifi();
       case 'device.cellular':
         return _executeDeviceCellular();
+      case 'notification.status':
+        return _executeNotificationStatus();
+      case 'notification.read_recent':
+        return _executeNotificationReadRecent(request.args);
+      case 'notification.summarize':
+        return _executeNotificationSummarize(request.args);
+      case 'notification.classify':
+        return _executeNotificationClassify(request.args);
+      case 'notification.reply_suggestion':
+        return _executeNotificationReplySuggestion(request.args);
+      case 'notification.open_app':
+        return _executeNotificationOpenApp(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -825,6 +885,247 @@ class ToolRouter {
       );
     } catch (e) {
       return ToolExecutionResult(success: false, toolName: 'device.cellular', error: e.toString());
+    }
+  }
+
+  // ── Notification Intelligence helpers ─────────────────────────────────
+
+  NotificationRepository _notifRepo() => NotificationRepository(
+        service: NotificationService(),
+        moduleRepository: ModuleRepository(),
+      );
+
+  Future<ToolExecutionResult> _executeNotificationStatus() async {
+    try {
+      final res = await _notifRepo().getStatus();
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.status',
+          error: res.error,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.status',
+        data: {
+          'granted': res.granted,
+          'hint': res.granted
+              ? null
+              : 'User must enable Notification access in Android Settings.',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.status',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationReadRecent(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final limit = (args['limit'] as num?)?.toInt() ?? 10;
+      final res = await _notifRepo().getRecent(limit: limit);
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.read_recent',
+          error: res.error,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.read_recent',
+        data: {
+          'count': res.data!.length,
+          'notifications': res.data!.map((n) => n.toJson()).toList(),
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.read_recent',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationSummarize(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final limit = (args['limit'] as num?)?.toInt() ?? 25;
+      final res = await _notifRepo().getForSummary(limit: limit);
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.summarize',
+          error: res.error,
+        );
+      }
+      // Group by app for the LLM to summarize naturally.
+      final byApp = <String, int>{};
+      for (final n in res.data!) {
+        byApp[n.appName] = (byApp[n.appName] ?? 0) + 1;
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.summarize',
+        data: {
+          'count': res.data!.length,
+          'byApp': byApp,
+          'notifications': res.data!.map((n) => n.toJson()).toList(),
+          'hint':
+              'Summarize naturally in Indonesian. Group by app. Mention notable senders/titles.',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.summarize',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationClassify(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final limit = (args['limit'] as num?)?.toInt() ?? 15;
+      final res = await _notifRepo().getForClassify(limit: limit);
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.classify',
+          error: res.error,
+        );
+      }
+      // Heuristic flagging — urgent keywords in title or text.
+      final urgentRegex = RegExp(
+        r'\b(urgent|penting|asap|deadline|segera|tolong|help|bayar|invoice|otp|kode|code|verify|verifikasi|password|login|alert|warning|error|gagal|failed|reminder|booking|tiket|approve|approval|menunggu|waiting|pending)\b',
+        caseSensitive: false,
+      );
+      final flagged = <Map<String, dynamic>>[];
+      for (final n in res.data!) {
+        final haystack = '${n.title ?? ''} ${n.text ?? ''}';
+        if (urgentRegex.hasMatch(haystack)) {
+          flagged.add({
+            'id': n.id,
+            'appName': n.appName,
+            'title': n.title,
+            'text': n.text,
+            'reason': 'matched urgent keyword',
+          });
+        }
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.classify',
+        data: {
+          'totalScanned': res.data!.length,
+          'flagged': flagged,
+          'all': res.data!.map((n) => n.toJson()).toList(),
+          'hint':
+              'Use the flagged list as starting point; re-rank with judgment. Reply naturally in Indonesian.',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.classify',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationReplySuggestion(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final id = (args['notificationId'] as String?)?.trim() ?? '';
+      final tone = (args['tone'] as String?)?.trim().toLowerCase() ?? 'casual';
+      if (id.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notification.reply_suggestion',
+          error: 'Missing required arg: notificationId',
+        );
+      }
+      final res = await _notifRepo().getForReply(id);
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.reply_suggestion',
+          error: res.error,
+        );
+      }
+      final n = res.data!;
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.reply_suggestion',
+        data: {
+          'source': n.toJson(),
+          'tone': tone,
+          'hint':
+              'Generate ONE short reply suggestion in Indonesian (or matching the source language) with $tone tone. '
+                  'DO NOT actually send. The user will copy the reply manually. '
+                  'Reply field key: "suggestion".',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.reply_suggestion',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationOpenApp(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final id = (args['notificationId'] as String?)?.trim() ?? '';
+      if (id.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notification.open_app',
+          error: 'Missing required arg: notificationId',
+        );
+      }
+      final res = await _notifRepo().getForOpenApp(id);
+      if (res.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.open_app',
+          error: res.error,
+        );
+      }
+      final pkg = res.data!.packageName;
+      // Reuse app.open flow via MethodChannel.
+      const channel = MethodChannel('com.meowagent/app_control');
+      final success = await channel.invokeMethod<bool>('openApp', {'package': pkg}) ?? false;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'notification.open_app',
+        data: {
+          'package': pkg,
+          'appName': res.data!.appName,
+          'opened': success,
+        },
+        error: success ? null : 'Failed to open app: $pkg',
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.open_app',
+        error: e.toString(),
+      );
     }
   }
 }

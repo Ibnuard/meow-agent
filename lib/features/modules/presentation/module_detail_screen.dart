@@ -255,6 +255,40 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       }
     }
 
+    // Notification Intelligence — needs Notification access (Special Access).
+    // Cannot be granted via runtime dialog — must redirect to settings.
+    if (_module!.id == 'notification_intelligence' &&
+        key == 'allow_read' &&
+        value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Permission Required'),
+            content: const Text(
+              'Reading notifications requires "Notification access" permission.\n\n'
+              'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
+              'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Skip'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (goSettings == true) {
+          await const MethodChannel('com.meowagent/notifications')
+              .invokeMethod<bool>('openNotificationAccessSettings');
+        }
+      }
+    }
+
     final updated = _module!.copyWith(
       settings: {..._module!.settings, key: value},
     );
@@ -534,6 +568,33 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'show_logs': (
             'Show in Runtime Logs',
             'Include device data in agent debug logs.',
+          ),
+        };
+      case 'notification_intelligence':
+        return {
+          'allow_read': (
+            'Allow Read Notifications',
+            'Agent can read recent notifications. Requires Notification access permission.',
+          ),
+          'allow_summary': (
+            'Allow Notification Summaries',
+            'Agent can group and summarize recent notifications.',
+          ),
+          'allow_classify': (
+            'Allow Importance Detection',
+            'Agent can flag urgent or important notifications.',
+          ),
+          'allow_reply_suggestion': (
+            'Allow Reply Suggestions',
+            'Agent can suggest replies. Will NOT auto-send.',
+          ),
+          'allow_open_source_app': (
+            'Allow Open Source App',
+            'Agent can open the app that sent a notification.',
+          ),
+          'show_logs': (
+            'Show Notification Data in Logs',
+            'Include notification content in runtime logs (privacy off by default).',
           ),
         };
       default:

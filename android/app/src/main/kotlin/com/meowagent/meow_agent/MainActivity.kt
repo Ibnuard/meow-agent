@@ -132,6 +132,28 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isNotificationAccessGranted" -> {
+                        result.success(isNotificationAccessGranted())
+                    }
+                    "openNotificationAccessSettings" -> {
+                        openNotificationAccessSettings()
+                        result.success(true)
+                    }
+                    "getRecentNotifications" -> {
+                        val limit = (call.argument<Int>("limit") ?: 10).coerceIn(1, 100)
+                        result.success(getRecentNotifications(limit))
+                    }
+                    "getNotificationById" -> {
+                        val id = call.argument<String>("id") ?: ""
+                        result.success(getNotificationById(id))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         if (sharedText != null) {
             val text = sharedText
             Handler(Looper.getMainLooper()).postDelayed({
@@ -415,6 +437,59 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open URL: $url", e)
             false
+        }
+    }
+
+    // ── Notification Listener bridge ──────────────────────────────────────
+
+    /**
+     * True if the user has enabled "Notification access" for this app.
+     * Cross-checked against NotificationListener.isConnected when possible.
+     */
+    private fun isNotificationAccessGranted(): Boolean {
+        return try {
+            val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+                ?: return false
+            val cn = "$packageName/${NotificationListener::class.java.name}"
+            flat.split(":").any { it.equals(cn, ignoreCase = true) }
+        } catch (e: Exception) {
+            Log.w(TAG, "isNotificationAccessGranted error: ${e.message}")
+            false
+        }
+    }
+
+    private fun openNotificationAccessSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open notification access settings", e)
+            startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+        }
+    }
+
+    private fun getRecentNotifications(limit: Int): List<Map<String, Any?>> {
+        return try {
+            NotificationListener.snapshot()
+                .take(limit)
+                .map { it.toMap() }
+        } catch (e: Exception) {
+            Log.w(TAG, "getRecentNotifications error: ${e.message}")
+            emptyList()
+        }
+    }
+
+    private fun getNotificationById(id: String): Map<String, Any?>? {
+        if (id.isBlank()) return null
+        return try {
+            NotificationListener.findById(id)?.toMap()
+        } catch (e: Exception) {
+            Log.w(TAG, "getNotificationById error: ${e.message}")
+            null
         }
     }
 }

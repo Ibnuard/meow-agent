@@ -104,9 +104,26 @@ class ModuleRegistry {
     },
   );
 
+  static const notificationIntelligence = ModuleModel(
+    id: 'notification_intelligence',
+    name: 'Notification Intelligence',
+    description:
+        'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.',
+    icon: '🔔',
+    settings: {
+      'allow_read': true,
+      'allow_summary': true,
+      'allow_classify': true,
+      'allow_reply_suggestion': true,
+      'allow_open_source_app': true,
+      'show_logs': false,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
     deviceContext,
+    notificationIntelligence,
   ];
 }
