@@ -8,7 +8,7 @@ import 'runtime_models.dart';
 /// Standardized on UPPERCASE filenames matching the UI's WorkspaceService:
 ///   - SOUL.md
 ///   - MEMORY.md
-///   - SKILL.md
+///   - SKILLS.md
 ///   - HEARTBEAT.md
 class WorkspaceLoader {
   /// Load workspace for a given agent.
@@ -17,7 +17,7 @@ class WorkspaceLoader {
     return AgentWorkspace(
       soul: await _readFile(dir, 'SOUL.md'),
       memory: await _readFile(dir, 'MEMORY.md'),
-      skills: await _readFile(dir, 'SKILL.md'),
+      skills: await _readFile(dir, 'SKILLS.md'),
       heartbeat: await _readFile(dir, 'HEARTBEAT.md'),
     );
   }
@@ -58,18 +58,22 @@ Updated at: ${DateTime.now().toIso8601String()}
 
     await _ensureFile(dir, 'SOUL.md', _defaultSoul);
     await _ensureFile(dir, 'MEMORY.md', _defaultMemory);
-    // Always refresh SKILL.md tool list so new tools are available.
-    await _refreshSkills(dir);
+    await _ensureFile(dir, 'SKILLS.md', _defaultSkills);
     await _ensureFile(dir, 'HEARTBEAT.md', _defaultHeartbeat);
+
+    // One-time cleanup: strip legacy auto-injected runtime tool block.
+    await _cleanupLegacyToolBlock(dir);
+    // One-time cleanup: strip legacy system-rule sections from SOUL.md.
+    await _cleanupLegacySoulSections(dir);
   }
 
   /// One-time migration: copy lowercase content to UPPERCASE if UPPERCASE missing,
-  /// then delete lowercase duplicates.
+  /// then delete lowercase duplicates. Also migrates legacy SKILL.md → SKILLS.md.
   Future<void> _migrateLegacy(Directory dir) async {
     const pairs = {
       'soul.md': 'SOUL.md',
       'memory.md': 'MEMORY.md',
-      'skills.md': 'SKILL.md',
+      'skills.md': 'SKILLS.md',
       'heartbeat.md': 'HEARTBEAT.md',
     };
     for (final entry in pairs.entries) {
@@ -82,34 +86,96 @@ Updated at: ${DateTime.now().toIso8601String()}
         await lower.delete();
       }
     }
+
+    // Legacy SKILL.md (uppercase singular) → SKILLS.md (plural).
+    final legacySkill = File('${dir.path}/SKILL.md');
+    final newSkills = File('${dir.path}/SKILLS.md');
+    if (await legacySkill.exists()) {
+      if (!await newSkills.exists()) {
+        await newSkills.writeAsString(await legacySkill.readAsString());
+      }
+      try {
+        await legacySkill.delete();
+      } catch (_) {/* ignore */}
+    }
   }
 
-  /// Refresh SKILL.md while preserving custom sections above the tool list.
-  Future<void> _refreshSkills(Directory dir) async {
-    final file = File('${dir.path}/SKILL.md');
-    final marker = '<!-- BEGIN_RUNTIME_TOOLS -->';
-    final endMarker = '<!-- END_RUNTIME_TOOLS -->';
+  /// Refresh SKILLS.md while preserving custom sections above the tool list.
+  /// One-time cleanup: strip legacy auto-injected `<!-- BEGIN_RUNTIME_TOOLS -->`
+  /// block from existing SKILLS.md. Runtime tools now come from the ToolRouter
+  /// registry, not from this file.
+  Future<void> _cleanupLegacyToolBlock(Directory dir) async {
+    final file = File('${dir.path}/SKILLS.md');
+    if (!await file.exists()) return;
 
-    String existing = '';
-    if (await file.exists()) {
-      existing = await file.readAsString();
+    const marker = '<!-- BEGIN_RUNTIME_TOOLS -->';
+    const endMarker = '<!-- END_RUNTIME_TOOLS -->';
+
+    var content = await file.readAsString();
+    if (!content.contains(marker) || !content.contains(endMarker)) return;
+
+    final start = content.indexOf(marker);
+    final end = content.indexOf(endMarker) + endMarker.length;
+    final stripped = (content.substring(0, start) + content.substring(end))
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trim();
+
+    await file.writeAsString('$stripped\n');
+  }
+
+  /// One-time cleanup: strip legacy system-rule sections from SOUL.md.
+  /// These rules (First Introduction, Identity Update, Behavior Rules, hardcoded
+  /// Design Preference) are now enforced by the runtime, not the user template.
+  Future<void> _cleanupLegacySoulSections(Directory dir) async {
+    final file = File('${dir.path}/SOUL.md');
+    if (!await file.exists()) return;
+
+    var content = await file.readAsString();
+    const sectionsToStrip = [
+      '## First Introduction Rule',
+      '## Identity Update Rule',
+      '## Behavior Rules',
+      '## Design Preference',
+    ];
+
+    var changed = false;
+    for (final heading in sectionsToStrip) {
+      final start = content.indexOf(heading);
+      if (start == -1) continue;
+
+      // Find end: next `## ` heading or EOF.
+      final after = content.indexOf(
+          RegExp(r'^## ', multiLine: true), start + heading.length);
+      final end = after == -1 ? content.length : after;
+
+      // Walk back over any preceding `---` separator + blank lines.
+      var sliceStart = start;
+      final preceding = content.substring(0, start);
+      final sepRegex = RegExp(r'\n*\s*---\s*\n*$');
+      final sepMatch = sepRegex.firstMatch(preceding);
+      if (sepMatch != null) {
+        sliceStart = sepMatch.start;
+      }
+
+      content = content.substring(0, sliceStart) + content.substring(end);
+      changed = true;
     }
 
-    final toolBlock = '$marker\n$_defaultSkillsBlock\n$endMarker';
+    if (!changed) return;
 
-    if (existing.contains(marker) && existing.contains(endMarker)) {
-      // Replace the existing tool block.
-      final start = existing.indexOf(marker);
-      final end = existing.indexOf(endMarker) + endMarker.length;
-      existing = existing.substring(0, start) + toolBlock + existing.substring(end);
-      await file.writeAsString(existing);
-    } else if (existing.isEmpty) {
-      // Fresh file — write defaults.
-      await file.writeAsString('$_defaultSkillsHeader\n\n$toolBlock\n');
-    } else {
-      // Existing custom content — append tool block at end.
-      await file.writeAsString('$existing\n\n$toolBlock\n');
+    // Re-add an empty Design Preference template if missing.
+    if (!content.contains('## Design Preference')) {
+      content = '${content.trimRight()}\n\n---\n\n## Design Preference\n\n'
+          '<!-- Optional: how the agent should format its responses for you. -->\n\n'
+          '[Add your preferences here, e.g.:\n'
+          '- Response tone: warm / formal / casual\n'
+          '- Response length: short bullets / detailed paragraphs\n'
+          '- Formatting: emojis / no emojis / markdown]\n';
     }
+
+    // Collapse any 3+ consecutive blank lines.
+    content = content.replaceAll(RegExp(r'\n{3,}'), '\n\n').trim();
+    await file.writeAsString('$content\n');
   }
 
   Future<Directory> _workspaceDir(String agentId) async {
@@ -136,9 +202,21 @@ Updated at: ${DateTime.now().toIso8601String()}
 
 const _defaultSoul = '''# SOUL.md
 
-You are a helpful AI assistant running on Android.
-You can call tools to control apps, clipboard, and system settings.
-Respond concisely and follow instructions carefully.
+## Agent Identity
+
+Name: Meow
+Role: Android-native personal AI assistant.
+Personality: Calm, helpful, practical, friendly.
+Default Language: Indonesian.
+
+---
+
+## User Identity
+
+Name: [Your Name]
+Nickname: [Optional Nickname]
+Preferred Language: Indonesian
+Timezone: [Your Timezone]
 ''';
 
 const _defaultMemory = '''# MEMORY.md
@@ -146,37 +224,47 @@ const _defaultMemory = '''# MEMORY.md
 No memories recorded yet.
 ''';
 
-const _defaultSkillsHeader = '''# SKILL.md
+const _defaultSkills = '''# SKILLS.md
 
-This file lists tools and modules this agent can use.
-Custom notes can be added above or below the runtime tools section.''';
+## Overview
 
-const _defaultSkillsBlock = '''## Available Runtime Tools
+This file describes how this agent should approach using its available tools.
+The actual list of runtime tools is system-managed and injected automatically.
 
-### Clipboard
-- clipboard.read: Read current clipboard text. Risk: safe.
-- clipboard.write: Write text to clipboard. Risk: sensitive. Requires confirmation.
+---
 
-### App Control
-- app.resolve: Resolve a friendly app name to a package. Use this BEFORE app.open. Risk: safe. Args: query (string).
-- app.open: Open an app by package name (use app.resolve first). Risk: sensitive. Requires confirmation. Args: package (string).
-- app.list_installed: List all installed launchable apps. Risk: safe.
-- settings.open: Open Android system settings. Risk: safe. Args: action (optional).
-- intent.open_url: Open a URL in the default browser. Risk: sensitive. Requires confirmation. Args: url (string).
+## Tool Usage Preferences
 
-### Device Context
-- device.battery: Read current battery level and charging status. Risk: safe.
-- device.network: Read current network connection type and status. Risk: safe.
-- device.storage: Read current device storage usage. Risk: safe.
-- device.time: Read current local device time and timezone. Risk: safe.
-- device.locale: Read device language and locale. Risk: safe.
-- device.summary: Read a summary of battery, network, storage, time, and locale. Risk: safe.
-- device.foreground_app: Read the app CURRENTLY in the foreground RIGHT NOW only. Does NOT provide usage history or screen time stats. Risk: safe.
-- device.usage_stats: Read real app usage statistics for the past N days. Returns top 10 user-facing apps sorted by total usage time in minutes. USE THIS when asked about most-used apps, screen time, or app usage history. Args: days (int, optional, default 7). Risk: safe.
-- device.charging: Read current charging state and plug type (usb, ac, wireless, dock). Risk: safe.
-- device.dnd: Read Do Not Disturb status and current mode. Risk: safe.
-- device.dnd.set: Toggle Do Not Disturb on or off. Risk: sensitive. Requires confirmation. Args: enabled (bool, required), mode (string, optional: priority_only | alarms_only | total_silence).
-- device.bluetooth: Read Bluetooth status and connected devices when permission is available. Risk: safe.''';
+<!-- Describe how this agent should prefer or avoid certain tool categories. -->
+
+- Prefer reading state before performing sensitive actions.
+- Always confirm with the user before destructive operations.
+- Avoid spamming notifications or system toggles.
+
+---
+
+## Custom Skills / Workflows
+
+<!-- Define multi-step skills the agent can follow. Example below. -->
+
+```yaml
+skills:
+  - name: morning_briefing
+    description: Summarize device status when asked for a daily briefing.
+    steps:
+      - device.summary
+      - reply_with_friendly_summary
+```
+
+---
+
+## Constraints
+
+- Respect the safety mode defined in SOUL.md.
+- Never call sensitive tools without an explicit user request.
+- Stop and ask if a tool fails or requires permission.
+''';
+
 
 const _defaultHeartbeat = '''# HEARTBEAT.md
 

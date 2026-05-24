@@ -30,6 +30,18 @@ class AgentRuntimeEngine {
 
   static const int maxSteps = 5;
 
+  /// System-level behavior rules for direct (no-tool) responses.
+  /// Always enforced regardless of SOUL.md content.
+  static const String _directResponseRules =
+      '''SYSTEM RULES (always enforced):
+- Default response language: Indonesian, unless user explicitly switches.
+- Be concise and practical. Avoid exaggerated or futuristic language.
+- Ask the user before sensitive or destructive actions.
+- Respect enabled permissions and modules. Do not assume capabilities.
+- If a tool fails or requires permission, stop and inform the user clearly.
+- If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
+- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
+
   /// Pending actions per agent (agentId → PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
 
@@ -117,8 +129,9 @@ class AgentRuntimeEngine {
       // 1. Load workspace.
       await workspaceLoader.ensureWorkspace(request.agentId);
       final workspace = await workspaceLoader.load(request.agentId);
-      final availableTools =
-          contextBuilder.buildToolDescriptions(workspace.skills);
+      // Tool list comes from the ToolRouter registry (system source of truth),
+      // NOT from user-editable SKILLS.md template.
+      final availableTools = toolRouter.buildAllToolDescriptions();
 
       // Build recent messages for context (last 20).
       final recentMsgs = request.recentMessages
@@ -158,14 +171,18 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
 
         // Build messages with pending action context if exists.
+        // System rules are always enforced; SOUL.md is identity context only.
+        final identityBlock =
+            'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
+        final baseSystem = '$_directResponseRules\n\n$identityBlock';
         final systemContent = pending != null
-            ? '${workspace.soul}\n\n'
+            ? '$baseSystem\n\n'
                 'PENDING ACTION (user was asked to confirm):\n'
                 'Tool: ${pending.toolName}\n'
                 'Args: ${pending.toolArgs}\n'
                 'Summary: ${pending.userFacingSummary}\n'
                 'If user asks about the result or preview, show them what the result would be.'
-            : workspace.soul;
+            : baseSystem;
 
         final directResponse = await client.chat(
           config: llmConfig,
@@ -603,6 +620,13 @@ class AgentRuntimeEngine {
           return 'Saya akan mengaktifkan Do Not Disturb (mode: $modeLabel). Lanjutkan?';
         }
         return 'Saya akan mematikan Do Not Disturb. Lanjutkan?';
+      case 'device.wifi.reconnect':
+        return 'Saya akan menghubungkan ulang ke jaringan WiFi terakhir. Lanjutkan?';
+      case 'device.bluetooth.set':
+        final btOn = req.args['enabled'] as bool? ?? false;
+        return btOn
+            ? 'Saya akan menyalakan Bluetooth. Lanjutkan?'
+            : 'Saya akan mematikan Bluetooth. Lanjutkan?';
       default:
         return 'Saya ingin menjalankan sebuah aksi sensitif. Lanjutkan?';
     }

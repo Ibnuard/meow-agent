@@ -104,7 +104,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
         title: const Text('Delete Agent'),
         content: const Text(
           'This will permanently delete this agent, its workspace folder, '
-          'and all related files (SKILL.md, SOUL.md, HEARTBEAT.md, MEMORY.md).\n\n'
+          'and all related files (SKILLS.md, SOUL.md, HEARTBEAT.md, MEMORY.md).\n\n'
           'This action cannot be undone.',
         ),
         actions: [

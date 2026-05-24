@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 ///   `{appDocDir}/workspaces/{agentId}/`
 ///
 /// Inside each workspace, 4 template files are generated on creation:
-///   - SKILL.md   — defines what tools/modules the agent can use
+///   - SKILLS.md  — defines what tools/modules the agent can use
 ///   - SOUL.md    — defines the agent's personality and system prompt
 ///   - HEARTBEAT.md — defines periodic/background behaviors
 ///   - MEMORY.md  — persistent memory and context across sessions
@@ -31,7 +31,7 @@ class WorkspaceService {
     await workspaceDir.create(recursive: true);
 
     // Generate template files.
-    await File('${workspaceDir.path}/SKILL.md')
+    await File('${workspaceDir.path}/SKILLS.md')
         .writeAsString(_skillTemplate(agentName));
     await File('${workspaceDir.path}/SOUL.md')
         .writeAsString(_soulTemplate(agentName));
@@ -56,11 +56,12 @@ class WorkspaceService {
   }
 
   /// One-time cleanup: copy lowercase files to UPPERCASE and delete duplicates.
+  /// Also migrates legacy SKILL.md → SKILLS.md.
   Future<void> _migrateLegacyFiles(Directory dir) async {
     const pairs = {
       'soul.md': 'SOUL.md',
       'memory.md': 'MEMORY.md',
-      'skills.md': 'SKILL.md',
+      'skills.md': 'SKILLS.md',
       'heartbeat.md': 'HEARTBEAT.md',
     };
     for (final entry in pairs.entries) {
@@ -75,6 +76,18 @@ class WorkspaceService {
         } catch (_) {/* ignore */}
       }
     }
+
+    // Legacy SKILL.md (uppercase singular) → SKILLS.md (plural).
+    final legacySkill = File('${dir.path}/SKILL.md');
+    final newSkills = File('${dir.path}/SKILLS.md');
+    if (await legacySkill.exists()) {
+      if (!await newSkills.exists()) {
+        await newSkills.writeAsString(await legacySkill.readAsString());
+      }
+      try {
+        await legacySkill.delete();
+      } catch (_) {/* ignore */}
+    }
   }
 
   /// Deletes the workspace folder for an agent.
@@ -88,7 +101,7 @@ class WorkspaceService {
 
   // ─── Templates ──────────────────────────────────────────────────────
 
-  String _skillTemplate(String agentName) => '''# SKILL.md — $agentName
+  String _skillTemplate(String agentName) => '''# SKILLS.md — $agentName
 
 ## Overview
 
@@ -165,57 +178,14 @@ Communication Style:
 
 ---
 
-## First Introduction Rule
-
-Before handling normal tasks, check the `User Identity` section.
-
-If `Name` still contains placeholder values:
-1. Politely ask the user for their name.
-2. Offer to update the SOUL.md identity section automatically.
-3. Do not repeatedly ask after the identity is filled.
-
-Example:
-"Before we continue, boleh tahu nama kamu siapa? Nanti aku bantu isi identity profile kamu supaya nggak perlu setup manual lagi."
-
----
-
-## Identity Update Rule
-
-When the user provides identity information:
-- update only the relevant fields
-- preserve existing formatting
-- never overwrite unrelated sections
-
-Allowed fields:
-- Name
-- Nickname
-- Preferred Language
-- Timezone
-- Work/Role
-- Main Projects
-- Communication Style
-
----
-
-## Behavior Rules
-
-- Respect enabled permissions/modules.
-- Ask before sensitive actions.
-- Keep responses concise and practical.
-- Avoid exaggerated futuristic language.
-- Use Indonesian by default unless requested otherwise.
-
----
-
 ## Design Preference
 
-Preferred UI style:
-- Clean
-- Minimal
-- Soft futuristic
-- Dark navy surfaces
-- Minimal glow
-- Calm floating UI
+<!-- Optional: how the agent should format its responses for you. -->
+
+[Add your preferences here, e.g.:
+- Response tone: warm / formal / casual
+- Response length: short bullets / detailed paragraphs
+- Formatting: emojis / no emojis / markdown]
 ''';
 
   String _heartbeatTemplate(String agentName) => '''# HEARTBEAT.md — $agentName

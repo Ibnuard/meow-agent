@@ -144,6 +144,48 @@ class DeviceContextService {
       return null;
     }
   }
+
+  Future<Map<String, dynamic>?> reconnectWifi() async {
+    try {
+      final raw = await _channel.invokeMethod<Map>('reconnectWifi');
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> setBluetoothEnabled({required bool enabled}) async {
+    try {
+      final raw = await _channel.invokeMethod<Map>('setBluetoothEnabled', {
+        'enabled': enabled,
+      });
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getWifiStatus() async {
+    try {
+      final raw = await _channel.invokeMethod<Map>('getWifiStatus');
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> getCellularStatus() async {
+    try {
+      final raw = await _channel.invokeMethod<Map>('getCellularStatus');
+      if (raw == null) return null;
+      return Map<String, dynamic>.from(raw);
+    } on PlatformException {
+      return null;
+    }
+  }
 }
 
 final deviceContextServiceProvider = Provider<DeviceContextService>(

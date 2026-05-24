@@ -13,11 +13,13 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodCall
@@ -57,6 +59,15 @@ class DeviceContextPlugin(private val context: Context) :
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     val mode = call.argument<String>("mode")
                     result.success(setDndMode(enabled, mode))
+                }
+                "reconnectWifi" -> {
+                    result.success(reconnectWifi())
+                }
+                "getWifiStatus" -> result.success(getWifiStatus())
+                "getCellularStatus" -> result.success(getCellularStatus())
+                "setBluetoothEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(setBluetoothEnabled(enabled))
                 }
                 else -> result.notImplemented()
             }
@@ -499,4 +510,232 @@ class DeviceContextPlugin(private val context: Context) :
             mapOf("available" to false, "reason" to "error", "message" to (e.message ?: ""))
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun getWifiStatus(): Map<String, Any?> {
+        return try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return mapOf("enabled" to false, "connected" to false, "ssid" to null)
+
+            val enabled = wifiManager.isWifiEnabled
+            if (!enabled) {
+                return mapOf(
+                    "enabled" to false,
+                    "connected" to false,
+                    "ssid" to null,
+                    "signalStrength" to null,
+                    "linkSpeed" to null,
+                    "frequency" to null,
+                    "ip" to null
+                )
+            }
+
+            val info = try {
+                wifiManager.connectionInfo
+            } catch (e: SecurityException) {
+                Log.w(TAG, "connectionInfo SecurityException: ${e.message}")
+                null
+            } catch (e: Exception) {
+                Log.w(TAG, "connectionInfo error: ${e.message}")
+                null
+            }
+
+            if (info == null) {
+                return mapOf(
+                    "enabled" to true,
+                    "connected" to false,
+                    "ssid" to null,
+                    "signalStrength" to null,
+                    "linkSpeed" to null,
+                    "frequency" to null,
+                    "ip" to null
+                )
+            }
+
+            val connected = info.networkId != -1
+            val rawSsid = info.ssid
+            val ssid = when {
+                !connected -> null
+                rawSsid == null -> null
+                rawSsid == "<unknown ssid>" -> null
+                else -> rawSsid.replace("\"", "")
+            }
+
+            val rssi = info.rssi
+            val signalLevel = try {
+                WifiManager.calculateSignalLevel(rssi, 5)
+            } catch (e: Exception) {
+                // Best-effort fallback when method is restricted on newer Android.
+                when {
+                    rssi >= -50 -> 4
+                    rssi >= -60 -> 3
+                    rssi >= -70 -> 2
+                    rssi >= -80 -> 1
+                    else -> 0
+                }
+            }
+
+            val ipInt = info.ipAddress
+            val ip = if (ipInt != 0) {
+                "${ipInt and 0xFF}.${ipInt shr 8 and 0xFF}.${ipInt shr 16 and 0xFF}.${ipInt shr 24 and 0xFF}"
+            } else null
+
+            mapOf(
+                "enabled" to true,
+                "connected" to connected,
+                "ssid" to ssid,
+                "signalStrength" to signalLevel,
+                "rssi" to rssi,
+                "linkSpeed" to info.linkSpeed,
+                "frequency" to info.frequency,
+                "ip" to ip
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "getWifiStatus error", e)
+            mapOf(
+                "enabled" to null,
+                "connected" to false,
+                "ssid" to null,
+                "error" to (e.message ?: "unknown")
+            )
+        }
+    }
+
+    private fun getCellularStatus(): Map<String, Any?> {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return mapOf("available" to false, "dataConnected" to false, "error" to "ConnectivityManager unavailable")
+
+            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as? android.telephony.TelephonyManager
+                ?: return mapOf("available" to false, "dataConnected" to false, "error" to "TelephonyManager unavailable")
+
+            val network = cm.activeNetwork
+            val caps = if (network != null) cm.getNetworkCapabilities(network) else null
+            val isCellular = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+
+            val dataConnected = try {
+                tm.dataState == android.telephony.TelephonyManager.DATA_CONNECTED
+            } catch (e: Exception) {
+                Log.w(TAG, "dataState error: ${e.message}")
+                false
+            }
+
+            // dataNetworkType requires READ_PHONE_STATE on Android 10+; may throw SecurityException.
+            val networkType = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    when (tm.dataNetworkType) {
+                        android.telephony.TelephonyManager.NETWORK_TYPE_LTE -> "4G/LTE"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_NR -> "5G"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_HSPAP,
+                        android.telephony.TelephonyManager.NETWORK_TYPE_HSPA -> "3G+"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_EDGE -> "2G/EDGE"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_GPRS -> "2G/GPRS"
+                        android.telephony.TelephonyManager.NETWORK_TYPE_UNKNOWN -> "unknown"
+                        else -> "other"
+                    }
+                } else "unknown"
+            } catch (e: SecurityException) {
+                Log.w(TAG, "dataNetworkType SecurityException — needs READ_PHONE_STATE")
+                "permission_required"
+            } catch (e: Exception) {
+                Log.w(TAG, "dataNetworkType error: ${e.message}")
+                "unknown"
+            }
+
+            val operator = try {
+                tm.networkOperatorName ?: "unknown"
+            } catch (e: Exception) {
+                "unknown"
+            }
+
+            val isRoaming = try {
+                tm.isNetworkRoaming
+            } catch (e: Exception) {
+                false
+            }
+
+            val simReady = try {
+                tm.simState == android.telephony.TelephonyManager.SIM_STATE_READY
+            } catch (e: Exception) {
+                false
+            }
+
+            mapOf(
+                "available" to true,
+                "simReady" to simReady,
+                "dataConnected" to dataConnected,
+                "activeTransport" to if (isCellular) "cellular" else "other",
+                "networkType" to networkType,
+                "operator" to operator,
+                "isRoaming" to isRoaming
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "getCellularStatus error", e)
+            mapOf(
+                "available" to false,
+                "dataConnected" to false,
+                "error" to (e.message ?: "unknown")
+            )
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun reconnectWifi(): Map<String, Any?> {
+        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return mapOf("success" to false, "error" to "WifiManager unavailable")
+
+        if (!wifiManager.isWifiEnabled) {
+            return mapOf("success" to false, "error" to "wifi_disabled", "message" to "WiFi is currently off. Enable it first.")
+        }
+
+        return try {
+            // reconnect() triggers reconnection to the current or last configured network.
+            val result = wifiManager.reconnect()
+            mapOf(
+                "success" to result,
+                "message" to if (result) "Reconnecting to last known WiFi network." else "Reconnect call failed."
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "reconnectWifi error", e)
+            mapOf("success" to false, "error" to e.message)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun setBluetoothEnabled(enabled: Boolean): Map<String, Any?> {
+        // Check BLUETOOTH_CONNECT permission on Android 12+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val granted = ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                return mapOf(
+                    "success" to false,
+                    "error" to "bluetooth_connect_permission_required",
+                    "permissionGranted" to false
+                )
+            }
+        }
+
+        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val adapter = bluetoothManager?.adapter
+            ?: return mapOf("success" to false, "error" to "BluetoothAdapter unavailable")
+
+        return try {
+            val result = if (enabled) adapter.enable() else adapter.disable()
+            mapOf(
+                "success" to result,
+                "enabled" to enabled,
+                "message" to if (result) "Bluetooth ${if (enabled) "enabling" else "disabling"}." else "Toggle failed."
+            )
+        } catch (e: SecurityException) {
+            Log.e(TAG, "setBluetoothEnabled SecurityException", e)
+            mapOf("success" to false, "error" to "security_exception")
+        } catch (e: Exception) {
+            Log.e(TAG, "setBluetoothEnabled error", e)
+            mapOf("success" to false, "error" to e.message)
+        }
+    }
 }
+

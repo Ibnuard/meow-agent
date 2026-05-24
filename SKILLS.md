@@ -316,7 +316,7 @@ Setiap agent punya workspace di `documents/workspaces/{agentId}/`:
 |------|--------|
 | `SOUL.md` | System prompt / personality |
 | `MEMORY.md` | Persistent memory |
-| `SKILL.md` | Available tools list (auto-refreshed) |
+| `SKILLS.md` | Available tools list (auto-refreshed) |
 | `HEARTBEAT.md` | Current runtime state |
 
 ---
@@ -589,25 +589,69 @@ Format yang harus disertakan:
 
 ## Permission-on-Toggle (WAJIB)
 
-Jika sebuah setting toggle membutuhkan permission Android, maka saat user meng-ON-kan toggle tersebut, app **HARUS**:
+Jika sebuah setting toggle membutuhkan permission Android, maka saat user meng-ON-kan toggle tersebut, app **HARUS** request permission-nya.
 
-1. Tampilkan dialog yang menjelaskan permission apa yang dibutuhkan
-2. Jika user tap "Open Settings" → buka settings screen yang relevan
-3. Jika user tap "Cancel" → jangan toggle, return early
-4. Save toggle state setelah user diarahkan ke settings (best-effort — tool tetap handle gracefully jika permission belum di-grant)
+**Aturan utama:** **PRIORITAS request permission langsung di app (in-app runtime dialog). JANGAN redirect ke settings page kecuali permission tersebut tidak bisa di-grant lewat runtime dialog.**
 
-### Pattern di `module_detail_screen.dart` → `_toggleSetting()`
+### Klasifikasi Permission
+
+**1. Runtime/Dangerous Permissions** → request langsung di app (Android native dialog muncul instant):
+- `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`
+- `READ_PHONE_STATE`
+- `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN`
+- `POST_NOTIFICATIONS`
+- `RECORD_AUDIO`, `CAMERA`, contacts, calendar, dst.
+
+**2. Special Access Permissions** → harus redirect ke settings (tidak bisa via runtime dialog):
+- `PACKAGE_USAGE_STATS` → Usage Access Settings
+- `ACCESS_NOTIFICATION_POLICY` → DND Access Settings
+- `SYSTEM_ALERT_WINDOW` → Overlay Settings
+- `WRITE_SECURE_SETTINGS` → ADB only
+- "Notification Listener" → Notification Access Settings
+
+### Pattern 1: In-App Runtime Permission (PREFERRED)
+
+Pakai native handler `requestRuntimePermissions` di `MainActivity.kt`. Multiple permissions bisa di-request sekaligus.
 
 ```dart
 // Di dalam _toggleSetting(), SEBELUM save toggle:
 if (_module!.id == 'my_module' && key == 'allow_feature_x' && value) {
+  try {
+    await const MethodChannel('com.meowagent/services')
+        .invokeMethod<Map<dynamic, dynamic>>(
+      'requestRuntimePermissions',
+      {
+        'permissions': [
+          'android.permission.ACCESS_FINE_LOCATION',
+          'android.permission.READ_PHONE_STATE',
+        ],
+      },
+    );
+  } catch (_) {
+    // If denied or error, toggle still saves; tools degrade gracefully.
+  }
+}
+```
+
+Native handler otomatis:
+- Skip permissions yang udah granted
+- Skip request kalau SDK < 23 (auto-granted at install time)
+- Return `Map<String, Boolean>` per permission
+- Reentrancy guard (gak bisa overlapping requests)
+
+### Pattern 2: Settings Redirect (FALLBACK only untuk Special Access)
+
+Pakai pattern ini HANYA kalau permission masuk kategori Special Access. Tampilkan dialog explain dulu, baru redirect.
+
+```dart
+if (_module!.id == 'my_module' && key == 'allow_special_x' && value) {
   if (mounted) {
     final goSettings = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Permission Required'),
         content: const Text(
-          'Fitur X membutuhkan permission Y.\n\n'
+          'Fitur X butuh "Special Access Y".\n\n'
           'Tap "Open Settings" untuk mengaktifkan.',
         ),
         actions: [
@@ -622,7 +666,7 @@ if (_module!.id == 'my_module' && key == 'allow_feature_x' && value) {
         ],
       ),
     );
-    if (goSettings != true) return; // User cancelled — don't toggle
+    if (goSettings != true) return;
     await const MethodChannel('com.meowagent/app_control')
         .invokeMethod<bool>(
       'openSettings',
@@ -632,22 +676,30 @@ if (_module!.id == 'my_module' && key == 'allow_feature_x' && value) {
 }
 ```
 
-### Mapping Permission → Settings Action
+### Mapping Permission → Pattern
 
-| Permission | Settings Action |
-|-----------|----------------|
-| PACKAGE_USAGE_STATS | `android.settings.USAGE_ACCESS_SETTINGS` |
-| BLUETOOTH_CONNECT | `android.settings.APPLICATION_DETAILS_SETTINGS` |
-| ACCESS_NOTIFICATION_POLICY | `android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS` |
-| SYSTEM_ALERT_WINDOW | `android.settings.action.MANAGE_OVERLAY_PERMISSION` |
-| POST_NOTIFICATIONS | Request via `requestNotificationPermission()` |
+| Permission | Pattern | Method |
+|-----------|---------|--------|
+| ACCESS_FINE_LOCATION | In-app | `requestRuntimePermissions` |
+| ACCESS_COARSE_LOCATION | In-app | `requestRuntimePermissions` |
+| READ_PHONE_STATE | In-app | `requestRuntimePermissions` |
+| BLUETOOTH_CONNECT | In-app | `requestRuntimePermissions` |
+| POST_NOTIFICATIONS | In-app | `requestNotificationPermission` |
+| PACKAGE_USAGE_STATS | Settings redirect | `android.settings.USAGE_ACCESS_SETTINGS` |
+| ACCESS_NOTIFICATION_POLICY | Settings redirect | `android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS` |
+| SYSTEM_ALERT_WINDOW | Settings redirect | `android.settings.action.MANAGE_OVERLAY_PERMISSION` |
 
 ### Aturan
 
-- **JANGAN auto-request permission** tanpa user consent (dialog dulu)
-- **JANGAN block toggle** jika permission belum granted — save toggle, tool handle gracefully
+- **PRIORITAS pakai in-app runtime request** — UX paling smooth, user gak perlu keluar app
+- **JANGAN redirect ke settings** kalau permission bisa di-request runtime
+- **JANGAN block toggle** kalau permission denied — save toggle, tool handle gracefully (degraded data, bukan crash)
 - **SELALU** tambahkan subtitle di setting label yang menyebutkan permission requirement
-- **Tool-side** tetap return error/fallback jika permission missing (defense in depth)
+- **SELALU** wrap permission request in `try/catch` — toggle tetap save kalau error
+- **Tool-side native code** tetap defensive: per-call try/catch, return safe fallback (`null`, `"unknown"`, `permissionGranted: false`) bukan crash
+- **Tambahkan permission ke** `AndroidManifest.xml` (semua permission, runtime maupun special)
+
+
 
 ---
 

@@ -145,6 +145,33 @@ class ToolRouter {
         'mode': 'string (optional: priority_only | alarms_only | total_silence)',
       },
     ),
+    'device.wifi.reconnect': const ToolDefinition(
+      name: 'device.wifi.reconnect',
+      description: 'Reconnect to the last known WiFi network. WiFi must be enabled first.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+    ),
+    'device.bluetooth.set': const ToolDefinition(
+      name: 'device.bluetooth.set',
+      description: 'Toggle Bluetooth on or off. Requires Nearby Devices permission on Android 12+. '
+          'Args: enabled (bool, required).',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'enabled': 'bool (required, true=on false=off)'},
+    ),
+    'device.wifi': const ToolDefinition(
+      name: 'device.wifi',
+      description: 'Read detailed WiFi status: enabled, connected, SSID, signal strength, link speed, frequency, IP address.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.cellular': const ToolDefinition(
+      name: 'device.cellular',
+      description: 'Read cellular/mobile data status: SIM ready, data connected, network type (4G/5G/LTE), operator, roaming.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -156,6 +183,27 @@ class ToolRouter {
   /// Get the authoritative definition for a tool.
   /// Risk level comes from HERE, not from LLM output.
   ToolDefinition? getDefinition(String name) => _registry[name];
+
+  /// Build formatted tool descriptions for the LLM prompt.
+  /// Format: "- toolName: description. Risk: X. [Args: ...] [Requires confirmation.]"
+  List<String> buildAllToolDescriptions() {
+    final descriptions = <String>[];
+    for (final def in _registry.values) {
+      final parts = StringBuffer();
+      parts.write('- ${def.name}: ${def.description} Risk: ${def.risk}.');
+      if (def.requiresConfirmation) {
+        parts.write(' Requires confirmation.');
+      }
+      if (def.inputSchema.isNotEmpty) {
+        final args = def.inputSchema.entries
+            .map((e) => '${e.key} (${e.value})')
+            .join(', ');
+        parts.write(' Args: $args.');
+      }
+      descriptions.add(parts.toString());
+    }
+    return descriptions;
+  }
 
   /// Validate a tool call request against the registry.
   /// Returns null if valid, or an error message if invalid.
@@ -243,6 +291,14 @@ class ToolRouter {
         return _executeDeviceBluetooth();
       case 'device.dnd.set':
         return _executeDeviceDndSet(request.args);
+      case 'device.wifi.reconnect':
+        return _executeDeviceWifiReconnect();
+      case 'device.bluetooth.set':
+        return _executeDeviceBluetoothSet(request.args);
+      case 'device.wifi':
+        return _executeDeviceWifi();
+      case 'device.cellular':
+        return _executeDeviceCellular();
       default:
         return ToolExecutionResult(
           success: false,
@@ -684,6 +740,91 @@ class ToolRouter {
       );
     } catch (e) {
       return ToolExecutionResult(success: false, toolName: 'device.dnd.set', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceWifiReconnect() async {
+    try {
+      final result = await _deviceRepo().reconnectWifi();
+      if (result == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.wifi.reconnect',
+          error: 'Device Context module is disabled or network control not allowed.',
+        );
+      }
+      final success = result['success'] as bool? ?? false;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'device.wifi.reconnect',
+        data: result,
+        error: success ? null : result['error'] as String?,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.wifi.reconnect', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceBluetoothSet(Map<String, dynamic> args) async {
+    try {
+      final enabled = args['enabled'] as bool? ?? false;
+      final result = await _deviceRepo().setBluetoothEnabled(enabled: enabled);
+      if (result == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.bluetooth.set',
+          error: 'Device Context module is disabled or Bluetooth control not allowed.',
+        );
+      }
+      final success = result['success'] as bool? ?? false;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'device.bluetooth.set',
+        data: result,
+        error: success ? null : result['error'] as String?,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.bluetooth.set', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceWifi() async {
+    try {
+      final result = await _deviceRepo().getWifiStatus();
+      if (result.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'device.wifi',
+          error: result.error,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.wifi',
+        data: result.data,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.wifi', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceCellular() async {
+    try {
+      final result = await _deviceRepo().getCellularStatus();
+      if (result.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'device.cellular',
+          error: result.error,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.cellular',
+        data: result.data,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.cellular', error: e.toString());
     }
   }
 }

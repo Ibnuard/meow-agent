@@ -189,34 +189,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (_module!.id == 'device_context' &&
         key == 'allow_bluetooth' &&
         value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Permission Required'),
-            content: const Text(
-              'Bluetooth status requires the "Nearby Devices" '
-              'permission.\n\n'
-              'Tap "Open Settings" to grant it, then come back.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Open Settings'),
-              ),
-            ],
-          ),
+      try {
+        await const MethodChannel('com.meowagent/services')
+            .invokeMethod<Map<dynamic, dynamic>>(
+          'requestRuntimePermissions',
+          {'permissions': ['android.permission.BLUETOOTH_CONNECT']},
         );
-        if (goSettings != true) return;
-        await const MethodChannel('com.meowagent/app_control')
-            .invokeMethod<bool>(
-          'openAppInfo',
-          {'package': 'com.meowagent.meow_agent'},
-        );
+      } catch (_) {
+        // If denied or error, toggle still saves; tools degrade gracefully.
       }
     }
 
@@ -252,6 +232,26 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'openSettings',
           {'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS'},
         );
+      }
+    }
+
+    // Device Context — Network Info needs Location (WiFi SSID) + Phone (cellular type) on Android 10+.
+    if (_module!.id == 'device_context' &&
+        key == 'allow_network' &&
+        value) {
+      try {
+        await const MethodChannel('com.meowagent/services')
+            .invokeMethod<Map<dynamic, dynamic>>(
+          'requestRuntimePermissions',
+          {
+            'permissions': [
+              'android.permission.ACCESS_FINE_LOCATION',
+              'android.permission.READ_PHONE_STATE',
+            ],
+          },
+        );
+      } catch (_) {
+        // If denied or error, toggle still saves; tools degrade gracefully.
       }
     }
 
@@ -505,7 +505,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
           'allow_network': (
             'Network Info',
-            'Agent can read connection type (WiFi, cellular, etc.).',
+            'Agent can read connection type (WiFi, cellular, etc.). Optional: Location & Phone permissions enable WiFi SSID and 4G/5G detection.',
           ),
           'allow_storage': (
             'Storage Info',

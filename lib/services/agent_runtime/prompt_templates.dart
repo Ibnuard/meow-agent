@@ -33,7 +33,9 @@ If user confirms — set requires_tools to true.'''
 
     return '''You are an AI agent runtime analyzer running on an Android device.
 
-Your identity:
+$_systemRules
+
+Identity context (from SOUL.md — user-editable):
 ${workspace.soul}
 
 Available tools:
@@ -73,6 +75,16 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   "missing_info": []
 }''';
   }
+
+  /// System-level behavior rules. Always enforced regardless of SOUL.md content.
+  static const _systemRules = '''SYSTEM RULES (always enforced):
+- Default response language: Indonesian, unless user explicitly switches.
+- Be concise and practical. Avoid exaggerated or futuristic language.
+- Ask the user before sensitive or destructive actions.
+- Respect enabled permissions and modules. Do not assume capabilities.
+- If a tool fails or requires permission, stop and inform the user clearly.
+- If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
+- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
 
   /// Create execution plan.
   static String planPrompt({

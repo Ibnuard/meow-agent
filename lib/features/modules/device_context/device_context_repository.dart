@@ -89,6 +89,46 @@ class DeviceContextRepository {
     return service.setDndMode(enabled: enabled, mode: mode);
   }
 
+  Future<Map<String, dynamic>?> reconnectWifi() async {
+    if (await _check('allow_network') != _CheckResult.ok) return null;
+    return service.reconnectWifi();
+  }
+
+  Future<Map<String, dynamic>?> setBluetoothEnabled({required bool enabled}) async {
+    if (await _check('allow_bluetooth') != _CheckResult.ok) return null;
+    return service.setBluetoothEnabled(enabled: enabled);
+  }
+
+  Future<({Map<String, dynamic>? data, String? error})> getWifiStatus() async {
+    final check = await _check('allow_network');
+    if (check == _CheckResult.moduleDisabled) {
+      return (data: null, error: 'module_disabled: Device Context module is not installed or not enabled.');
+    }
+    if (check == _CheckResult.settingDisabled) {
+      return (data: null, error: 'setting_disabled: "Network Info" toggle is OFF in Device Context module settings.');
+    }
+    final raw = await service.getWifiStatus();
+    if (raw == null) {
+      return (data: null, error: 'native_failed: WiFi status call failed (rebuild app required for new native methods).');
+    }
+    return (data: raw, error: null);
+  }
+
+  Future<({Map<String, dynamic>? data, String? error})> getCellularStatus() async {
+    final check = await _check('allow_network');
+    if (check == _CheckResult.moduleDisabled) {
+      return (data: null, error: 'module_disabled: Device Context module is not installed or not enabled.');
+    }
+    if (check == _CheckResult.settingDisabled) {
+      return (data: null, error: 'setting_disabled: "Network Info" toggle is OFF in Device Context module settings.');
+    }
+    final raw = await service.getCellularStatus();
+    if (raw == null) {
+      return (data: null, error: 'native_failed: Cellular status call failed (rebuild app required for new native methods).');
+    }
+    return (data: raw, error: null);
+  }
+
   /// Returns a summary map or an error string if module is disabled.
   Future<({Map<String, dynamic>? data, String? error})> getSummary() async {
     final s = await _settings();

@@ -26,7 +26,11 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val NOTIFICATION_PERMISSION_CODE = 1001
+        const val RUNTIME_PERMISSION_CODE = 1002
     }
+
+    private var pendingRuntimePermissionResult: MethodChannel.Result? = null
+    private var pendingRuntimePermissions: Array<String> = emptyArray()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -60,6 +64,16 @@ class MainActivity : FlutterActivity() {
                     }
                     "requestNotificationPermission" -> {
                         requestNotificationPermission(result)
+                    }
+                    "requestRuntimePermissions" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val perms = call.argument<List<String>>("permissions") ?: emptyList()
+                        requestRuntimePermissions(perms.toTypedArray(), result)
+                    }
+                    "checkRuntimePermissions" -> {
+                        @Suppress("UNCHECKED_CAST")
+                        val perms = call.argument<List<String>>("permissions") ?: emptyList()
+                        result.success(checkRuntimePermissions(perms.toTypedArray()))
                     }
                     "startBubbleService" -> {
                         startBubbleService()
@@ -237,6 +251,54 @@ class MainActivity : FlutterActivity() {
                     grantResults[0] == PackageManager.PERMISSION_GRANTED
             pendingPermissionResult?.success(granted)
             pendingPermissionResult = null
+        } else if (requestCode == RUNTIME_PERMISSION_CODE) {
+            val resultMap = mutableMapOf<String, Boolean>()
+            permissions.forEachIndexed { index, perm ->
+                resultMap[perm] = grantResults.getOrNull(index) == PackageManager.PERMISSION_GRANTED
+            }
+            pendingRuntimePermissionResult?.success(resultMap)
+            pendingRuntimePermissionResult = null
+            pendingRuntimePermissions = emptyArray()
+        }
+    }
+
+    private fun requestRuntimePermissions(permissions: Array<String>, result: MethodChannel.Result) {
+        if (permissions.isEmpty()) {
+            result.success(emptyMap<String, Boolean>())
+            return
+        }
+
+        // On older Android versions, dangerous permissions are granted at install time.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            val resultMap = permissions.associateWith { true }
+            result.success(resultMap)
+            return
+        }
+
+        // Filter out already-granted permissions.
+        val toRequest = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }.toTypedArray()
+
+        if (toRequest.isEmpty()) {
+            val resultMap = permissions.associateWith { true }
+            result.success(resultMap)
+            return
+        }
+
+        if (pendingRuntimePermissionResult != null) {
+            result.error("PERMISSION_REQUEST_IN_PROGRESS", "Another permission request is in progress.", null)
+            return
+        }
+
+        pendingRuntimePermissionResult = result
+        pendingRuntimePermissions = toRequest
+        ActivityCompat.requestPermissions(this, toRequest, RUNTIME_PERMISSION_CODE)
+    }
+
+    private fun checkRuntimePermissions(permissions: Array<String>): Map<String, Boolean> {
+        return permissions.associateWith {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
         }
     }
 

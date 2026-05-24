@@ -45,7 +45,7 @@ class _WorkspaceDirectoryScreenState extends State<WorkspaceDirectoryScreen> {
 
   IconData _fileIcon(String name) {
     switch (name) {
-      case 'SKILL.md':
+      case 'SKILLS.md':
         return Icons.build_outlined;
       case 'SOUL.md':
         return Icons.psychology_outlined;
@@ -60,7 +60,7 @@ class _WorkspaceDirectoryScreenState extends State<WorkspaceDirectoryScreen> {
 
   String _fileDescription(String name) {
     switch (name) {
-      case 'SKILL.md':
+      case 'SKILLS.md':
         return 'Tools and modules this agent can use';
       case 'SOUL.md':
         return 'Personality, system prompt, and safety mode';
