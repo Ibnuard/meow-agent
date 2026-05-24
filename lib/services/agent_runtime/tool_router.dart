@@ -1,5 +1,8 @@
 import 'package:flutter/services.dart';
 
+import '../../features/modules/device_context/device_context_repository.dart';
+import '../../features/modules/device_context/device_context_service.dart';
+import '../../features/modules/data/module_repository.dart';
 import 'app_alias_resolver.dart';
 import 'runtime_models.dart';
 
@@ -56,6 +59,61 @@ class ToolRouter {
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'url': 'string'},
+    ),
+    // ── Device Context ──────────────────────────────────────────────────
+    'device.battery': const ToolDefinition(
+      name: 'device.battery',
+      description: 'Read current battery level and charging status.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.network': const ToolDefinition(
+      name: 'device.network',
+      description: 'Read current network connection type and status.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.storage': const ToolDefinition(
+      name: 'device.storage',
+      description: 'Read current device storage usage.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.time': const ToolDefinition(
+      name: 'device.time',
+      description: 'Read current local device time and timezone.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.locale': const ToolDefinition(
+      name: 'device.locale',
+      description: 'Read device language and locale.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.summary': const ToolDefinition(
+      name: 'device.summary',
+      description: 'Read a summary of battery, network, storage, time, and locale.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.foreground_app': const ToolDefinition(
+      name: 'device.foreground_app',
+      description: 'Read the app that is CURRENTLY in the foreground RIGHT NOW. '
+          'This does NOT provide usage history, screen time, or statistics. '
+          'If asked about past usage or most-used apps, say you cannot access that data.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.usage_stats': const ToolDefinition(
+      name: 'device.usage_stats',
+      description: 'Read real app usage statistics for the past N days (default 7). '
+          'Returns top 10 user-facing apps sorted by total usage time in minutes. '
+          'Use this when asked about most-used apps, screen time, or app usage history. '
+          'Args: days (int, optional, default 7).',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'days': 'int (optional, default 7)'},
     ),
   };
 
@@ -131,6 +189,22 @@ class ToolRouter {
         return _executeOpenSettings(request.args);
       case 'intent.open_url':
         return _executeOpenUrl(request.args);
+      case 'device.battery':
+        return _executeDeviceBattery();
+      case 'device.network':
+        return _executeDeviceNetwork();
+      case 'device.storage':
+        return _executeDeviceStorage();
+      case 'device.time':
+        return _executeDeviceTime();
+      case 'device.locale':
+        return _executeDeviceLocale();
+      case 'device.summary':
+        return _executeDeviceSummary();
+      case 'device.foreground_app':
+        return _executeDeviceForegroundApp();
+      case 'device.usage_stats':
+        return _executeDeviceUsageStats(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -318,6 +392,169 @@ class ToolRouter {
       );
     } catch (e) {
       return ToolExecutionResult(success: false, toolName: 'intent.open_url', error: e.toString());
+    }
+  }
+
+  // ── Device Context helpers ───────────────────────────────────────────
+
+  DeviceContextRepository _deviceRepo() => DeviceContextRepository(
+        service: DeviceContextService(),
+        moduleRepository: ModuleRepository(),
+      );
+
+  Future<ToolExecutionResult> _executeDeviceBattery() async {
+    try {
+      final repo = _deviceRepo();
+      final info = await repo.getBattery();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.battery',
+          error: 'Device Context module is disabled or battery info not allowed.',
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.battery',
+        data: info.toJson(),
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.battery', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceNetwork() async {
+    try {
+      final info = await _deviceRepo().getNetwork();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.network',
+          error: 'Device Context module is disabled or network info not allowed.',
+        );
+      }
+      return ToolExecutionResult(success: true, toolName: 'device.network', data: info.toJson());
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.network', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceStorage() async {
+    try {
+      final info = await _deviceRepo().getStorage();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.storage',
+          error: 'Device Context module is disabled or storage info not allowed.',
+        );
+      }
+      return ToolExecutionResult(success: true, toolName: 'device.storage', data: info.toJson());
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.storage', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceTime() async {
+    try {
+      final info = await _deviceRepo().getTime();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.time',
+          error: 'Device Context module is disabled or time info not allowed.',
+        );
+      }
+      return ToolExecutionResult(success: true, toolName: 'device.time', data: info.toJson());
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.time', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceLocale() async {
+    try {
+      final info = await _deviceRepo().getLocale();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.locale',
+          error: 'Device Context module is disabled or locale info not allowed.',
+        );
+      }
+      return ToolExecutionResult(success: true, toolName: 'device.locale', data: info.toJson());
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.locale', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceSummary() async {
+    try {
+      final result = await _deviceRepo().getSummary();
+      if (result.error != null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'device.summary',
+          error: result.error,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.summary',
+        data: result.data ?? {},
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.summary', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceForegroundApp() async {
+    try {
+      final info = await _deviceRepo().getForegroundApp();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.foreground_app',
+          error: 'Device Context module is disabled or foreground app detection not allowed.',
+        );
+      }
+      return ToolExecutionResult(
+        success: info.available,
+        toolName: 'device.foreground_app',
+        data: info.toJson(),
+        error: info.available ? null : 'Foreground app unavailable: ${info.reason}',
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.foreground_app', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceUsageStats(Map<String, dynamic> args) async {
+    try {
+      final days = (args['days'] as num?)?.toInt() ?? 7;
+      final result = await _deviceRepo().getUsageStats(days: days);
+      if (result == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.usage_stats',
+          error: 'Device Context module is disabled or foreground app permission not granted.',
+        );
+      }
+      final available = result['available'] as bool? ?? false;
+      if (!available) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'device.usage_stats',
+          error: 'Usage stats unavailable: ${result['reason'] ?? 'unknown'}',
+          data: result,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.usage_stats',
+        data: result,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.usage_stats', error: e.toString());
     }
   }
 }

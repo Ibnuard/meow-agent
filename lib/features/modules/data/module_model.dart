@@ -85,8 +85,25 @@ class ModuleRegistry {
     },
   );
 
+  static const deviceContext = ModuleModel(
+    id: 'device_context',
+    name: 'Device Context',
+    description:
+        'Let agents read battery, network, storage, time, and locale.',
+    icon: '📊',
+    settings: {
+      'allow_battery': true,
+      'allow_network': true,
+      'allow_storage': true,
+      'allow_time_locale': true,
+      'allow_foreground_app': false,
+      'show_logs': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
+    deviceContext,
   ];
 }

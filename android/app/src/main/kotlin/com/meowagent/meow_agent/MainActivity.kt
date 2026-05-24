@@ -83,6 +83,9 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DeviceContextPlugin.CHANNEL)
+            .setMethodCallHandler(DeviceContextPlugin(this))
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_control")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

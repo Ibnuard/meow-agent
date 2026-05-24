@@ -162,7 +162,17 @@ const _defaultSkillsBlock = '''## Available Runtime Tools
 - app.open: Open an app by package name (use app.resolve first). Risk: sensitive. Requires confirmation. Args: package (string).
 - app.list_installed: List all installed launchable apps. Risk: safe.
 - settings.open: Open Android system settings. Risk: safe. Args: action (optional).
-- intent.open_url: Open a URL in the default browser. Risk: sensitive. Requires confirmation. Args: url (string).''';
+- intent.open_url: Open a URL in the default browser. Risk: sensitive. Requires confirmation. Args: url (string).
+
+### Device Context
+- device.battery: Read current battery level and charging status. Risk: safe.
+- device.network: Read current network connection type and status. Risk: safe.
+- device.storage: Read current device storage usage. Risk: safe.
+- device.time: Read current local device time and timezone. Risk: safe.
+- device.locale: Read device language and locale. Risk: safe.
+- device.summary: Read a summary of battery, network, storage, time, and locale. Risk: safe.
+- device.foreground_app: Read the app CURRENTLY in the foreground RIGHT NOW only. Does NOT provide usage history or screen time stats. Risk: safe.
+- device.usage_stats: Read real app usage statistics for the past N days. Returns top 10 user-facing apps sorted by total usage time in minutes. USE THIS when asked about most-used apps, screen time, or app usage history. Args: days (int, optional, default 7). Risk: safe.''';
 
 const _defaultHeartbeat = '''# HEARTBEAT.md
 

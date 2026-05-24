@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -143,6 +144,44 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             ),
           );
         }
+      }
+    }
+
+    // Device Context — foreground app needs PACKAGE_USAGE_STATS permission.
+    if (_module!.id == 'device_context' &&
+        key == 'allow_foreground_app' &&
+        value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Permission Required'),
+            content: const Text(
+              'Foreground app detection requires the "Usage Access" '
+              'permission.\n\n'
+              'Tap "Open Settings" to grant it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (goSettings != true) return;
+        // Open Usage Access settings screen.
+        await const MethodChannel('com.meowagent/app_control')
+            .invokeMethod<bool>(
+          'openSettings',
+          {'action': 'android.settings.USAGE_ACCESS_SETTINGS'},
+        );
+        // Fall through — save toggle as true so it reflects user intent.
+        // If permission wasn't granted, the tool returns available:false gracefully.
       }
     }
 
@@ -381,6 +420,33 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'show_execution_toast': (
             'Show Execution Toast',
             'Show a brief notification when an action runs.',
+          ),
+        };
+      case 'device_context':
+        return {
+          'allow_battery': (
+            'Battery Info',
+            'Agent can read battery level and charging status.',
+          ),
+          'allow_network': (
+            'Network Info',
+            'Agent can read connection type (WiFi, cellular, etc.).',
+          ),
+          'allow_storage': (
+            'Storage Info',
+            'Agent can read internal storage usage.',
+          ),
+          'allow_time_locale': (
+            'Time & Locale',
+            'Agent can read local time, timezone, and language.',
+          ),
+          'allow_foreground_app': (
+            'Foreground App Detection',
+            'Agent can detect which app is currently active. Requires Usage Stats permission.',
+          ),
+          'show_logs': (
+            'Show in Runtime Logs',
+            'Include device data in agent debug logs.',
           ),
         };
       default:
