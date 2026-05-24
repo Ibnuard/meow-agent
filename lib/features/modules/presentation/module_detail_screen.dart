@@ -185,6 +185,76 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       }
     }
 
+    // Device Context — Bluetooth needs BLUETOOTH_CONNECT on Android 12+.
+    if (_module!.id == 'device_context' &&
+        key == 'allow_bluetooth' &&
+        value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Permission Required'),
+            content: const Text(
+              'Bluetooth status requires the "Nearby Devices" '
+              'permission.\n\n'
+              'Tap "Open Settings" to grant it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (goSettings != true) return;
+        await const MethodChannel('com.meowagent/app_control')
+            .invokeMethod<bool>(
+          'openAppInfo',
+          {'package': 'com.meowagent.meow_agent'},
+        );
+      }
+    }
+
+    // Device Context — DND needs notification policy access.
+    if (_module!.id == 'device_context' &&
+        key == 'allow_dnd' &&
+        value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Permission Required'),
+            content: const Text(
+              'Reading Do Not Disturb status requires '
+              '"Do Not Disturb access" permission.\n\n'
+              'Tap "Open Settings" to grant it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Open Settings'),
+              ),
+            ],
+          ),
+        );
+        if (goSettings != true) return;
+        await const MethodChannel('com.meowagent/app_control')
+            .invokeMethod<bool>(
+          'openSettings',
+          {'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS'},
+        );
+      }
+    }
+
     final updated = _module!.copyWith(
       settings: {..._module!.settings, key: value},
     );
@@ -260,7 +330,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: 16 + MediaQuery.of(context).padding.bottom + 24,
+        ),
         children: [
           Container(
             padding: const EdgeInsets.all(20),
@@ -443,6 +518,18 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_foreground_app': (
             'Foreground App Detection',
             'Agent can detect which app is currently active. Requires Usage Stats permission.',
+          ),
+          'allow_charging': (
+            'Charging Info',
+            'Agent can read charging state and plug type.',
+          ),
+          'allow_dnd': (
+            'Do Not Disturb Status',
+            'Agent can read DND mode. Requires notification policy access.',
+          ),
+          'allow_bluetooth': (
+            'Bluetooth Status',
+            'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.',
           ),
           'show_logs': (
             'Show in Runtime Logs',

@@ -66,6 +66,29 @@ class DeviceContextRepository {
     return service.getUsageStats(days: days);
   }
 
+  Future<ChargingInfo?> getCharging() async {
+    if (await _check('allow_charging') != _CheckResult.ok) return null;
+    return service.getChargingInfo();
+  }
+
+  Future<DndInfo?> getDnd() async {
+    if (await _check('allow_dnd') != _CheckResult.ok) return null;
+    return service.getDndInfo();
+  }
+
+  Future<BluetoothInfo?> getBluetooth() async {
+    if (await _check('allow_bluetooth') != _CheckResult.ok) return null;
+    return service.getBluetoothInfo();
+  }
+
+  Future<Map<String, dynamic>?> setDnd({
+    required bool enabled,
+    String? mode,
+  }) async {
+    if (await _check('allow_dnd') != _CheckResult.ok) return null;
+    return service.setDndMode(enabled: enabled, mode: mode);
+  }
+
   /// Returns a summary map or an error string if module is disabled.
   Future<({Map<String, dynamic>? data, String? error})> getSummary() async {
     final s = await _settings();
@@ -92,6 +115,18 @@ class DeviceContextRepository {
       if (t != null) results['time'] = t.toJson();
       final l = await service.getLocaleInfo();
       if (l != null) results['locale'] = l.toJson();
+    }
+    if (s['allow_charging'] != false) {
+      final c = await service.getChargingInfo();
+      if (c != null) results['charging'] = c.toJson();
+    }
+    if (s['allow_dnd'] != false) {
+      final d = await service.getDndInfo();
+      if (d != null) results['dnd'] = d.toJson();
+    }
+    if (s['allow_bluetooth'] != false) {
+      final bt = await service.getBluetoothInfo();
+      if (bt != null) results['bluetooth'] = bt.toJson();
     }
 
     return (data: results, error: null);

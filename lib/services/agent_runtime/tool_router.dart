@@ -115,6 +115,36 @@ class ToolRouter {
       requiresConfirmation: false,
       inputSchema: {'days': 'int (optional, default 7)'},
     ),
+    'device.charging': const ToolDefinition(
+      name: 'device.charging',
+      description: 'Read current charging state and plug type (usb, ac, wireless, dock).',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.dnd': const ToolDefinition(
+      name: 'device.dnd',
+      description: 'Read Do Not Disturb status and current mode.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.bluetooth': const ToolDefinition(
+      name: 'device.bluetooth',
+      description: 'Read Bluetooth status and connected devices when permission is available.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'device.dnd.set': const ToolDefinition(
+      name: 'device.dnd.set',
+      description: 'Toggle Do Not Disturb on or off. '
+          'Args: enabled (bool, required), mode (string, optional: priority_only | alarms_only | total_silence, default priority_only). '
+          'Requires notification policy access permission.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {
+        'enabled': 'bool (required, true=on false=off)',
+        'mode': 'string (optional: priority_only | alarms_only | total_silence)',
+      },
+    ),
   };
 
   /// Get all registered tool names.
@@ -205,6 +235,14 @@ class ToolRouter {
         return _executeDeviceForegroundApp();
       case 'device.usage_stats':
         return _executeDeviceUsageStats(request.args);
+      case 'device.charging':
+        return _executeDeviceCharging();
+      case 'device.dnd':
+        return _executeDeviceDnd();
+      case 'device.bluetooth':
+        return _executeDeviceBluetooth();
+      case 'device.dnd.set':
+        return _executeDeviceDndSet(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -555,6 +593,97 @@ class ToolRouter {
       );
     } catch (e) {
       return ToolExecutionResult(success: false, toolName: 'device.usage_stats', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceCharging() async {
+    try {
+      final info = await _deviceRepo().getCharging();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.charging',
+          error: 'Device Context module is disabled or charging info not allowed.',
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.charging',
+        data: info.toJson(),
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.charging', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceDnd() async {
+    try {
+      final info = await _deviceRepo().getDnd();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.dnd',
+          error: 'Device Context module is disabled or DND status not allowed.',
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.dnd',
+        data: info.toJson(),
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.dnd', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceBluetooth() async {
+    try {
+      final info = await _deviceRepo().getBluetooth();
+      if (info == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.bluetooth',
+          error: 'Device Context module is disabled or Bluetooth status not allowed.',
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.bluetooth',
+        data: info.toJson(),
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.bluetooth', error: e.toString());
+    }
+  }
+
+  Future<ToolExecutionResult> _executeDeviceDndSet(Map<String, dynamic> args) async {
+    try {
+      final enabled = args['enabled'] as bool? ?? false;
+      final mode = args['mode'] as String?;
+      final result = await _deviceRepo().setDnd(enabled: enabled, mode: mode);
+      if (result == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'device.dnd.set',
+          error: 'Device Context module is disabled or DND control not allowed.',
+        );
+      }
+      final success = result['success'] as bool? ?? false;
+      if (!success) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'device.dnd.set',
+          error: result['error'] as String? ?? 'Failed to set DND mode.',
+          data: result,
+        );
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.dnd.set',
+        data: result,
+      );
+    } catch (e) {
+      return ToolExecutionResult(success: false, toolName: 'device.dnd.set', error: e.toString());
     }
   }
 }

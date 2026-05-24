@@ -595,6 +595,14 @@ class AgentRuntimeEngine {
             : 'Saya akan membuka sebuah URL. Lanjutkan?';
       case 'settings.open':
         return 'Saya akan membuka pengaturan sistem. Lanjutkan?';
+      case 'device.dnd.set':
+        final enabled = req.args['enabled'] as bool? ?? false;
+        final mode = req.args['mode'] as String?;
+        if (enabled) {
+          final modeLabel = mode ?? 'priority_only';
+          return 'Saya akan mengaktifkan Do Not Disturb (mode: $modeLabel). Lanjutkan?';
+        }
+        return 'Saya akan mematikan Do Not Disturb. Lanjutkan?';
       default:
         return 'Saya ingin menjalankan sebuah aksi sensitif. Lanjutkan?';
     }

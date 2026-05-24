@@ -89,7 +89,7 @@ class ModuleRegistry {
     id: 'device_context',
     name: 'Device Context',
     description:
-        'Let agents read battery, network, storage, time, and locale.',
+        'Let agents read battery, network, storage, time, locale, charging, DND, and Bluetooth.',
     icon: '📊',
     settings: {
       'allow_battery': true,
@@ -97,6 +97,9 @@ class ModuleRegistry {
       'allow_storage': true,
       'allow_time_locale': true,
       'allow_foreground_app': false,
+      'allow_charging': true,
+      'allow_dnd': true,
+      'allow_bluetooth': true,
       'show_logs': true,
     },
   );

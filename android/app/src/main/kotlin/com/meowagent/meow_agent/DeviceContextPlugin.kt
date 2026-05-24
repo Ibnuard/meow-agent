@@ -1,10 +1,16 @@
 package com.meowagent.meow_agent
 
 import android.app.AppOpsManager
+import android.app.NotificationManager
 import android.app.usage.UsageStatsManager
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
@@ -13,6 +19,7 @@ import android.os.Environment
 import android.os.StatFs
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.text.SimpleDateFormat
@@ -39,9 +46,17 @@ class DeviceContextPlugin(private val context: Context) :
                 "getLocaleInfo" -> result.success(getLocaleInfo())
                 "getForegroundAppInfo" -> result.success(getForegroundAppInfo())
                 "getDeviceSummary" -> result.success(getDeviceSummary())
+                "getChargingInfo" -> result.success(getChargingInfo())
+                "getDndInfo" -> result.success(getDndInfo())
+                "getBluetoothInfo" -> result.success(getBluetoothInfo())
                 "getUsageStats" -> {
                     val days = call.argument<Int>("days") ?: 7
                     result.success(getUsageStats(days))
+                }
+                "setDndMode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val mode = call.argument<String>("mode")
+                    result.success(setDndMode(enabled, mode))
                 }
                 else -> result.notImplemented()
             }
@@ -223,7 +238,195 @@ class DeviceContextPlugin(private val context: Context) :
             "network" to getNetworkInfo(),
             "storage" to getStorageInfo(),
             "time" to getTimeInfo(),
-            "locale" to getLocaleInfo()
+            "locale" to getLocaleInfo(),
+            "charging" to getChargingInfo(),
+            "dnd" to getDndInfo(),
+            "bluetooth" to getBluetoothInfo()
+        )
+    }
+
+    private fun getChargingInfo(): Map<String, Any?> {
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val intent = context.registerReceiver(null, filter)
+
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percent = if (level >= 0 && scale > 0) (level * 100 / scale) else 0
+
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                status == BatteryManager.BATTERY_STATUS_FULL
+
+        val chargingStatus = when (status) {
+            BatteryManager.BATTERY_STATUS_CHARGING -> "charging"
+            BatteryManager.BATTERY_STATUS_DISCHARGING -> "discharging"
+            BatteryManager.BATTERY_STATUS_FULL -> "full"
+            BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "not_charging"
+            else -> "unknown"
+        }
+
+        val plugged = intent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        val pluggedType = when (plugged) {
+            BatteryManager.BATTERY_PLUGGED_USB -> "usb"
+            BatteryManager.BATTERY_PLUGGED_AC -> "ac"
+            BatteryManager.BATTERY_PLUGGED_WIRELESS -> "wireless"
+            4 -> "dock" // BatteryManager.BATTERY_PLUGGED_DOCK (API 33+)
+            else -> if (isCharging) "unknown" else "none"
+        }
+
+        return mapOf(
+            "isCharging" to isCharging,
+            "status" to chargingStatus,
+            "pluggedType" to pluggedType,
+            "level" to percent
+        )
+    }
+
+    private fun getDndInfo(): Map<String, Any?> {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return mapOf("enabled" to false, "mode" to "unknown", "hasPolicyAccess" to false)
+
+        val hasPolicyAccess = nm.isNotificationPolicyAccessGranted
+
+        val filter = nm.currentInterruptionFilter
+        val mode = when (filter) {
+            NotificationManager.INTERRUPTION_FILTER_ALL -> "off"
+            NotificationManager.INTERRUPTION_FILTER_PRIORITY -> "priority_only"
+            NotificationManager.INTERRUPTION_FILTER_ALARMS -> "alarms_only"
+            NotificationManager.INTERRUPTION_FILTER_NONE -> "total_silence"
+            else -> "unknown"
+        }
+
+        val enabled = filter != NotificationManager.INTERRUPTION_FILTER_ALL
+
+        return mapOf(
+            "enabled" to enabled,
+            "mode" to mode,
+            "hasPolicyAccess" to hasPolicyAccess
+        )
+    }
+
+    private fun setDndMode(enabled: Boolean, mode: String?): Map<String, Any?> {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return mapOf("success" to false, "error" to "NotificationManager unavailable")
+
+        if (!nm.isNotificationPolicyAccessGranted) {
+            return mapOf(
+                "success" to false,
+                "error" to "notification_policy_access_not_granted",
+                "hasPolicyAccess" to false
+            )
+        }
+
+        val filter = if (!enabled) {
+            NotificationManager.INTERRUPTION_FILTER_ALL // DND off
+        } else {
+            when (mode) {
+                "priority_only" -> NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                "alarms_only" -> NotificationManager.INTERRUPTION_FILTER_ALARMS
+                "total_silence" -> NotificationManager.INTERRUPTION_FILTER_NONE
+                else -> NotificationManager.INTERRUPTION_FILTER_PRIORITY // default to priority
+            }
+        }
+
+        return try {
+            nm.setInterruptionFilter(filter)
+            // Read back current state to confirm.
+            val currentFilter = nm.currentInterruptionFilter
+            val currentMode = when (currentFilter) {
+                NotificationManager.INTERRUPTION_FILTER_ALL -> "off"
+                NotificationManager.INTERRUPTION_FILTER_PRIORITY -> "priority_only"
+                NotificationManager.INTERRUPTION_FILTER_ALARMS -> "alarms_only"
+                NotificationManager.INTERRUPTION_FILTER_NONE -> "total_silence"
+                else -> "unknown"
+            }
+            mapOf(
+                "success" to true,
+                "enabled" to (currentFilter != NotificationManager.INTERRUPTION_FILTER_ALL),
+                "mode" to currentMode
+            )
+        } catch (e: SecurityException) {
+            Log.e(TAG, "setDndMode SecurityException", e)
+            mapOf("success" to false, "error" to "security_exception")
+        } catch (e: Exception) {
+            Log.e(TAG, "setDndMode error", e)
+            mapOf("success" to false, "error" to e.message)
+        }
+    }
+
+    private fun getBluetoothInfo(): Map<String, Any?> {
+        // Check BLUETOOTH_CONNECT permission on Android 12+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val granted = ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                return mapOf(
+                    "enabled" to null,
+                    "permissionGranted" to false,
+                    "connectedDevices" to emptyList<Map<String, Any?>>()
+                )
+            }
+        }
+
+        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        val adapter = bluetoothManager?.adapter
+            ?: return mapOf(
+                "enabled" to false,
+                "permissionGranted" to true,
+                "connectedDevices" to emptyList<Map<String, Any?>>()
+            )
+
+        val enabled = adapter.isEnabled
+        val connectedDevices = mutableListOf<Map<String, Any?>>()
+
+        if (enabled) {
+            try {
+                // Query common profiles for connected devices.
+                val profiles = listOf(
+                    BluetoothProfile.HEADSET,
+                    BluetoothProfile.A2DP
+                )
+                for (profile in profiles) {
+                    adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
+                        override fun onServiceConnected(profileType: Int, proxy: BluetoothProfile) {
+                            try {
+                                for (device in proxy.connectedDevices) {
+                                    val type = when (profileType) {
+                                        BluetoothProfile.HEADSET -> "audio"
+                                        BluetoothProfile.A2DP -> "audio"
+                                        else -> "other"
+                                    }
+                                    val existing = connectedDevices.any {
+                                        it["name"] == (device.name ?: "Unknown")
+                                    }
+                                    if (!existing) {
+                                        connectedDevices.add(mapOf(
+                                            "name" to (device.name ?: "Unknown"),
+                                            "address" to null,
+                                            "type" to type
+                                        ))
+                                    }
+                                }
+                            } catch (e: SecurityException) {
+                                Log.e(TAG, "SecurityException reading BT devices", e)
+                            }
+                            adapter.closeProfileProxy(profileType, proxy)
+                        }
+                        override fun onServiceDisconnected(profileType: Int) {}
+                    }, profile)
+                }
+                // Give profile proxy a moment to connect (best-effort sync approach).
+                Thread.sleep(200)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reading Bluetooth devices", e)
+            }
+        }
+
+        return mapOf(
+            "enabled" to enabled,
+            "permissionGranted" to true,
+            "connectedDevices" to connectedDevices.toList()
         )
     }
 

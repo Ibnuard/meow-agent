@@ -172,7 +172,11 @@ const _defaultSkillsBlock = '''## Available Runtime Tools
 - device.locale: Read device language and locale. Risk: safe.
 - device.summary: Read a summary of battery, network, storage, time, and locale. Risk: safe.
 - device.foreground_app: Read the app CURRENTLY in the foreground RIGHT NOW only. Does NOT provide usage history or screen time stats. Risk: safe.
-- device.usage_stats: Read real app usage statistics for the past N days. Returns top 10 user-facing apps sorted by total usage time in minutes. USE THIS when asked about most-used apps, screen time, or app usage history. Args: days (int, optional, default 7). Risk: safe.''';
+- device.usage_stats: Read real app usage statistics for the past N days. Returns top 10 user-facing apps sorted by total usage time in minutes. USE THIS when asked about most-used apps, screen time, or app usage history. Args: days (int, optional, default 7). Risk: safe.
+- device.charging: Read current charging state and plug type (usb, ac, wireless, dock). Risk: safe.
+- device.dnd: Read Do Not Disturb status and current mode. Risk: safe.
+- device.dnd.set: Toggle Do Not Disturb on or off. Risk: sensitive. Requires confirmation. Args: enabled (bool, required), mode (string, optional: priority_only | alarms_only | total_silence).
+- device.bluetooth: Read Bluetooth status and connected devices when permission is available. Risk: safe.''';
 
 const _defaultHeartbeat = '''# HEARTBEAT.md
 

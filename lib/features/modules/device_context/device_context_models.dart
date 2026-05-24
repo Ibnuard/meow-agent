@@ -163,3 +163,111 @@ class ForegroundAppInfo {
         reason: m['reason'] as String?,
       );
 }
+
+/// Charging info from device.charging tool.
+class ChargingInfo {
+  const ChargingInfo({
+    required this.isCharging,
+    required this.status,
+    required this.pluggedType,
+    required this.level,
+  });
+
+  final bool isCharging;
+  final String status; // 'charging' | 'discharging' | 'full' | 'not_charging' | 'unknown'
+  final String pluggedType; // 'usb' | 'ac' | 'wireless' | 'dock' | 'unknown' | 'none'
+  final int level;
+
+  Map<String, dynamic> toJson() => {
+        'isCharging': isCharging,
+        'status': status,
+        'pluggedType': pluggedType,
+        'level': level,
+      };
+
+  factory ChargingInfo.fromMap(Map<dynamic, dynamic> m) => ChargingInfo(
+        isCharging: m['isCharging'] as bool? ?? false,
+        status: m['status'] as String? ?? 'unknown',
+        pluggedType: m['pluggedType'] as String? ?? 'unknown',
+        level: (m['level'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// DND (Do Not Disturb) info from device.dnd tool.
+class DndInfo {
+  const DndInfo({
+    required this.enabled,
+    required this.mode,
+    required this.hasPolicyAccess,
+  });
+
+  final bool enabled;
+  final String mode; // 'off' | 'priority_only' | 'alarms_only' | 'total_silence' | 'unknown'
+  final bool hasPolicyAccess;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'mode': mode,
+        'hasPolicyAccess': hasPolicyAccess,
+      };
+
+  factory DndInfo.fromMap(Map<dynamic, dynamic> m) => DndInfo(
+        enabled: m['enabled'] as bool? ?? false,
+        mode: m['mode'] as String? ?? 'unknown',
+        hasPolicyAccess: m['hasPolicyAccess'] as bool? ?? false,
+      );
+}
+
+/// Single connected Bluetooth device.
+class BluetoothDeviceInfo {
+  const BluetoothDeviceInfo({
+    required this.name,
+    this.address,
+    required this.type,
+  });
+
+  final String name;
+  final String? address;
+  final String type; // 'audio' | 'other'
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'address': address,
+        'type': type,
+      };
+
+  factory BluetoothDeviceInfo.fromMap(Map<dynamic, dynamic> m) =>
+      BluetoothDeviceInfo(
+        name: m['name'] as String? ?? 'Unknown',
+        address: m['address'] as String?,
+        type: m['type'] as String? ?? 'other',
+      );
+}
+
+/// Bluetooth info from device.bluetooth tool.
+class BluetoothInfo {
+  const BluetoothInfo({
+    this.enabled,
+    required this.permissionGranted,
+    required this.connectedDevices,
+  });
+
+  final bool? enabled; // null if permission not granted
+  final bool permissionGranted;
+  final List<BluetoothDeviceInfo> connectedDevices;
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        'permissionGranted': permissionGranted,
+        'connectedDevices': connectedDevices.map((d) => d.toJson()).toList(),
+      };
+
+  factory BluetoothInfo.fromMap(Map<dynamic, dynamic> m) => BluetoothInfo(
+        enabled: m['enabled'] as bool?,
+        permissionGranted: m['permissionGranted'] as bool? ?? false,
+        connectedDevices: (m['connectedDevices'] as List?)
+                ?.map((d) => BluetoothDeviceInfo.fromMap(d as Map))
+                .toList() ??
+            [],
+      );
+}
