@@ -111,11 +111,11 @@ class ModuleRegistry {
         'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.',
     icon: '🔔',
     settings: {
-      'allow_read': true,
-      'allow_summary': true,
-      'allow_classify': true,
-      'allow_reply_suggestion': true,
-      'allow_open_source_app': true,
+      'allow_read': false,
+      'allow_summary': false,
+      'allow_classify': false,
+      'allow_reply_suggestion': false,
+      'allow_open_source_app': false,
       'show_logs': false,
     },
   );

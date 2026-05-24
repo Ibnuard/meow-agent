@@ -28,8 +28,9 @@ class ModuleRepository {
       }
       final merged = <String, bool>{};
       for (final entry in spec.settings.entries) {
-        // Keep existing user toggles, fall back to spec defaults for new keys.
-        merged[entry.key] = m.settings[entry.key] ?? entry.value;
+        // Keep existing user toggles. New keys must default OFF to avoid silently
+        // enabling newly shipped permissions/tools after app updates.
+        merged[entry.key] = m.settings[entry.key] ?? false;
       }
       if (merged.length != m.settings.length ||
           !merged.keys.every(m.settings.containsKey)) {
@@ -47,7 +48,13 @@ class ModuleRepository {
     final modules = await getInstalled();
     // Don't duplicate.
     if (modules.any((m) => m.id == module.id)) return;
-    modules.add(module.copyWith(enabled: true));
+
+    // Installing a module only enables the module itself.
+    // All per-feature permission toggles must start OFF and require explicit user opt-in.
+    final disabledSettings = {
+      for (final key in module.settings.keys) key: false,
+    };
+    modules.add(module.copyWith(enabled: true, settings: disabledSettings));
     await _save(modules);
   }
 
