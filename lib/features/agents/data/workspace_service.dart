@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../settings/data/app_language_provider.dart';
+
 /// Manages per-agent workspace folders.
 ///
 /// Each agent gets a folder at:
@@ -20,6 +22,7 @@ class WorkspaceService {
   Future<String> createWorkspace({
     required String agentId,
     required String agentName,
+    String languageCode = 'en',
   }) async {
     final appDir = await getApplicationDocumentsDirectory();
     final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
@@ -34,7 +37,7 @@ class WorkspaceService {
     await File('${workspaceDir.path}/SKILLS.md')
         .writeAsString(_skillTemplate(agentName));
     await File('${workspaceDir.path}/SOUL.md')
-        .writeAsString(_soulTemplate(agentName));
+        .writeAsString(_soulTemplate(agentName, languageCode));
     await File('${workspaceDir.path}/HEARTBEAT.md')
         .writeAsString(_heartbeatTemplate(agentName));
     await File('${workspaceDir.path}/MEMORY.md')
@@ -140,7 +143,9 @@ tools: []
 - Respect the safety mode defined in SOUL.md.
 ''';
 
-  String _soulTemplate(String agentName) => '''# SOUL.md
+  String _soulTemplate(String agentName, String languageCode) {
+    final language = languageLabelFromCode(languageCode);
+    return '''# SOUL.md
 
 ## Agent Identity
 
@@ -156,7 +161,7 @@ Personality:
 - Friendly
 
 Default Language:
-Indonesian
+$language
 
 ---
 
@@ -164,7 +169,7 @@ Indonesian
 
 Name: [Your Name]
 Nickname: [Optional Nickname]
-Preferred Language: Indonesian
+Preferred Language: $language
 Timezone: [Your Timezone]
 
 Work/Role: [Your Role]
@@ -187,6 +192,7 @@ Communication Style:
 - Response length: short bullets / detailed paragraphs
 - Formatting: emojis / no emojis / markdown]
 ''';
+  }
 
   String _heartbeatTemplate(String agentName) => '''# HEARTBEAT.md — $agentName
 

@@ -9,10 +9,11 @@ import 'runtime_models.dart';
 
 /// Analyzes user intent and creates an execution plan via LLM.
 class Planner {
-  Planner({required this.client, required this.config});
+  Planner({required this.client, required this.config, required this.languageCode});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+  final String languageCode;
 
   /// Analyze user intent. Returns parsed JSON or null on failure.
   Future<Map<String, dynamic>?> analyze({
@@ -27,6 +28,7 @@ class Planner {
       userMessage: userMessage,
       workspace: workspace,
       availableTools: availableTools,
+      languageCode: languageCode,
       recentMessages: recentMessages,
       pendingAction: pendingAction,
     );

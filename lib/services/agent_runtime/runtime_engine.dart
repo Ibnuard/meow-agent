@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/settings/data/app_language_provider.dart';
 import '../../features/providers/data/provider_config.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
@@ -22,25 +23,29 @@ class AgentRuntimeEngine {
     required this.workspaceLoader,
     required this.toolRouter,
     required this.contextBuilder,
+    required this.languageCode,
   });
 
   final WorkspaceLoader workspaceLoader;
   final ToolRouter toolRouter;
   final ContextBuilder contextBuilder;
+  final String languageCode;
 
   static const int maxSteps = 5;
 
   /// System-level behavior rules for direct (no-tool) responses.
   /// Always enforced regardless of SOUL.md content.
-  static const String _directResponseRules =
-      '''SYSTEM RULES (always enforced):
-- Default response language: Indonesian, unless user explicitly switches.
+  String get _directResponseRules {
+    final language = languageLabelFromCode(languageCode);
+    return '''SYSTEM RULES (always enforced):
+- Default response language: $language, unless user explicitly switches.
 - Be concise and practical. Avoid exaggerated or futuristic language.
 - Ask the user before sensitive or destructive actions.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
 - When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
+  }
 
   /// Pending actions per agent (agentId → PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
@@ -69,7 +74,11 @@ class AgentRuntimeEngine {
       model: provider.model,
     );
     final client = OpenAiCompatibleClient();
-    final planner = Planner(client: client, config: llmConfig);
+    final planner = Planner(
+      client: client,
+      config: llmConfig,
+      languageCode: languageCode,
+    );
     final executor = Executor(client: client, config: llmConfig);
 
     try {
@@ -635,9 +644,11 @@ class AgentRuntimeEngine {
 
 /// Riverpod provider for the runtime engine.
 final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
+  final languagePref = ref.watch(appLanguageProvider);
   return AgentRuntimeEngine(
     workspaceLoader: WorkspaceLoader(),
     toolRouter: ToolRouter(),
     contextBuilder: ContextBuilder(),
+    languageCode: resolveLanguageCode(languagePref),
   );
 });

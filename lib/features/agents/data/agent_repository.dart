@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/local_storage_service.dart';
+import '../../settings/data/app_language_provider.dart';
 import 'agent_model.dart';
 import 'workspace_service.dart';
 
@@ -9,13 +10,16 @@ class AgentRepository {
   AgentRepository({
     required LocalStorageService local,
     required WorkspaceService workspace,
+    required String languageCode,
   })  : _local = local,
-        _workspace = workspace;
+        _workspace = workspace,
+        _languageCode = languageCode;
 
   static const _kAgents = 'meow.agents_json';
 
   final LocalStorageService _local;
   final WorkspaceService _workspace;
+  final String _languageCode;
 
   List<AgentModel> loadAll() {
     final raw = _local.readString(_kAgents);
@@ -42,6 +46,7 @@ class AgentRepository {
       await _workspace.createWorkspace(
         agentId: agent.id,
         agentName: agent.name,
+        languageCode: _languageCode,
       );
     }
   }
@@ -65,6 +70,7 @@ class AgentRepository {
         await _workspace.createWorkspace(
           agentId: agent.id,
           agentName: agent.name,
+          languageCode: _languageCode,
         );
       }
     }
@@ -72,9 +78,11 @@ class AgentRepository {
 }
 
 final agentRepositoryProvider = Provider<AgentRepository>((ref) {
+  final languagePref = ref.watch(appLanguageProvider);
   return AgentRepository(
     local: ref.watch(localStorageProvider),
     workspace: ref.watch(workspaceServiceProvider),
+    languageCode: resolveLanguageCode(languagePref),
   );
 });
 

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/chat/data/chat_runtime_manager.dart';
+import '../features/settings/data/app_language_provider.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -64,6 +65,8 @@ class AppShell extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentIndex = _currentIndex(context);
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final languagePref = ref.watch(appLanguageProvider);
+    final strings = AppStrings(resolveLanguageCode(languagePref));
 
     const dockHeight = 64.0;
     const featuredSize = 60.0;
@@ -121,6 +124,7 @@ class AppShell extends ConsumerWidget {
                                 ? const SizedBox.shrink()
                                 : _RegularTab(
                                     item: _tabs[i],
+                                    label: _labelFor(_tabs[i], strings),
                                     selected: i == currentIndex,
                                     onTap: () => context.go(_tabs[i].route),
                                   ),
@@ -147,6 +151,14 @@ class AppShell extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  String _labelFor(_NavItem item, AppStrings strings) {
+    if (item.route == AppRoutes.home) return strings.home;
+    if (item.route == AppRoutes.activity) return strings.activity;
+    if (item.route == AppRoutes.agents) return strings.agent;
+    if (item.route == AppRoutes.settings) return strings.settings;
+    return item.label;
   }
 
   /// Returns true if any agent has a running runtime session.
@@ -234,11 +246,13 @@ class _GlassDock extends StatelessWidget {
 class _RegularTab extends StatelessWidget {
   const _RegularTab({
     required this.item,
+    required this.label,
     required this.selected,
     required this.onTap,
   });
 
   final _NavItem item;
+  final String label;
   final bool selected;
   final VoidCallback onTap;
 
@@ -280,7 +294,7 @@ class _RegularTab extends StatelessWidget {
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                   letterSpacing: 0.2,
                 ),
-                child: Text(item.label),
+                child: Text(label),
               ),
             ],
           ),

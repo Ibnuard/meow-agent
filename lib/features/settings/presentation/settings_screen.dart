@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/theme_mode_provider.dart';
+import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
 
 import '../../providers/data/provider_repository.dart';
@@ -17,21 +18,23 @@ class SettingsScreen extends ConsumerWidget {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
     final isDark = ref.watch(themeModeProvider) == ThemeMode.dark;
+    final appLanguage = ref.watch(appLanguageProvider);
+    final strings = AppStrings(resolveLanguageCode(appLanguage));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(strings.settings)),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
           children: [
             // ─── PROVIDERS ───────────────────────────────────
-            _SectionHeader(label: 'PROVIDERS'),
+            _SectionHeader(label: strings.providers),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
                 _SettingsTile(
                   icon: Icons.dns_outlined,
-                  label: 'Manage Providers',
+                  label: strings.manageProviders,
                   trailing: providersAsync.when(
                     data: (list) => Text(
                       '${list.length}',
@@ -52,13 +55,13 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 28),
 
             // ─── PREFERENCES ─────────────────────────────────
-            _SectionHeader(label: 'PREFERENCES'),
+            _SectionHeader(label: strings.preferences),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
                 _SettingsToggleTile(
                   icon: Icons.dark_mode_outlined,
-                  label: 'Dark Mode',
+                  label: strings.darkMode,
                   value: isDark,
                   onChanged: (v) {
                     ref.read(themeModeProvider.notifier).set(
@@ -66,19 +69,37 @@ class SettingsScreen extends ConsumerWidget {
                         );
                   },
                 ),
+                _SettingsTile(
+                  icon: Icons.language_rounded,
+                  label: strings.language,
+                  trailing: Text(
+                    appLanguage.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onTap: () => _showLanguageSheet(
+                    context,
+                    ref,
+                    appLanguage,
+                    strings,
+                  ),
+                ),
               ],
             ),
 
             const SizedBox(height: 28),
 
             // ─── DEVELOPER ───────────────────────────────────
-            _SectionHeader(label: 'DEVELOPER'),
+            _SectionHeader(label: strings.developer),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
                 _SettingsToggleTile(
                   icon: Icons.bug_report_outlined,
-                  label: 'LLM Debugging (Dev)',
+                  label: strings.llmDebugging,
                   value: ref.watch(llmDebugModeProvider),
                   onChanged: (v) {
                     ref.read(llmDebugModeProvider.notifier).toggle(v);
@@ -90,27 +111,23 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 28),
 
             // ─── SUPPORT ─────────────────────────────────────
-            _SectionHeader(label: 'SUPPORT'),
+            _SectionHeader(label: strings.support),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
-                  label: 'About App',
+                  label: strings.aboutApp,
                   onTap: () {
                     showDialog(
                       context: context,
                       builder: (dialogCtx) => AlertDialog(
                         title: const Text('Meow Agent'),
-                        content: const Text(
-                          'Android-native agentic AI.\n'
-                          'Modular, permission-aware, and BYOK.\n\n'
-                          'Version 0.1.0',
-                        ),
+                        content: Text(strings.aboutBody),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(dialogCtx),
-                            child: const Text('Close'),
+                            child: Text(strings.close),
                           ),
                         ],
                       ),
@@ -120,6 +137,147 @@ class SettingsScreen extends ConsumerWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showLanguageSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppLanguage current,
+    AppStrings strings,
+  ) {
+    final cs = context.cs;
+    final extras = context.extras;
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+
+    // Modal sheet should cover AppShell's floating dock, but still float above
+    // Android navigation. Keep a generous lift so it never feels buried.
+    final sheetBottomPadding = bottomInset > 0 ? bottomInset + 76.0 : 56.0;
+
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, sheetBottomPadding),
+          child: Container(
+            decoration: BoxDecoration(
+              color: extras.card,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: extras.subtleBorder, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 32,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.28),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    strings.language,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    strings.languageDescription,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  for (final lang in AppLanguage.values)
+                    _LanguageOptionTile(
+                      language: lang,
+                      selected: lang == current,
+                      onTap: () async {
+                        await ref.read(appLanguageProvider.notifier).set(lang);
+                        if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LanguageOptionTile extends StatelessWidget {
+  const _LanguageOptionTile({
+    required this.language,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppLanguage language;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: selected
+            ? cs.primary.withValues(alpha: 0.12)
+            : cs.onSurface.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    language.label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ),
+                if (selected)
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 20,
+                    color: cs.primary,
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

@@ -710,7 +710,7 @@ if (_module!.id == 'my_module' && key == 'allow_special_x' && value) {
 3. **Module gating:** Cek `module.enabled` DAN `module.settings[key]` sebelum execute
 4. **Native returns:** Selalu `Map<String, Any?>`, selalu handle null/error gracefully
 5. **LLM prompts:** Selalu minta JSON-only response, selalu handle parse failure
-6. **User-facing text:** Bahasa Indonesia untuk confirmations dan responses
+6. **User-facing text language:** Ikuti app language preference (`System`, `Bahasa Indonesia`, `English`). `System` resolve dari device locale. Jangan hardcode Indonesian kecuali user/app preference memang Indonesian.
 7. **No tool names exposed to user:** `_humanizeConfirmation()` translates to natural language
 8. **Risk comes from registry, NOT from LLM output** — security enforcement
 9. **Testing:** SELALU tulis test setelah nambah tool/module baru — no exceptions

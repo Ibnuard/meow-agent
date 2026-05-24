@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
@@ -350,7 +351,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
 
     final module = _module!;
-    final settingLabels = _settingLabels(module.id);
+    final languagePref = ref.watch(appLanguageProvider);
+    final langCode = resolveLanguageCode(languagePref);
+    final isId = langCode == 'id';
+    final settingLabels = _settingLabels(module.id, isId: isId);
 
     return Scaffold(
       appBar: AppBar(
@@ -358,7 +362,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline_rounded),
-            tooltip: 'Uninstall',
+            tooltip: isId ? 'Hapus modul' : 'Uninstall',
             onPressed: _uninstall,
           ),
         ],
@@ -404,7 +408,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  module.description,
+                  _moduleDescription(module, isId: isId),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
@@ -428,7 +432,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                'Module Enabled',
+                isId ? 'Modul Aktif' : 'Module Enabled',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -436,7 +440,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               ),
               subtitle: Text(
-                'Turn on to activate this module.',
+                isId ? 'Nyalakan untuk mengaktifkan modul ini.' : 'Turn on to activate this module.',
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
               value: module.enabled,
@@ -447,7 +451,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           const SizedBox(height: 20),
 
           Text(
-            'Triggers',
+            isId ? 'Pemicu' : 'Triggers',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -495,7 +499,31 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  Map<String, (String, String)> _settingLabels(String moduleId) {
+  String _moduleDescription(ModuleModel module, {required bool isId}) {
+    if (!isId) return module.description;
+    switch (module.id) {
+      case 'clipboard_ai':
+        return 'Biarkan agen memproses teks dari clipboard dan menu Share Android.';
+      case 'app_control':
+        return 'Biarkan agen membuka aplikasi, URL, dan halaman pengaturan tertentu dengan kontrol izin.';
+      case 'device_context':
+        return 'Biarkan agen membaca konteks perangkat seperti baterai, jaringan, penyimpanan, waktu, DND, dan Bluetooth.';
+      case 'notification_intelligence':
+        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis atau menghapus notifikasi.';
+      default:
+        return module.description;
+    }
+  }
+
+  Map<String, (String, String)> _settingLabels(
+    String moduleId, {
+    required bool isId,
+  }) {
+    if (isId) return _settingLabelsId(moduleId);
+    return _settingLabelsEn(moduleId);
+  }
+
+  Map<String, (String, String)> _settingLabelsEn(String moduleId) {
     switch (moduleId) {
       case 'clipboard_ai':
         return {
@@ -595,6 +623,113 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'show_logs': (
             'Show Notification Data in Logs',
             'Include notification content in runtime logs (privacy off by default).',
+          ),
+        };
+      default:
+        return {};
+    }
+  }
+
+  Map<String, (String, String)> _settingLabelsId(String moduleId) {
+    switch (moduleId) {
+      case 'clipboard_ai':
+        return {
+          'share_intent': (
+            'Menu Share Android',
+            'Terima teks dari menu Share Android.',
+          ),
+          'persistent_notification': (
+            'Notifikasi Persisten',
+            'Tampilkan notifikasi untuk memproses clipboard dengan cepat.',
+          ),
+          'floating_bubble': (
+            'Bubble Mengambang',
+            'Bubble yang bisa digeser di atas aplikasi lain.',
+          ),
+        };
+      case 'app_control':
+        return {
+          'require_confirmation': (
+            'Wajib Konfirmasi',
+            'Minta konfirmasi sebelum membuka aplikasi atau URL.',
+          ),
+          'allow_system_settings': (
+            'Izinkan Pengaturan Sistem',
+            'AI dapat membuka halaman pengaturan sistem Android.',
+          ),
+          'allow_url_intents': (
+            'Izinkan Buka URL',
+            'AI dapat membuka URL di browser.',
+          ),
+          'show_execution_toast': (
+            'Tampilkan Toast Eksekusi',
+            'Tampilkan notifikasi singkat saat aksi dijalankan.',
+          ),
+        };
+      case 'device_context':
+        return {
+          'allow_battery': (
+            'Info Baterai',
+            'Agen dapat membaca level baterai dan status pengisian.',
+          ),
+          'allow_network': (
+            'Info Jaringan',
+            'Agen dapat membaca tipe koneksi. Opsional: izin Lokasi & Telepon mengaktifkan SSID WiFi dan deteksi 4G/5G.',
+          ),
+          'allow_storage': (
+            'Info Penyimpanan',
+            'Agen dapat membaca penggunaan penyimpanan internal.',
+          ),
+          'allow_time_locale': (
+            'Waktu & Lokal',
+            'Agen dapat membaca waktu lokal, zona waktu, dan bahasa.',
+          ),
+          'allow_foreground_app': (
+            'Deteksi Aplikasi Aktif',
+            'Agen dapat mendeteksi aplikasi yang sedang aktif. Membutuhkan izin Usage Stats.',
+          ),
+          'allow_charging': (
+            'Info Pengisian Daya',
+            'Agen dapat membaca status pengisian daya dan tipe charger.',
+          ),
+          'allow_dnd': (
+            'Status Jangan Ganggu',
+            'Agen dapat membaca mode Do Not Disturb. Membutuhkan akses kebijakan notifikasi.',
+          ),
+          'allow_bluetooth': (
+            'Status Bluetooth',
+            'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.',
+          ),
+          'show_logs': (
+            'Tampilkan di Log Runtime',
+            'Sertakan data perangkat di log debug agen.',
+          ),
+        };
+      case 'notification_intelligence':
+        return {
+          'allow_read': (
+            'Izinkan Baca Notifikasi',
+            'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.',
+          ),
+          'allow_summary': (
+            'Izinkan Ringkasan Notifikasi',
+            'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.',
+          ),
+          'allow_classify': (
+            'Izinkan Deteksi Penting',
+            'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.',
+          ),
+          'allow_reply_suggestion': (
+            'Izinkan Saran Balasan',
+            'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.',
+          ),
+          'allow_open_source_app': (
+            'Izinkan Buka Aplikasi Sumber',
+            'Agen dapat membuka aplikasi yang mengirim notifikasi.',
+          ),
+          'show_logs': (
+            'Tampilkan Data Notifikasi di Log',
+            'Sertakan konten notifikasi di log runtime (default mati untuk privasi).',
           ),
         };
       default:
