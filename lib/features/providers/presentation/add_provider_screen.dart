@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../features/settings/data/app_language_provider.dart';
 import '../../../features/settings/data/llm_provider_config.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_repository.dart';
@@ -37,6 +38,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   String? _testResult;
   bool? _testSuccess;
   String? _existingId;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   @override
   void initState() {
@@ -93,7 +99,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     setState(() {
       _testing = false;
       _testSuccess = ok;
-      _testResult = ok ? 'Connection successful' : 'Connection failed';
+      _testResult = ok ? s.connectionOk : s.connectionFail;
     });
   }
 
@@ -119,20 +125,16 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Provider'),
+        title: Text(s.deleteProvider),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Delete "${_nicknameController.text}"?\n\n'
-              'This will remove the provider configuration and API key.',
-            ),
+            Text(s.deleteProviderBody(_nicknameController.text)),
             if (affectedAgents.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(
-                '⚠️ ${affectedAgents.length} agent(s) using this provider '
-                'will lose their connection:',
+                s.affectedAgentsWarning(affectedAgents.length),
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 4),
@@ -148,14 +150,14 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFF87171),
             ),
-            child: const Text('Delete'),
+            child: Text(s.delete),
           ),
         ],
       ),
@@ -177,10 +179,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final cs = context.cs;
     final extras = context.extras;
     final isEditing = widget.providerId != null;
+    ref.watch(appLanguageProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Provider' : 'Add Provider'),
+        title: Text(isEditing ? s.editProvider : s.addProvider),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
@@ -216,7 +219,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'LLM Provider',
+                                s.llmProvider,
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -225,7 +228,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Connect any OpenAI-compatible API endpoint.',
+                                s.llmProviderDesc,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: cs.onSurfaceVariant,
@@ -244,18 +247,18 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
                 // Fields.
                 MeowSection(
-                  title: 'Provider Details',
-                  subtitle: 'Give it a name and enter the connection info.',
+                  title: s.providerDetails,
+                  subtitle: s.providerDetailsDesc,
                   child: Column(
                     children: [
                       MeowInput(
                         controller: _nicknameController,
-                        label: 'Nickname',
-                        hint: 'e.g. OpenAI, Groq, Local...',
-                        helper: 'Shown in the agent provider dropdown.',
+                        label: s.nickname,
+                        hint: s.nicknameHint,
+                        helper: s.nicknameHelper,
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
-                            return 'Nickname is required';
+                            return s.nicknameRequired;
                           }
                           return null;
                         },
@@ -263,15 +266,15 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       const SizedBox(height: 18),
                       MeowInput(
                         controller: _baseUrlController,
-                        label: 'Base URL',
+                        label: s.baseUrl,
                         hint: 'https://api.openai.com/v1',
                         keyboardType: TextInputType.url,
                         validator: (v) {
                           final value = v?.trim() ?? '';
-                          if (value.isEmpty) return 'Base URL is required';
+                          if (value.isEmpty) return s.baseUrlRequired;
                           final uri = Uri.tryParse(value);
                           if (uri == null || !uri.hasScheme) {
-                            return 'Enter a valid URL (https://...)';
+                            return s.baseUrlInvalid;
                           }
                           return null;
                         },
@@ -279,10 +282,10 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       const SizedBox(height: 18),
                       MeowInput(
                         controller: _apiKeyController,
-                        label: 'API Key',
+                        label: s.apiKey,
                         hint: 'sk-...',
                         obscureText: _obscureKey,
-                        helper: 'Stored securely on this device only.',
+                        helper: s.apiKeyHelper,
                         suffixIcon: IconButton(
                           onPressed: () =>
                               setState(() => _obscureKey = !_obscureKey),
@@ -295,7 +298,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         ),
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
-                            return 'API Key is required';
+                            return s.apiKeyRequired;
                           }
                           return null;
                         },
@@ -303,11 +306,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       const SizedBox(height: 18),
                       MeowInput(
                         controller: _modelController,
-                        label: 'Model',
+                        label: s.model,
                         hint: 'gpt-4.1-mini',
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
-                            return 'Model is required';
+                            return s.modelRequired;
                           }
                           return null;
                         },
@@ -368,7 +371,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                     children: [
                       Expanded(
                         child: MeowSecondaryButton(
-                          label: _testing ? 'Testing...' : 'Test',
+                          label: _testing ? s.testing : s.test,
                           icon: Icons.bolt_rounded,
                           loading: _testing,
                           onPressed:
@@ -379,7 +382,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       Expanded(
                         flex: 2,
                         child: MeowPrimaryButton(
-                          label: _saving ? 'Saving...' : 'Save Provider',
+                          label: _saving ? s.saving : s.saveProvider,
                           icon: Icons.check_rounded,
                           loading: _saving,
                           onPressed: _saving ? null : _save,
@@ -400,13 +403,13 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         foregroundColor: const Color(0xFFF87171),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.delete_outline_rounded, size: 18),
                           SizedBox(width: 8),
                           Text(
-                            'Delete Provider',
+                            s.deleteProvider,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,

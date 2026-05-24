@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../data/agent_model.dart';
@@ -16,21 +17,23 @@ class AgentListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final agents = ref.watch(agentListProvider);
     final providersAsync = ref.watch(providerListProvider);
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Agents'),
+        title: Text(s.agentListTitle),
         actions: [
           IconButton(
             icon: const Icon(Icons.add_rounded),
-            tooltip: 'Add New Agent',
+            tooltip: s.addNewAgent,
             onPressed: () => context.push(AppRoutes.addAgent),
           ),
         ],
       ),
       body: SafeArea(
         child: agents.isEmpty
-            ? const _EmptyState()
+            ? _EmptyState(s: s)
             : providersAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Error: $e')),
@@ -45,6 +48,7 @@ class AgentListScreen extends ConsumerWidget {
                     return _AgentCard(
                       agent: agent,
                       provider: provider,
+                      s: s,
                       onTap: () =>
                           context.push('/agents/${agent.id}/edit'),
                     );
@@ -60,11 +64,13 @@ class _AgentCard extends StatelessWidget {
   const _AgentCard({
     required this.agent,
     required this.provider,
+    required this.s,
     required this.onTap,
   });
 
   final AgentModel agent;
   final ProviderConfig? provider;
+  final AppStrings s;
   final VoidCallback onTap;
 
   @override
@@ -122,7 +128,7 @@ class _AgentCard extends StatelessWidget {
                       Text(
                         provider != null
                             ? '${provider!.nickname}  ·  ${provider!.model}'
-                            : 'Provider not found',
+                            : s.providerNotFound,
                         style: TextStyle(
                           fontSize: 12,
                           color: cs.onSurfaceVariant,
@@ -146,7 +152,9 @@ class _AgentCard extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState();
+  const _EmptyState({required this.s});
+
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +172,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'No agents yet',
+              s.noAgentsYet,
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -173,7 +181,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Create your first agent to start chatting.',
+              s.noAgentsCreate,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -184,7 +192,7 @@ class _EmptyState extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () => context.push(AppRoutes.addAgent),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add Agent'),
+              label: Text(s.addAgent),
             ),
           ],
         ),

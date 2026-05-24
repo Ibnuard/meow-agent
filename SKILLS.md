@@ -716,3 +716,4 @@ if (_module!.id == 'my_module' && key == 'allow_special_x' && value) {
 9. **Testing:** SELALU tulis test setelah nambah tool/module baru — no exceptions
 10. **Permission-on-toggle:** Jika setting butuh permission, WAJIB cek/minta saat toggle ON — lihat section di atas
 11. **Module install defaults:** Saat module baru di-install, hanya `module.enabled` yang ON. Semua `module.settings[*]` wajib default OFF sampai user opt-in manual. Saat app update menambah setting key baru, key baru juga wajib OFF.
+12. **Module translations:** Setiap module baru WAJIB menyediakan translation untuk Bahasa Indonesia dan English di UI app. Pertahankan `module.name` tetap original/brand name, tapi translate `module.description`, section label, setting label/subtitle, permission dialog, snackbar, tooltip, empty/error state, dan confirmation text.

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../data/provider_config.dart';
 import '../data/provider_repository.dart';
 
@@ -15,10 +16,12 @@ class ProviderListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Providers'),
+        title: Text(s.providerListTitle),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () {
@@ -33,7 +36,7 @@ class ProviderListScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.add_rounded),
             onPressed: () => context.push(AppRoutes.addProvider),
-            tooltip: 'Add Provider',
+            tooltip: s.addProvider,
           ),
         ],
       ),
@@ -54,7 +57,7 @@ class ProviderListScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'No providers yet',
+                      s.noProvidersYet,
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w600,
@@ -63,7 +66,7 @@ class ProviderListScreen extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Tap + to add your first LLM provider.',
+                      s.noProvidersTapAdd,
                       style: TextStyle(
                         fontSize: 13,
                         color: cs.onSurfaceVariant,

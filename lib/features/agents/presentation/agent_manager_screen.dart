@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../data/agent_model.dart';
@@ -32,6 +33,11 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   bool _saving = false;
   String? _existingId;
   String? _workspacePath;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   @override
   void initState() {
@@ -67,7 +73,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedProviderId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a provider.')),
+        SnackBar(content: Text(s.pleaseSelectProvider)),
       );
       return;
     }
@@ -101,23 +107,19 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Agent'),
-        content: const Text(
-          'This will permanently delete this agent, its workspace folder, '
-          'and all related files (SKILLS.md, SOUL.md, HEARTBEAT.md, MEMORY.md).\n\n'
-          'This action cannot be undone.',
-        ),
+        title: Text(s.deleteAgent),
+        content: Text(s.deleteAgentBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFF87171),
             ),
-            child: const Text('Delete'),
+            child: Text(s.delete),
           ),
         ],
       ),
@@ -138,10 +140,11 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   Widget build(BuildContext context) {
     final providersAsync = ref.watch(providerListProvider);
     final isEditing = widget.agentId != null;
+    ref.watch(appLanguageProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Agent' : 'Set Up New Agent'),
+        title: Text(isEditing ? s.editAgent : s.setupNewAgent),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () {
@@ -214,7 +217,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                                     Icon(Icons.folder_outlined, size: 18, color: cs.primary),
                                     const SizedBox(width: 8),
                                     Text(
-                                      'Agent Workspace',
+                                      s.agentWorkspace,
                                       style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -256,14 +259,14 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
 
             // Agent name section.
             MeowSection(
-              title: 'Agent',
-              subtitle: 'Your agent identity and configuration.',
+              title: s.agentSection,
+              subtitle: s.agentSectionDesc,
               child: MeowInput(
                 controller: _nameController,
-                label: 'Agent Name',
-                hint: 'e.g. Assistant, Coder, Researcher...',
+                label: s.agentName,
+                hint: s.agentNameHint,
                 validator: (v) {
-                  if ((v ?? '').trim().isEmpty) return 'Name is required';
+                  if ((v ?? '').trim().isEmpty) return s.nameRequired;
                   return null;
                 },
               ),
@@ -284,7 +287,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Provider',
+                              s.providerSection,
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w700,
@@ -294,7 +297,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Choose which AI brain powers this agent.',
+                              s.providerSectionDesc,
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w400,
@@ -306,16 +309,16 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      _AddProviderButton(onTap: _goAddProvider),
+                      _AddProviderButton(onTap: _goAddProvider, s: s),
                     ],
                   ),
                   const SizedBox(height: 20),
                   if (providers.isEmpty)
-                    const _ProviderEmptyState()
+                    _ProviderEmptyState(s: s)
                   else ...[
                     // Provider dropdown.
                     Text(
-                      'Select provider',
+                      s.selectProvider,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
@@ -337,7 +340,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                           value: _selectedProviderId,
                           isExpanded: true,
                           hint: Text(
-                            'Choose a provider',
+                            s.chooseProvider,
                             style: TextStyle(
                               color: extras.subtleText,
                               fontSize: 15,
@@ -382,7 +385,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: MeowPrimaryButton(
-                label: _saving ? 'Saving...' : 'Save Agent',
+                label: _saving ? s.saving : s.saveAgent,
                 icon: Icons.check_rounded,
                 loading: _saving,
                 onPressed: _saving ? null : _save,
@@ -400,13 +403,13 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                     foregroundColor: const Color(0xFFF87171),
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.delete_outline_rounded, size: 18),
                       SizedBox(width: 8),
                       Text(
-                        'Delete Agent',
+                        s.deleteAgent,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -426,8 +429,9 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
 
 /// Rounded rectangle add button with soft blue glow.
 class _AddProviderButton extends StatelessWidget {
-  const _AddProviderButton({required this.onTap});
+  const _AddProviderButton({required this.onTap, required this.s});
   final VoidCallback onTap;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -457,7 +461,7 @@ class _AddProviderButton extends StatelessWidget {
             Icon(Icons.add_rounded, color: cs.primary, size: 16),
             const SizedBox(width: 4),
             Text(
-              'Add',
+              s.add,
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -473,7 +477,9 @@ class _AddProviderButton extends StatelessWidget {
 
 /// Simple clean empty state — no button, just a message.
 class _ProviderEmptyState extends StatelessWidget {
-  const _ProviderEmptyState();
+  const _ProviderEmptyState({required this.s});
+
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -497,7 +503,7 @@ class _ProviderEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            'No providers yet',
+            s.noProvidersYet,
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -506,7 +512,7 @@ class _ProviderEmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Tap Add to connect your first LLM provider.',
+            s.noProvidersTapAddBtn,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,
