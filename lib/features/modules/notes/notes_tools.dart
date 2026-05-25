@@ -49,6 +49,15 @@ class NotesTools {
         success: true,
         toolName: 'notes.create',
         data: {'noteId': note.id, 'created': true},
+        actions: const [
+          ResultAction(
+            label: 'Open Notes',
+            labelId: 'Buka Notes',
+            icon: 'note_outlined',
+            type: 'navigate',
+            target: '/notes',
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -208,6 +217,15 @@ class NotesTools {
         success: true,
         toolName: 'notes.update',
         data: {'updated': true},
+        actions: [
+          ResultAction(
+            label: 'Open Notes',
+            labelId: 'Buka Notes',
+            icon: 'note_outlined',
+            type: 'navigate',
+            target: '/notes',
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -307,6 +325,16 @@ class NotesTools {
           'titles': exported,
           'destination': 'Documents/MeowAgent/Agents/$agentName/notes/',
         },
+        actions: [
+          ResultAction(
+            label: 'Open File Manager',
+            labelId: 'Buka File Manager',
+            icon: 'folder_open_rounded',
+            type: 'open_folder',
+            target: agentName,
+            params: {'subfolder': 'notes'},
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(

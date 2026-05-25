@@ -14,6 +14,8 @@ import '../../../services/workspace/workspace_file_service.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
+import '../../agents/data/workspace_service.dart';
+import '../../modules/calendar/calendar_screen.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/app_language_provider.dart';
@@ -267,6 +269,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           content: m.content
               .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
               .trim(),
+          actions: m.actions,
         ));
       } else {
         cleaned.add(m);
@@ -300,6 +303,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         break;
       case 'reject':
         mgr.reject(_activeAgentId);
+        break;
+    }
+  }
+
+  Future<void> _handleResultAction(ResultAction action) async {
+    switch (action.type) {
+      case 'navigate':
+        // Special-case: calendar screen isn't in the router → push directly.
+        if (action.target == '/modules/calendar') {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CalendarScreen()),
+          );
+        } else {
+          if (!mounted) return;
+          context.push(action.target);
+        }
+        break;
+      case 'open_folder':
+        // target = agentName.
+        final ws = ref.read(workspaceServiceProvider);
+        await ws.openInFileManager(action.target);
+        break;
+      case 'open_url':
+        // Reserved for future use.
         break;
     }
   }
@@ -659,6 +687,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           content: m.content
               .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
               .trim(),
+          actions: m.actions,
         ));
       } else {
         cleaned.add(m);
@@ -878,6 +907,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     msg: _messages[msgIndex],
                                     onConfirmAction: (action) =>
                                         _handleConfirmation(action, msgIndex),
+                                    onActionTap: _handleResultAction,
                                   ),
                                 );
                               }
@@ -907,9 +937,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.msg, this.onConfirmAction});
+  const _Bubble({
+    required this.msg,
+    this.onConfirmAction,
+    this.onActionTap,
+  });
   final ChatMessage msg;
   final void Function(String action)? onConfirmAction;
+  final void Function(ResultAction action)? onActionTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1010,6 +1045,20 @@ class _Bubble extends StatelessWidget {
                 ],
               ),
             ],
+            // Contextual result actions (e.g., "Open Calendar").
+            if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: msg.actions
+                    .map((a) => _ResultActionButton(
+                          action: a,
+                          onTap: () => onActionTap!(a),
+                        ))
+                    .toList(),
+              ),
+            ],
           ],
         ),
       ),
@@ -1063,8 +1112,68 @@ class _ConfirmButton extends StatelessWidget {
   }
 }
 
+class _ResultActionButton extends ConsumerWidget {
+  const _ResultActionButton({required this.action, required this.onTap});
+  final ResultAction action;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = context.cs;
+    final langPref = ref.watch(appLanguageProvider);
+    final isId = resolveLanguageCode(langPref) == 'id';
+    final label = isId ? action.labelId : action.label;
+
+    return Material(
+      color: cs.primary.withValues(alpha: 0.12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: cs.primary.withValues(alpha: 0.3)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_iconFor(action.icon), size: 14, color: cs.primary),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: cs.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(String name) {
+    switch (name) {
+      case 'calendar_month_rounded':
+        return Icons.calendar_month_rounded;
+      case 'note_outlined':
+        return Icons.note_outlined;
+      case 'folder_open_rounded':
+        return Icons.folder_open_rounded;
+      case 'open_in_new_rounded':
+        return Icons.open_in_new_rounded;
+      default:
+        return Icons.arrow_forward_rounded;
+    }
+  }
+}
+
 class _ThinkingBubble extends StatefulWidget {
   const _ThinkingBubble();
+
 
   @override
   State<_ThinkingBubble> createState() => _ThinkingBubbleState();

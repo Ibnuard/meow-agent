@@ -43,6 +43,7 @@ class AgentRuntimeResponse {
     this.events = const [],
     this.pendingTool,
     this.pendingToolArgs,
+    this.actions = const [],
   });
 
   final String finalMessage;
@@ -53,6 +54,8 @@ class AgentRuntimeResponse {
   final String? pendingTool;
   /// Tool args awaiting confirmation.
   final Map<String, dynamic>? pendingToolArgs;
+  /// Optional contextual action buttons to render after the final message.
+  final List<ResultAction> actions;
 }
 
 /// A single event logged during runtime execution.
@@ -95,6 +98,55 @@ class ToolCallRequest {
   }
 }
 
+/// A user-facing action button shown after a tool result.
+/// Used to deep-link to relevant screens (e.g., open calendar after creating event).
+class ResultAction {
+  const ResultAction({
+    required this.label,
+    required this.labelId,
+    required this.icon,
+    required this.type,
+    required this.target,
+    this.params = const {},
+  });
+
+  /// English label.
+  final String label;
+
+  /// Indonesian label.
+  final String labelId;
+
+  /// Material icon name (e.g., 'calendar_month_rounded').
+  final String icon;
+
+  /// Action type: 'navigate' | 'open_folder' | 'open_url'.
+  final String type;
+
+  /// Route path or URI.
+  final String target;
+
+  /// Optional params for the action.
+  final Map<String, dynamic> params;
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'labelId': labelId,
+        'icon': icon,
+        'type': type,
+        'target': target,
+        'params': params,
+      };
+
+  factory ResultAction.fromJson(Map<String, dynamic> json) => ResultAction(
+        label: json['label'] as String? ?? '',
+        labelId: json['labelId'] as String? ?? '',
+        icon: json['icon'] as String? ?? '',
+        type: json['type'] as String? ?? 'navigate',
+        target: json['target'] as String? ?? '',
+        params: (json['params'] as Map<String, dynamic>?) ?? const {},
+      );
+}
+
 /// Result of a tool execution.
 class ToolExecutionResult {
   const ToolExecutionResult({
@@ -102,12 +154,16 @@ class ToolExecutionResult {
     required this.toolName,
     this.data,
     this.error,
+    this.actions = const [],
   });
 
   final bool success;
   final String toolName;
   final Map<String, dynamic>? data;
   final String? error;
+
+  /// Optional contextual action buttons rendered after the result.
+  final List<ResultAction> actions;
 }
 
 /// Registered tool definition with metadata.

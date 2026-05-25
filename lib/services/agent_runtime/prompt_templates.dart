@@ -108,6 +108,7 @@ ${PromptConstants.selectToolResponseFormat}''';
     required Map<String, dynamic> plan,
     required int currentStep,
     required String userMessage,
+    String language = 'Indonesian',
   }) {
     return '''${PromptConstants.reviewIntro}
 
@@ -124,7 +125,7 @@ Tool result:
 - Data: ${result.data}
 - Error: ${result.error ?? 'none'}
 
-${PromptConstants.reviewRules}
+${PromptConstants.reviewRulesFor(language)}
 
 ${PromptConstants.reviewResponseFormat}''';
   }

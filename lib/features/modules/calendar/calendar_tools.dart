@@ -86,6 +86,15 @@ class CalendarTools {
           'startTime': event.startTime.toIso8601String(),
           'endTime': event.endTime.toIso8601String(),
         },
+        actions: const [
+          ResultAction(
+            label: 'Open Calendar',
+            labelId: 'Buka Kalender',
+            icon: 'calendar_month_rounded',
+            type: 'navigate',
+            target: '/modules/calendar',
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -301,6 +310,15 @@ class CalendarTools {
         success: true,
         toolName: 'calendar.update',
         data: {'updated': true},
+        actions: [
+          ResultAction(
+            label: 'Open Calendar',
+            labelId: 'Buka Kalender',
+            icon: 'calendar_month_rounded',
+            type: 'navigate',
+            target: '/modules/calendar',
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(

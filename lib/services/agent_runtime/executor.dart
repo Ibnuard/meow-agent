@@ -41,12 +41,14 @@ class Executor {
     required int currentStep,
     required String userMessage,
     required RuntimeLogger logger,
+    String language = 'Indonesian',
   }) async {
     final prompt = PromptTemplates.reviewPrompt(
       result: result,
       plan: plan,
       currentStep: currentStep,
       userMessage: userMessage,
+      language: language,
     );
 
     return _callLlm(prompt, 'review', logger);

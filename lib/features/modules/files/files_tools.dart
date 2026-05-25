@@ -91,6 +91,15 @@ class FilesTools {
         success: true,
         toolName: 'files.create',
         data: {'created': true, 'path': path},
+        actions: [
+          ResultAction(
+            label: 'Open File Manager',
+            labelId: 'Buka File Manager',
+            icon: 'folder_open_rounded',
+            type: 'open_folder',
+            target: agentName,
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -206,6 +215,15 @@ class FilesTools {
         success: true,
         toolName: 'files.write',
         data: {'written': true, 'path': path, 'append': append},
+        actions: [
+          ResultAction(
+            label: 'Open File Manager',
+            labelId: 'Buka File Manager',
+            icon: 'folder_open_rounded',
+            type: 'open_folder',
+            target: agentName,
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -449,6 +467,15 @@ class FilesTools {
         success: true,
         toolName: 'files.mkdir',
         data: {'created': true, 'path': path},
+        actions: [
+          ResultAction(
+            label: 'Open File Manager',
+            labelId: 'Buka File Manager',
+            icon: 'folder_open_rounded',
+            type: 'open_folder',
+            target: agentName,
+          ),
+        ],
       );
     } catch (e) {
       return ToolExecutionResult(

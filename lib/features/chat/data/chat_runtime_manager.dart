@@ -143,6 +143,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         content: isConfirm
             ? '🔐 ${response.finalMessage}\n\n[[CONFIRMATION_REQUIRED]]'
             : response.finalMessage,
+        actions: response.actions,
       );
       await history.addMessage(agentId, replyMsg);
 
@@ -217,7 +218,11 @@ class ChatRuntimeManager extends ChangeNotifier {
 
       await history.addMessage(
         agentId,
-        ChatMessage(role: 'assistant', content: response.finalMessage),
+        ChatMessage(
+          role: 'assistant',
+          content: response.finalMessage,
+          actions: response.actions,
+        ),
       );
 
       _set(agentId, sessionFor(agentId).copyWith(

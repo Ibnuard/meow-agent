@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
+
+import '../../../services/agent_runtime/runtime_models.dart';
 
 /// Page size for paginated message loading.
 const int kMessagePageSize = 30;
@@ -19,7 +23,7 @@ class ChatHistoryService {
     final dbPath = '$dbDir/meow_chat.db';
     return openDatabase(
       dbPath,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -27,12 +31,18 @@ class ChatHistoryService {
             agent_id TEXT NOT NULL,
             role TEXT NOT NULL,
             content TEXT NOT NULL,
-            timestamp TEXT NOT NULL
+            timestamp TEXT NOT NULL,
+            actions TEXT
           )
         ''');
         await db.execute('''
           CREATE INDEX idx_messages_agent ON messages(agent_id)
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE messages ADD COLUMN actions TEXT');
+        }
       },
     );
   }
@@ -101,6 +111,9 @@ class ChatHistoryService {
       'role': message.role,
       'content': message.content,
       'timestamp': message.timestamp.toIso8601String(),
+      'actions': message.actions.isEmpty
+          ? null
+          : jsonEncode(message.actions.map((a) => a.toJson()).toList()),
     });
   }
 
@@ -114,6 +127,9 @@ class ChatHistoryService {
         'role': msg.role,
         'content': msg.content,
         'timestamp': msg.timestamp.toIso8601String(),
+        'actions': msg.actions.isEmpty
+            ? null
+            : jsonEncode(msg.actions.map((a) => a.toJson()).toList()),
       });
     }
     await batch.commit(noResult: true);
@@ -152,6 +168,7 @@ class ChatMessage {
     required this.role,
     required this.content,
     DateTime? timestamp,
+    this.actions = const [],
   }) : timestamp = timestamp ?? DateTime.now();
 
   final int? id;
@@ -159,12 +176,30 @@ class ChatMessage {
   final String content;
   final DateTime timestamp;
 
-  factory ChatMessage.fromRow(Map<String, dynamic> row) => ChatMessage(
-        id: row['id'] as int?,
-        role: row['role'] as String,
-        content: row['content'] as String,
-        timestamp: DateTime.tryParse(row['timestamp'] as String? ?? ''),
-      );
+  /// Optional contextual action buttons. Persisted as JSON in the DB.
+  final List<ResultAction> actions;
+
+  factory ChatMessage.fromRow(Map<String, dynamic> row) {
+    final actionsRaw = row['actions'] as String?;
+    final actions = <ResultAction>[];
+    if (actionsRaw != null && actionsRaw.isNotEmpty) {
+      try {
+        final list = jsonDecode(actionsRaw) as List;
+        for (final item in list) {
+          actions.add(ResultAction.fromJson(item as Map<String, dynamic>));
+        }
+      } catch (_) {
+        // Malformed JSON — ignore.
+      }
+    }
+    return ChatMessage(
+      id: row['id'] as int?,
+      role: row['role'] as String,
+      content: row['content'] as String,
+      timestamp: DateTime.tryParse(row['timestamp'] as String? ?? ''),
+      actions: actions,
+    );
+  }
 }
 
 final chatHistoryServiceProvider = Provider<ChatHistoryService>(

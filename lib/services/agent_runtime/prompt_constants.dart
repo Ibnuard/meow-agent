@@ -14,13 +14,14 @@ class PromptConstants {
   /// System rules always enforced regardless of SOUL.md content.
   /// Use [language] placeholder for the resolved language label.
   static String systemRules(String language) => '''SYSTEM RULES (always enforced):
-- Default response language: $language, unless user explicitly switches.
+- Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
 - Ask the user before sensitive or destructive actions.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
-- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
+- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
+- AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
 
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 
@@ -44,10 +45,18 @@ This is the user's first message. Before handling their request, politely ask wh
       'You are an AI agent runtime analyzer running on an Android device.';
 
   static const analyzeRequiresToolsRules = '''Rules for requires_tools:
-- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps
+- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files
 - Set true for phrases like: "buka [app]", "open [app]", "launch [app]", "buka [url]", "pergi ke [url]"
 - Set false if user is chatting, asking questions, or requesting information only
-- When in doubt and a tool exists that matches the request, set true''';
+- Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
+- When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
+
+Ambiguity examples (must set requires_tools=false and populate missing_info):
+- "jadwal jam 8" → missing_info: ["jam 8 pagi atau malam?"]
+- "jam 10 saya ingin ada jadwal mabar" → missing_info: ["jam 10 pagi atau malam?"]
+- "buatkan note" without subject → missing_info: ["judul dan isi notenya apa?"]
+- "ingetin meeting besok" → missing_info: ["jam berapa meetingnya?"]
+- "hapus itu" with no clear target → missing_info: ["yang mana yang mau dihapus?"]''';
 
   static const analyzeExamples = '''Examples that require tools:
 - "buka wa" → app.resolve("wa") then app.open(packageName)
@@ -68,8 +77,10 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "goal": "one sentence describing what user wants",
   "requires_tools": true/false,
   "risk": "safe/sensitive/dangerous",
-  "missing_info": []
-}''';
+  "missing_info": ["clarifying question 1", "clarifying question 2"]
+}
+
+If missing_info has items, requires_tools MUST be false.''';
 
   // ─── Planner ───────────────────────────────────────────────────────────────
 
@@ -123,13 +134,24 @@ If you need more info from the user:
 
   static const reviewIntro = 'You are an AI agent reviewer.';
 
+  static String reviewRulesFor(String language) => '''CRITICAL RULES for final_response:
+- Reply in $language. Match the user's language exactly. Never switch languages.
+- NEVER use technical phrasing like "Step 1 completed", "execution plan", "tool executed", "with ID xxx".
+- NEVER mention internal tool names (e.g. "notes.create", "clipboard.write").
+- NEVER include internal IDs in the reply (e.g. "note_13ff8f68").
+- Speak as a helpful assistant who just did the task naturally.
+- Be concise (1–2 short sentences).
+- If success, confirm what was done in human terms (e.g. "Sudah saya buatkan catatan tentang AI.").
+- If failed, explain what went wrong in plain language and suggest a next step.''';
+
+  /// Backward-compat stub. Prefer reviewRulesFor(language).
   static const reviewRules = '''CRITICAL RULES for final_response:
 - Reply in the SAME language as the user's original request (Indonesian if they used Indonesian).
 - NEVER mention internal tool names like "clipboard.write", "app.open", "intent.open_url".
 - NEVER say "the X tool executed successfully" or similar technical phrasing.
 - Speak naturally as a helpful assistant who just did the task.
 - Be concise (1-2 short sentences).
-- If the tool succeeded, confirm what was done in human terms (e.g., "Sudah saya tulis ke clipboard." or "WhatsApp sudah dibuka.").
+- If the tool succeeded, confirm what was done in human terms.
 - If it failed, explain what went wrong in plain language and suggest a next step.''';
 
   static const reviewResponseFormat =

@@ -175,6 +175,26 @@ class AgentRuntimeEngine {
         return _fail('Failed to analyze request.', logger);
       }
 
+      // If analyzer detected ambiguity, ask user before doing anything else.
+      final missingInfo = (analysis['missing_info'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const <String>[];
+      if (missingInfo.isNotEmpty) {
+        state = AgentRuntimeState.askingUser;
+        final question = missingInfo.length == 1
+            ? missingInfo.first
+            : missingInfo.map((q) => '- $q').join('\n');
+        logger.logFinalResponse(question);
+        return AgentRuntimeResponse(
+          finalMessage: question,
+          success: true,
+          state: state,
+          events: logger.events,
+        );
+      }
+
       // If no tools required, respond directly with full context.
       final requiresTools = analysis['requires_tools'] == true;
       if (!requiresTools) {
@@ -354,6 +374,7 @@ class AgentRuntimeEngine {
         currentStep: 1,
         userMessage: request.userMessage,
         logger: logger,
+        language: languageLabelFromCode(languageCode),
       );
       emit(logger.events.last);
 
@@ -371,6 +392,7 @@ class AgentRuntimeEngine {
           success: true,
           state: AgentRuntimeState.done,
           events: logger.events,
+          actions: result.actions,
         );
       }
 
@@ -381,6 +403,7 @@ class AgentRuntimeEngine {
         success: result.success,
         state: AgentRuntimeState.done,
         events: logger.events,
+        actions: result.success ? result.actions : const [],
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
@@ -542,6 +565,7 @@ class AgentRuntimeEngine {
           currentStep: currentStep,
           userMessage: request.userMessage,
           logger: logger,
+          language: languageLabelFromCode(languageCode),
         );
         emit(logger.events.last);
 
@@ -567,6 +591,7 @@ class AgentRuntimeEngine {
             success: true,
             state: AgentRuntimeState.done,
             events: logger.events,
+            actions: result.success ? result.actions : const [],
           );
         }
 
