@@ -166,6 +166,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         fontWeight: FontWeight.w700,
                         color: cs.onSurfaceVariant.withValues(alpha: 0.5),
                       ),
+                      filled: false,
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -200,6 +201,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         size: 18,
                         color: cs.onSurfaceVariant,
                       ),
+                      filled: false,
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14,
@@ -213,9 +215,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
                 // Content field.
                 Container(
-                  constraints: BoxConstraints(
-                    minHeight: MediaQuery.of(context).size.height * 0.4,
-                  ),
                   decoration: BoxDecoration(
                     color: extras.card,
                     borderRadius: BorderRadius.circular(14),
@@ -238,6 +237,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                         fontSize: 14,
                         color: cs.onSurfaceVariant.withValues(alpha: 0.5),
                       ),
+                      filled: false,
                       border: InputBorder.none,
                       contentPadding: const EdgeInsets.all(16),
                     ),

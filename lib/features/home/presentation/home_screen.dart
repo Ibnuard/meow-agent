@@ -184,12 +184,16 @@ class _ModulesSection extends ConsumerWidget {
                   );
                 }
 
-                return ListView.builder(
-                  itemCount: modules.length,
-                  itemBuilder: (context, i) {
-                    final module = modules[i];
-                    return _ModuleCard(module: module, s: s);
-                  },
+                return GridView.count(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 0.9,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: modules
+                      .map((m) => _ModuleCard(module: m, s: s))
+                      .toList(),
                 );
               },
             ),
@@ -213,59 +217,58 @@ class _ModuleCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => context.push('/modules/${module.id}'),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
         decoration: BoxDecoration(
           color: extras.card,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: extras.subtleBorder),
         ),
-        child: Row(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: cs.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(11),
               ),
               alignment: Alignment.center,
               child: Text(
                 module.icon,
-                style: const TextStyle(fontSize: 22),
+                style: const TextStyle(fontSize: 19),
               ),
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    module.name,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    module.enabled ? s.active : s.disabled,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: module.enabled
-                          ? cs.primary
-                          : cs.onSurfaceVariant,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 8),
+            Text(
+              module.name,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: cs.onSurface,
+                height: 1.2,
               ),
             ),
-            Icon(
-              Icons.chevron_right_rounded,
-              color: cs.onSurfaceVariant,
-              size: 20,
+            const SizedBox(height: 5),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: module.enabled
+                    ? cs.primary.withValues(alpha: 0.1)
+                    : cs.onSurfaceVariant.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                module.enabled ? s.active : s.disabled,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w500,
+                  color: module.enabled ? cs.primary : cs.onSurfaceVariant,
+                ),
+              ),
             ),
           ],
         ),

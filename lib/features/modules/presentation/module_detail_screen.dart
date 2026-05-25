@@ -467,8 +467,40 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
           const SizedBox(height: 20),
 
+          // Notes module: show "Open Notes" button when enabled.
+          if (module.id == 'notes' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => context.push('/notes'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.note_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      isId ? 'Buka Catatan' : 'Open Notes',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           Text(
-            isId ? 'Pemicu' : 'Triggers',
+            isId ? 'Fitur & Izin' : 'Feature & Permission',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,

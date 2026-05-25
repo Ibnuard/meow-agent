@@ -37,7 +37,7 @@ class NotesTools {
         );
       }
       final tags = (args['tags'] as List?)?.cast<String>() ?? [];
-      final source = args['source'] as String? ?? 'runtime';
+      final source = args['source'] as String? ?? 'agent';
       final note = await _repo.createNote(
         title: title,
         content: content,
