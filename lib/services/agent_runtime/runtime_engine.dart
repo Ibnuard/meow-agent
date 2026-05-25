@@ -137,6 +137,7 @@ class AgentRuntimeEngine {
 
       // 1. Load workspace.
       final wsName = request.agentName.isNotEmpty ? request.agentName : request.agentId;
+      toolRouter.agentName = wsName;
       await workspaceLoader.ensureWorkspace(wsName);
       final workspace = await workspaceLoader.load(wsName);
       // Tool list comes from the ToolRouter registry (system source of truth),

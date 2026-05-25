@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../../features/modules/files/files_tools.dart';
 import '../../features/modules/notes/notes_tools.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
 import '../../features/modules/notification_intelligence/notification_service.dart';
@@ -12,7 +13,10 @@ import 'runtime_models.dart';
 /// Routes tool calls to their implementations.
 /// Validates tool existence and enforces risk/confirmation rules.
 class ToolRouter {
-  ToolRouter();
+  ToolRouter({this.agentName = ''});
+
+  /// The current agent name — used by workspace-scoped tools (files module).
+  String agentName;
 
   /// Registry of all known tools with their definitions.
   final Map<String, ToolDefinition> _registry = {
@@ -285,6 +289,68 @@ class ToolRouter {
       },
     ),
 
+    // ─── Files Module ──────────────────────────────────────────────────────────
+
+    'files.create': const ToolDefinition(
+      name: 'files.create',
+      description: 'Create a new file in the agent workspace. Fails if file already exists.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'path': 'string (required, relative to workspace)',
+        'content': 'string (optional, file content)',
+      },
+    ),
+    'files.read': const ToolDefinition(
+      name: 'files.read',
+      description: 'Read the content of a file in the agent workspace.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'path': 'string (required, relative to workspace)'},
+    ),
+    'files.write': const ToolDefinition(
+      name: 'files.write',
+      description: 'Write or overwrite content to a file in the agent workspace.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'path': 'string (required, relative to workspace)',
+        'content': 'string (required)',
+        'append': 'bool (optional, default false)',
+      },
+    ),
+    'files.delete': const ToolDefinition(
+      name: 'files.delete',
+      description: 'Delete a file or directory in the agent workspace. Requires confirmation.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'path': 'string (required, relative to workspace)'},
+    ),
+    'files.list': const ToolDefinition(
+      name: 'files.list',
+      description: 'List files and directories in the agent workspace. Empty path = workspace root.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'path': 'string (optional, relative to workspace, empty = root)'},
+    ),
+    'files.move': const ToolDefinition(
+      name: 'files.move',
+      description: 'Move or rename a file/directory within the agent workspace.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'from': 'string (required, relative source path)',
+        'to': 'string (required, relative destination path)',
+      },
+    ),
+    'files.mkdir': const ToolDefinition(
+      name: 'files.mkdir',
+      description: 'Create a directory in the agent workspace.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'path': 'string (required, relative to workspace)'},
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -438,6 +504,20 @@ class ToolRouter {
         return _notesTools().executeDelete(request.args);
       case 'notes.export':
         return _notesTools().executeExport(request.args);
+      case 'files.create':
+        return _filesTools().executeCreate(request.args);
+      case 'files.read':
+        return _filesTools().executeRead(request.args);
+      case 'files.write':
+        return _filesTools().executeWrite(request.args);
+      case 'files.delete':
+        return _filesTools().executeDelete(request.args);
+      case 'files.list':
+        return _filesTools().executeList(request.args);
+      case 'files.move':
+        return _filesTools().executeMove(request.args);
+      case 'files.mkdir':
+        return _filesTools().executeMkdir(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -636,6 +716,8 @@ class ToolRouter {
       );
 
   NotesTools _notesTools() => NotesTools();
+
+  FilesTools _filesTools() => FilesTools(agentName: agentName);
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {

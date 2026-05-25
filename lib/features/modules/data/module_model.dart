@@ -137,11 +137,28 @@ class ModuleRegistry {
     },
   );
 
+  static const files = ModuleModel(
+    id: 'files',
+    name: 'Files',
+    description:
+        'Create, read, edit, delete, and organize files within the agent workspace. '
+        'Sandboxed to the workspace directory only.',
+    icon: '📁',
+    settings: {
+      'allow_create': true,
+      'allow_read': true,
+      'allow_write': true,
+      'allow_delete': true,
+      'allow_organize': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
     deviceContext,
     notificationIntelligence,
     notes,
+    files,
   ];
 }

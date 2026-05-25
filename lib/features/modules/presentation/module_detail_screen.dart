@@ -703,6 +703,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Require user confirmation before deleting a note.',
           ),
         };
+      case 'files':
+        return {
+          'allow_create': (
+            'Allow Create Files',
+            'Agent can create new files and directories in workspace.',
+          ),
+          'allow_read': (
+            'Allow Read Files',
+            'Agent can read file contents and list directories.',
+          ),
+          'allow_write': (
+            'Allow Write Files',
+            'Agent can edit and overwrite existing files.',
+          ),
+          'allow_delete': (
+            'Allow Delete Files',
+            'Agent can delete files and directories. Requires confirmation.',
+          ),
+          'allow_organize': (
+            'Allow Organize Files',
+            'Agent can move and rename files within workspace.',
+          ),
+        };
       default:
         return {};
     }
@@ -835,6 +858,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'require_confirm_delete': (
             'Konfirmasi Sebelum Hapus',
             'Wajib konfirmasi pengguna sebelum menghapus catatan.',
+          ),
+        };
+      case 'files':
+        return {
+          'allow_create': (
+            'Izinkan Buat File',
+            'Agen dapat membuat file dan direktori baru di workspace.',
+          ),
+          'allow_read': (
+            'Izinkan Baca File',
+            'Agen dapat membaca isi file dan melihat daftar direktori.',
+          ),
+          'allow_write': (
+            'Izinkan Tulis File',
+            'Agen dapat mengedit dan menimpa file yang ada.',
+          ),
+          'allow_delete': (
+            'Izinkan Hapus File',
+            'Agen dapat menghapus file dan direktori. Perlu konfirmasi.',
+          ),
+          'allow_organize': (
+            'Izinkan Organisasi File',
+            'Agen dapat memindahkan dan mengganti nama file di workspace.',
           ),
         };
       default:
