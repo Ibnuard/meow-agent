@@ -8,19 +8,22 @@ class AgentModel {
     String? id,
     required this.name,
     required this.providerId,
+    this.maxContextLength = 8191,
   }) : id = id ?? const Uuid().v4();
 
   final String id;
   final String name;
   final String providerId;
+  final int maxContextLength;
 
   bool get isComplete => name.trim().isNotEmpty && providerId.trim().isNotEmpty;
 
-  AgentModel copyWith({String? name, String? providerId}) {
+  AgentModel copyWith({String? name, String? providerId, int? maxContextLength}) {
     return AgentModel(
       id: id,
       name: name ?? this.name,
       providerId: providerId ?? this.providerId,
+      maxContextLength: maxContextLength ?? this.maxContextLength,
     );
   }
 
@@ -28,6 +31,7 @@ class AgentModel {
         'id': id,
         'name': name,
         'providerId': providerId,
+        'maxContextLength': maxContextLength,
       };
 
   static AgentModel fromJson(Map<String, dynamic> json) {
@@ -35,6 +39,7 @@ class AgentModel {
       id: json['id'] as String,
       name: (json['name'] as String?) ?? '',
       providerId: (json['providerId'] as String?) ?? '',
+      maxContextLength: (json['maxContextLength'] as int?) ?? 8191,
     );
   }
 
@@ -47,3 +52,4 @@ class AgentModel {
           .map(AgentModel.fromJson)
           .toList();
 }
+

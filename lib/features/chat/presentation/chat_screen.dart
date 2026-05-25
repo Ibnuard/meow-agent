@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../services/agent_runtime/context_compactor.dart';
+import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
@@ -183,6 +185,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _input.clear();
 
     if (enableAgentRuntimeV1) {
+      // Auto-compact if context threshold reached.
+      await _autoCompactIfNeeded();
       // Manager persists user msg + final reply, listener reloads history.
       final mgr = _ensureManager();
       // Optimistically show the user message immediately.
@@ -314,25 +318,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isFirstChat = _messages.where((m) => m.role == 'user').length <= 1;
 
     final systemPrompt = StringBuffer()
-      ..writeln('You are $name, an Android-native AI assistant.')
-      ..writeln('Be concise and helpful.')
-      ..writeln('Use Indonesian by default unless requested otherwise.')
-      ..writeln()
-      ..writeln('Behavior rules:')
-      ..writeln('- Keep responses concise and practical.')
-      ..writeln('- Avoid exaggerated futuristic language.')
-      ..writeln('- Ask before sensitive actions.');
+      ..write(PromptConstants.chatSystemPrompt(name));
 
     if (isFirstChat) {
       systemPrompt
         ..writeln()
-        ..writeln('FIRST INTRODUCTION RULE:')
-        ..writeln(
-            'This is the user\'s first message. Before handling their request, '
-            'politely ask what name or nickname they\'d like to be called. '
-            'Keep it natural and brief. Example: '
-            '"Sebelum lanjut, boleh tahu nama panggilan kamu? '
-            'Biar aku bisa lebih personal bantu kamu."');
+        ..writeln()
+        ..write(PromptConstants.firstIntroductionRule);
     }
 
     // Only send the last 20 messages as context to save tokens.
@@ -390,6 +382,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         response = 'Available commands:\n'
             '• /clear — Clear chat history & context\n'
             '• /help — Show this list\n'
+            '• /status — Show agent & context info\n'
             '• /reset — Reset context only\n'
             '• /model — Show current model info\n'
             '• /compact — Compact context window\n'
@@ -415,8 +408,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           response = '⚠️ No provider connected to this agent.';
         }
       case '/compact':
-        response = '✓ Context compacted. Older messages will be summarized '
-            'to save token space on next request.';
+        await _performCompaction();
+        return;
+      case '/status':
+        response = _buildStatusInfo();
       case '/cron':
         response = '📋 Scheduled Tasks (HEARTBEAT.md):\n'
             'No active cron jobs configured.\n'
@@ -429,6 +424,183 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _messages.add(botMsg));
     if (shouldPersist) _persistMessage(botMsg);
     _scrollToEnd();
+  }
+
+  /// Build /status info string.
+  String _buildStatusInfo() {
+    final agents = ref.read(agentListProvider);
+    final providers = ref.read(providerListProvider).value ?? [];
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    final provider = agent != null
+        ? providers.where((p) => p.id == agent.providerId).firstOrNull
+        : null;
+
+    final maxCtx = agent?.maxContextLength ?? 8191;
+    final usage = ContextCompactor.getUsageInfo(
+      messages: _messages,
+      maxContextLength: maxCtx,
+    );
+
+    final buf = StringBuffer()
+      ..writeln('### 📊 Status\n')
+      ..writeln('| | |')
+      ..writeln('|---|---|')
+      ..writeln('| **App** | Meow Agent v1.0.0 |')
+      ..writeln('| **Agent** | ${agent?.name ?? "default"} |')
+      ..writeln('| **Provider** | ${provider?.nickname ?? "—"} |')
+      ..writeln('| **Model** | ${provider?.model ?? "—"} |')
+      ..writeln()
+      ..writeln('### 📐 Context\n')
+      ..writeln('| | |')
+      ..writeln('|---|---|')
+      ..writeln('| **Messages** | ${_messages.length} |')
+      ..writeln('| **Est. tokens** | ~${usage.estimated} |')
+      ..writeln('| **Max context** | $maxCtx |')
+      ..writeln('| **Usage** | ${usage.percentage.toStringAsFixed(1)}% |')
+      ..writeln('| **Auto-compact** | ${usage.needsCompact ? "⚠️ threshold reached" : "✓ OK"} |');
+
+    return buf.toString().trim();
+  }
+
+  /// Perform manual /compact.
+  Future<void> _performCompaction() async {
+    final provider = _resolveProvider();
+    if (provider == null) {
+      final msg = ChatMessage(
+        role: 'assistant',
+        content: '⚠️ Cannot compact: no provider connected.',
+      );
+      setState(() => _messages.add(msg));
+      _persistMessage(msg);
+      _scrollToEnd();
+      return;
+    }
+
+    final agents = ref.read(agentListProvider);
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    final maxCtx = agent?.maxContextLength ?? 8191;
+
+    if (_messages.length <= 8) {
+      final msg = ChatMessage(
+        role: 'assistant',
+        content: '✓ Context sudah ringkas (${_messages.length} pesan, '
+            '~${ContextCompactor.estimateChatTokens(_messages)} tokens / $maxCtx max).',
+      );
+      setState(() => _messages.add(msg));
+      _persistMessage(msg);
+      _scrollToEnd();
+      return;
+    }
+
+    // Show compacting indicator.
+    final loadingMsg = ChatMessage(
+      role: 'assistant',
+      content: '⏳ Compacting context...',
+    );
+    setState(() => _messages.add(loadingMsg));
+    _scrollToEnd();
+
+    try {
+      final llmConfig = LlmProviderConfig(
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+      );
+      final compactor = ContextCompactor();
+      final compacted = await compactor.compact(
+        messages: _messages,
+        config: llmConfig,
+        keepRecent: 6,
+      );
+
+      // Clear old history and replace with compacted.
+      await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
+      for (final msg in compacted) {
+        await ref.read(chatHistoryServiceProvider).addMessage(_activeAgentId, msg);
+      }
+
+      // Remove loading indicator and reload.
+      setState(() {
+        _messages.remove(loadingMsg);
+        _messagesByAgent[_activeAgentId] = compacted;
+      });
+
+      final doneMsg = ChatMessage(
+        role: 'assistant',
+        content: '✓ Context compacted: ${compacted.length} pesan '
+            '(~${ContextCompactor.estimateChatTokens(compacted)} tokens).',
+      );
+      setState(() => _messages.add(doneMsg));
+      _persistMessage(doneMsg);
+      _scrollToEnd();
+    } catch (e) {
+      setState(() => _messages.remove(loadingMsg));
+      final errMsg = ChatMessage(
+        role: 'assistant',
+        content: '⚠️ Compact failed: $e',
+      );
+      setState(() => _messages.add(errMsg));
+      _persistMessage(errMsg);
+      _scrollToEnd();
+    }
+  }
+
+  /// Auto-compact if context exceeds 80% threshold.
+  Future<void> _autoCompactIfNeeded() async {
+    final agents = ref.read(agentListProvider);
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    final maxCtx = agent?.maxContextLength ?? 8191;
+
+    if (!ContextCompactor.needsCompaction(
+      messages: _messages,
+      maxContextLength: maxCtx,
+    )) {
+      return;
+    }
+
+    final provider = _resolveProvider();
+    if (provider == null) return;
+
+    try {
+      final llmConfig = LlmProviderConfig(
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        model: provider.model,
+      );
+      final compactor = ContextCompactor();
+      final compacted = await compactor.compact(
+        messages: _messages,
+        config: llmConfig,
+        keepRecent: 8,
+      );
+
+      // Persist compacted history.
+      await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
+      for (final msg in compacted) {
+        await ref.read(chatHistoryServiceProvider).addMessage(_activeAgentId, msg);
+      }
+
+      setState(() {
+        _messagesByAgent[_activeAgentId] = compacted;
+      });
+
+      // Notify user.
+      final infoMsg = ChatMessage(
+        role: 'assistant',
+        content: '🔄 Context auto-compacted (threshold 80% reached). '
+            '${compacted.length} pesan tersisa.',
+      );
+      setState(() => _messages.add(infoMsg));
+      _persistMessage(infoMsg);
+    } catch (_) {
+      // Silent fail for auto-compact — don't block the user's message.
+    }
   }
 
   void _switchAgent(String agentId) {
@@ -1029,6 +1201,7 @@ class _ChatInputState extends State<_ChatInput> {
   static const _commands = [
     _SlashCommand('/clear', 'Clear chat history & context'),
     _SlashCommand('/help', 'Show available commands'),
+    _SlashCommand('/status', 'Show agent & context info'),
     _SlashCommand('/reset', 'Reset context only'),
     _SlashCommand('/model', 'Show current model info'),
     _SlashCommand('/compact', 'Compact context window'),

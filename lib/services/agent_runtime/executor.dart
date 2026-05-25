@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
+import 'prompt_constants.dart';
 import 'prompt_templates.dart';
 import 'runtime_logger.dart';
 import 'runtime_models.dart';
@@ -60,7 +61,7 @@ class Executor {
     final response = await client.chat(
       config: config,
       messages: [
-        {'role': 'system', 'content': 'You are a JSON-only responder. Never use markdown.'},
+        {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
         {'role': 'user', 'content': prompt},
       ],
     );

@@ -8,6 +8,7 @@ import 'context_builder.dart';
 import 'executor.dart';
 import 'pending_action.dart';
 import 'planner.dart';
+import 'prompt_constants.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
@@ -38,14 +39,7 @@ class AgentRuntimeEngine {
   /// Always enforced regardless of SOUL.md content.
   String get _directResponseRules {
     final language = languageLabelFromCode(languageCode);
-    return '''SYSTEM RULES (always enforced):
-- Default response language: $language, unless user explicitly switches.
-- Be concise and practical. Avoid exaggerated or futuristic language.
-- Ask the user before sensitive or destructive actions.
-- Respect enabled permissions and modules. Do not assume capabilities.
-- If a tool fails or requires permission, stop and inform the user clearly.
-- If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
-- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
+    return PromptConstants.systemRules(language);
   }
 
   /// Pending actions per agent (agentId → PendingAction).

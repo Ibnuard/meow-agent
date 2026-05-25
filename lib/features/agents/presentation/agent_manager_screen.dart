@@ -29,6 +29,7 @@ class AgentManagerScreen extends ConsumerStatefulWidget {
 class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _contextLengthController = TextEditingController(text: '8191');
   String? _selectedProviderId;
   bool _saving = false;
   String? _existingId;
@@ -54,6 +55,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _existingId = existing.id;
       _nameController.text = existing.name;
       _selectedProviderId = existing.providerId;
+      _contextLengthController.text = existing.maxContextLength.toString();
       _loadWorkspacePath(existing.id);
     }
   }
@@ -66,6 +68,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _contextLengthController.dispose();
     super.dispose();
   }
 
@@ -79,10 +82,12 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
     }
     setState(() => _saving = true);
     try {
+      final maxCtx = int.tryParse(_contextLengthController.text.trim()) ?? 8191;
       final agent = AgentModel(
         id: _existingId,
         name: _nameController.text.trim(),
         providerId: _selectedProviderId!,
+        maxContextLength: maxCtx.clamp(512, 1000000),
       );
       await ref.read(agentListProvider.notifier).save(agent);
       if (!mounted) return;
@@ -380,6 +385,81 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             ),
 
             const SizedBox(height: 20),
+
+            // Max Context Length section.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    s.isId ? 'Konteks Maksimum' : 'Max Context Length',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: cs.onSurface,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    s.isId
+                        ? 'Batas token konteks untuk model ini. Sesuaikan dengan spesifikasi model yang dipakai.'
+                        : 'Token context limit for this model. Adjust based on your model specs.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                      color: cs.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: extras.inputFill,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: extras.inputBorder, width: 1),
+                    ),
+                    child: TextFormField(
+                      controller: _contextLengthController,
+                      keyboardType: TextInputType.number,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: cs.onSurface,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: '8191',
+                        hintStyle: TextStyle(
+                          color: extras.subtleText,
+                          fontSize: 15,
+                        ),
+                        suffixText: 'tokens',
+                        suffixStyle: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurfaceVariant,
+                        ),
+                        filled: false,
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                      ),
+                      validator: (v) {
+                        final n = int.tryParse(v ?? '');
+                        if (n == null || n < 512) {
+                          return s.isId ? 'Minimal 512 tokens' : 'Minimum 512 tokens';
+                        }
+                        return null;
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 28),
 
             // Save button.
             Padding(
