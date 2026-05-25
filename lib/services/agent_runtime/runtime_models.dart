@@ -22,11 +22,13 @@ class AgentRuntimeRequest {
   const AgentRuntimeRequest({
     required this.agentId,
     required this.userMessage,
+    this.agentName = '',
     this.recentMessages = const [],
     this.metadata = const {},
   });
 
   final String agentId;
+  final String agentName;
   final String userMessage;
   final List<ChatMessage> recentMessages;
   final Map<String, dynamic> metadata;

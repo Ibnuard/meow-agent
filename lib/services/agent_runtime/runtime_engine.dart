@@ -136,8 +136,9 @@ class AgentRuntimeEngine {
       }
 
       // 1. Load workspace.
-      await workspaceLoader.ensureWorkspace(request.agentId);
-      final workspace = await workspaceLoader.load(request.agentId);
+      final wsName = request.agentName.isNotEmpty ? request.agentName : request.agentId;
+      await workspaceLoader.ensureWorkspace(wsName);
+      final workspace = await workspaceLoader.load(wsName);
       // Tool list comes from the ToolRouter registry (system source of truth),
       // NOT from user-editable SKILLS.md template.
       final availableTools = toolRouter.buildAllToolDescriptions();
@@ -153,7 +154,7 @@ class AgentRuntimeEngine {
       logger.logStateChange(state, 'Analyzing user intent');
       emit(logger.events.last);
       await workspaceLoader.updateHeartbeat(
-        request.agentId,
+        wsName,
         state: state.name,
         task: request.userMessage,
       );
@@ -222,7 +223,7 @@ class AgentRuntimeEngine {
       logger.logStateChange(state, 'Creating execution plan');
       emit(logger.events.last);
       await workspaceLoader.updateHeartbeat(
-        request.agentId,
+        request.agentName.isNotEmpty ? request.agentName : request.agentId,
         state: state.name,
         task: request.userMessage,
       );
@@ -329,7 +330,7 @@ class AgentRuntimeEngine {
       );
 
       await workspaceLoader.updateHeartbeat(
-        request.agentId,
+        request.agentName.isNotEmpty ? request.agentName : request.agentId,
         state: state.name,
         task: request.userMessage,
         lastTool: pending.toolName,
@@ -425,7 +426,7 @@ class AgentRuntimeEngine {
             selection['final_response'] as String? ?? 'Task completed.';
         logger.logFinalResponse(finalResponse);
         await workspaceLoader.updateHeartbeat(
-          request.agentId,
+          request.agentName.isNotEmpty ? request.agentName : request.agentId,
           state: 'done',
           task: request.userMessage,
           lastResult: 'success',
@@ -485,7 +486,7 @@ class AgentRuntimeEngine {
           _pendingActions[request.agentId] = pending;
 
           await workspaceLoader.updateHeartbeat(
-            request.agentId,
+            request.agentName.isNotEmpty ? request.agentName : request.agentId,
             state: state.name,
             task: request.userMessage,
             lastTool: toolRequest.name,
@@ -521,7 +522,7 @@ class AgentRuntimeEngine {
         );
 
         await workspaceLoader.updateHeartbeat(
-          request.agentId,
+          request.agentName.isNotEmpty ? request.agentName : request.agentId,
           state: state.name,
           task: request.userMessage,
           lastTool: toolRequest.name,
@@ -554,7 +555,7 @@ class AgentRuntimeEngine {
               review['final_response'] as String? ?? 'Task completed.';
           logger.logFinalResponse(finalResponse);
           await workspaceLoader.updateHeartbeat(
-            request.agentId,
+            request.agentName.isNotEmpty ? request.agentName : request.agentId,
             state: 'done',
             task: request.userMessage,
             lastTool: toolRequest.name,

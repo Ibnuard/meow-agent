@@ -21,6 +21,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <!-- Cellular network type detection (4G/5G/LTE) on Android 10+. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- External storage for workspace files in Documents (API < 30 only). -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29"
+        tools:ignore="ScopedStorage" />
 
     <application
         android:label="meow_agent"

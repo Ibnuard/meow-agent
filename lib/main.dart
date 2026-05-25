@@ -7,7 +7,9 @@ import 'app/router.dart';
 import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
+import 'features/agents/data/agent_repository.dart';
 import 'features/modules/data/share_intent_service.dart';
+import 'services/workspace/workspace_migration_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,7 +59,25 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     _channel.setMethodCallHandler(_handleNativeCall);
 
     // Check for shared text after first frame (cold start from intent).
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkSharedText());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkSharedText();
+      _runWorkspaceMigration();
+    });
+  }
+
+  /// Migrate workspace files from internal to external Documents (one-time).
+  Future<void> _runWorkspaceMigration() async {
+    try {
+      final repo = ref.read(agentRepositoryProvider);
+      final agents = repo.loadAll();
+      await WorkspaceMigrationService.migrate(
+        agents.map((a) => (id: a.id, name: a.name)).toList(),
+      );
+      // Also sync workspaces for any agents missing external workspace.
+      await repo.syncWorkspaces();
+    } catch (_) {
+      // Non-fatal — migration can retry next launch.
+    }
   }
 
   @override

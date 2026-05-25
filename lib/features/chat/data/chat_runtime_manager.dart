@@ -106,10 +106,16 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     final debugMode = ref.read(llmDebugModeProvider);
 
+    final agents = ref.read(agentListProvider);
+    final agent = agents.where((a) => a.id == agentId).firstOrNull
+        ?? (agents.isNotEmpty ? agents.first : null);
+    final agentName = agent?.name ?? '';
+
     try {
       final response = await engine.run(
         AgentRuntimeRequest(
           agentId: agentId,
+          agentName: agentName,
           userMessage: userMessage,
           recentMessages: recentMessages,
         ),
@@ -177,10 +183,16 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     final debugMode = ref.read(llmDebugModeProvider);
 
+    final agents = ref.read(agentListProvider);
+    final agent = agents.where((a) => a.id == agentId).firstOrNull
+        ?? (agents.isNotEmpty ? agents.first : null);
+    final agentName = agent?.name ?? '';
+
     try {
       final response = await engine.executeConfirmed(
         AgentRuntimeRequest(
           agentId: agentId,
+          agentName: agentName,
           userMessage: '',
           recentMessages: const [],
         ),

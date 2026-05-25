@@ -6,8 +6,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.ActivityCompat
@@ -149,6 +151,24 @@ class MainActivity : FlutterActivity() {
                     "getNotificationById" -> {
                         val id = call.argument<String>("id") ?: ""
                         result.success(getNotificationById(id))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Storage channel — workspace Documents path and folder opener.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent.meow_agent/storage")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getDocumentsPath" -> {
+                        val docsDir = Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOCUMENTS
+                        )
+                        result.success(docsDir.absolutePath)
+                    }
+                    "openWorkspaceFolder" -> {
+                        val path = call.argument<String>("path") ?: ""
+                        result.success(openFolderInFileManager(path))
                     }
                     else -> result.notImplemented()
                 }
@@ -436,6 +456,33 @@ class MainActivity : FlutterActivity() {
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open URL: $url", e)
+            false
+        }
+    }
+
+    private fun openFolderInFileManager(path: String): Boolean {
+        // Ensure directory exists first.
+        val dir = java.io.File(path)
+        if (!dir.exists()) dir.mkdirs()
+
+        // Build the document ID in format: "primary:Documents/MeowAgent/Agents/Name"
+        val relativePath = path.removePrefix("/storage/emulated/0/")
+        val documentId = "primary:$relativePath"
+
+        return try {
+            // Use DocumentsContract API for proper URI encoding.
+            val uri = DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                documentId
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "vnd.android.document/directory")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to open folder: $path", e)
             false
         }
     }

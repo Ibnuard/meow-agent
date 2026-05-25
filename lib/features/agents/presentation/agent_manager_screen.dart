@@ -56,12 +56,15 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _nameController.text = existing.name;
       _selectedProviderId = existing.providerId;
       _contextLengthController.text = existing.maxContextLength.toString();
-      _loadWorkspacePath(existing.id);
+      _loadWorkspacePath(existing.id, agentName: existing.name);
     }
   }
 
-  Future<void> _loadWorkspacePath(String agentId) async {
-    final path = await ref.read(workspaceServiceProvider).getWorkspacePath(agentId);
+  Future<void> _loadWorkspacePath(String agentId, {String? agentName}) async {
+    final path = await ref.read(workspaceServiceProvider).getWorkspacePath(
+      agentId,
+      agentName: agentName,
+    );
     if (mounted) setState(() => _workspacePath = path);
   }
 

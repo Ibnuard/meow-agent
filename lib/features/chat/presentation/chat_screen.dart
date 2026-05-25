@@ -10,6 +10,7 @@ import '../../../app/theme.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/workspace/workspace_file_service.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
@@ -528,6 +529,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _messages.remove(loadingMsg);
         _messagesByAgent[_activeAgentId] = compacted;
       });
+
+      // Write summary snapshot to workspace.
+      final summaryText = compacted.first.content;
+      final agentName = agent?.name ?? '';
+      if (agentName.isNotEmpty) {
+        WorkspaceFileService.writeSummarySnapshot(agentName, summaryText);
+      }
 
       final doneMsg = ChatMessage(
         role: 'assistant',

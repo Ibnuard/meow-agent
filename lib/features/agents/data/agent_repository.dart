@@ -54,9 +54,12 @@ class AgentRepository {
   /// Deletes an agent and its workspace folder.
   Future<void> delete(String id) async {
     final all = loadAll();
+    final agent = all.where((a) => a.id == id).firstOrNull;
     all.removeWhere((a) => a.id == id);
     await _local.writeString(_kAgents, AgentModel.encodeList(all));
-    await _workspace.deleteWorkspace(id);
+    if (agent != null) {
+      await _workspace.deleteWorkspace(agent.name);
+    }
   }
 
   /// Ensures every saved agent has a workspace folder.
@@ -65,7 +68,10 @@ class AgentRepository {
   Future<void> syncWorkspaces() async {
     final all = loadAll();
     for (final agent in all) {
-      final path = await _workspace.getWorkspacePath(agent.id);
+      final path = await _workspace.getWorkspacePath(
+        agent.id,
+        agentName: agent.name,
+      );
       if (path == null) {
         await _workspace.createWorkspace(
           agentId: agent.id,

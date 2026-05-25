@@ -1,110 +1,101 @@
-import 'dart:io';
-
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
+import '../../../services/workspace/workspace_file_service.dart';
+import '../../../services/workspace/workspace_initializer.dart';
+import '../../../services/workspace/workspace_paths.dart';
 import '../../settings/data/app_language_provider.dart';
 
-/// Manages per-agent workspace folders.
+/// Manages per-agent workspace folders in external Documents storage.
 ///
 /// Each agent gets a folder at:
-///   `{appDocDir}/workspaces/{agentId}/`
+///   `/Documents/MeowAgent/Agents/{AgentName}/`
 ///
 /// Inside each workspace, 4 template files are generated on creation:
-///   - SKILLS.md  — defines what tools/modules the agent can use
 ///   - SOUL.md    — defines the agent's personality and system prompt
-///   - HEARTBEAT.md — defines periodic/background behaviors
 ///   - MEMORY.md  — persistent memory and context across sessions
+///   - SKILLS.md  — defines what tools/modules the agent can use
+///   - HEARTBEAT.md — defines periodic/background behaviors
 class WorkspaceService {
+  static const _channel = MethodChannel('com.meowagent.meow_agent/storage');
+
   /// Creates the workspace folder and generates template files for a new agent.
   ///
-  /// If the workspace already exists (e.g. editing an agent), this is a no-op.
+  /// If the workspace already exists, this is a no-op (files not overwritten).
   Future<String> createWorkspace({
     required String agentId,
     required String agentName,
     String languageCode = 'en',
   }) async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
-
-    if (await workspaceDir.exists()) {
-      return workspaceDir.path;
-    }
-
-    await workspaceDir.create(recursive: true);
-
-    // Generate template files.
-    await File('${workspaceDir.path}/SKILLS.md')
-        .writeAsString(_skillTemplate(agentName));
-    await File('${workspaceDir.path}/SOUL.md')
-        .writeAsString(_soulTemplate(agentName, languageCode));
-    await File('${workspaceDir.path}/HEARTBEAT.md')
-        .writeAsString(_heartbeatTemplate(agentName));
-    await File('${workspaceDir.path}/MEMORY.md')
-        .writeAsString(_memoryTemplate(agentName));
-
-    return workspaceDir.path;
+    return WorkspaceInitializer.initialize(
+      agentName: agentName,
+      languageCode: languageCode,
+    );
   }
 
   /// Returns the workspace path for an agent, or null if it doesn't exist.
-  /// Also migrates any legacy lowercase files (one-time cleanup).
-  Future<String?> getWorkspacePath(String agentId) async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
-    if (await workspaceDir.exists()) {
-      await _migrateLegacyFiles(workspaceDir);
-      return workspaceDir.path;
+  Future<String?> getWorkspacePath(String agentId, {String? agentName}) async {
+    if (agentName != null && agentName.isNotEmpty) {
+      final dir = await WorkspacePaths.getAgentWorkspace(agentName);
+      if (await dir.exists()) {
+        return dir.path;
+      }
+    }
+
+    // Fallback: check legacy internal path.
+    final legacyDir = await WorkspacePaths.getLegacyWorkspaceDir(agentId);
+    if (await legacyDir.exists()) {
+      return legacyDir.path;
     }
     return null;
   }
 
-  /// One-time cleanup: copy lowercase files to UPPERCASE and delete duplicates.
-  /// Also migrates legacy SKILL.md → SKILLS.md.
-  Future<void> _migrateLegacyFiles(Directory dir) async {
-    const pairs = {
-      'soul.md': 'SOUL.md',
-      'memory.md': 'MEMORY.md',
-      'skills.md': 'SKILLS.md',
-      'heartbeat.md': 'HEARTBEAT.md',
-    };
-    for (final entry in pairs.entries) {
-      final lower = File('${dir.path}/${entry.key}');
-      final upper = File('${dir.path}/${entry.value}');
-      if (await lower.exists()) {
-        if (!await upper.exists()) {
-          await upper.writeAsString(await lower.readAsString());
-        }
-        try {
-          await lower.delete();
-        } catch (_) {/* ignore */}
-      }
-    }
+  /// Get the display-friendly workspace path.
+  Future<String> getDisplayPath(String agentName) async {
+    return WorkspaceFileService.getWorkspaceDisplayPath(agentName);
+  }
 
-    // Legacy SKILL.md (uppercase singular) → SKILLS.md (plural).
-    final legacySkill = File('${dir.path}/SKILL.md');
-    final newSkills = File('${dir.path}/SKILLS.md');
-    if (await legacySkill.exists()) {
-      if (!await newSkills.exists()) {
-        await newSkills.writeAsString(await legacySkill.readAsString());
-      }
-      try {
-        await legacySkill.delete();
-      } catch (_) {/* ignore */}
-    }
+  /// Read a workspace file.
+  Future<String> readFile(String agentName, String filename) async {
+    return WorkspaceFileService.readFile(agentName, filename);
+  }
+
+  /// Write a workspace file.
+  Future<void> writeFile(String agentName, String filename, String content) async {
+    await WorkspaceFileService.writeFile(agentName, filename, content);
   }
 
   /// Deletes the workspace folder for an agent.
-  Future<void> deleteWorkspace(String agentId) async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final workspaceDir = Directory('${appDir.path}/workspaces/$agentId');
-    if (await workspaceDir.exists()) {
-      await workspaceDir.delete(recursive: true);
+  Future<void> deleteWorkspace(String agentName) async {
+    await WorkspaceInitializer.deleteWorkspace(agentName);
+  }
+
+  /// Rename workspace when agent name changes.
+  Future<void> renameWorkspace(String oldName, String newName) async {
+    await WorkspaceInitializer.renameWorkspace(oldName, newName);
+  }
+
+  /// Open workspace folder in Android file manager.
+  Future<bool> openInFileManager(String agentName) async {
+    try {
+      // Ensure directory exists first.
+      final dir = await WorkspacePaths.getAgentWorkspace(agentName);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      final result = await _channel.invokeMethod<bool>(
+        'openWorkspaceFolder',
+        {'path': dir.path},
+      );
+      return result ?? false;
+    } catch (_) {
+      return false;
     }
   }
 
-  // ─── Templates ──────────────────────────────────────────────────────
+  // ─── Templates (kept for backward compatibility) ────────────────────────
 
-  String _skillTemplate(String agentName) => '''# SKILLS.md — $agentName
+  String skillTemplate(String agentName) => '''# SKILLS.md — $agentName
 
 ## Overview
 
@@ -143,7 +134,7 @@ tools: []
 - Respect the safety mode defined in SOUL.md.
 ''';
 
-  String _soulTemplate(String agentName, String languageCode) {
+  String soulTemplate(String agentName, String languageCode) {
     final language = languageLabelFromCode(languageCode);
     return '''# SOUL.md
 
@@ -194,7 +185,7 @@ Communication Style:
 ''';
   }
 
-  String _heartbeatTemplate(String agentName) => '''# HEARTBEAT.md — $agentName
+  String heartbeatTemplate(String agentName) => '''# HEARTBEAT.md — $agentName
 
 ## Overview
 
@@ -211,16 +202,6 @@ Heartbeat tasks run on a schedule or in response to system events.
 tasks: []
 ```
 
-### Examples (inactive)
-
-```yaml
-# - schedule: "every 30 minutes"
-#   action: "Check notification queue and summarize unread"
-#
-# - schedule: "daily at 09:00"
-#   action: "Generate daily briefing from saved sources"
-```
-
 ---
 
 ## Event Triggers
@@ -229,18 +210,6 @@ tasks: []
 
 ```yaml
 triggers: []
-```
-
-### Examples (inactive)
-
-```yaml
-# - event: "notification_received"
-#   filter: "package:com.bank.app"
-#   action: "Extract amount and log to expense tracker"
-#
-# - event: "wifi_connected"
-#   filter: "ssid:HomeNetwork"
-#   action: "Sync pending file uploads"
 ```
 
 ---
@@ -253,7 +222,7 @@ triggers: []
 - Maximum background execution time per task: 30 seconds.
 ''';
 
-  String _memoryTemplate(String agentName) => '''# MEMORY.md — $agentName
+  String memoryTemplate(String agentName) => '''# MEMORY.md — $agentName
 
 ## Overview
 
