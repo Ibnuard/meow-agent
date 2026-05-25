@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../../features/modules/calendar/calendar_tools.dart';
 import '../../features/modules/files/files_tools.dart';
 import '../../features/modules/notes/notes_tools.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
@@ -351,6 +352,71 @@ class ToolRouter {
       inputSchema: {'path': 'string (required, relative to workspace)'},
     ),
 
+    // ─── Calendar Module ───────────────────────────────────────────────────────
+
+    'calendar.create': const ToolDefinition(
+      name: 'calendar.create',
+      description: 'Create a new calendar event.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'title': 'string (required)',
+        'startTime': 'ISO8601 string (required)',
+        'endTime': 'ISO8601 string (optional, defaults +1h)',
+        'description': 'string (optional)',
+        'allDay': 'bool (optional, default false)',
+        'color': 'string (optional, hex)',
+        'tags': 'list<string> (optional)',
+      },
+    ),
+    'calendar.today': const ToolDefinition(
+      name: 'calendar.today',
+      description: "Get today's calendar events.",
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'calendar.list': const ToolDefinition(
+      name: 'calendar.list',
+      description: 'List calendar events within a date range.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'from': 'ISO8601 string (required)',
+        'to': 'ISO8601 string (required)',
+        'limit': 'int (optional, default 20)',
+      },
+    ),
+    'calendar.read': const ToolDefinition(
+      name: 'calendar.read',
+      description: 'Read a single calendar event by ID.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'eventId': 'string (required)'},
+    ),
+    'calendar.update': const ToolDefinition(
+      name: 'calendar.update',
+      description: 'Update an existing calendar event.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'eventId': 'string (required)',
+        'title': 'string (optional)',
+        'description': 'string (optional)',
+        'startTime': 'ISO8601 (optional)',
+        'endTime': 'ISO8601 (optional)',
+        'allDay': 'bool (optional)',
+        'color': 'string (optional)',
+        'tags': 'list<string> (optional)',
+      },
+    ),
+    'calendar.delete': const ToolDefinition(
+      name: 'calendar.delete',
+      description: 'Delete a calendar event. Requires confirmation.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'eventId': 'string (required)'},
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -518,6 +584,18 @@ class ToolRouter {
         return _filesTools().executeMove(request.args);
       case 'files.mkdir':
         return _filesTools().executeMkdir(request.args);
+      case 'calendar.create':
+        return _calendarTools().executeCreate(request.args);
+      case 'calendar.today':
+        return _calendarTools().executeToday(request.args);
+      case 'calendar.list':
+        return _calendarTools().executeList(request.args);
+      case 'calendar.read':
+        return _calendarTools().executeRead(request.args);
+      case 'calendar.update':
+        return _calendarTools().executeUpdate(request.args);
+      case 'calendar.delete':
+        return _calendarTools().executeDelete(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -718,6 +796,8 @@ class ToolRouter {
   NotesTools _notesTools() => NotesTools();
 
   FilesTools _filesTools() => FilesTools(agentName: agentName);
+
+  CalendarTools _calendarTools() => CalendarTools();
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {

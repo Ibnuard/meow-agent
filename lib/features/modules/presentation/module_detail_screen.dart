@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../settings/data/app_language_provider.dart';
+import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
@@ -499,6 +500,43 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // Calendar module: show "Open Calendar" button when enabled.
+          if (module.id == 'calendar' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const CalendarScreen(),
+                ),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.calendar_month_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      isId ? 'Buka Kalender' : 'Open Calendar',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           Text(
             isId ? 'Fitur & Izin' : 'Feature & Permission',
             style: TextStyle(
@@ -726,6 +764,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Agent can move and rename files within workspace.',
           ),
         };
+      case 'calendar':
+        return {
+          'allow_create': (
+            'Allow Create Events',
+            'Agent can create new calendar events.',
+          ),
+          'allow_read': (
+            'Allow Read Events',
+            'Agent can read and list calendar events.',
+          ),
+          'allow_update': (
+            'Allow Update Events',
+            'Agent can modify existing calendar events.',
+          ),
+          'allow_delete': (
+            'Allow Delete Events',
+            'Agent can delete calendar events. Requires confirmation.',
+          ),
+        };
       default:
         return {};
     }
@@ -881,6 +938,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_organize': (
             'Izinkan Organisasi File',
             'Agen dapat memindahkan dan mengganti nama file di workspace.',
+          ),
+        };
+      case 'calendar':
+        return {
+          'allow_create': (
+            'Izinkan Buat Event',
+            'Agen dapat membuat event kalender baru.',
+          ),
+          'allow_read': (
+            'Izinkan Baca Event',
+            'Agen dapat membaca dan melihat daftar event.',
+          ),
+          'allow_update': (
+            'Izinkan Update Event',
+            'Agen dapat mengubah event kalender yang ada.',
+          ),
+          'allow_delete': (
+            'Izinkan Hapus Event',
+            'Agen dapat menghapus event kalender. Perlu konfirmasi.',
           ),
         };
       default:

@@ -153,6 +153,21 @@ class ModuleRegistry {
     },
   );
 
+  static const calendar = ModuleModel(
+    id: 'calendar',
+    name: 'Calendar',
+    description:
+        'Local calendar for scheduling events and reminders. '
+        'Agent can create and manage your schedule.',
+    icon: '📅',
+    settings: {
+      'allow_create': true,
+      'allow_read': true,
+      'allow_update': true,
+      'allow_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
@@ -160,5 +175,6 @@ class ModuleRegistry {
     notificationIntelligence,
     notes,
     files,
+    calendar,
   ];
 }
