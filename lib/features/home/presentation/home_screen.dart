@@ -185,10 +185,10 @@ class _ModulesSection extends ConsumerWidget {
                 }
 
                 return GridView.count(
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 10,
-                  crossAxisSpacing: 10,
-                  childAspectRatio: 0.9,
+                  crossAxisCount: 4,
+                  mainAxisSpacing: 8,
+                  crossAxisSpacing: 8,
+                  childAspectRatio: 0.78,
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   children: modules
@@ -217,7 +217,7 @@ class _ModuleCard extends StatelessWidget {
     return GestureDetector(
       onTap: () => context.push('/modules/${module.id}'),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 5),
         decoration: BoxDecoration(
           color: extras.card,
           borderRadius: BorderRadius.circular(16),
@@ -227,34 +227,34 @@ class _ModuleCard extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              width: 38,
-              height: 38,
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
                 color: cs.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(11),
+                borderRadius: BorderRadius.circular(10),
               ),
               alignment: Alignment.center,
               child: Text(
                 module.icon,
-                style: const TextStyle(fontSize: 19),
+                style: const TextStyle(fontSize: 16),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             Text(
               module.name,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
                 color: cs.onSurface,
-                height: 1.2,
+                height: 1.12,
               ),
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
               decoration: BoxDecoration(
                 color: module.enabled
                     ? cs.primary.withValues(alpha: 0.1)
@@ -264,7 +264,7 @@ class _ModuleCard extends StatelessWidget {
               child: Text(
                 module.enabled ? s.active : s.disabled,
                 style: TextStyle(
-                  fontSize: 9,
+                  fontSize: 8,
                   fontWeight: FontWeight.w500,
                   color: module.enabled ? cs.primary : cs.onSurfaceVariant,
                 ),

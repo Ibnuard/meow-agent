@@ -547,6 +547,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
               value: module.enabled,
+              activeTrackColor: cs.primary.withValues(alpha: 0.82),
+              activeThumbColor: Colors.white,
+              inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.22),
+              inactiveThumbColor: cs.onSurfaceVariant.withValues(alpha: 0.72),
               onChanged: _toggleEnabled,
             ),
           ),
@@ -659,50 +663,54 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
-          Text(
-            isId ? 'Fitur & Izin Agen' : 'Feature & Permission',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: cs.onSurface,
+          if (module.enabled) ...[
+            Text(
+              isId ? 'Fitur & Izin Agen' : 'Feature & Permission',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: extras.subtleBorder),
-            ),
-            child: Column(
-              children: module.settings.entries.map((entry) {
-                final label = settingLabels[entry.key];
-                return SwitchListTile(
-                  title: Text(
-                    label?.$1 ?? entry.key,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: cs.onSurface,
+            const SizedBox(height: 10),
+            Container(
+              decoration: BoxDecoration(
+                color: extras.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: extras.subtleBorder),
+              ),
+              child: Column(
+                children: module.settings.entries.map((entry) {
+                  final label = settingLabels[entry.key];
+                  return SwitchListTile(
+                    title: Text(
+                      label?.$1 ?? entry.key,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: cs.onSurface,
+                      ),
                     ),
-                  ),
-                  subtitle: label != null
-                      ? Text(
-                          label.$2,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        )
-                      : null,
-                  value: entry.value,
-                  onChanged: module.enabled
-                      ? (v) => _toggleSetting(entry.key, v)
-                      : null,
-                );
-              }).toList(),
+                    subtitle: label != null
+                        ? Text(
+                            label.$2,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          )
+                        : null,
+                    value: entry.value,
+                    activeTrackColor: cs.primary.withValues(alpha: 0.82),
+                    activeThumbColor: Colors.white,
+                    inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.22),
+                    inactiveThumbColor: cs.onSurfaceVariant.withValues(alpha: 0.72),
+                    onChanged: (v) => _toggleSetting(entry.key, v),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
+          ],
         ],
       ),
     );

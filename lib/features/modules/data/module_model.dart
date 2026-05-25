@@ -59,7 +59,7 @@ class ModuleModel {
 class ModuleRegistry {
   static const clipboardAi = ModuleModel(
     id: 'clipboard_ai',
-    name: 'Clipboard AI',
+    name: 'Clipboard',
     description:
         'Process copied text with AI. Translate, summarize, rewrite, '
         'or explain any text from any app.',
@@ -107,7 +107,7 @@ class ModuleRegistry {
 
   static const notificationIntelligence = ModuleModel(
     id: 'notification_intelligence',
-    name: 'Notification Intelligence',
+    name: 'Notification',
     description:
         'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.',
     icon: '🔔',

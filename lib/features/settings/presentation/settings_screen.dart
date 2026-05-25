@@ -340,33 +340,36 @@ class _SettingsTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              Icon(icon, size: 20, color: cs.onSurfaceVariant),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: cs.onSurface,
+        child: SizedBox(
+          height: 52,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Icon(icon, size: 19, color: cs.onSurfaceVariant),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: cs.onSurface,
+                    ),
                   ),
                 ),
-              ),
-              if (trailing != null) ...[
-                const SizedBox(width: 8),
-                trailing!,
+                if (trailing != null) ...[
+                  const SizedBox(width: 8),
+                  trailing!,
+                ],
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 19,
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                ),
               ],
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right_rounded,
-                size: 20,
-                color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -393,33 +396,40 @@ class _SettingsToggleTile extends StatelessWidget {
     final cs = context.cs;
     return InkWell(
       onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: cs.onSurfaceVariant),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: cs.onSurface,
+      child: SizedBox(
+        height: 52,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Icon(icon, size: 19, color: cs.onSurfaceVariant),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: cs.onSurface,
+                  ),
                 ),
               ),
-            ),
-            Transform.scale(
-              scale: 0.85,
-              child: Switch.adaptive(
-                value: value,
-                onChanged: onChanged,
-                activeTrackColor: cs.primary,
-                activeThumbColor: cs.onPrimary,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              SizedBox(
+                width: 44,
+                height: 30,
+                child: FittedBox(
+                  fit: BoxFit.contain,
+                  child: Switch.adaptive(
+                    value: value,
+                    onChanged: onChanged,
+                    activeTrackColor: cs.primary,
+                    activeThumbColor: cs.onPrimary,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

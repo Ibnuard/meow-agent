@@ -33,10 +33,18 @@ class ModuleRepository {
         merged[entry.key] = m.settings[entry.key] ?? false;
       }
       if (merged.length != m.settings.length ||
-          !merged.keys.every(m.settings.containsKey)) {
+          !merged.keys.every(m.settings.containsKey) ||
+          m.name != spec.name ||
+          m.description != spec.description ||
+          m.icon != spec.icon) {
         migrated = true;
       }
-      reconciled.add(m.copyWith(settings: merged));
+      reconciled.add(m.copyWith(
+        name: spec.name,
+        description: spec.description,
+        icon: spec.icon,
+        settings: merged,
+      ));
     }
     if (migrated) {
       await _save(reconciled);
