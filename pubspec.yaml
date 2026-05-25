@@ -34,6 +34,12 @@ dependencies:
   flutter_markdown: ^0.7.6
   syncfusion_flutter_calendar: ^28.1.33
 
+  # Workflow scheduling & notifications
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.10.0
+  workmanager: ^0.9.0+3
+  android_alarm_manager_plus: ^5.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -9,6 +9,9 @@ import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/modules/data/share_intent_service.dart';
+import 'features/modules/workflows/workflow_notification_service.dart';
+import 'features/modules/workflows/workflow_runner.dart';
+import 'features/modules/workflows/workflow_scheduler.dart';
 import 'services/workspace/workspace_migration_service.dart';
 
 Future<void> main() async {
@@ -62,6 +65,7 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkSharedText();
       _runWorkspaceMigration();
+      _initWorkflowServices();
     });
   }
 
@@ -77,6 +81,19 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       await repo.syncWorkspaces();
     } catch (_) {
       // Non-fatal — migration can retry next launch.
+    }
+  }
+
+  /// Initialize workflow notification service and reschedule active workflows.
+  Future<void> _initWorkflowServices() async {
+    try {
+      await WorkflowNotificationService.initialize();
+      await WorkflowScheduler.initialize();
+      await WorkflowScheduler.rescheduleAll();
+      // Start the in-app workflow runner (checks every 30s for due workflows).
+      ref.read(workflowRunnerProvider).start();
+    } catch (_) {
+      // Non-fatal.
     }
   }
 

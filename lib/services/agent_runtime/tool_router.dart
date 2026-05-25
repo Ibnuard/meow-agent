@@ -6,6 +6,7 @@ import '../../features/modules/data/module_repository.dart';
 import '../../features/modules/calendar/calendar_tools.dart';
 import '../../features/modules/files/files_tools.dart';
 import '../../features/modules/notes/notes_tools.dart';
+import '../../features/modules/workflows/workflow_tools.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
 import '../../features/modules/notification_intelligence/notification_service.dart';
 import 'app_alias_resolver.dart';
@@ -417,6 +418,66 @@ class ToolRouter {
       inputSchema: {'eventId': 'string (required)'},
     ),
 
+    // ─── Workflow Module ─────────────────────────────────────────────────────────────
+
+    'workflow.create': const ToolDefinition(
+      name: 'workflow.create',
+      description: 'Create a scheduled workflow that runs a prompt at specified times.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'title': 'string (required)',
+        'prompt': 'string (required) - the prompt to execute',
+        'trigger': 'object (required) - {type: schedule|interval, hour: int, minute: int, daysOfWeek: [1-7], intervalMinutes: int}',
+        'notification': 'object (optional) - {style: silent|normal|alarm, showResult: bool}',
+        'send_to_chat': 'bool (optional, default false)',
+      },
+    ),
+    'workflow.list': const ToolDefinition(
+      name: 'workflow.list',
+      description: 'List all workflows for this agent.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'workflow.read': const ToolDefinition(
+      name: 'workflow.read',
+      description: 'Read details of a specific workflow.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'id': 'string (required)'},
+    ),
+    'workflow.update': const ToolDefinition(
+      name: 'workflow.update',
+      description: 'Update an existing workflow.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'id': 'string (required)',
+        'title': 'string (optional)',
+        'prompt': 'string (optional)',
+        'trigger': 'object (optional)',
+        'notification': 'object (optional)',
+        'send_to_chat': 'bool (optional)',
+      },
+    ),
+    'workflow.delete': const ToolDefinition(
+      name: 'workflow.delete',
+      description: 'Delete a workflow. Requires confirmation.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'id': 'string (required)'},
+    ),
+    'workflow.toggle': const ToolDefinition(
+      name: 'workflow.toggle',
+      description: 'Enable or disable a workflow.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'id': 'string (required)',
+        'enabled': 'bool (required)',
+      },
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -596,6 +657,21 @@ class ToolRouter {
         return _calendarTools().executeUpdate(request.args);
       case 'calendar.delete':
         return _calendarTools().executeDelete(request.args);
+      case 'workflow.create':
+        return _workflowTools().create(
+          agentId: agentName,
+          args: request.args,
+        );
+      case 'workflow.list':
+        return _workflowTools().list(agentId: agentName);
+      case 'workflow.read':
+        return _workflowTools().read(args: request.args);
+      case 'workflow.update':
+        return _workflowTools().update(args: request.args);
+      case 'workflow.delete':
+        return _workflowTools().delete(args: request.args);
+      case 'workflow.toggle':
+        return _workflowTools().toggle(args: request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -798,6 +874,8 @@ class ToolRouter {
   FilesTools _filesTools() => FilesTools(agentName: agentName);
 
   CalendarTools _calendarTools() => CalendarTools();
+
+  WorkflowTools _workflowTools() => WorkflowTools();
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {

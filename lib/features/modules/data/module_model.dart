@@ -168,6 +168,21 @@ class ModuleRegistry {
     },
   );
 
+  static const workflows = ModuleModel(
+    id: 'workflows',
+    name: 'Workflow Manager',
+    description:
+        'Jadwalkan tugas otomatis agent dengan notifikasi. '
+        'Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.',
+    icon: '⚡',
+    settings: {
+      'allow_create': true,
+      'allow_read': true,
+      'allow_update': true,
+      'allow_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
@@ -176,5 +191,6 @@ class ModuleRegistry {
     notes,
     files,
     calendar,
+    workflows,
   ];
 }

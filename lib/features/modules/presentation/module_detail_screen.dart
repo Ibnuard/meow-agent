@@ -9,6 +9,7 @@ import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../workflows/workflow_list_screen.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -316,10 +317,53 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Future<void> _toggleEnabled(bool value) async {
     if (_module == null) return;
+
+    // Workflow module requires SCHEDULE_EXACT_ALARM permission on Android 14+.
+    if (value && _module!.id == 'workflows') {
+      final granted = await _checkAlarmPermission();
+      if (!granted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.isId
+                ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
+                : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.'),
+            action: SnackBarAction(
+              label: s.isId ? 'Buka' : 'Open',
+              onPressed: _openAlarmSettings,
+            ),
+          ),
+        );
+        return;
+      }
+    }
+
     final updated = _module!.copyWith(enabled: value);
     await ref.read(moduleRepositoryProvider).update(updated);
     ref.invalidate(installedModulesProvider);
     setState(() => _module = updated);
+  }
+
+  /// Check if SCHEDULE_EXACT_ALARM permission is granted.
+  Future<bool> _checkAlarmPermission() async {
+    try {
+      const channel = MethodChannel('com.meowagent/alarm_permission');
+      final result = await channel.invokeMethod<bool>('canScheduleExactAlarms');
+      return result ?? false;
+    } catch (_) {
+      // If check fails (older Android), assume granted.
+      return true;
+    }
+  }
+
+  /// Open system alarm permission settings.
+  Future<void> _openAlarmSettings() async {
+    try {
+      const channel = MethodChannel('com.meowagent/alarm_permission');
+      await channel.invokeMethod('openAlarmSettings');
+    } catch (_) {
+      // Fallback: do nothing.
+    }
   }
 
   Future<void> _uninstall() async {
@@ -537,8 +581,45 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // Workflows module: show "Open Workflows" button when enabled.
+          if (module.id == 'workflows' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const WorkflowListScreen(),
+                ),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.schedule_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      isId ? 'Buka Workflows' : 'Open Workflows',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           Text(
-            isId ? 'Fitur & Izin' : 'Feature & Permission',
+            isId ? 'Fitur & Izin Agen' : 'Feature & Permission',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
@@ -599,6 +680,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis atau menghapus notifikasi.';
       case 'notes':
         return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
+      case 'files':
+        return 'Buat, baca, edit, hapus, dan kelola file di workspace agen. Terbatas hanya di direktori workspace.';
+      case 'calendar':
+        return 'Kalender lokal untuk menjadwalkan event dan pengingat. Agen dapat membuat dan mengelola jadwalmu.';
+      case 'workflows':
+        return 'Jadwalkan tugas otomatis agent dengan notifikasi. Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.';
       default:
         return module.description;
     }
@@ -783,6 +870,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Agent can delete calendar events. Requires confirmation.',
           ),
         };
+      case 'workflows':
+        return {
+          'allow_create': (
+            'Allow Create Workflows',
+            'Agent can create new scheduled workflows.',
+          ),
+          'allow_read': (
+            'Allow Read Workflows',
+            'Agent can list and view workflow details.',
+          ),
+          'allow_update': (
+            'Allow Update Workflows',
+            'Agent can modify existing workflows.',
+          ),
+          'allow_delete': (
+            'Allow Delete Workflows',
+            'Agent can delete workflows. Requires confirmation.',
+          ),
+        };
       default:
         return {};
     }
@@ -957,6 +1063,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_delete': (
             'Izinkan Hapus Event',
             'Agen dapat menghapus event kalender. Perlu konfirmasi.',
+          ),
+        };
+      case 'workflows':
+        return {
+          'allow_create': (
+            'Izinkan Buat Workflow',
+            'Agen dapat membuat workflow terjadwal baru.',
+          ),
+          'allow_read': (
+            'Izinkan Baca Workflow',
+            'Agen dapat melihat daftar dan detail workflow.',
+          ),
+          'allow_update': (
+            'Izinkan Update Workflow',
+            'Agen dapat mengubah workflow yang ada.',
+          ),
+          'allow_delete': (
+            'Izinkan Hapus Workflow',
+            'Agen dapat menghapus workflow. Perlu konfirmasi.',
           ),
         };
       default:

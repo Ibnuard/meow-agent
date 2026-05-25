@@ -16,6 +16,7 @@ import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../agents/data/workspace_service.dart';
 import '../../modules/calendar/calendar_screen.dart';
+import '../../modules/workflows/workflow_list_screen.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/app_language_provider.dart';
@@ -310,11 +311,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _handleResultAction(ResultAction action) async {
     switch (action.type) {
       case 'navigate':
-        // Special-case: calendar screen isn't in the router → push directly.
+        // Special-case screens not in the router → push directly.
         if (action.target == '/modules/calendar') {
           await Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const CalendarScreen()),
+          );
+        } else if (action.target == '/modules/workflows') {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const WorkflowListScreen()),
           );
         } else {
           if (!mounted) return;
@@ -1165,6 +1171,8 @@ class _ResultActionButton extends ConsumerWidget {
         return Icons.folder_open_rounded;
       case 'open_in_new_rounded':
         return Icons.open_in_new_rounded;
+      case 'schedule_rounded':
+        return Icons.schedule_rounded;
       default:
         return Icons.arrow_forward_rounded;
     }

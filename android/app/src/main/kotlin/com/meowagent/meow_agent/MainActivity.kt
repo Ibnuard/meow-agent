@@ -156,6 +156,33 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Alarm permission channel — check/request SCHEDULE_EXACT_ALARM.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/alarm_permission")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "canScheduleExactAlarms" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            val alarmManager = getSystemService(android.app.AlarmManager::class.java)
+                            result.success(alarmManager.canScheduleExactAlarms())
+                        } else {
+                            // Below Android 12, exact alarms are always allowed.
+                            result.success(true)
+                        }
+                    }
+                    "openAlarmSettings" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                        }
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         // Storage channel — workspace Documents path and folder opener.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent.meow_agent/storage")
             .setMethodCallHandler { call, result ->
