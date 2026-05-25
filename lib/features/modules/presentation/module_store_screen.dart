@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
 
@@ -16,9 +17,11 @@ class ModuleStoreScreen extends ConsumerWidget {
     final extras = context.extras;
     final installed = ref.watch(installedModulesProvider).value ?? [];
     final installedIds = installed.map((m) => m.id).toSet();
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Module Store')),
+      appBar: AppBar(title: Text(s.moduleStore)),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: ModuleRegistry.available.length,
@@ -64,7 +67,7 @@ class ModuleStoreScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        module.description,
+                        _moduleDescription(module, s),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -86,7 +89,7 @@ class ModuleStoreScreen extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          'Installed',
+                          s.installed,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -103,15 +106,14 @@ class ModuleStoreScreen extends ConsumerWidget {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content:
-                                    Text('${module.name} installed.'),
+                                content: Text(s.moduleInstalled(module.name)),
                                 duration: const Duration(seconds: 2),
                               ),
                             );
                             context.pop();
                           }
                         },
-                        child: const Text('Install'),
+                        child: Text(s.install),
                       ),
               ],
             ),
@@ -120,4 +122,21 @@ class ModuleStoreScreen extends ConsumerWidget {
       ),
     );
   }
+
+  String _moduleDescription(ModuleModel module, AppStrings s) {
+    if (!s.isId) return module.description;
+    switch (module.id) {
+      case 'clipboard_ai':
+        return 'Proses teks dari clipboard dengan AI. Terjemahkan, rangkum, tulis ulang, atau jelaskan teks apapun.';
+      case 'app_control':
+        return 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.';
+      case 'device_context':
+        return 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.';
+      case 'notification_intelligence':
+        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis.';
+      default:
+        return module.description;
+    }
+  }
 }
+

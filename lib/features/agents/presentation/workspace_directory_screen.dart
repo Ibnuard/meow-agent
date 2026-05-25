@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 
 /// Lists the workspace files for an agent.
-class WorkspaceDirectoryScreen extends StatefulWidget {
+class WorkspaceDirectoryScreen extends ConsumerStatefulWidget {
   const WorkspaceDirectoryScreen({
     super.key,
     required this.workspacePath,
@@ -17,11 +19,11 @@ class WorkspaceDirectoryScreen extends StatefulWidget {
   final String agentName;
 
   @override
-  State<WorkspaceDirectoryScreen> createState() =>
+  ConsumerState<WorkspaceDirectoryScreen> createState() =>
       _WorkspaceDirectoryScreenState();
 }
 
-class _WorkspaceDirectoryScreenState extends State<WorkspaceDirectoryScreen> {
+class _WorkspaceDirectoryScreenState extends ConsumerState<WorkspaceDirectoryScreen> {
   List<FileSystemEntity> _files = [];
 
   @override
@@ -176,7 +178,7 @@ class _WorkspaceDirectoryScreenState extends State<WorkspaceDirectoryScreen> {
 }
 
 /// Simple markdown file editor.
-class WorkspaceFileEditorScreen extends StatefulWidget {
+class WorkspaceFileEditorScreen extends ConsumerStatefulWidget {
   const WorkspaceFileEditorScreen({
     super.key,
     required this.filePath,
@@ -187,11 +189,11 @@ class WorkspaceFileEditorScreen extends StatefulWidget {
   final String fileName;
 
   @override
-  State<WorkspaceFileEditorScreen> createState() =>
+  ConsumerState<WorkspaceFileEditorScreen> createState() =>
       _WorkspaceFileEditorScreenState();
 }
 
-class _WorkspaceFileEditorScreenState extends State<WorkspaceFileEditorScreen> {
+class _WorkspaceFileEditorScreenState extends ConsumerState<WorkspaceFileEditorScreen> {
   final _controller = TextEditingController();
   bool _loading = true;
   bool _saving = false;
@@ -269,7 +271,7 @@ class _WorkspaceFileEditorScreenState extends State<WorkspaceFileEditorScreen> {
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Save'),
+                  : Text(AppStrings(resolveLanguageCode(ref.watch(appLanguageProvider))).save),
             ),
         ],
       ),

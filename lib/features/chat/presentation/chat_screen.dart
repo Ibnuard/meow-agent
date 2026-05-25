@@ -13,6 +13,7 @@ import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
 import '../data/chat_runtime_manager.dart';
@@ -28,6 +29,10 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
   final _input = TextEditingController();
   final _scroll = ScrollController();
   // Per-agent message history — paginated from local storage.
@@ -584,7 +589,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           Builder(
             builder: (ctx) => IconButton(
               icon: const Icon(Icons.people_outline_rounded),
-              tooltip: 'Switch Agent',
+              tooltip: s.switchAgent,
               onPressed: () => Scaffold.of(ctx).openEndDrawer(),
             ),
           ),
@@ -594,6 +599,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         agents: agents,
         currentAgentId: _activeAgentId,
         onSwitch: _switchAgent,
+        s: s,
       ),
       body: GestureDetector(
         onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
@@ -611,7 +617,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'No agent configured',
+                      s.noAgentConfigured,
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -620,7 +626,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Create an agent to start chatting.',
+                      s.createAgentToChat,
                       style: TextStyle(
                         fontSize: 13,
                         color: cs.onSurfaceVariant,
@@ -630,7 +636,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     TextButton.icon(
                       onPressed: () => context.push('/agents/new'),
                       icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add Agent'),
+                      label: Text(s.addAgent),
                     ),
                   ],
                 ),
@@ -649,7 +655,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                             ),
                           )
                         : _messages.isEmpty && !_sending
-                            ? const _ChatEmptyState()
+                            ? _ChatEmptyState(s: s)
                             : ListView.builder(
                             controller: _scroll,
                             padding:
@@ -710,6 +716,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               controller: _input,
               sending: _sending,
               onSend: _send,
+              s: s,
             ),
           ],
         ),
@@ -960,7 +967,8 @@ class _ThinkingBubbleState extends State<_ThinkingBubble>
 }
 
 class _ChatEmptyState extends StatelessWidget {
-  const _ChatEmptyState();
+  const _ChatEmptyState({required this.s});
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -978,7 +986,7 @@ class _ChatEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Say hi to your agent',
+              s.sayHiToAgent,
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -987,7 +995,7 @@ class _ChatEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Ask anything to get started.',
+              s.askAnythingToStart,
               style: TextStyle(
                 fontSize: 13,
                 color: cs.onSurfaceVariant,
@@ -1005,11 +1013,13 @@ class _ChatInput extends StatefulWidget {
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.s,
   });
 
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
+  final AppStrings s;
 
   @override
   State<_ChatInput> createState() => _ChatInputState();
@@ -1220,7 +1230,7 @@ class _ChatInputState extends State<_ChatInput> {
                   textInputAction: TextInputAction.send,
                   onSubmitted: (_) => widget.onSend(),
                   decoration: InputDecoration(
-                    hintText: 'Type a message',
+                    hintText: widget.s.typeMessage,
                     suffixIcon: IconButton(
                       icon: Icon(
                         Icons.attach_file_rounded,
@@ -1297,11 +1307,13 @@ class _AgentDrawer extends StatelessWidget {
     required this.agents,
     required this.currentAgentId,
     required this.onSwitch,
+    required this.s,
   });
 
   final List<AgentModel> agents;
   final String currentAgentId;
   final ValueChanged<String> onSwitch;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -1317,7 +1329,7 @@ class _AgentDrawer extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: Text(
-                'Agents',
+                s.agentListTitle,
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
@@ -1350,7 +1362,7 @@ class _AgentDrawer extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Create one to start chatting.',
+                            s.createAgentToChat,
                             style: TextStyle(
                               fontSize: 12,
                               color: cs.onSurfaceVariant,
@@ -1363,7 +1375,7 @@ class _AgentDrawer extends StatelessWidget {
                               context.push('/agents/new');
                             },
                             icon: const Icon(Icons.add_rounded, size: 18),
-                            label: const Text('Add Agent'),
+                            label: Text(s.addAgent),
                           ),
                         ],
                       ),

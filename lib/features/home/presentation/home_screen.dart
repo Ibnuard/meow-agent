@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../modules/data/module_model.dart';
 import '../../modules/data/module_repository.dart';
+import '../../settings/data/app_language_provider.dart';
 
 /// Home screen.
 ///
@@ -19,16 +20,18 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hasAgents = ref.watch(hasAgentsProvider);
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       body: SafeArea(
         child: Column(
           children: [
-            const _LogoHeader(),
+            _LogoHeader(s: s),
             Expanded(
               child: hasAgents
-                  ? const _ModulesSection()
-                  : const _SetupCallToAction(),
+                  ? _ModulesSection(s: s)
+                  : _SetupCallToAction(s: s),
             ),
           ],
         ),
@@ -38,7 +41,8 @@ class HomeScreen extends ConsumerWidget {
 }
 
 class _LogoHeader extends StatelessWidget {
-  const _LogoHeader();
+  const _LogoHeader({required this.s});
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -82,7 +86,7 @@ class _LogoHeader extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Android-native agentic AI',
+              s.appTagline,
               style: TextStyle(
                 fontSize: 12,
                 color: cs.onSurfaceVariant,
@@ -97,7 +101,8 @@ class _LogoHeader extends StatelessWidget {
 }
 
 class _ModulesSection extends ConsumerWidget {
-  const _ModulesSection();
+  const _ModulesSection({required this.s});
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -113,7 +118,7 @@ class _ModulesSection extends ConsumerWidget {
           Row(
             children: [
               Text(
-                'Modules',
+                s.modules,
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -124,7 +129,7 @@ class _ModulesSection extends ConsumerWidget {
               TextButton.icon(
                 onPressed: () => context.push('/modules/store'),
                 icon: const Icon(Icons.add_rounded, size: 18),
-                label: const Text('Add'),
+                label: Text(s.add),
               ),
             ],
           ),
@@ -134,8 +139,8 @@ class _ModulesSection extends ConsumerWidget {
               loading: () => const Center(
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              error: (e, _) => const Center(
-                child: Text('Failed to load modules.'),
+              error: (e, _) => Center(
+                child: Text(s.failedLoadModules),
               ),
               data: (modules) {
                 if (modules.isEmpty) {
@@ -157,7 +162,7 @@ class _ModulesSection extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'No modules yet',
+                            s.noModulesYet,
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
@@ -166,7 +171,7 @@ class _ModulesSection extends ConsumerWidget {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Tap "Add" to browse available modules.',
+                            s.noModulesBrowse,
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,
@@ -183,7 +188,7 @@ class _ModulesSection extends ConsumerWidget {
                   itemCount: modules.length,
                   itemBuilder: (context, i) {
                     final module = modules[i];
-                    return _ModuleCard(module: module);
+                    return _ModuleCard(module: module, s: s);
                   },
                 );
               },
@@ -196,8 +201,9 @@ class _ModulesSection extends ConsumerWidget {
 }
 
 class _ModuleCard extends StatelessWidget {
-  const _ModuleCard({required this.module});
+  const _ModuleCard({required this.module, required this.s});
   final ModuleModel module;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -244,7 +250,7 @@ class _ModuleCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    module.enabled ? 'Active' : 'Disabled',
+                    module.enabled ? s.active : s.disabled,
                     style: TextStyle(
                       fontSize: 12,
                       color: module.enabled
@@ -269,7 +275,8 @@ class _ModuleCard extends StatelessWidget {
 }
 
 class _SetupCallToAction extends StatelessWidget {
-  const _SetupCallToAction();
+  const _SetupCallToAction({required this.s});
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -297,7 +304,7 @@ class _SetupCallToAction extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           Text(
-            'Welcome to Meow Agent',
+            s.welcomeTitle,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 20,
@@ -307,8 +314,7 @@ class _SetupCallToAction extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Set up your first agent to get started. '
-            'Bring your own OpenAI-compatible API key.',
+            s.welcomeBody,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -322,7 +328,7 @@ class _SetupCallToAction extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: () => context.push(AppRoutes.addAgent),
               icon: const Icon(Icons.rocket_launch_rounded, size: 18),
-              label: const Text('Set Up'),
+              label: Text(s.setUp),
             ),
           ),
         ],

@@ -6,6 +6,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/llm/openai_compatible_client.dart';
+import '../data/app_language_provider.dart';
 import '../data/llm_provider_config.dart';
 import '../data/settings_repository.dart';
 
@@ -30,6 +31,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
   bool _saving = false;
   String? _testResult;
   bool? _testSuccess;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   @override
   void dispose() {
@@ -58,7 +64,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
     setState(() {
       _testing = false;
       _testSuccess = ok;
-      _testResult = ok ? 'Connection successful' : 'Connection failed';
+      _testResult = ok ? s.connectionOk : s.connectionFail;
     });
   }
 
@@ -85,7 +91,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Set Up New Agent'),
+        title: Text(s.setupNewAgent),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () {
@@ -139,7 +145,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Connect an OpenAI-compatible API as your agent brain.',
+                                s.newAgentDesc,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: cs.onSurfaceVariant,
@@ -158,21 +164,21 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
 
                 // Provider section.
                 MeowSection(
-                  title: 'Provider',
-                  subtitle: 'Enter your OpenAI-compatible endpoint details.',
+                  title: s.providerSection,
+                  subtitle: s.providerSetupSubtitle,
                   child: Column(
                     children: [
                       MeowInput(
                         controller: _baseUrlController,
-                        label: 'Base URL',
+                        label: s.baseUrl,
                         hint: 'https://api.openai.com/v1',
                         keyboardType: TextInputType.url,
                         validator: (v) {
                           final value = v?.trim() ?? '';
-                          if (value.isEmpty) return 'Base URL is required';
+                          if (value.isEmpty) return s.baseUrlRequired;
                           final uri = Uri.tryParse(value);
                           if (uri == null || !uri.hasScheme) {
-                            return 'Enter a valid URL (https://...)';
+                            return s.baseUrlInvalid;
                           }
                           return null;
                         },
@@ -180,10 +186,10 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       const SizedBox(height: 18),
                       MeowInput(
                         controller: _apiKeyController,
-                        label: 'API Key',
+                        label: s.apiKey,
                         hint: 'sk-...',
                         obscureText: _obscureKey,
-                        helper: 'Stored securely on this device only.',
+                        helper: s.apiKeyHelper,
                         suffixIcon: IconButton(
                           onPressed: () =>
                               setState(() => _obscureKey = !_obscureKey),
@@ -196,7 +202,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                         ),
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
-                            return 'API Key is required';
+                            return s.apiKeyRequired;
                           }
                           return null;
                         },
@@ -204,11 +210,11 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       const SizedBox(height: 18),
                       MeowInput(
                         controller: _modelController,
-                        label: 'Model',
+                        label: s.model,
                         hint: 'gpt-4.1-mini',
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
-                            return 'Model is required';
+                            return s.modelRequired;
                           }
                           return null;
                         },
@@ -269,7 +275,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                     children: [
                       Expanded(
                         child: MeowSecondaryButton(
-                          label: _testing ? 'Testing...' : 'Test',
+                          label: _testing ? s.testing : s.test,
                           icon: Icons.bolt_rounded,
                           loading: _testing,
                           onPressed:
@@ -280,7 +286,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       Expanded(
                         flex: 2,
                         child: MeowPrimaryButton(
-                          label: _saving ? 'Saving...' : 'Save & Continue',
+                          label: _saving ? s.saving : s.saveAndContinue,
                           icon: Icons.check_rounded,
                           loading: _saving,
                           onPressed: _saving ? null : _save,
@@ -296,8 +302,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Text(
-                    'Your API key is stored locally using encrypted storage. '
-                    'It never leaves the device except when calling your chosen provider.',
+                    s.privacyNote,
                     style: TextStyle(
                       fontSize: 12,
                       color: extras.subtleText,

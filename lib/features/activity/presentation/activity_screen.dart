@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../settings/data/app_language_provider.dart';
 
 /// Activity screen — placeholder for the agent's action log / history.
 class ActivityScreen extends ConsumerWidget {
@@ -10,8 +11,11 @@ class ActivityScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity')),
+      appBar: AppBar(title: Text(s.activity)),
       body: SafeArea(
         child: Center(
           child: Padding(
@@ -26,7 +30,7 @@ class ActivityScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'No activity yet',
+                  s.noActivityYet,
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -35,7 +39,7 @@ class ActivityScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Module actions and agent runs will appear here.',
+                  s.activityBody,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,

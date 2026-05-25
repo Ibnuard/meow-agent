@@ -23,6 +23,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     with WidgetsBindingObserver {
   ModuleModel? _module;
 
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -156,20 +161,23 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         final goSettings = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Permission Required'),
-            content: const Text(
-              'Foreground app detection requires the "Usage Access" '
-              'permission.\n\n'
-              'Tap "Open Settings" to grant it, then come back.',
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
+                    'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                  : 'Foreground app detection requires the "Usage Access" '
+                    'permission.\n\n'
+                    'Tap "Open Settings" to grant it, then come back.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
+                child: Text(s.cancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Open Settings'),
+                child: Text(s.openSettings),
               ),
             ],
           ),
@@ -209,20 +217,23 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         final goSettings = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Permission Required'),
-            content: const Text(
-              'Reading Do Not Disturb status requires '
-              '"Do Not Disturb access" permission.\n\n'
-              'Tap "Open Settings" to grant it, then come back.',
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
+                    'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                  : 'Reading Do Not Disturb status requires '
+                    '"Do Not Disturb access" permission.\n\n'
+                    'Tap "Open Settings" to grant it, then come back.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
+                child: Text(s.cancel),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Open Settings'),
+                child: Text(s.openSettings),
               ),
             ],
           ),
@@ -265,20 +276,24 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         final goSettings = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Permission Required'),
-            content: const Text(
-              'Reading notifications requires "Notification access" permission.\n\n'
-              'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
-              'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
+                    'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
+                    'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
+                  : 'Reading notifications requires "Notification access" permission.\n\n'
+                    'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
+                    'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Skip'),
+                child: Text(s.skip),
               ),
               TextButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Open Settings'),
+                child: Text(s.openSettings),
               ),
             ],
           ),
@@ -317,16 +332,18 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Uninstall Module'),
-        content: Text('Remove ${_module?.name ?? 'this module'}?'),
+        title: Text(s.uninstallModule),
+        content: Text(s.isId
+            ? 'Hapus ${_module?.name ?? 'modul ini'}?'
+            : 'Remove ${_module?.name ?? 'this module'}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Uninstall'),
+            child: Text(s.uninstall),
           ),
         ],
       ),

@@ -98,8 +98,8 @@ class AppStrings {
   String get llmDebugging => isId ? 'Debug LLM (Dev)' : 'LLM Debugging (Dev)';
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';
   String get aboutBody => isId
-      ? 'AI agentic Android-native.\nModular, sadar permission, dan BYOK.\n\nVersi 0.1.0'
-      : 'Android-native agentic AI.\nModular, permission-aware, and BYOK.\n\nVersion 0.1.0';
+      ? 'Mobile First Modular Agentic AI.\n\nVersi 0.1.0'
+      : 'Mobile First Modular Agentic AI.\n\nVersion 0.1.0';
 
   String get providerListTitle => isId ? 'Provider' : 'Providers';
   String get addProvider => isId ? 'Tambah Provider' : 'Add Provider';
@@ -178,4 +178,69 @@ class AppStrings {
       : 'Create your first agent to start chatting.';
   String get providerNotFound => isId ? 'Provider tidak ditemukan' : 'Provider not found';
   String get pleaseSelectProvider => isId ? 'Silakan pilih provider.' : 'Please select a provider.';
+
+  String get moduleStore => isId ? 'Daftar Modul' : 'Module List';
+  String get modules => isId ? 'Modul' : 'Modules';
+  String get install => isId ? 'Pasang' : 'Install';
+  String get installed => isId ? 'Terpasang' : 'Installed';
+  String moduleInstalled(String name) => isId ? '$name terpasang.' : '$name installed.';
+  String get active => isId ? 'Aktif' : 'Active';
+  String get disabled => isId ? 'Nonaktif' : 'Disabled';
+  String get failedLoadModules => isId ? 'Gagal memuat modul.' : 'Failed to load modules.';
+  String get noModulesYet => isId ? 'Belum ada modul' : 'No modules yet';
+  String get noModulesBrowse => isId
+      ? 'Tap "Tambah" untuk melihat modul yang tersedia.'
+      : 'Tap "Add" to browse available modules.';
+  String get welcomeTitle => isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
+  String get welcomeBody => isId
+      ? 'Siapkan agen pertamamu untuk mulai. Gunakan API key kompatibel OpenAI milikmu sendiri.'
+      : 'Set up your first agent to get started. Bring your own OpenAI-compatible API key.';
+  String get setUp => isId ? 'Siapkan' : 'Set Up';
+  String get appTagline => isId ? 'AI agentic Android-native' : 'Android-native agentic AI';
+
+  String get permissionRequired => isId ? 'Izin Diperlukan' : 'Permission Required';
+  String get openSettings => isId ? 'Buka Pengaturan' : 'Open Settings';
+  String get skip => isId ? 'Lewati' : 'Skip';
+  String get uninstallModule => isId ? 'Hapus Modul' : 'Uninstall Module';
+  String get uninstall => isId ? 'Hapus' : 'Uninstall';
+  String get uninstallModuleBody => isId
+      ? 'Hapus modul ini dari Meow Agent? Pengaturan modul akan ikut dihapus.'
+      : 'Uninstall this module from Meow Agent? Module settings will be removed.';
+
+  String get noActivityYet => isId ? 'Belum ada aktivitas' : 'No activity yet';
+  String get activityBody => isId
+      ? 'Aksi modul dan proses agen akan muncul di sini.'
+      : 'Module actions and agent runs will appear here.';
+
+  String get copyResult => isId ? 'Salin Hasil' : 'Copy Result';
+  String get save => isId ? 'Simpan' : 'Save';
+  String get copiedToClipboard => isId ? 'Disalin ke clipboard.' : 'Copied to clipboard.';
+  String get result => isId ? 'Hasil' : 'Result';
+  String get chooseActionAbove => isId
+      ? 'Pilih aksi di atas untuk memproses teks.'
+      : 'Choose an action above to process the text.';
+
+  String get noAgentConfigured => isId ? 'Belum ada agen dikonfigurasi' : 'No agent configured';
+  String get createAgentToChat => isId
+      ? 'Buat agen untuk mulai mengobrol.'
+      : 'Create an agent to start chatting.';
+  String get sayHiToAgent => isId ? 'Sapa agenmu' : 'Say hi to your agent';
+  String get askAnythingToStart => isId
+      ? 'Tanyakan apa saja untuk memulai.'
+      : 'Ask anything to get started.';
+
+  String get newAgent => isId ? 'Agen Baru' : 'New Agent';
+  String get newAgentDesc => isId
+      ? 'Hubungkan API kompatibel OpenAI sebagai otak agen.'
+      : 'Connect an OpenAI-compatible API as your agent brain.';
+  String get providerSetupSubtitle => isId
+      ? 'Masukkan detail endpoint kompatibel OpenAI.'
+      : 'Enter your OpenAI-compatible endpoint details.';
+  String get saveAndContinue => isId ? 'Simpan & Lanjut' : 'Save & Continue';
+  String get privacyNote => isId
+      ? 'API key kamu disimpan secara lokal menggunakan penyimpanan terenkripsi. Tidak pernah keluar dari perangkat kecuali saat memanggil provider pilihanmu.'
+      : 'Your API key is stored locally using encrypted storage. It never leaves the device except when calling your chosen provider.';
+
+  String get switchAgent => isId ? 'Ganti Agen' : 'Switch Agent';
+  String get typeMessage => isId ? 'Ketik pesan' : 'Type a message';
 }

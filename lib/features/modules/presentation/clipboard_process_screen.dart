@@ -8,6 +8,7 @@ import '../../../app/theme.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_repository.dart';
+import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 
 /// Actions available for processing shared/clipboard text.
@@ -44,6 +45,11 @@ class _ClipboardProcessScreenState
   ClipboardAction? _selectedAction;
   String? _selectedAgentId;
   final _customPrompt = TextEditingController();
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   @override
   void initState() {
@@ -258,7 +264,7 @@ class _ClipboardProcessScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Clipboard AI'),
+        title: const Text('Clipboard AI'),  // Brand name — keep original
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () {
@@ -525,7 +531,7 @@ class _ClipboardProcessScreenState
                         )
                       : Center(
                           child: Text(
-                            'Choose an action above to process the text.',
+                            s.chooseActionAbove,
                             style: TextStyle(
                               fontSize: 13,
                               color: cs.onSurfaceVariant,
@@ -554,7 +560,7 @@ class _ClipboardProcessScreenState
                       );
                     },
                     icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: const Text('Copy Result'),
+                    label: Text(s.copyResult),
                   ),
                 ),
               ),
