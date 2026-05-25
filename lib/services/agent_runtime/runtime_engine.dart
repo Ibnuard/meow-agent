@@ -9,6 +9,7 @@ import 'executor.dart';
 import 'pending_action.dart';
 import 'planner.dart';
 import 'runtime_logger.dart';
+import 'runtime_memory.dart';
 import 'runtime_models.dart';
 import 'tool_router.dart';
 import 'workspace_loader.dart';
@@ -49,6 +50,11 @@ class AgentRuntimeEngine {
 
   /// Pending actions per agent (agentId → PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
+
+  /// Per-agent scratchpad: remembers recent tool calls + structured results.
+  /// Persists across turns so the planner can reference prior tool output
+  /// (e.g. noteId from notes.search when user later says "hapus yang itu").
+  final RuntimeMemory _memory = RuntimeMemory();
 
   /// Get pending action for an agent.
   PendingAction? getPendingAction(String agentId) => _pendingActions[agentId];
@@ -165,6 +171,7 @@ class AgentRuntimeEngine {
         logger: logger,
         recentMessages: recentMsgs,
         pendingAction: pending,
+        recentToolMemory: _memory.formatForPrompt(request.agentId),
       );
       emit(logger.events.last);
 
@@ -245,6 +252,7 @@ class AgentRuntimeEngine {
         availableTools: availableTools,
         logger: logger,
         emit: emit,
+        memorySnapshot: _memory.formatForPrompt(request.agentId),
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
@@ -317,6 +325,15 @@ class AgentRuntimeEngine {
       logger.logToolResult(result);
       emit(logger.events.last);
 
+      _memory.record(
+        agentId: request.agentId,
+        toolName: pending.toolName,
+        args: pending.toolArgs,
+        data: result.data,
+        success: result.success,
+        error: result.error,
+      );
+
       await workspaceLoader.updateHeartbeat(
         request.agentId,
         state: state.name,
@@ -382,6 +399,7 @@ class AgentRuntimeEngine {
     required List<String> availableTools,
     required RuntimeLogger logger,
     required void Function(RuntimeEvent) emit,
+    required String memorySnapshot,
   }) async {
     final previousResults = <Map<String, dynamic>>[];
     var currentStep = 1;
@@ -398,6 +416,7 @@ class AgentRuntimeEngine {
         previousResults: previousResults,
         availableTools: availableTools,
         logger: logger,
+        recentToolMemory: memorySnapshot,
       );
       emit(logger.events.last);
 
@@ -497,6 +516,15 @@ class AgentRuntimeEngine {
         final result = await toolRouter.execute(toolRequest);
         logger.logToolResult(result);
         emit(logger.events.last);
+
+        _memory.record(
+          agentId: request.agentId,
+          toolName: toolRequest.name,
+          args: toolRequest.args,
+          data: result.data,
+          success: result.success,
+          error: result.error,
+        );
 
         await workspaceLoader.updateHeartbeat(
           request.agentId,

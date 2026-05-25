@@ -12,6 +12,7 @@ class PromptTemplates {
     required String languageCode,
     List<Map<String, String>> recentMessages = const [],
     PendingAction? pendingAction,
+    String recentToolMemory = '',
   }) {
     final historyBlock = recentMessages.isNotEmpty
         ? recentMessages
@@ -33,6 +34,15 @@ If user rejects — set requires_tools to false.
 If user confirms — set requires_tools to true.'''
         : '';
 
+    final memoryBlock = recentToolMemory.isNotEmpty
+        ? '''
+
+Recent tool results (from prior turns, oldest first — use these to resolve references like "yang itu", "yang tadi", "note terakhir", "pakai id yang tadi"):
+$recentToolMemory
+
+When the user references something ambiguous, prefer matching against the LAST relevant entry above. Reuse IDs (noteId, package, notificationId, etc.) from these results instead of asking again.'''
+        : '';
+
     return '''You are an AI agent runtime analyzer running on an Android device.
 
 ${_systemRules(languageCode)}
@@ -45,7 +55,7 @@ ${availableTools.map((t) => '- $t').join('\n')}
 
 Recent conversation:
 $historyBlock
-$pendingBlock
+$pendingBlock$memoryBlock
 
 User message: "$userMessage"
 
@@ -123,16 +133,20 @@ Create a short execution plan (max 5 steps). Respond with ONLY valid JSON, no ma
     required int currentStep,
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
+    String recentToolMemory = '',
   }) {
+    final memoryBlock = recentToolMemory.isNotEmpty
+        ? '\nRecent tool results from prior turns (use these IDs/values when user references "yang tadi", "itu", "note terakhir"):\n$recentToolMemory\n'
+        : '';
     return '''You are an AI agent tool selector.
 
 Execution plan:
 ${_jsonString(plan)}
 
 Current step: $currentStep
-Previous results:
+Previous results (this turn):
 ${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
-
+$memoryBlock
 Available tools:
 ${availableTools.map((t) => '- $t').join('\n')}
 

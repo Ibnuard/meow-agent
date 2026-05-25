@@ -23,6 +23,7 @@ class Planner {
     required RuntimeLogger logger,
     List<Map<String, String>> recentMessages = const [],
     PendingAction? pendingAction,
+    String recentToolMemory = '',
   }) async {
     final prompt = PromptTemplates.analyzePrompt(
       userMessage: userMessage,
@@ -31,6 +32,7 @@ class Planner {
       languageCode: languageCode,
       recentMessages: recentMessages,
       pendingAction: pendingAction,
+      recentToolMemory: recentToolMemory,
     );
 
     final result = await _callLlm(prompt, 'analyze', logger);

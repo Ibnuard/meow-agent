@@ -134,6 +134,8 @@ class ModuleStoreScreen extends ConsumerWidget {
         return 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.';
       case 'notification_intelligence':
         return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis.';
+      case 'notes':
+        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
       default:
         return module.description;
     }

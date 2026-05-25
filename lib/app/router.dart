@@ -9,6 +9,9 @@ import '../features/home/presentation/home_screen.dart';
 import '../features/modules/presentation/clipboard_process_screen.dart';
 import '../features/modules/presentation/module_detail_screen.dart';
 import '../features/modules/presentation/module_store_screen.dart';
+import '../features/modules/notes/note_detail_screen.dart';
+import '../features/modules/notes/note_editor_screen.dart';
+import '../features/modules/notes/notes_list_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -31,6 +34,11 @@ class AppRoutes {
   static const moduleStore = '/modules/store';
   static const moduleDetail = '/modules/:id';
   static const clipboardProcess = '/modules/clipboard/process';
+  // Notes.
+  static const notesList = '/notes';
+  static const noteDetail = '/notes/:id';
+  static const noteNew = '/notes/new';
+  static const noteEdit = '/notes/:id/edit';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -105,6 +113,32 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final text = state.uri.queryParameters['text'] ?? '';
           return ClipboardProcessScreen(inputText: text);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.notesList,
+        name: 'notesList',
+        builder: (context, state) => const NotesListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.noteNew,
+        name: 'noteNew',
+        builder: (context, state) => const NoteEditorScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.noteDetail,
+        name: 'noteDetail',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return NoteDetailScreen(noteId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.noteEdit,
+        name: 'noteEdit',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return NoteEditorScreen(noteId: id);
         },
       ),
 

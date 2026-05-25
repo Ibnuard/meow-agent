@@ -527,6 +527,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return 'Biarkan agen membaca konteks perangkat seperti baterai, jaringan, penyimpanan, waktu, DND, dan Bluetooth.';
       case 'notification_intelligence':
         return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis atau menghapus notifikasi.';
+      case 'notes':
+        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
       default:
         return module.description;
     }
@@ -642,6 +644,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Include notification content in runtime logs (privacy off by default).',
           ),
         };
+      case 'notes':
+        return {
+          'allow_create': (
+            'Allow Create Notes',
+            'Agent can create new notes.',
+          ),
+          'allow_read': (
+            'Allow Read Notes',
+            'Agent can read and list notes.',
+          ),
+          'allow_search': (
+            'Allow Search Notes',
+            'Agent can search notes by keyword.',
+          ),
+          'require_confirm_update': (
+            'Confirm Before Update',
+            'Require user confirmation before overwriting note content.',
+          ),
+          'require_confirm_delete': (
+            'Confirm Before Delete',
+            'Require user confirmation before deleting a note.',
+          ),
+        };
       default:
         return {};
     }
@@ -747,6 +772,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'show_logs': (
             'Tampilkan Data Notifikasi di Log',
             'Sertakan konten notifikasi di log runtime (default mati untuk privasi).',
+          ),
+        };
+      case 'notes':
+        return {
+          'allow_create': (
+            'Izinkan Buat Note',
+            'Agen dapat membuat catatan baru.',
+          ),
+          'allow_read': (
+            'Izinkan Baca Note',
+            'Agen dapat membaca dan melihat daftar catatan.',
+          ),
+          'allow_search': (
+            'Izinkan Cari Note',
+            'Agen dapat mencari catatan berdasarkan kata kunci.',
+          ),
+          'require_confirm_update': (
+            'Konfirmasi Sebelum Update',
+            'Wajib konfirmasi pengguna sebelum menimpa konten catatan.',
+          ),
+          'require_confirm_delete': (
+            'Konfirmasi Sebelum Hapus',
+            'Wajib konfirmasi pengguna sebelum menghapus catatan.',
           ),
         };
       default:

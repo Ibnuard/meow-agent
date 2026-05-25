@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../../features/modules/notes/notes_tools.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
 import '../../features/modules/notification_intelligence/notification_service.dart';
 import 'app_alias_resolver.dart';
@@ -220,6 +221,60 @@ class ToolRouter {
       inputSchema: {'notificationId': 'string (required, id from notification.read_recent)'},
     ),
 
+    // ── Notes ────────────────────────────────────────────────────────────
+    'notes.create': const ToolDefinition(
+      name: 'notes.create',
+      description: 'Create a markdown note. Use when user says "catat", "simpan", "buat note".',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'title': 'string (required)',
+        'content': 'string (markdown body)',
+        'tags': 'list<string> (optional)',
+        'source': 'string (optional, default runtime)',
+      },
+    ),
+    'notes.list_recent': const ToolDefinition(
+      name: 'notes.list_recent',
+      description: 'List recent notes sorted by last updated.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'limit': 'int (optional, default 10)'},
+    ),
+    'notes.read': const ToolDefinition(
+      name: 'notes.read',
+      description: 'Read a note by ID. Returns full markdown content.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'noteId': 'string (required)'},
+    ),
+    'notes.search': const ToolDefinition(
+      name: 'notes.search',
+      description: 'Search notes by keyword in title, content, and tags.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'query': 'string (required)'},
+    ),
+    'notes.update': const ToolDefinition(
+      name: 'notes.update',
+      description: 'Update an existing note. Requires confirmation before overwriting.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: true,
+      inputSchema: {
+        'noteId': 'string (required)',
+        'title': 'string (optional)',
+        'content': 'string (optional)',
+        'tags': 'list<string> (optional)',
+      },
+    ),
+    'notes.delete': const ToolDefinition(
+      name: 'notes.delete',
+      description: 'Delete a note permanently. Requires confirmation.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'noteId': 'string (required)'},
+    ),
+
   };
 
   /// Get all registered tool names.
@@ -359,6 +414,18 @@ class ToolRouter {
         return _executeNotificationReplySuggestion(request.args);
       case 'notification.open_app':
         return _executeNotificationOpenApp(request.args);
+      case 'notes.create':
+        return _notesTools().executeCreate(request.args);
+      case 'notes.list_recent':
+        return _notesTools().executeListRecent(request.args);
+      case 'notes.read':
+        return _notesTools().executeRead(request.args);
+      case 'notes.search':
+        return _notesTools().executeSearch(request.args);
+      case 'notes.update':
+        return _notesTools().executeUpdate(request.args);
+      case 'notes.delete':
+        return _notesTools().executeDelete(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -555,6 +622,8 @@ class ToolRouter {
         service: DeviceContextService(),
         moduleRepository: ModuleRepository(),
       );
+
+  NotesTools _notesTools() => NotesTools();
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {

@@ -120,10 +120,27 @@ class ModuleRegistry {
     },
   );
 
+  static const notes = ModuleModel(
+    id: 'notes',
+    name: 'Notes',
+    description:
+        'Create and manage markdown notes for you and your agents. '
+        'Local-first persistent memory layer.',
+    icon: '📝',
+    settings: {
+      'allow_create': true,
+      'allow_read': true,
+      'allow_search': true,
+      'require_confirm_update': true,
+      'require_confirm_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
     deviceContext,
     notificationIntelligence,
+    notes,
   ];
 }

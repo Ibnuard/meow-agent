@@ -20,12 +20,14 @@ class Executor {
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
     required RuntimeLogger logger,
+    String recentToolMemory = '',
   }) async {
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
       currentStep: currentStep,
       previousResults: previousResults,
       availableTools: availableTools,
+      recentToolMemory: recentToolMemory,
     );
 
     return _callLlm(prompt, 'selectTool', logger);
