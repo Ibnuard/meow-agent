@@ -10,8 +10,8 @@ import 'notes_repository.dart';
 /// Provider for the notes repository.
 final notesRepositoryProvider = Provider((_) => NotesRepository());
 
-/// Provider for the notes list (auto-refreshes).
-final notesListProvider = FutureProvider<List<Note>>((ref) async {
+/// Provider for the notes list — autoDispose ensures refetch on screen mount.
+final notesListProvider = FutureProvider.autoDispose<List<Note>>((ref) async {
   final repo = ref.watch(notesRepositoryProvider);
   return repo.listRecentNotes(limit: 50);
 });
@@ -28,6 +28,13 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
   final _searchController = TextEditingController();
   List<Note>? _searchResults;
   bool _searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Force refresh on every screen entry (covers agent-created notes).
+    Future.microtask(() => ref.invalidate(notesListProvider));
+  }
 
   @override
   void dispose() {
