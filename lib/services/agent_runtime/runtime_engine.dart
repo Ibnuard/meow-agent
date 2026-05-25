@@ -57,10 +57,15 @@ class AgentRuntimeEngine {
   void clearPendingAction(String agentId) => _pendingActions.remove(agentId);
 
   /// Run the full agentic loop for a request.
+  ///
+  /// [autoApproveSensitive] bypasses the confirmation gate for tools that
+  /// would normally require user approval. Used by workflows with the
+  /// "Allow Sensitive Actions" flag enabled.
   Future<AgentRuntimeResponse> run(
     AgentRuntimeRequest request, {
     required ProviderConfig provider,
     RuntimeEventCallback? onEvent,
+    bool autoApproveSensitive = false,
   }) async {
     final logger = RuntimeLogger();
 
@@ -269,6 +274,7 @@ class AgentRuntimeEngine {
         logger: logger,
         emit: emit,
         memorySnapshot: _memory.formatForPrompt(request.agentId),
+        autoApproveSensitive: autoApproveSensitive,
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
@@ -419,6 +425,7 @@ class AgentRuntimeEngine {
     required RuntimeLogger logger,
     required void Function(RuntimeEvent) emit,
     required String memorySnapshot,
+    bool autoApproveSensitive = false,
   }) async {
     final previousResults = <Map<String, dynamic>>[];
     var currentStep = 1;
@@ -493,7 +500,8 @@ class AgentRuntimeEngine {
         final definition = toolRouter.getDefinition(toolRequest.name)!;
 
         // Check confirmation requirement from REGISTRY.
-        if (definition.requiresConfirmation) {
+        // Skip the gate when the caller (e.g., a sensitive workflow) opted in.
+        if (definition.requiresConfirmation && !autoApproveSensitive) {
           state = AgentRuntimeState.waitingConfirmation;
           logger.logStateChange(state, 'Tool requires confirmation: ${toolRequest.name}');
           emit(logger.events.last);

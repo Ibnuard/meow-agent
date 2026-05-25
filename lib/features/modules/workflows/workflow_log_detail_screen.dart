@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
+import 'workflow_editor_screen.dart';
 import 'workflow_model.dart';
+import 'workflow_repository.dart';
 
 /// Detail page for a single workflow execution log entry.
 class WorkflowLogDetailScreen extends ConsumerWidget {
@@ -136,6 +138,28 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 24),
+
+            // Open workflow button.
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openWorkflow(context, isId),
+                icon: const Icon(Icons.edit_note_rounded, size: 20),
+                label: Text(
+                  isId ? 'Buka Workflow' : 'Open Workflow',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -217,5 +241,26 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
     if (seconds < 60) return '${seconds.toStringAsFixed(1)}s';
     final minutes = seconds / 60;
     return '${minutes.toStringAsFixed(1)}m';
+  }
+
+  Future<void> _openWorkflow(BuildContext context, bool isId) async {
+    final repo = WorkflowRepository();
+    final workflow = await repo.read(execution.workflowId);
+    if (!context.mounted) return;
+    if (workflow == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isId
+              ? 'Workflow sudah dihapus.'
+              : 'Workflow has been deleted.'),
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context, rootNavigator: true).push(
+      MaterialPageRoute(
+        builder: (_) => WorkflowEditorScreen(workflow: workflow),
+      ),
+    );
   }
 }

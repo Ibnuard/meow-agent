@@ -66,26 +66,37 @@ class WorkflowRunner {
     if (wf.trigger.type == TriggerType.interval) {
       // For interval: check if enough time has passed since last run.
       if (wf.lastRun == null) return true;
-      final elapsed = now.difference(wf.lastRun!).inMinutes;
-      return elapsed >= (wf.trigger.intervalMinutes ?? 60);
+      final elapsed = now.difference(wf.lastRun!).inSeconds;
+      return elapsed >= (wf.trigger.intervalMinutes ?? 60) * 60;
     }
 
-    // Schedule: check if current time matches trigger time (within 1 min).
+    // Schedule: check if current time matches trigger time.
     final hour = wf.trigger.hour ?? 0;
     final minute = wf.trigger.minute ?? 0;
 
-    if (now.hour != hour) return false;
-    if ((now.minute - minute).abs() > 1) return false;
+    // Today's scheduled occurrence.
+    final triggerToday = DateTime(now.year, now.month, now.day, hour, minute);
+
+    // Only fire within a 90-second window starting at the trigger time.
+    final delta = now.difference(triggerToday);
+    if (delta.isNegative || delta.inSeconds > 90) {
+      return false;
+    }
 
     // Check day of week.
     if (wf.trigger.daysOfWeek != null && wf.trigger.daysOfWeek!.isNotEmpty) {
       if (!wf.trigger.daysOfWeek!.contains(now.weekday)) return false;
     }
 
-    // Prevent double-run: check if already ran within last 2 minutes.
+    // Already executed for today's occurrence? Skip until tomorrow.
     if (wf.lastRun != null) {
-      final sinceLastRun = now.difference(wf.lastRun!).inMinutes;
-      if (sinceLastRun < 2) return false;
+      final lr = wf.lastRun!;
+      final ranToday = lr.year == triggerToday.year &&
+          lr.month == triggerToday.month &&
+          lr.day == triggerToday.day;
+      if (ranToday && lr.isAfter(triggerToday.subtract(const Duration(minutes: 2)))) {
+        return false;
+      }
     }
 
     return true;
@@ -94,6 +105,18 @@ class WorkflowRunner {
   /// Execute a workflow's prompt via RuntimeEngine.
   Future<void> _executeWorkflow(WorkflowModel wf) async {
     final stopwatch = Stopwatch()..start();
+    final notifId = wf.id.hashCode.abs() % 2147483647;
+
+    // Show 'running' notification immediately.
+    if (wf.notification.showResult) {
+      await WorkflowNotificationService.show(
+        id: notifId,
+        title: 'Menjalankan workflow ${wf.title}',
+        body: 'Memproses...',
+        style: 'silent',
+        payload: 'workflow:${wf.id}',
+      );
+    }
 
     try {
       final engine = _ref.read(agentRuntimeEngineProvider);
@@ -129,6 +152,7 @@ class WorkflowRunner {
           userMessage: wf.prompt,
         ),
         provider: provider,
+        autoApproveSensitive: wf.allowSensitive,
       ).timeout(const Duration(minutes: 1));
 
       stopwatch.stop();
@@ -153,16 +177,14 @@ class WorkflowRunner {
         durationMs: stopwatch.elapsedMilliseconds,
       ));
 
-      // Show notification.
+      // Show notification with result/error in body.
       if (wf.notification.showResult) {
         await WorkflowNotificationService.show(
-          id: wf.id.hashCode.abs() % 2147483647,
+          id: notifId,
           title: response.success
-              ? '✓ Workflow Berhasil'
-              : '✗ Workflow Gagal',
-          body: response.success
-              ? 'Workflow "${wf.title}" berhasil dijalankan.'
-              : 'Workflow "${wf.title}" gagal dijalankan.',
+              ? 'Berhasil menjalankan workflow ${wf.title}'
+              : 'Gagal menjalankan workflow ${wf.title}',
+          body: result,
           style: wf.notification.style.name,
           payload: 'workflow:${wf.id}',
         );
@@ -208,11 +230,11 @@ class WorkflowRunner {
       durationMs: durationMs,
     ));
 
-    // Show failure notification.
+    // Show failure notification with error in body.
     await WorkflowNotificationService.show(
       id: wf.id.hashCode.abs() % 2147483647,
-      title: '✗ Workflow Gagal',
-      body: 'Workflow "${wf.title}" gagal dijalankan.',
+      title: 'Gagal menjalankan workflow ${wf.title}',
+      body: error,
       style: 'normal',
       payload: 'workflow:${wf.id}',
     );

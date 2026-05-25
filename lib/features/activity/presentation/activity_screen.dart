@@ -162,8 +162,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => Navigator.push(
-            context,
+          onTap: () => Navigator.of(context, rootNavigator: true).push(
             MaterialPageRoute(
               builder: (_) => WorkflowLogDetailScreen(execution: entry),
             ),

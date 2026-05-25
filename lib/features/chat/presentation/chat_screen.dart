@@ -771,8 +771,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : null;
     final modelName = provider?.model;
 
-    return Scaffold(
-      appBar: AppBar(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go('/');
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
         title: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -938,6 +948,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
       ),
       ),
+    ),
     );
   }
 }

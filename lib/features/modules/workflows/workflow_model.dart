@@ -115,6 +115,7 @@ class WorkflowModel {
     required this.trigger,
     this.notification = const NotifConfig(),
     this.sendToChat = false,
+    this.allowSensitive = false,
     this.enabled = true,
     this.lastRun,
     this.lastResult,
@@ -129,6 +130,10 @@ class WorkflowModel {
   final TriggerConfig trigger;
   final NotifConfig notification;
   final bool sendToChat;
+  /// Auto-approve sensitive/confirmation-required tool calls during execution.
+  /// Use with care — the workflow will execute actions like opening apps,
+  /// sending intents, etc. without user prompt.
+  final bool allowSensitive;
   final bool enabled;
   final DateTime? lastRun;
   final String? lastResult;
@@ -142,6 +147,7 @@ class WorkflowModel {
     TriggerConfig? trigger,
     NotifConfig? notification,
     bool? sendToChat,
+    bool? allowSensitive,
     bool? enabled,
     DateTime? lastRun,
     String? lastResult,
@@ -155,6 +161,7 @@ class WorkflowModel {
         trigger: trigger ?? this.trigger,
         notification: notification ?? this.notification,
         sendToChat: sendToChat ?? this.sendToChat,
+        allowSensitive: allowSensitive ?? this.allowSensitive,
         enabled: enabled ?? this.enabled,
         lastRun: lastRun ?? this.lastRun,
         lastResult: lastResult ?? this.lastResult,

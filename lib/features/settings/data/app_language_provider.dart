@@ -89,6 +89,7 @@ class AppStrings {
   String get providers => isId ? 'PROVIDER' : 'PROVIDERS';
   String get developer => isId ? 'PENGEMBANG' : 'DEVELOPER';
   String get support => isId ? 'DUKUNGAN' : 'SUPPORT';
+  String get others => isId ? 'LAINNYA' : 'OTHERS';
   String get manageProviders => isId ? 'Kelola Provider' : 'Manage Providers';
   String get darkMode => isId ? 'Mode Gelap' : 'Dark Mode';
   String get language => isId ? 'Bahasa' : 'Language';

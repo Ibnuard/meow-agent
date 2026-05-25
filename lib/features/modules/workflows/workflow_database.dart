@@ -19,7 +19,7 @@ class WorkflowDatabase {
     final path = '$dbDir/meow_workflows.db';
     return openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE workflows (
@@ -30,6 +30,7 @@ class WorkflowDatabase {
             trigger_config TEXT NOT NULL,
             notif_config TEXT NOT NULL,
             send_to_chat INTEGER NOT NULL DEFAULT 0,
+            allow_sensitive INTEGER NOT NULL DEFAULT 0,
             enabled INTEGER NOT NULL DEFAULT 1,
             last_run TEXT,
             last_result TEXT,
@@ -59,6 +60,13 @@ class WorkflowDatabase {
           CREATE INDEX idx_history_workflow ON execution_history(workflow_id)
         ''');
       },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN allow_sensitive INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+      },
     );
   }
 
@@ -71,6 +79,7 @@ class WorkflowDatabase {
         'trigger_config': jsonEncode(w.trigger.toJson()),
         'notif_config': jsonEncode(w.notification.toJson()),
         'send_to_chat': w.sendToChat ? 1 : 0,
+        'allow_sensitive': w.allowSensitive ? 1 : 0,
         'enabled': w.enabled ? 1 : 0,
         'last_run': w.lastRun?.toIso8601String(),
         'last_result': w.lastResult,
@@ -91,6 +100,7 @@ class WorkflowDatabase {
           jsonDecode(row['notif_config'] as String) as Map<String, dynamic>,
         ),
         sendToChat: (row['send_to_chat'] as int) == 1,
+        allowSensitive: (row['allow_sensitive'] as int? ?? 0) == 1,
         enabled: (row['enabled'] as int) == 1,
         lastRun: row['last_run'] != null
             ? DateTime.tryParse(row['last_run'] as String)

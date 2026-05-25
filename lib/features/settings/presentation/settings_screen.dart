@@ -27,8 +27,8 @@ class SettingsScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
           children: [
-            // ─── PROVIDERS ───────────────────────────────────
-            _SectionHeader(label: strings.providers),
+            // ─── PREFERENCES (provider mgmt + theme + language) ─────
+            _SectionHeader(label: strings.preferences),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
@@ -49,16 +49,6 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   onTap: () => context.push(AppRoutes.providerList),
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 28),
-
-            // ─── PREFERENCES ─────────────────────────────────
-            _SectionHeader(label: strings.preferences),
-            const SizedBox(height: 10),
-            _SettingsGroup(
-              children: [
                 _SettingsToggleTile(
                   icon: Icons.dark_mode_outlined,
                   label: strings.darkMode,
@@ -92,8 +82,8 @@ class SettingsScreen extends ConsumerWidget {
 
             const SizedBox(height: 28),
 
-            // ─── DEVELOPER ───────────────────────────────────
-            _SectionHeader(label: strings.developer),
+            // ─── OTHERS (developer + support) ─────────────────
+            _SectionHeader(label: strings.others),
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
@@ -105,16 +95,6 @@ class SettingsScreen extends ConsumerWidget {
                     ref.read(llmDebugModeProvider.notifier).toggle(v);
                   },
                 ),
-              ],
-            ),
-
-            const SizedBox(height: 28),
-
-            // ─── SUPPORT ─────────────────────────────────────
-            _SectionHeader(label: strings.support),
-            const SizedBox(height: 10),
-            _SettingsGroup(
-              children: [
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
                   label: strings.aboutApp,
@@ -411,29 +391,36 @@ class _SettingsToggleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: cs.onSurfaceVariant),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w500,
-                color: cs.onSurface,
+    return InkWell(
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: cs.onSurfaceVariant),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: cs.onSurface,
+                ),
               ),
             ),
-          ),
-          Switch.adaptive(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: cs.primary,
-            activeThumbColor: cs.onPrimary,
-          ),
-        ],
+            Transform.scale(
+              scale: 0.85,
+              child: Switch.adaptive(
+                value: value,
+                onChanged: onChanged,
+                activeTrackColor: cs.primary,
+                activeThumbColor: cs.onPrimary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

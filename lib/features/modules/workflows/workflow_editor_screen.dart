@@ -33,6 +33,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   int _intervalMinutes = 60;
   NotifStyle _notifStyle = NotifStyle.normal;
   bool _sendToChat = false;
+  bool _allowSensitive = false;
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       _intervalMinutes = wf.trigger.intervalMinutes ?? 60;
       _notifStyle = wf.notification.style;
       _sendToChat = wf.sendToChat;
+      _allowSensitive = wf.allowSensitive;
     }
   }
 
@@ -80,6 +82,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         trigger: trigger,
         notification: notif,
         sendToChat: _sendToChat,
+        allowSensitive: _allowSensitive,
       );
       await _repo.update(updated);
       await WorkflowScheduler.cancel(updated);
@@ -93,6 +96,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         trigger: trigger,
         notification: notif,
         sendToChat: _sendToChat,
+        allowSensitive: _allowSensitive,
         enabled: true,
         createdAt: DateTime.now(),
       );
@@ -117,6 +121,39 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (picked != null) setState(() => _time = picked);
   }
 
+  Future<void> _confirmDelete(bool isId) async {
+    if (widget.workflow == null) return;
+    final wf = widget.workflow!;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(isId ? 'Hapus Workflow?' : 'Delete Workflow?'),
+        content: Text(isId
+            ? 'Workflow "${wf.title}" akan dihapus permanen.'
+            : 'Workflow "${wf.title}" will be permanently deleted.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isId ? 'Batal' : 'Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              isId ? 'Hapus' : 'Delete',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    await WorkflowScheduler.cancel(wf);
+    await _repo.delete(wf.id);
+    if (mounted) Navigator.pop(context, true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
@@ -137,6 +174,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           title: Text(_isEdit
               ? (isId ? 'Edit Workflow' : 'Edit Workflow')
               : (isId ? 'Buat Workflow' : 'New Workflow')),
+          actions: [
+            if (_isEdit)
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                tooltip: isId ? 'Hapus' : 'Delete',
+                onPressed: () => _confirmDelete(isId),
+              ),
+          ],
         ),
         body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -193,6 +238,18 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               isId ? 'Kirim hasil ke chat' : 'Send result to chat',
               _sendToChat,
               (v) => setState(() => _sendToChat = v),
+              cs,
+            ),
+            const SizedBox(height: 14),
+
+            // Allow sensitive actions toggle.
+            _buildToggleWithDesc(
+              isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions',
+              isId
+                  ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi (buka aplikasi, kirim intent, dll). Gunakan dengan hati-hati.'
+                  : 'Auto-approve actions that normally require confirmation (open apps, send intents, etc). Use with caution.',
+              _allowSensitive,
+              (v) => setState(() => _allowSensitive = v),
               cs,
             ),
             const SizedBox(height: 32),
@@ -450,6 +507,55 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       children: [
         Text(label, style: TextStyle(fontSize: 13, color: cs.onSurface)),
         Switch(value: value, onChanged: onChanged, activeTrackColor: cs.primary),
+      ],
+    );
+  }
+
+  Widget _buildToggleWithDesc(
+    String label,
+    String description,
+    bool value,
+    ValueChanged<bool> onChanged,
+    ColorScheme cs,
+  ) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurfaceVariant,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        Transform.scale(
+          scale: 0.85,
+          child: Switch(
+            value: value,
+            onChanged: onChanged,
+            activeTrackColor: cs.primary,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
       ],
     );
   }
