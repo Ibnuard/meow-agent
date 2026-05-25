@@ -17,6 +17,16 @@ enum AgentRuntimeState {
   failed,
 }
 
+/// Where a runtime request originated from.
+///
+/// Used by prompt builders and runtime guards to know whether a real user is
+/// reading the response (chat) or whether the run is a background automation
+/// without a user in the loop (workflow).
+enum RequestSource {
+  chat,
+  workflow,
+}
+
 /// Request to run the agent runtime.
 class AgentRuntimeRequest {
   const AgentRuntimeRequest({
@@ -25,6 +35,7 @@ class AgentRuntimeRequest {
     this.agentName = '',
     this.recentMessages = const [],
     this.metadata = const {},
+    this.source = RequestSource.chat,
   });
 
   final String agentId;
@@ -32,6 +43,7 @@ class AgentRuntimeRequest {
   final String userMessage;
   final List<ChatMessage> recentMessages;
   final Map<String, dynamic> metadata;
+  final RequestSource source;
 }
 
 /// Response from the agent runtime.

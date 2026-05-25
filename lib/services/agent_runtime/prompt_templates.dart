@@ -14,6 +14,7 @@ class PromptTemplates {
     List<Map<String, String>> recentMessages = const [],
     PendingAction? pendingAction,
     String recentToolMemory = '',
+    bool isWorkflowAutoExecute = false,
   }) {
     final historyBlock = recentMessages.isNotEmpty
         ? recentMessages
@@ -35,11 +36,20 @@ class PromptTemplates {
             '${PromptConstants.memoryInstructions}'
         : '';
 
+    final sourceModeBlock = isWorkflowAutoExecute
+        ? '\n\nWORKFLOW EXECUTION MODE:\n'
+            '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
+            '- The user pre-approved sensitive actions when creating this workflow.\n'
+            '- ALWAYS set requires_tools=true if the prompt describes an action (open app, send intent, etc.).\n'
+            '- NEVER set requires_tools=false to ask for permission — execute directly via the appropriate tool.\n'
+            '- If a required detail is genuinely missing, set requires_tools=false and put the failure reason in missing_info, but do NOT phrase it as a confirmation question.\n'
+        : '';
+
     final language = languageLabelFromCode(languageCode);
 
     return '''${PromptConstants.analyzeIntro}
 
-${PromptConstants.systemRules(language)}
+${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
 Identity context (from SOUL.md — user-editable):
 ${workspace.soul}
@@ -49,7 +59,7 @@ ${availableTools.map((t) => '- $t').join('\n')}
 
 Recent conversation:
 $historyBlock
-$pendingBlock$memoryBlock
+$pendingBlock$memoryBlock$sourceModeBlock
 
 User message: "$userMessage"
 
@@ -83,9 +93,18 @@ ${PromptConstants.planResponseFormat}''';
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
     String recentToolMemory = '',
+    bool isWorkflowAutoExecute = false,
   }) {
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n${PromptConstants.selectToolMemoryHeader}\n$recentToolMemory\n'
+        : '';
+    final sourceModeBlock = isWorkflowAutoExecute
+        ? '\nWORKFLOW EXECUTION MODE:\n'
+            '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
+            '- The user pre-approved sensitive actions when creating this workflow.\n'
+            '- Do NOT return status=done with text asking for permission or confirmation.\n'
+            '- If the plan step needs a tool and arguments are clear, return status=tool_required.\n'
+            '- Set requires_confirmation=false in the tool JSON — runtime approval is already granted.\n'
         : '';
     return '''${PromptConstants.selectToolIntro}
 
@@ -95,7 +114,7 @@ ${_jsonString(plan)}
 Current step: $currentStep
 Previous results (this turn):
 ${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
-$memoryBlock
+$memoryBlock$sourceModeBlock
 Available tools:
 ${availableTools.map((t) => '- $t').join('\n')}
 

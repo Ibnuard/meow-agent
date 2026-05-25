@@ -7,6 +7,7 @@ import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
 import 'executor.dart';
 import 'pending_action.dart';
+import 'pending_clarification.dart';
 import 'planner.dart';
 import 'prompt_constants.dart';
 import 'runtime_logger.dart';
@@ -37,13 +38,21 @@ class AgentRuntimeEngine {
 
   /// System-level behavior rules for direct (no-tool) responses.
   /// Always enforced regardless of SOUL.md content.
-  String get _directResponseRules {
+  String _directResponseRulesFor({bool isWorkflowAutoExecute = false}) {
     final language = languageLabelFromCode(languageCode);
-    return PromptConstants.systemRules(language);
+    return PromptConstants.systemRules(
+      language,
+      isWorkflowAutoExecute: isWorkflowAutoExecute,
+    );
   }
 
   /// Pending actions per agent (agentId → PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
+
+  /// Pending clarification per agent.
+  /// Used when analyzer asked missing-info questions. The next user message is
+  /// merged with the original request before analysis.
+  final Map<String, PendingClarification> _pendingClarifications = {};
 
   /// Per-agent scratchpad: remembers recent tool calls + structured results.
   /// Persists across turns so the planner can reference prior tool output
@@ -55,6 +64,10 @@ class AgentRuntimeEngine {
 
   /// Clear pending action for an agent.
   void clearPendingAction(String agentId) => _pendingActions.remove(agentId);
+
+  /// Clear pending clarification for an agent.
+  void clearPendingClarification(String agentId) =>
+      _pendingClarifications.remove(agentId);
 
   /// Run the full agentic loop for a request.
   ///
@@ -85,6 +98,12 @@ class AgentRuntimeEngine {
       languageCode: languageCode,
     );
     final executor = Executor(client: client, config: llmConfig);
+
+    // Workflow auto-execute mode: scheduled run + sensitive actions pre-approved.
+    // Used by prompt builders to switch language/rules and by the runtime to
+    // bypass the confirmation gate.
+    final isWorkflowAutoExecute =
+        request.source == RequestSource.workflow && autoApproveSensitive;
 
     try {
       // Check if there's a pending action for this agent.
@@ -143,17 +162,33 @@ class AgentRuntimeEngine {
       // 1. Load workspace.
       final wsName = request.agentName.isNotEmpty ? request.agentName : request.agentId;
       toolRouter.agentName = wsName;
+      toolRouter.agentId = request.agentId;
       await workspaceLoader.ensureWorkspace(wsName);
       final workspace = await workspaceLoader.load(wsName);
       // Tool list comes from the ToolRouter registry (system source of truth),
       // NOT from user-editable SKILLS.md template.
       final availableTools = toolRouter.buildAllToolDescriptions();
 
-      // Build recent messages for context (last 20).
-      final recentMsgs = request.recentMessages
-          .take(20)
+      // Build recent messages for context (latest 20, chronological order).
+      final sourceMessages = request.recentMessages;
+      final latestMessages = sourceMessages.length > 20
+          ? sourceMessages.sublist(sourceMessages.length - 20)
+          : sourceMessages;
+      final recentMsgs = latestMessages
           .map((m) => {'role': m.role, 'content': m.content})
           .toList();
+
+      // If previous turn asked for missing info, merge this reply with the
+      // original request before analysis. This prevents short follow-up answers
+      // from being treated as standalone requests.
+      final pendingClarification = _pendingClarifications[request.agentId];
+      final effectiveUserMessage = pendingClarification != null &&
+              !pendingClarification.isExpired
+          ? pendingClarification.mergedWith(request.userMessage)
+          : request.userMessage;
+      if (pendingClarification != null && pendingClarification.isExpired) {
+        _pendingClarifications.remove(request.agentId);
+      }
 
       // 2. Analyze.
       var state = AgentRuntimeState.analyzing;
@@ -162,17 +197,18 @@ class AgentRuntimeEngine {
       await workspaceLoader.updateHeartbeat(
         wsName,
         state: state.name,
-        task: request.userMessage,
+        task: effectiveUserMessage,
       );
 
       final analysis = await planner.analyze(
-        userMessage: request.userMessage,
+        userMessage: effectiveUserMessage,
         workspace: workspace,
         availableTools: availableTools,
         logger: logger,
         recentMessages: recentMsgs,
         pendingAction: pending,
         recentToolMemory: _memory.formatForPrompt(request.agentId),
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
       emit(logger.events.last);
 
@@ -191,6 +227,11 @@ class AgentRuntimeEngine {
         final question = missingInfo.length == 1
             ? missingInfo.first
             : missingInfo.map((q) => '- $q').join('\n');
+        _pendingClarifications[request.agentId] = PendingClarification(
+          originalMessage: pendingClarification?.originalMessage ?? request.userMessage,
+          questions: missingInfo,
+          createdAt: DateTime.now(),
+        );
         logger.logFinalResponse(question);
         return AgentRuntimeResponse(
           finalMessage: question,
@@ -200,8 +241,14 @@ class AgentRuntimeEngine {
         );
       }
 
+      _pendingClarifications.remove(request.agentId);
+
       // If no tools required, respond directly with full context.
-      final requiresTools = analysis['requires_tools'] == true;
+      // EXCEPT during scheduled workflow auto-execution: the runtime must
+      // run the tool deterministically, not let the LLM craft a permission
+      // request. Force the planning path.
+      final analyzerSaysTools = analysis['requires_tools'] == true;
+      final requiresTools = analyzerSaysTools || isWorkflowAutoExecute;
       if (!requiresTools) {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
@@ -211,7 +258,8 @@ class AgentRuntimeEngine {
         // System rules are always enforced; SOUL.md is identity context only.
         final identityBlock =
             'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
-        final baseSystem = '$_directResponseRules\n\n$identityBlock';
+        final baseSystem =
+            '${_directResponseRulesFor(isWorkflowAutoExecute: isWorkflowAutoExecute)}\n\n$identityBlock';
         final systemContent = pending != null
             ? '$baseSystem\n\n'
                 'PENDING ACTION (user was asked to confirm):\n'
@@ -275,6 +323,7 @@ class AgentRuntimeEngine {
         emit: emit,
         memorySnapshot: _memory.formatForPrompt(request.agentId),
         autoApproveSensitive: autoApproveSensitive,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
@@ -426,6 +475,7 @@ class AgentRuntimeEngine {
     required void Function(RuntimeEvent) emit,
     required String memorySnapshot,
     bool autoApproveSensitive = false,
+    bool isWorkflowAutoExecute = false,
   }) async {
     final previousResults = <Map<String, dynamic>>[];
     var currentStep = 1;
@@ -443,6 +493,7 @@ class AgentRuntimeEngine {
         availableTools: availableTools,
         logger: logger,
         recentToolMemory: memorySnapshot,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
       emit(logger.events.last);
 
@@ -455,6 +506,7 @@ class AgentRuntimeEngine {
       if (status == 'done') {
         final finalResponse =
             selection['final_response'] as String? ?? 'Task completed.';
+
         logger.logFinalResponse(finalResponse);
         await workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -540,7 +592,9 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
         logger.logToolCall(toolRequest);
 
-        final result = await toolRouter.execute(toolRequest);
+        final result = autoApproveSensitive
+            ? await toolRouter.forceExecute(toolRequest)
+            : await toolRouter.execute(toolRequest);
         logger.logToolResult(result);
         emit(logger.events.last);
 

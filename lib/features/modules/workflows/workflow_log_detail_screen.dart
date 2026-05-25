@@ -29,11 +29,18 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(isId ? 'Detail Log' : 'Log Detail'),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            20 + MediaQuery.paddingOf(context).bottom,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Status banner.
             Container(
               padding: const EdgeInsets.all(16),
@@ -111,6 +118,28 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
                 cs,
               ),
             ]),
+            const SizedBox(height: 20),
+
+            // Open workflow button (right after Informasi).
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openWorkflow(context, isId),
+                icon: const Icon(Icons.edit_note_rounded, size: 20),
+                label: Text(
+                  isId ? 'Buka Workflow' : 'Open Workflow',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
             const SizedBox(height: 24),
 
             // Result section.
@@ -140,27 +169,18 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
 
-            // Open workflow button.
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _openWorkflow(context, isId),
-                icon: const Icon(Icons.edit_note_rounded, size: 20),
-                label: Text(
-                  isId ? 'Buka Workflow' : 'Open Workflow',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
+            // Runtime timeline section.
+            if (execution.events.isNotEmpty) ...[
+              _sectionLabel(
+                isId ? 'Runtime' : 'Runtime',
+                cs,
               ),
-            ),
+              const SizedBox(height: 10),
+              _timelineCard(execution.events, extras, cs, isId),
+              const SizedBox(height: 12),
+            ],
           ],
+          ),
         ),
       ),
     );
@@ -215,6 +235,180 @@ class WorkflowLogDetailScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  Widget _timelineCard(
+    List<WorkflowExecutionEvent> events,
+    MeowExtras extras,
+    ColorScheme cs,
+    bool isId,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < events.length; i++)
+            _timelineRow(events[i], i == events.length - 1, cs, extras),
+        ],
+      ),
+    );
+  }
+
+  Widget _timelineRow(
+    WorkflowExecutionEvent event,
+    bool isLast,
+    ColorScheme cs,
+    MeowExtras extras,
+  ) {
+    final accent = _eventColor(event.type, cs);
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Dot + connector.
+          Padding(
+            padding: const EdgeInsets.only(top: 14),
+            child: Column(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.4),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                ),
+                if (!isLast)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      color: extras.subtleBorder,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: 12, bottom: isLast ? 12 : 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(_eventIcon(event.type), size: 14, color: accent),
+                      const SizedBox(width: 6),
+                      Text(
+                        _eventLabel(event.type),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: accent,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatTime(event.createdAt),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    event.message,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _eventIcon(String type) {
+    switch (type) {
+      case 'state_change':
+        return Icons.sync_rounded;
+      case 'llm_decision':
+        return Icons.psychology_rounded;
+      case 'tool_call':
+        return Icons.build_rounded;
+      case 'tool_result':
+        return Icons.check_circle_outline_rounded;
+      case 'error':
+        return Icons.error_outline_rounded;
+      case 'final_response':
+        return Icons.flag_rounded;
+      default:
+        return Icons.info_outline_rounded;
+    }
+  }
+
+  Color _eventColor(String type, ColorScheme cs) {
+    switch (type) {
+      case 'tool_call':
+        return Colors.amber;
+      case 'tool_result':
+        return Colors.green;
+      case 'error':
+        return Colors.red;
+      case 'final_response':
+        return cs.primary;
+      case 'llm_decision':
+        return Colors.purpleAccent;
+      default:
+        return cs.onSurfaceVariant;
+    }
+  }
+
+  String _eventLabel(String type) {
+    switch (type) {
+      case 'state_change':
+        return 'STATE';
+      case 'llm_decision':
+        return 'LLM';
+      case 'tool_call':
+        return 'TOOL CALL';
+      case 'tool_result':
+        return 'TOOL RESULT';
+      case 'error':
+        return 'ERROR';
+      case 'final_response':
+        return 'RESPONSE';
+      default:
+        return type.toUpperCase();
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    final ss = dt.second.toString().padLeft(2, '0');
+    return '$hh:$mm:$ss';
   }
 
   String _formatDateTime(DateTime dt, bool isId) {

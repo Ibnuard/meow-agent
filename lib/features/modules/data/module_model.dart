@@ -81,6 +81,7 @@ class ModuleRegistry {
       'require_confirmation': true,
       'allow_system_settings': false,
       'allow_url_intents': true,
+      'allow_background_launch': false,
       'show_execution_toast': true,
     },
   );

@@ -22,6 +22,7 @@ class Executor {
     required List<String> availableTools,
     required RuntimeLogger logger,
     String recentToolMemory = '',
+    bool isWorkflowAutoExecute = false,
   }) async {
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
@@ -29,6 +30,7 @@ class Executor {
       previousResults: previousResults,
       availableTools: availableTools,
       recentToolMemory: recentToolMemory,
+      isWorkflowAutoExecute: isWorkflowAutoExecute,
     );
 
     return _callLlm(prompt, 'selectTool', logger);

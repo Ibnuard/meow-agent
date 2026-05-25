@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -118,6 +120,9 @@ class WorkflowRepository {
       'result': execution.result,
       'executed_at': execution.executedAt.toIso8601String(),
       'duration_ms': execution.durationMs,
+      'events': execution.events.isEmpty
+          ? null
+          : jsonEncode(execution.events.map((e) => e.toJson()).toList()),
     });
   }
 

@@ -15,10 +15,13 @@ import 'runtime_models.dart';
 /// Routes tool calls to their implementations.
 /// Validates tool existence and enforces risk/confirmation rules.
 class ToolRouter {
-  ToolRouter({this.agentName = ''});
+  ToolRouter({this.agentName = '', this.agentId = ''});
 
   /// The current agent name — used by workspace-scoped tools (files module).
   String agentName;
+
+  /// The current agent id — used by data-scoped tools (workflows, etc.).
+  String agentId;
 
   /// Registry of all known tools with their definitions.
   final Map<String, ToolDefinition> _registry = {
@@ -659,11 +662,11 @@ class ToolRouter {
         return _calendarTools().executeDelete(request.args);
       case 'workflow.create':
         return _workflowTools().create(
-          agentId: agentName,
+          agentId: agentId.isNotEmpty ? agentId : agentName,
           args: request.args,
         );
       case 'workflow.list':
-        return _workflowTools().list(agentId: agentName);
+        return _workflowTools().list(agentId: agentId.isNotEmpty ? agentId : agentName);
       case 'workflow.read':
         return _workflowTools().read(args: request.args);
       case 'workflow.update':

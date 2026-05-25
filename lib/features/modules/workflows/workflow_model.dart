@@ -170,6 +170,34 @@ class WorkflowModel {
       );
 }
 
+/// A serialized runtime event for a workflow execution.
+class WorkflowExecutionEvent {
+  const WorkflowExecutionEvent({
+    required this.type,
+    required this.message,
+    required this.createdAt,
+  });
+
+  /// e.g. state_change, llm_decision, tool_call, tool_result, error, final_response.
+  final String type;
+  final String message;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() => {
+        'type': type,
+        'message': message,
+        'createdAt': createdAt.toIso8601String(),
+      };
+
+  factory WorkflowExecutionEvent.fromJson(Map<String, dynamic> json) =>
+      WorkflowExecutionEvent(
+        type: json['type'] as String? ?? '',
+        message: json['message'] as String? ?? '',
+        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+}
+
 /// A single execution history entry.
 class WorkflowExecution {
   const WorkflowExecution({
@@ -181,6 +209,7 @@ class WorkflowExecution {
     required this.result,
     required this.executedAt,
     this.durationMs,
+    this.events = const [],
   });
 
   final int? id;
@@ -191,4 +220,5 @@ class WorkflowExecution {
   final String result;
   final DateTime executedAt;
   final int? durationMs;
+  final List<WorkflowExecutionEvent> events;
 }

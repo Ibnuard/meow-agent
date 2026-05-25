@@ -13,7 +13,23 @@ class PromptConstants {
 
   /// System rules always enforced regardless of SOUL.md content.
   /// Use [language] placeholder for the resolved language label.
-  static String systemRules(String language) => '''SYSTEM RULES (always enforced):
+  /// When [isWorkflowAutoExecute] is true, the run is a background scheduled
+  /// workflow with no user reading the message and pre-approved sensitive
+  /// actions — the rules are reworded to make the LLM execute directly.
+  static String systemRules(
+    String language, {
+    bool isWorkflowAutoExecute = false,
+  }) {
+    if (isWorkflowAutoExecute) {
+      return '''SYSTEM RULES (always enforced):
+- This run is a scheduled WORKFLOW execution. There is NO user reading this message in real-time.
+- Sensitive actions are PRE-APPROVED for this run. Do NOT ask for confirmation; execute the appropriate tool directly.
+- Default language: $language. Be concise and practical.
+- Respect enabled permissions and modules. Do not assume capabilities.
+- If a tool fails or requires permission, stop and report the error clearly. Do not turn it into a question.
+- AMBIGUITY: If a required detail is missing, fail with a clear error message. Do NOT ask the user — there is no user.''';
+    }
+    return '''SYSTEM RULES (always enforced):
 - Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
 - Ask the user before sensitive or destructive actions.
@@ -22,6 +38,7 @@ class PromptConstants {
 - If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
 - When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
 - AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
+  }
 
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 
@@ -50,6 +67,14 @@ This is the user's first message. Before handling their request, politely ask wh
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
+
+Conversation continuity rules:
+- Recent conversation is authoritative context, especially the immediately previous assistant question and current user reply.
+- If the previous assistant message asked clarifying questions, treat the current user message as answers to those questions.
+- Merge the current user answers with the original request from recent conversation before deciding intent, goal, missing_info, and requires_tools.
+- Do NOT ask again for information that the user already answered, even if the answer is short or informal.
+- If the user answers multiple pending questions in one message, extract all answered details and only ask for truly missing details.
+- Example: original request "buat workflow setiap jam 1.15 pagi ...", assistant asks "pesan apa? kontak siapa?", user replies "jam 1 pagi, pesannya hasil workflow ke agent" → keep workflow context and only ask missing contact if still needed.
 
 Ambiguity examples (must set requires_tools=false and populate missing_info):
 - "jadwal jam 8" → missing_info: ["jam 8 pagi atau malam?"]

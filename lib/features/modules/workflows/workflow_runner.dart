@@ -52,9 +52,17 @@ class WorkflowRunner {
 
       _runningWorkflows.add(wf.id);
       try {
+        // Mark this occurrence as claimed before execution starts so the same
+        // schedule window cannot fire twice during long runs/restarts.
+        await _repo.updateLastRun(
+          wf.id,
+          lastRun: now,
+          lastResult: wf.lastResult ?? 'RUNNING',
+          retryCount: wf.retryCount,
+        );
         // ignore: avoid_print
         print('[WorkflowRunner] Executing ${wf.title}...');
-        await _executeWorkflow(wf);
+        await _executeWorkflow(wf.copyWith(lastRun: now));
       } finally {
         _runningWorkflows.remove(wf.id);
       }
@@ -88,15 +96,15 @@ class WorkflowRunner {
       if (!wf.trigger.daysOfWeek!.contains(now.weekday)) return false;
     }
 
-    // Already executed for today's occurrence? Skip until tomorrow.
+    // Already executed/claimed today's occurrence? Skip until tomorrow.
     if (wf.lastRun != null) {
       final lr = wf.lastRun!;
-      final ranToday = lr.year == triggerToday.year &&
+      final alreadyClaimedThisOccurrence = lr.year == triggerToday.year &&
           lr.month == triggerToday.month &&
-          lr.day == triggerToday.day;
-      if (ranToday && lr.isAfter(triggerToday.subtract(const Duration(minutes: 2)))) {
-        return false;
-      }
+          lr.day == triggerToday.day &&
+          !lr.isBefore(triggerToday) &&
+          lr.difference(triggerToday).inMinutes < 10;
+      if (alreadyClaimedThisOccurrence) return false;
     }
 
     return true;
@@ -106,15 +114,19 @@ class WorkflowRunner {
   Future<void> _executeWorkflow(WorkflowModel wf) async {
     final stopwatch = Stopwatch()..start();
     final notifId = wf.id.hashCode.abs() % 2147483647;
+    final capturedEvents = <WorkflowExecutionEvent>[];
 
-    // Show 'running' notification immediately.
+    // Show 'running' notification immediately on the user's chosen channel
+    // so the result update lands on the same channel (Android can be picky
+    // about cross-channel updates). ongoing=true keeps it sticky and silent.
     if (wf.notification.showResult) {
       await WorkflowNotificationService.show(
         id: notifId,
         title: 'Menjalankan workflow ${wf.title}',
         body: 'Memproses...',
-        style: 'silent',
+        style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
+        ongoing: true,
       );
     }
 
@@ -132,6 +144,7 @@ class WorkflowRunner {
           wf,
           'Agent tidak ditemukan: ${wf.agentId}',
           0,
+          capturedEvents,
         );
         return;
       }
@@ -141,6 +154,7 @@ class WorkflowRunner {
           wf,
           'Provider LLM "${agent.providerId}" tidak ditemukan untuk agent "${agent.name}". Periksa pengaturan provider.',
           0,
+          capturedEvents,
         );
         return;
       }
@@ -150,9 +164,17 @@ class WorkflowRunner {
           agentId: wf.agentId,
           agentName: agent.name,
           userMessage: wf.prompt,
+          source: RequestSource.workflow,
         ),
         provider: provider,
         autoApproveSensitive: wf.allowSensitive,
+        onEvent: (event) {
+          capturedEvents.add(WorkflowExecutionEvent(
+            type: event.type,
+            message: event.message,
+            createdAt: event.createdAt,
+          ));
+        },
       ).timeout(const Duration(minutes: 1));
 
       stopwatch.stop();
@@ -175,10 +197,14 @@ class WorkflowRunner {
         result: result,
         executedAt: DateTime.now(),
         durationMs: stopwatch.elapsedMilliseconds,
+        events: List.unmodifiable(capturedEvents),
       ));
 
-      // Show notification with result/error in body.
+      // Show notification with result/error in body. Cancel the running
+      // notification first so Android always replaces it with a fresh one
+      // carrying the success/failure title.
       if (wf.notification.showResult) {
+        await WorkflowNotificationService.cancel(notifId);
         await WorkflowNotificationService.show(
           id: notifId,
           title: response.success
@@ -203,16 +229,31 @@ class WorkflowRunner {
       stopwatch.stop();
       // ignore: avoid_print
       print('[WorkflowRunner] ${wf.title} timed out');
-      await _handleFailure(wf, 'Timeout: eksekusi melebihi 1 menit.', stopwatch.elapsedMilliseconds);
+      await _handleFailure(
+        wf,
+        'Timeout: eksekusi melebihi 1 menit.',
+        stopwatch.elapsedMilliseconds,
+        capturedEvents,
+      );
     } catch (e, st) {
       stopwatch.stop();
       // ignore: avoid_print
       print('[WorkflowRunner] ${wf.title} error: $e\n$st');
-      await _handleFailure(wf, 'Error: $e', stopwatch.elapsedMilliseconds);
+      await _handleFailure(
+        wf,
+        'Error: $e',
+        stopwatch.elapsedMilliseconds,
+        capturedEvents,
+      );
     }
   }
 
-  Future<void> _handleFailure(WorkflowModel wf, String error, int durationMs) async {
+  Future<void> _handleFailure(
+    WorkflowModel wf,
+    String error,
+    int durationMs,
+    List<WorkflowExecutionEvent> events,
+  ) async {
     await _repo.updateLastRun(
       wf.id,
       lastRun: DateTime.now(),
@@ -228,14 +269,18 @@ class WorkflowRunner {
       result: error,
       executedAt: DateTime.now(),
       durationMs: durationMs,
+      events: List.unmodifiable(events),
     ));
 
-    // Show failure notification with error in body.
+    // Show failure notification with error in body. Cancel the running
+    // notification first so the result replaces it cleanly.
+    final notifId = wf.id.hashCode.abs() % 2147483647;
+    await WorkflowNotificationService.cancel(notifId);
     await WorkflowNotificationService.show(
-      id: wf.id.hashCode.abs() % 2147483647,
+      id: notifId,
       title: 'Gagal menjalankan workflow ${wf.title}',
       body: error,
-      style: 'normal',
+      style: wf.notification.style.name,
       payload: 'workflow:${wf.id}',
     );
 

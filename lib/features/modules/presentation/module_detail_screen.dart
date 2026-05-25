@@ -153,6 +153,47 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           );
         }
       }
+
+      // Background launch needs SYSTEM_ALERT_WINDOW. Without it Android 10+
+      // will silently drop activity launches when Meow Agent is backgrounded.
+      if (value && key == 'allow_background_launch') {
+        final controller = ref.read(clipboardServiceControllerProvider);
+        final canDraw = await controller.canDrawOverlays();
+        if (!canDraw) {
+          if (mounted) {
+            final goSettings = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text(s.permissionRequired),
+                content: Text(
+                  s.isId
+                      ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
+                        'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
+                        'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
+                      : 'To open apps while Meow Agent is in the background, '
+                        'Android requires the "Display over other apps" permission.\n\n'
+                        'Tap "Open Settings" to enable it, then come back.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text(s.cancel),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: Text(s.openSettings),
+                  ),
+                ],
+              ),
+            );
+            if (goSettings != true) return;
+            await controller.requestOverlayPermission();
+            // Don't toggle yet — wait for user to grant and return.
+            // Re-check on the next interaction; user can tap again.
+            return;
+          }
+        }
+      }
     }
 
     // Device Context — foreground app needs PACKAGE_USAGE_STATS permission.
@@ -730,6 +771,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Allow URL Intents',
             'AI can open URLs in the browser.',
           ),
+          'allow_background_launch': (
+            'Allow Background Launch',
+            'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.',
+          ),
           'show_execution_toast': (
             'Show Execution Toast',
             'Show a brief notification when an action runs.',
@@ -924,6 +969,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_url_intents': (
             'Izinkan Buka URL',
             'AI dapat membuka URL di browser.',
+          ),
+          'allow_background_launch': (
+            'Izinkan Buka di Latar Belakang',
+            'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".',
           ),
           'show_execution_toast': (
             'Tampilkan Toast Eksekusi',

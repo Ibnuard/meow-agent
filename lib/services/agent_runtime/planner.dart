@@ -25,6 +25,7 @@ class Planner {
     List<Map<String, String>> recentMessages = const [],
     PendingAction? pendingAction,
     String recentToolMemory = '',
+    bool isWorkflowAutoExecute = false,
   }) async {
     final prompt = PromptTemplates.analyzePrompt(
       userMessage: userMessage,
@@ -34,6 +35,7 @@ class Planner {
       recentMessages: recentMessages,
       pendingAction: pendingAction,
       recentToolMemory: recentToolMemory,
+      isWorkflowAutoExecute: isWorkflowAutoExecute,
     );
 
     final result = await _callLlm(prompt, 'analyze', logger);

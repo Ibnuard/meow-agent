@@ -19,7 +19,7 @@ class WorkflowDatabase {
     final path = '$dbDir/meow_workflows.db';
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE workflows (
@@ -50,7 +50,8 @@ class WorkflowDatabase {
             status TEXT NOT NULL,
             result TEXT NOT NULL,
             executed_at TEXT NOT NULL,
-            duration_ms INTEGER
+            duration_ms INTEGER,
+            events TEXT
           )
         ''');
         await db.execute('''
@@ -64,6 +65,11 @@ class WorkflowDatabase {
         if (oldVersion < 2) {
           await db.execute(
             'ALTER TABLE workflows ADD COLUMN allow_sensitive INTEGER NOT NULL DEFAULT 0',
+          );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            'ALTER TABLE execution_history ADD COLUMN events TEXT',
           );
         }
       },
@@ -111,15 +117,33 @@ class WorkflowDatabase {
       );
 
   /// Convert DB row to WorkflowExecution.
-  WorkflowExecution executionFromRow(Map<String, dynamic> row) =>
-      WorkflowExecution(
-        id: row['id'] as int?,
-        workflowId: row['workflow_id'] as String,
-        agentId: row['agent_id'] as String,
-        workflowTitle: row['workflow_title'] as String,
-        status: row['status'] as String,
-        result: row['result'] as String,
-        executedAt: DateTime.parse(row['executed_at'] as String),
-        durationMs: row['duration_ms'] as int?,
-      );
+  WorkflowExecution executionFromRow(Map<String, dynamic> row) {
+    final eventsRaw = row['events'] as String?;
+    final events = <WorkflowExecutionEvent>[];
+    if (eventsRaw != null && eventsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(eventsRaw);
+        if (decoded is List) {
+          for (final e in decoded) {
+            if (e is Map<String, dynamic>) {
+              events.add(WorkflowExecutionEvent.fromJson(e));
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore malformed events.
+      }
+    }
+    return WorkflowExecution(
+      id: row['id'] as int?,
+      workflowId: row['workflow_id'] as String,
+      agentId: row['agent_id'] as String,
+      workflowTitle: row['workflow_title'] as String,
+      status: row['status'] as String,
+      result: row['result'] as String,
+      executedAt: DateTime.parse(row['executed_at'] as String),
+      durationMs: row['duration_ms'] as int?,
+      events: events,
+    );
+  }
 }

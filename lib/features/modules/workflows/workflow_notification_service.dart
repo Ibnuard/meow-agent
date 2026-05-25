@@ -47,6 +47,7 @@ class WorkflowNotificationService {
     required String body,
     required String style, // 'silent' | 'normal' | 'alarm'
     String? payload,
+    bool ongoing = false,
   }) async {
     final channelId = _channelIdFor(style);
     final channelName = _channelNameFor(style);
@@ -59,9 +60,12 @@ class WorkflowNotificationService {
       channelDescription: 'Meow Agent workflow notifications ($style)',
       importance: importance,
       priority: priority,
-      playSound: style != 'silent',
-      enableVibration: style != 'silent',
-      fullScreenIntent: style == 'alarm',
+      playSound: !ongoing && style != 'silent',
+      enableVibration: !ongoing && style != 'silent',
+      fullScreenIntent: !ongoing && style == 'alarm',
+      ongoing: ongoing,
+      autoCancel: !ongoing,
+      onlyAlertOnce: ongoing,
       category: style == 'alarm'
           ? AndroidNotificationCategory.alarm
           : AndroidNotificationCategory.reminder,

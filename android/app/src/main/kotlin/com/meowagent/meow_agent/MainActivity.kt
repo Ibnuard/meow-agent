@@ -424,8 +424,17 @@ class MainActivity : FlutterActivity() {
         return try {
             val intent = packageManager.getLaunchIntentForPackage(packageName)
             if (intent != null) {
-                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                startActivity(intent)
+                // Required when launching from a non-Activity context, and so the
+                // target app comes to the foreground when our app is backgrounded.
+                intent.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+                )
+                // Use applicationContext so the launch is not tied to MainActivity
+                // lifecycle. If the activity is paused, calling startActivity on
+                // `this` may be silently dropped by the system on Android 10+.
+                applicationContext.startActivity(intent)
                 Log.d(TAG, "Opened app: $packageName")
                 true
             } else {
