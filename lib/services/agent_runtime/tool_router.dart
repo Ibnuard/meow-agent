@@ -274,6 +274,16 @@ class ToolRouter {
       requiresConfirmation: true,
       inputSchema: {'noteId': 'string (required)'},
     ),
+    'notes.export': const ToolDefinition(
+      name: 'notes.export',
+      description: 'Export notes as markdown files to the agent workspace notes/ folder. Pass empty noteIds to export all.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'agentName': 'string (required)',
+        'noteIds': 'list<string> (optional, empty = all)',
+      },
+    ),
 
   };
 
@@ -426,6 +436,8 @@ class ToolRouter {
         return _notesTools().executeUpdate(request.args);
       case 'notes.delete':
         return _notesTools().executeDelete(request.args);
+      case 'notes.export':
+        return _notesTools().executeExport(request.args);
       default:
         return ToolExecutionResult(
           success: false,

@@ -131,6 +131,7 @@ class ModuleRegistry {
       'allow_create': true,
       'allow_read': true,
       'allow_search': true,
+      'allow_export': true,
       'require_confirm_update': true,
       'require_confirm_delete': true,
     },

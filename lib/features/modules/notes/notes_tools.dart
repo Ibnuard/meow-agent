@@ -1,4 +1,5 @@
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/workspace/workspace_file_service.dart';
 import '../data/module_repository.dart';
 import 'notes_repository.dart';
 
@@ -244,6 +245,73 @@ class NotesTools {
       return ToolExecutionResult(
         success: false,
         toolName: 'notes.delete',
+        error: e.toString(),
+      );
+    }
+  }
+  Future<ToolExecutionResult> executeExport(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_export')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'notes.export',
+        error: 'Notes module is disabled or export not allowed.',
+      );
+    }
+    try {
+      final agentName = (args['agentName'] as String? ?? '').trim();
+      if (agentName.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notes.export',
+          error: 'agentName is required.',
+        );
+      }
+
+      final noteIdsRaw = args['noteIds'];
+      final noteIds = noteIdsRaw is List
+          ? noteIdsRaw.map((e) => e.toString()).toList()
+          : <String>[];
+
+      // Empty noteIds → export all notes.
+      final notes = noteIds.isEmpty
+          ? await _repo.listRecentNotes(limit: 1000)
+          : (await Future.wait(noteIds.map(_repo.getNote)))
+              .whereType<dynamic>()
+              .toList();
+
+      if (notes.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notes.export',
+          error: 'No notes to export.',
+        );
+      }
+
+      final exported = <String>[];
+      for (final note in notes) {
+        if (note == null) continue;
+        await WorkspaceFileService.exportNote(
+          agentName,
+          title: note.title,
+          content: note.content,
+          tags: note.tags,
+        );
+        exported.add(note.title);
+      }
+
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notes.export',
+        data: {
+          'exported': exported.length,
+          'titles': exported,
+          'destination': 'Documents/MeowAgent/Agents/$agentName/notes/',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notes.export',
         error: e.toString(),
       );
     }

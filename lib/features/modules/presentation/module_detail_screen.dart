@@ -690,6 +690,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Allow Search Notes',
             'Agent can search notes by keyword.',
           ),
+          'allow_export': (
+            'Allow Export Notes',
+            'Agent can export notes as markdown files to the workspace.',
+          ),
           'require_confirm_update': (
             'Confirm Before Update',
             'Require user confirmation before overwriting note content.',
@@ -819,6 +823,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_search': (
             'Izinkan Cari Note',
             'Agen dapat mencari catatan berdasarkan kata kunci.',
+          ),
+          'allow_export': (
+            'Izinkan Export Note',
+            'Agen dapat mengekspor catatan sebagai file markdown ke workspace.',
           ),
           'require_confirm_update': (
             'Konfirmasi Sebelum Update',
