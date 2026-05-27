@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
@@ -93,23 +94,11 @@ class _AgentCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [cs.primary, extras.gradientEnd],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.smart_toy_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
+                MeowAgentIcon(
+                  agent: agent,
+                  size: 48,
+                  radius: 14,
+                  iconSize: 22,
                 ),
                 const SizedBox(width: 14),
                 Expanded(

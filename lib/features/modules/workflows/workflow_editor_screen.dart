@@ -1107,7 +1107,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               label: agent.name.trim().isEmpty
                   ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
                   : agent.name.trim(),
-              prefix: const MeowAgentIcon(),
+              prefix: MeowAgentIcon(agent: agent),
               searchText: '${agent.providerId} ${agent.maxContextLength}',
             ),
           )

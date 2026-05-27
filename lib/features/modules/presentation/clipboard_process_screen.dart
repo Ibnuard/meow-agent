@@ -13,27 +13,30 @@ import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 
 /// Actions available for processing shared/clipboard text.
+///
+/// Labels are resolved per-locale via [labelFor] so the chip row stays
+/// in sync with the active language.
 enum ClipboardAction {
-  sendToChat(
-    'Send to Chat',
-    'Open in chat with selected agent',
-    Icons.chat_bubble_outline_rounded,
-  ),
-  translate('Translate', 'Translate to English', Icons.translate_rounded),
-  summarize('Summarize', 'Summarize the text', Icons.compress_rounded),
-  rewrite('Rewrite', 'Rewrite more clearly', Icons.edit_note_rounded),
-  explain(
-    'Explain',
-    'Explain in simple terms',
-    Icons.lightbulb_outline_rounded,
-  ),
-  grammar('Fix Grammar', 'Fix grammar & spelling', Icons.spellcheck_rounded),
-  reply('Draft Reply', 'Draft a reply to this', Icons.reply_rounded);
+  sendToChat(Icons.chat_bubble_outline_rounded),
+  translate(Icons.translate_rounded),
+  summarize(Icons.compress_rounded),
+  rewrite(Icons.edit_note_rounded),
+  explain(Icons.lightbulb_outline_rounded),
+  grammar(Icons.spellcheck_rounded),
+  reply(Icons.reply_rounded);
 
-  const ClipboardAction(this.label, this.description, this.icon);
-  final String label;
-  final String description;
+  const ClipboardAction(this.icon);
   final IconData icon;
+
+  String labelFor(AppStrings s) => switch (this) {
+        ClipboardAction.sendToChat => s.clipboardActionSendToChat,
+        ClipboardAction.translate => s.clipboardActionTranslate,
+        ClipboardAction.summarize => s.clipboardActionSummarize,
+        ClipboardAction.rewrite => s.clipboardActionRewrite,
+        ClipboardAction.explain => s.clipboardActionExplain,
+        ClipboardAction.grammar => s.clipboardActionGrammar,
+        ClipboardAction.reply => s.clipboardActionReply,
+      };
 }
 
 /// Screen for processing shared/clipboard text with AI.
@@ -91,7 +94,7 @@ class _ClipboardProcessScreenState
 
     if (agents.isEmpty || _selectedAgentId == null) {
       setState(() {
-        _result = '⚠️ No agent configured.';
+        _result = '⚠️ ${s.clipboardNoAgentSelected}';
         _processing = false;
       });
       return;
@@ -150,9 +153,9 @@ class _ClipboardProcessScreenState
     // Intercept "Send to Chat" — navigate without LLM processing.
     if (action == ClipboardAction.sendToChat) {
       if (_selectedAgentId == null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('No agent selected.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.clipboardNoAgentSelected)),
+        );
         return;
       }
       final encoded = Uri.encodeComponent(widget.inputText);
@@ -275,7 +278,7 @@ class _ClipboardProcessScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Clipboard AI'), // Brand name — keep original
+        title: Text(s.clipboard),
         leading: IconButton(
           icon: const Icon(Icons.close_rounded),
           onPressed: () {
@@ -293,19 +296,20 @@ class _ClipboardProcessScreenState
         child: SafeArea(
           child: Column(
             children: [
-              // Agent selector.
+              // ── Agent selector ──
               if (agents.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                   child: MeowDropdown<String>(
+                    label: s.agent,
                     value: agents.any((agent) => agent.id == _selectedAgentId)
                         ? _selectedAgentId
                         : null,
                     enabled: !_processing,
-                    hint: 'Pilih agent',
-                    sheetTitle: 'Pilih Agent',
-                    searchHint: 'Cari agent',
-                    emptyText: 'Agent tidak ditemukan',
+                    hint: s.clipboardPickAgent,
+                    sheetTitle: s.clipboardPickAgent,
+                    searchHint: s.clipboardSearchAgent,
+                    emptyText: s.clipboardAgentNotFound,
                     options: agents.map((agent) {
                       final provider = providers
                           .where((p) => p.id == agent.providerId)
@@ -315,8 +319,8 @@ class _ClipboardProcessScreenState
                         label: agent.name,
                         subtitle: provider == null
                             ? null
-                            : '${provider.nickname} - ${provider.model}',
-                        prefix: const MeowAgentIcon(),
+                            : '${provider.nickname} · ${provider.model}',
+                        prefix: MeowAgentIcon(agent: agent),
                         searchText: provider == null
                             ? agent.providerId
                             : '${provider.nickname} ${provider.model}',
@@ -327,10 +331,20 @@ class _ClipboardProcessScreenState
                   ),
                 ),
 
-              // Input preview.
+              const SizedBox(height: 20),
+
+              // ── Copied text preview ──
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _ClipboardSectionLabel(
+                  label: s.clipboardCopiedTextLabel,
+                  cs: cs,
+                ),
+              ),
+              const SizedBox(height: 8),
               Container(
                 width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                margin: const EdgeInsets.symmetric(horizontal: 16),
                 padding: const EdgeInsets.all(14),
                 constraints: const BoxConstraints(maxHeight: 120),
                 decoration: BoxDecoration(
@@ -344,35 +358,48 @@ class _ClipboardProcessScreenState
                     style: TextStyle(
                       fontSize: 13,
                       color: cs.onSurface,
-                      height: 1.4,
+                      height: 1.45,
                     ),
                   ),
                 ),
               ),
 
-              // Custom prompt textbox.
+              const SizedBox(height: 20),
+
+              // ── Custom instruction ──
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _ClipboardSectionLabel(
+                  label: s.clipboardCustomInstruction,
+                  cs: cs,
+                ),
+              ),
+              const SizedBox(height: 8),
               Container(
-                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                margin: const EdgeInsets.symmetric(horizontal: 16),
                 decoration: BoxDecoration(
                   color: extras.card,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: extras.subtleBorder),
                 ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
                       child: TextField(
                         controller: _customPrompt,
                         enabled: !_processing,
                         minLines: 1,
-                        maxLines: 3,
+                        maxLines: 4,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _processCustom(),
-                        style: TextStyle(fontSize: 13, color: cs.onSurface),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurface,
+                          height: 1.4,
+                        ),
                         decoration: InputDecoration(
-                          hintText:
-                              'Custom instruction (e.g., translate to Japanese)',
+                          hintText: s.clipboardCustomInstructionHint,
                           hintStyle: TextStyle(
                             fontSize: 13,
                             color: cs.onSurfaceVariant,
@@ -384,37 +411,56 @@ class _ClipboardProcessScreenState
                           disabledBorder: InputBorder.none,
                           errorBorder: InputBorder.none,
                           focusedErrorBorder: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
+                          contentPadding: const EdgeInsets.fromLTRB(
+                            14,
+                            12,
+                            8,
+                            12,
                           ),
                         ),
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: IconButton(
-                        icon: Icon(
-                          Icons.send_rounded,
-                          size: 18,
-                          color: cs.primary,
+                      padding: const EdgeInsets.fromLTRB(0, 4, 6, 4),
+                      child: Material(
+                        color: cs.primary,
+                        shape: const CircleBorder(),
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: _processing ? null : _processCustom,
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Icon(
+                              Icons.arrow_upward_rounded,
+                              size: 18,
+                              color: cs.onPrimary,
+                            ),
+                          ),
                         ),
-                        onPressed: _processing ? null : _processCustom,
-                        tooltip: 'Send custom prompt',
                       ),
                     ),
                   ],
                 ),
               ),
 
-              // Action chips.
+              const SizedBox(height: 20),
+
+              // ── Quick action chips ──
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _ClipboardSectionLabel(
+                  label: s.clipboardQuickActions,
+                  cs: cs,
+                ),
+              ),
+              const SizedBox(height: 10),
               SizedBox(
-                height: 44,
+                height: 40,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: ClipboardAction.values.length,
-                  separatorBuilder: (_, i) => const SizedBox(width: 8),
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (context, i) {
                     final action = ClipboardAction.values[i];
                     final isSelected = _selectedAction == action;
@@ -442,7 +488,7 @@ class _ClipboardProcessScreenState
                               Icon(action.icon, size: 16, color: iconColor),
                               const SizedBox(width: 6),
                               Text(
-                                action.label,
+                                action.labelFor(s),
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -458,9 +504,9 @@ class _ClipboardProcessScreenState
                 ),
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // Result area.
+              // ── Result area ──
               Expanded(
                 child: _processing
                     ? const _ThinkingIndicator()
@@ -487,11 +533,12 @@ class _ClipboardProcessScreenState
                                   ),
                                   const SizedBox(width: 6),
                                   Text(
-                                    'Result',
+                                    s.result,
                                     style: TextStyle(
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
                                       color: cs.primary,
+                                      letterSpacing: 0.3,
                                     ),
                                   ),
                                 ],
@@ -518,17 +565,23 @@ class _ClipboardProcessScreenState
                         ),
                       )
                     : Center(
-                        child: Text(
-                          s.chooseActionAbove,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: cs.onSurfaceVariant,
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            s.chooseActionAbove,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: cs.onSurfaceVariant,
+                              height: 1.4,
+                            ),
                           ),
                         ),
                       ),
               ),
 
-              // Copy result button.
+              // ── Copy result button ──
               if (_result != null && !_processing)
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -536,13 +589,12 @@ class _ClipboardProcessScreenState
                     width: double.infinity,
                     child: ElevatedButton.icon(
                       onPressed: () {
-                        // Copy to clipboard.
                         final data = ClipboardData(text: _result!);
                         Clipboard.setData(data);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied to clipboard.'),
-                            duration: Duration(seconds: 2),
+                          SnackBar(
+                            content: Text(s.copiedToClipboard),
+                            duration: const Duration(seconds: 2),
                           ),
                         );
                       },
@@ -554,6 +606,27 @@ class _ClipboardProcessScreenState
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Tiny uppercase-leaning label used by every section header on this screen.
+class _ClipboardSectionLabel extends StatelessWidget {
+  const _ClipboardSectionLabel({required this.label, required this.cs});
+
+  final String label;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: cs.onSurfaceVariant,
+        letterSpacing: 0.3,
       ),
     );
   }

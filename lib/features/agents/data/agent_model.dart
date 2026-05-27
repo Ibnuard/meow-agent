@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import 'agent_appearance.dart';
+
 /// An agent that references a provider by id.
 class AgentModel {
   AgentModel({
@@ -9,21 +11,44 @@ class AgentModel {
     required this.name,
     required this.providerId,
     this.maxContextLength = 8191,
-  }) : id = id ?? const Uuid().v4();
+    String? iconKey,
+    String? colorKey,
+  })  : id = id ?? const Uuid().v4(),
+        iconKey = (iconKey == null || iconKey.isEmpty)
+            ? kDefaultAgentIconKey
+            : iconKey,
+        colorKey = (colorKey == null || colorKey.isEmpty)
+            ? kDefaultAgentColorKey
+            : colorKey;
 
   final String id;
   final String name;
   final String providerId;
   final int maxContextLength;
 
-  bool get isComplete => name.trim().isNotEmpty && providerId.trim().isNotEmpty;
+  /// Stable preset key for the avatar icon — see [kAgentIconOptions].
+  final String iconKey;
 
-  AgentModel copyWith({String? name, String? providerId, int? maxContextLength}) {
+  /// Stable preset key for the avatar tint — see [kAgentColorOptions].
+  final String colorKey;
+
+  bool get isComplete =>
+      name.trim().isNotEmpty && providerId.trim().isNotEmpty;
+
+  AgentModel copyWith({
+    String? name,
+    String? providerId,
+    int? maxContextLength,
+    String? iconKey,
+    String? colorKey,
+  }) {
     return AgentModel(
       id: id,
       name: name ?? this.name,
       providerId: providerId ?? this.providerId,
       maxContextLength: maxContextLength ?? this.maxContextLength,
+      iconKey: iconKey ?? this.iconKey,
+      colorKey: colorKey ?? this.colorKey,
     );
   }
 
@@ -32,6 +57,8 @@ class AgentModel {
         'name': name,
         'providerId': providerId,
         'maxContextLength': maxContextLength,
+        'iconKey': iconKey,
+        'colorKey': colorKey,
       };
 
   static AgentModel fromJson(Map<String, dynamic> json) {
@@ -40,6 +67,8 @@ class AgentModel {
       name: (json['name'] as String?) ?? '',
       providerId: (json['providerId'] as String?) ?? '',
       maxContextLength: (json['maxContextLength'] as int?) ?? 8191,
+      iconKey: json['iconKey'] as String?,
+      colorKey: json['colorKey'] as String?,
     );
   }
 
@@ -52,4 +81,3 @@ class AgentModel {
           .map(AgentModel.fromJson)
           .toList();
 }
-

@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
@@ -813,11 +814,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         actions: [
           Builder(
             builder: (ctx) => IconButton(
-              icon: const Icon(Icons.people_outline_rounded),
               tooltip: s.switchAgent,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              constraints: const BoxConstraints(),
+              icon: agent != null
+                  ? MeowAgentIcon(
+                      agent: agent,
+                      size: 30,
+                      iconSize: 16,
+                      radius: 10,
+                    )
+                  : const Icon(Icons.switch_account_rounded),
               onPressed: () => Scaffold.of(ctx).openEndDrawer(),
             ),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       endDrawer: _AgentDrawer(
@@ -1716,26 +1727,38 @@ class _AgentDrawer extends StatelessWidget {
                                     horizontal: 14, vertical: 12),
                                 child: Row(
                                   children: [
-                                    Container(
-                                      width: 36,
-                                      height: 36,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? cs.primary
-                                                .withValues(alpha: 0.15)
-                                            : cs.onSurfaceVariant
-                                                .withValues(alpha: 0.08),
-                                        borderRadius:
-                                            BorderRadius.circular(10),
-                                      ),
-                                      alignment: Alignment.center,
-                                      child: Icon(
-                                        Icons.smart_toy_rounded,
-                                        size: 18,
-                                        color: isActive
-                                            ? cs.primary
-                                            : cs.onSurfaceVariant,
-                                      ),
+                                    Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        MeowAgentIcon(
+                                          agent: agent,
+                                          size: 36,
+                                          radius: 10,
+                                          iconSize: 18,
+                                        ),
+                                        if (isActive)
+                                          Positioned(
+                                            right: -2,
+                                            bottom: -2,
+                                            child: Container(
+                                              width: 14,
+                                              height: 14,
+                                              decoration: BoxDecoration(
+                                                color: cs.primary,
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: cs.surface,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: Icon(
+                                                Icons.check_rounded,
+                                                size: 8,
+                                                color: cs.onPrimary,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
@@ -1752,12 +1775,6 @@ class _AgentDrawer extends StatelessWidget {
                                         ),
                                       ),
                                     ),
-                                    if (isActive)
-                                      Icon(
-                                        Icons.check_rounded,
-                                        size: 18,
-                                        color: cs.primary,
-                                      ),
                                   ],
                                 ),
                               ),

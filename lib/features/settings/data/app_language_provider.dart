@@ -244,4 +244,34 @@ class AppStrings {
 
   String get switchAgent => isId ? 'Ganti Agen' : 'Switch Agent';
   String get typeMessage => isId ? 'Ketik pesan' : 'Type a message';
+
+  // Clipboard processing screen.
+  String get clipboard => 'Clipboard';
+  String get clipboardCopiedTextLabel =>
+      isId ? 'Teks yang Disalin' : 'Copied Text';
+  String get clipboardQuickActions => isId ? 'Aksi Cepat' : 'Quick Actions';
+  String get clipboardCustomInstruction =>
+      isId ? 'Instruksi Kustom' : 'Custom Instruction';
+  String get clipboardCustomInstructionHint => isId
+      ? 'Contoh: terjemahkan ke bahasa Jepang'
+      : 'e.g. translate to Japanese';
+  String get clipboardSendCustomPrompt =>
+      isId ? 'Kirim instruksi' : 'Send instruction';
+  String get clipboardPickAgent => isId ? 'Pilih agen' : 'Choose agent';
+  String get clipboardSearchAgent => isId ? 'Cari agen' : 'Search agents';
+  String get clipboardAgentNotFound =>
+      isId ? 'Agen tidak ditemukan' : 'No agents found';
+  String get clipboardNoAgentSelected =>
+      isId ? 'Belum ada agen dipilih.' : 'No agent selected.';
+
+  // Clipboard action chips.
+  String get clipboardActionSendToChat => isId ? 'Kirim ke Chat' : 'Send to Chat';
+  String get clipboardActionTranslate => isId ? 'Terjemahkan' : 'Translate';
+  String get clipboardActionSummarize => isId ? 'Ringkas' : 'Summarize';
+  String get clipboardActionRewrite => isId ? 'Tulis Ulang' : 'Rewrite';
+  String get clipboardActionExplain => isId ? 'Jelaskan' : 'Explain';
+  String get clipboardActionGrammar =>
+      isId ? 'Perbaiki Tata Bahasa' : 'Fix Grammar';
+  String get clipboardActionReply =>
+      isId ? 'Susun Balasan' : 'Draft Reply';
 }

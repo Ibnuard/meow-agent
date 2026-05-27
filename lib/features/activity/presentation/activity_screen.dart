@@ -151,7 +151,11 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                     (agent) => MeowDropdownOption<String>(
                       value: agent.id,
                       label: agent.name,
-                      prefix: const MeowAgentIcon(size: 22, radius: 8),
+                      prefix: MeowAgentIcon(
+                        agent: agent,
+                        size: 22,
+                        radius: 8,
+                      ),
                     ),
                   ),
                 ],

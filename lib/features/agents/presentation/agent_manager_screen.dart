@@ -8,6 +8,7 @@ import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
+import '../data/agent_appearance.dart';
 import '../data/agent_model.dart';
 import '../data/agent_repository.dart';
 import '../data/workspace_service.dart';
@@ -31,6 +32,8 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   final _nameController = TextEditingController();
   final _contextLengthController = TextEditingController(text: '8191');
   String? _selectedProviderId;
+  String _iconKey = kDefaultAgentIconKey;
+  String _colorKey = kDefaultAgentColorKey;
   bool _saving = false;
   String? _existingId;
   String? _workspacePath;
@@ -56,6 +59,8 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _nameController.text = existing.name;
       _selectedProviderId = existing.providerId;
       _contextLengthController.text = existing.maxContextLength.toString();
+      _iconKey = existing.iconKey;
+      _colorKey = existing.colorKey;
       _loadWorkspacePath(existing.id, agentName: existing.name);
     }
   }
@@ -90,6 +95,8 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
         name: _nameController.text.trim(),
         providerId: _selectedProviderId!,
         maxContextLength: maxCtx.clamp(512, 1000000),
+        iconKey: _iconKey,
+        colorKey: _colorKey,
       );
       await ref.read(agentListProvider.notifier).save(agent);
       if (!mounted) return;
@@ -264,6 +271,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             MeowSection(
               title: s.agentSection,
               subtitle: s.agentSectionDesc,
+              bottomSpacing: 24,
               child: MeowInput(
                 controller: _nameController,
                 label: s.agentName,
@@ -274,6 +282,16 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                 },
               ),
             ),
+
+            // Appearance section — collapsible "Personalize Agent" card.
+            _AppearanceSection(
+              iconKey: _iconKey,
+              colorKey: _colorKey,
+              isId: s.isId,
+              onIconChanged: (k) => setState(() => _iconKey = k),
+              onColorChanged: (k) => setState(() => _colorKey = k),
+            ),
+            const SizedBox(height: 24),
 
             // Provider section.
             Padding(
@@ -315,7 +333,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                       _AddProviderButton(onTap: _goAddProvider, s: s),
                     ],
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
                   if (providers.isEmpty)
                     _ProviderEmptyState(s: s)
                   else ...[
@@ -339,12 +357,10 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                       onChanged: (v) => setState(() => _selectedProviderId = v),
                     ),
                   ],
-                  const SizedBox(height: 28),
                 ],
               ),
             ),
-
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             // Max Context Length section.
             Padding(
@@ -427,7 +443,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
               ),
             ),
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 32),
 
             // Save button.
             Padding(
@@ -574,6 +590,266 @@ class _ProviderEmptyState extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Collapsible "Personalize Agent" card — keeps the form clean by hiding
+/// the icon/color picker behind a tap-to-expand affordance. The header
+/// always shows the live avatar so the user sees their current selection
+/// without expanding.
+class _AppearanceSection extends StatefulWidget {
+  const _AppearanceSection({
+    required this.iconKey,
+    required this.colorKey,
+    required this.isId,
+    required this.onIconChanged,
+    required this.onColorChanged,
+  });
+
+  final String iconKey;
+  final String colorKey;
+  final bool isId;
+  final ValueChanged<String> onIconChanged;
+  final ValueChanged<String> onColorChanged;
+
+  @override
+  State<_AppearanceSection> createState() => _AppearanceSectionState();
+}
+
+class _AppearanceSectionState extends State<_AppearanceSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final extras = context.extras;
+    final selectedColor = resolveAgentColor(widget.colorKey);
+    final selectedIcon = resolveAgentIcon(widget.iconKey);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Tappable header.
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: selectedColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          selectedIcon,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.isId
+                                  ? 'Personalisasi Agent'
+                                  : 'Personalize Agent',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.onSurface,
+                                letterSpacing: -0.1,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.isId
+                                  ? 'Pilih ikon dan warna'
+                                  : 'Choose icon and color',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w400,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Expandable body.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Divider(height: 1, color: extras.subtleBorder),
+                          const SizedBox(height: 14),
+
+                          // Icon picker.
+                          _PickerLabel(
+                            label: widget.isId ? 'Ikon' : 'Icon',
+                            cs: cs,
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 48,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: kAgentIconOptions.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(width: 8),
+                              itemBuilder: (_, i) {
+                                final opt = kAgentIconOptions[i];
+                                final selected = opt.key == widget.iconKey;
+                                return GestureDetector(
+                                  onTap: () => widget.onIconChanged(opt.key),
+                                  child: Container(
+                                    width: 48,
+                                    height: 48,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: selected
+                                          ? selectedColor.withValues(
+                                              alpha: 0.14,
+                                            )
+                                          : extras.inputFill,
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: selected
+                                            ? selectedColor.withValues(
+                                                alpha: 0.55,
+                                              )
+                                            : extras.subtleBorder,
+                                        width: selected ? 1.5 : 1,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      opt.icon,
+                                      size: 20,
+                                      color: selected
+                                          ? selectedColor
+                                          : cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // Color picker — no glow; selection ring only.
+                          _PickerLabel(
+                            label: widget.isId ? 'Warna' : 'Color',
+                            cs: cs,
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 40,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              itemCount: kAgentColorOptions.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(width: 10),
+                              itemBuilder: (_, i) {
+                                final opt = kAgentColorOptions[i];
+                                final selected = opt.key == widget.colorKey;
+                                return GestureDetector(
+                                  onTap: () => widget.onColorChanged(opt.key),
+                                  child: AnimatedContainer(
+                                    duration:
+                                        const Duration(milliseconds: 150),
+                                    width: 40,
+                                    height: 40,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: opt.color,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: selected
+                                            ? Colors.white
+                                            : Colors.transparent,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: selected
+                                        ? const Icon(
+                                            Icons.check_rounded,
+                                            color: Colors.white,
+                                            size: 18,
+                                          )
+                                        : null,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small uppercase-leaning section label inside the personalize card.
+class _PickerLabel extends StatelessWidget {
+  const _PickerLabel({required this.label, required this.cs});
+
+  final String label;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: cs.onSurfaceVariant,
+        letterSpacing: 0.4,
       ),
     );
   }
