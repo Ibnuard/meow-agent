@@ -8,6 +8,7 @@ import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
+import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
@@ -15,6 +16,7 @@ import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
 import 'prompt_constants.dart';
+import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
@@ -23,6 +25,8 @@ import 'tool_permission_policy.dart';
 import 'tool_router.dart';
 import 'tool_verbalizer.dart';
 import 'workspace_loader.dart';
+import '../../features/agents/data/agent_model.dart';
+import '../../features/modules/workflows/workflow_repository.dart';
 
 /// Callback for real-time event streaming.
 typedef RuntimeEventCallback = void Function(RuntimeEvent event);
@@ -35,12 +39,22 @@ class AgentRuntimeEngine {
     required this.toolRouter,
     required this.contextBuilder,
     required this.languageCode,
+    this.snapshotBuilder,
+    this.agentLoader,
   });
 
   final WorkspaceLoader workspaceLoader;
   final ToolRouter toolRouter;
   final ContextBuilder contextBuilder;
   final String languageCode;
+
+  /// Optional ecosystem snapshot builder. When null, reflection runs without
+  /// snapshot context (still useful for slot extraction).
+  final EcosystemSnapshotBuilder? snapshotBuilder;
+
+  /// Loader for the current agent registry. Optional — reflection still works
+  /// without it but loses cross-reference detection.
+  final List<AgentModel> Function()? agentLoader;
 
   /// Shared LLM client. Reused across all turns of this engine instance so
   /// the underlying Dio's connection pool can keep keep-alive sockets warm.
@@ -128,6 +142,7 @@ class AgentRuntimeEngine {
       languageCode: languageCode,
     );
     final executor = Executor(client: client, config: llmConfig);
+    final reflector = Reflector(client: client, config: llmConfig);
 
     // Workflow auto-execute mode: scheduled run + sensitive actions pre-approved.
     // Used by prompt builders to switch language/rules and by the runtime to
@@ -377,6 +392,73 @@ class AgentRuntimeEngine {
 
       _pendingClarifications.remove(request.agentId);
 
+      // 2.5 Reflection (mandatory deep-thinking phase).
+      // Builds an ecosystem snapshot, asks the LLM to decide a strategy
+      // (direct_execute / clarify / auto_resolve / block), and short-circuits
+      // when the strategy demands user input or refusal.
+      ReflectionOutput? reflection;
+      final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
+      final shouldReflect =
+          analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
+      if (shouldReflect) {
+        state = AgentRuntimeState.analyzing;
+        logger.logStateChange(state, 'Reflecting on impact and slot needs');
+        emit(logger.events.last);
+
+        // Snapshot is opt-in via the engine constructor. When the loader is
+        // missing (tests, sandbox), reflection still runs without snapshot.
+        final snapshot = await _buildSnapshot();
+
+        reflection = await reflector.reflect(
+          userMessage: effectiveUserMessage,
+          analysis: analysis,
+          snapshot: snapshot,
+          availableTools: _toolDefinitionsFor(toolSelection.toolNames),
+          language: detectedLang,
+          logger: logger,
+          recentMessages: recentMsgs,
+        );
+        logger.logLlmDecision('reflect', reflection.toJson());
+        emit(logger.events.last);
+
+        // Strategy: clarify — ask the user one short combined question.
+        if (reflection.strategy == ReflectionStrategy.clarify &&
+            reflection.clarifyQuestions.isNotEmpty) {
+          final question = reflection.clarifyQuestions.first;
+          _pendingClarifications[request.agentId] = PendingClarification(
+            originalMessage: request.userMessage,
+            questions: reflection.clarifyQuestions,
+            createdAt: DateTime.now(),
+          );
+          logger.logFinalResponse(question);
+          return AgentRuntimeResponse(
+            finalMessage: question,
+            success: true,
+            state: AgentRuntimeState.askingUser,
+            events: logger.events,
+          );
+        }
+
+        // Strategy: block — polite refusal with reason.
+        if (reflection.strategy == ReflectionStrategy.block) {
+          final reason = reflection.blockReason.isNotEmpty
+              ? reflection.blockReason
+              : await verbalizer.abort(
+                  reason: 'destructive request blocked',
+                  language: detectedLang,
+                );
+          logger.logFinalResponse(reason);
+          return AgentRuntimeResponse(
+            finalMessage: reason,
+            success: true,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+          );
+        }
+        // Strategy: auto_resolve and direct_execute — continue to planning.
+        // Phase 4 will handle silent prep steps for auto_resolve.
+      }
+
       // If no tools required, respond directly with full context.
       // EXCEPT during scheduled workflow auto-execution: the runtime must
       // run the tool deterministically, not let the LLM craft a permission
@@ -492,11 +574,15 @@ class AgentRuntimeEngine {
       // Build the goal tree from the planner output. If the planner returned
       // a legacy flat plan or no subgoals, fall back to a single-subgoal tree
       // so the rest of the loop has a consistent shape to reason about.
-      final goalTree = _buildGoalTree(
-        plan: plan,
-        analysis: analysis,
-        userMessage: request.userMessage,
-      );
+      // Reflection's goal tree wins when available — it has the most accurate
+      // slot extraction and impact-aware structure.
+      final goalTree = reflection != null && reflection.goalTree.isNotEmpty
+          ? reflection.goalTree
+          : _buildGoalTree(
+              plan: plan,
+              analysis: analysis,
+              userMessage: request.userMessage,
+            );
       logger.logLlmDecision('plan.goal_tree', goalTree.toJson());
 
       // 4. Execute loop.
@@ -534,7 +620,9 @@ class AgentRuntimeEngine {
       onEvent?.call(event);
     }
 
-    // Clear pending action.
+    // Capture the pending action BEFORE clearing so we can use its
+    // resumeContext to continue a multi-subgoal task.
+    final priorPending = _pendingActions[request.agentId];
     _pendingActions.remove(request.agentId);
 
     final llmConfig = LlmProviderConfig(
@@ -548,7 +636,6 @@ class AgentRuntimeEngine {
     // Confirmed-button taps don't carry a user message. Reuse the language
     // captured at the time the pending action was created (or fall back to
     // the engine's default).
-    final priorPending = _pendingActions[request.agentId];
     final detectedLang = priorPending != null
         ? DetectedLanguage(
             code: priorPending.languageCode,
@@ -565,6 +652,7 @@ class AgentRuntimeEngine {
       toolArgs: toolArgs,
       userFacingSummary: 'Confirmed by user',
       languageCode: detectedLang.code,
+      resumeContext: priorPending?.resumeContext,
     );
 
     return _executePendingTool(
@@ -639,6 +727,127 @@ class AgentRuntimeEngine {
       // Verbalizer generates the user-facing success message in the
       // detected language. Generic across all tools — no per-tool switch.
       if (result.success) {
+        // Resume path: when this confirmation interrupted a multi-subgoal
+        // task, mark the active subgoal done and re-enter the execute loop
+        // so the remaining subgoals can run.
+        final resume = pending.resumeContext;
+        if (resume != null) {
+          final treeJson = resume['goal_tree'] as Map<String, dynamic>?;
+          final goalTree = treeJson != null
+              ? GoalTree.fromJson(treeJson)
+              : GoalTree.singleSubgoal(
+                  mainGoal: pending.toolName,
+                  subgoalLabel: pending.toolName,
+                );
+
+          // Advance the active subgoal that triggered the confirmation.
+          final active = goalTree.nextActionable;
+          if (active != null) {
+            active.status = SubgoalStatus.done;
+            active.resultRef =
+                'confirmed:${pending.toolName}:${result.success}';
+          }
+
+          _memory.record(
+            agentId: request.agentId,
+            toolName: pending.toolName,
+            args: pending.toolArgs,
+            data: result.data,
+            success: result.success,
+            error: result.error,
+          );
+
+          // If the tree is now complete, finish with the verbalized success
+          // message just like the legacy path.
+          if (goalTree.isComplete) {
+            final successMsg = await verbalizer.success(
+              tool: toolRequest,
+              result: result,
+              language: detectedLang,
+            );
+            logger.logFinalResponse(successMsg);
+            await workspaceLoader.updateHeartbeat(
+              request.agentName.isNotEmpty
+                  ? request.agentName
+                  : request.agentId,
+              state: 'done',
+              task: pending.toolName,
+              lastTool: pending.toolName,
+              lastResult: 'success',
+            );
+            return AgentRuntimeResponse(
+              finalMessage: successMsg,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+              actions: result.actions,
+            );
+          }
+
+          // Otherwise resume the execute loop where the gate fired.
+          final plan = (resume['plan'] as Map?)?.cast<String, dynamic>() ??
+              {'steps': []};
+          final previousResults = (resume['previous_results'] as List?)
+                  ?.whereType<Map>()
+                  .map((m) => m.cast<String, dynamic>())
+                  .toList() ??
+              <Map<String, dynamic>>[];
+          previousResults.add({
+            'step': resume['current_step'] ?? 1,
+            'tool': pending.toolName,
+            'result': result.data,
+            'confirmed': true,
+          });
+          final availableTools = (resume['available_tools'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              const <String>[];
+          final memorySnapshot =
+              (resume['memory_snapshot'] as String?) ?? '';
+          final autoApproveSensitive =
+              resume['auto_approve_sensitive'] as bool? ?? false;
+          final isWorkflowAutoExecute =
+              resume['is_workflow_auto_execute'] as bool? ?? false;
+          final currentStep = (resume['current_step'] as int? ?? 1) + 1;
+          final userMessage =
+              (resume['user_message'] as String?) ?? request.userMessage;
+
+          // Reconstruct the request so memory + heartbeats keep the original
+          // task context intact during the resumed loop.
+          final resumedRequest = AgentRuntimeRequest(
+            agentId: request.agentId,
+            agentName: request.agentName,
+            userMessage: userMessage,
+            recentMessages: request.recentMessages,
+            source: request.source,
+          );
+
+          logger.logStateChange(
+            AgentRuntimeState.selectingTool,
+            'Resuming execute loop after confirmation '
+            '(subgoals remaining: ${goalTree.subgoals.where((s) => !s.isTerminal).length})',
+          );
+          emit(logger.events.last);
+
+          return _executeLoop(
+            request: resumedRequest,
+            plan: plan,
+            goalTree: goalTree,
+            executor: executor,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            availableTools: availableTools,
+            logger: logger,
+            emit: emit,
+            memorySnapshot: memorySnapshot,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            initialPreviousResults: previousResults,
+            initialStep: currentStep,
+          );
+        }
+
+        // Legacy / single-target path: just announce success and finish.
         final successMsg = await verbalizer.success(
           tool: toolRequest,
           result: result,
@@ -735,9 +944,13 @@ class AgentRuntimeEngine {
     required String memorySnapshot,
     bool autoApproveSensitive = false,
     bool isWorkflowAutoExecute = false,
+    List<Map<String, dynamic>>? initialPreviousResults,
+    int initialStep = 1,
   }) async {
-    final previousResults = <Map<String, dynamic>>[];
-    var currentStep = 1;
+    final previousResults = <Map<String, dynamic>>[
+      ...?initialPreviousResults,
+    ];
+    var currentStep = initialStep;
     var retryCount = 0;
     var rePlanned = false;
     final stuck = StuckDetector();
@@ -933,6 +1146,35 @@ class AgentRuntimeEngine {
             language: detectedLang,
           );
 
+          // Snapshot enough state to resume the loop after the user confirms.
+          // Without this, the bug surfaces as: "agent finishes the whole task
+          // after only the first sensitive subgoal succeeded."
+          //
+          // The active subgoal is flipped to in_progress so the resumed run
+          // knows to mark it done after the confirmed tool succeeds.
+          Map<String, dynamic>? resumeContext;
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            final active = goalTree.nextActionable;
+            if (active != null) {
+              active.status = SubgoalStatus.inProgress;
+            }
+            resumeContext = {
+              'plan': plan,
+              'goal_tree': goalTree.toJson(),
+              'previous_results': previousResults,
+              'current_step': currentStep,
+              'available_tools': availableTools,
+              'memory_snapshot': memorySnapshot,
+              'auto_approve_sensitive': autoApproveSensitive,
+              'is_workflow_auto_execute': isWorkflowAutoExecute,
+              'language_code': detectedLang.code,
+              'language_label': detectedLang.label,
+              'language_script': detectedLang.script,
+              'language_confidence': detectedLang.confidence,
+              'user_message': request.userMessage,
+            };
+          }
+
           // Store as pending action — language is captured for follow-up turns.
           final pending = PendingAction(
             toolName: toolRequest.name,
@@ -940,6 +1182,7 @@ class AgentRuntimeEngine {
             userFacingSummary: summary,
             userFacingPreview: preview,
             languageCode: detectedLang.code,
+            resumeContext: resumeContext,
           );
           _pendingActions[request.agentId] = pending;
 
@@ -1220,6 +1463,47 @@ class AgentRuntimeEngine {
     );
   }
 
+  /// Build the ecosystem snapshot for the current turn.
+  ///
+  /// Returns an empty snapshot when the engine was constructed without a
+  /// builder/agent loader (e.g. unit tests). The reflector tolerates that.
+  Future<EcosystemSnapshot> _buildSnapshot() async {
+    final builder = snapshotBuilder;
+    final loader = agentLoader;
+    if (builder == null || loader == null) {
+      return EcosystemSnapshot(
+        agents: const [],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+        builtAt: DateTime.now(),
+      );
+    }
+    try {
+      return await builder.build(agents: loader());
+    } catch (_) {
+      return EcosystemSnapshot(
+        agents: const [],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+        builtAt: DateTime.now(),
+      );
+    }
+  }
+
+  /// Resolve [ToolDefinition] objects for the given tool names. Names that
+  /// aren't in the registry are silently dropped — the reflector treats the
+  /// result as best-effort.
+  List<ToolDefinition> _toolDefinitionsFor(Set<String> names) {
+    final out = <ToolDefinition>[];
+    for (final n in names) {
+      final def = toolRouter.getDefinition(n);
+      if (def != null) out.add(def);
+    }
+    return out;
+  }
+
   AgentRuntimeResponse _fail(String message, RuntimeLogger logger) {
     logger.logError(message);
     return AgentRuntimeResponse(
@@ -1288,5 +1572,11 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
     ),
     contextBuilder: ContextBuilder(),
     languageCode: resolveLanguageCode(languagePref),
+    snapshotBuilder: EcosystemSnapshotBuilder(
+      moduleRepository: ref.watch(moduleRepositoryProvider),
+      providerRepository: ref.watch(providerRepositoryProvider),
+      workflowRepository: ref.watch(workflowRepositoryProvider),
+    ),
+    agentLoader: () => ref.read(agentListProvider),
   );
 });

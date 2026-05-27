@@ -1,0 +1,359 @@
+import '../../features/settings/data/llm_provider_config.dart';
+import '../llm/openai_compatible_client.dart';
+import 'ecosystem_snapshot.dart';
+import 'goal_tree.dart';
+import 'json_utils.dart';
+import 'language_detector.dart';
+import 'prompt_constants.dart';
+import 'runtime_logger.dart';
+import 'runtime_models.dart';
+
+/// Strategy chosen by the [Reflector].
+///
+/// Drives the runtime's next move:
+/// - [directExecute] → run the loop, no extra preamble
+/// - [clarify]      → ask the user one short question first
+/// - [autoResolve]  → run preparatory steps silently, then continue (Phase 4 finishes this)
+/// - [block]        → refuse with a clear, helpful explanation
+enum ReflectionStrategy {
+  directExecute,
+  clarify,
+  autoResolve,
+  block,
+}
+
+extension ReflectionStrategyX on ReflectionStrategy {
+  String get label => switch (this) {
+        ReflectionStrategy.directExecute => 'direct_execute',
+        ReflectionStrategy.clarify => 'clarify',
+        ReflectionStrategy.autoResolve => 'auto_resolve',
+        ReflectionStrategy.block => 'block',
+      };
+
+  static ReflectionStrategy fromLabel(String? raw) {
+    switch (raw) {
+      case 'direct_execute':
+      case 'direct':
+      case 'execute':
+        return ReflectionStrategy.directExecute;
+      case 'clarify':
+      case 'ask':
+        return ReflectionStrategy.clarify;
+      case 'auto_resolve':
+      case 'auto':
+      case 'resolve':
+        return ReflectionStrategy.autoResolve;
+      case 'block':
+      case 'refuse':
+        return ReflectionStrategy.block;
+      default:
+        return ReflectionStrategy.directExecute;
+    }
+  }
+}
+
+/// One impacted entity discovered during reflection.
+///
+/// Surfaced to the user when reflection chooses [ReflectionStrategy.autoResolve]
+/// or [ReflectionStrategy.block]. Empty when no entities are affected.
+class ReflectionImpact {
+  const ReflectionImpact({
+    required this.entityType,
+    required this.entityId,
+    required this.entityLabel,
+    required this.relation,
+    required this.severity,
+    required this.autoResolvable,
+    this.resolutionHint = '',
+  });
+
+  final String entityType;
+  final String entityId;
+  final String entityLabel;
+  final String relation;
+  final String severity; // low | medium | high
+  final bool autoResolvable;
+  final String resolutionHint;
+
+  Map<String, dynamic> toJson() => {
+        'entity_type': entityType,
+        'entity_id': entityId,
+        'entity_label': entityLabel,
+        'relation': relation,
+        'severity': severity,
+        'auto_resolvable': autoResolvable,
+        'resolution_hint': resolutionHint,
+      };
+
+  factory ReflectionImpact.fromJson(Map<String, dynamic> json) =>
+      ReflectionImpact(
+        entityType: (json['entity_type'] ?? '').toString(),
+        entityId: (json['entity_id'] ?? '').toString(),
+        entityLabel: (json['entity_label'] ?? '').toString(),
+        relation: (json['relation'] ?? '').toString(),
+        severity: (json['severity'] ?? 'low').toString(),
+        autoResolvable: json['auto_resolvable'] as bool? ?? false,
+        resolutionHint: (json['resolution_hint'] ?? '').toString(),
+      );
+}
+
+/// Output of one reflection turn.
+///
+/// Carries enough state for the runtime to decide whether to:
+/// - run the execute loop directly (`strategy == directExecute`)
+/// - ask one clarifying question (`strategy == clarify`, `clarifyQuestions[0]`)
+/// - run prep steps silently then continue (`strategy == autoResolve`)
+/// - refuse politely (`strategy == block`, `blockReason`)
+class ReflectionOutput {
+  ReflectionOutput({
+    required this.strategy,
+    required this.goalTree,
+    this.impacts = const [],
+    this.clarifyQuestions = const [],
+    this.blockReason = '',
+    this.reasoning = '',
+    this.degraded = false,
+  });
+
+  final ReflectionStrategy strategy;
+  final GoalTree goalTree;
+  final List<ReflectionImpact> impacts;
+  final List<String> clarifyQuestions;
+  final String blockReason;
+  final String reasoning;
+
+  /// True when the reflector failed (parse / network) and we degraded to
+  /// a directExecute fallback. Used for logging only.
+  final bool degraded;
+
+  bool get hasImpacts => impacts.isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'strategy': strategy.label,
+        'goal_tree': goalTree.toJson(),
+        if (impacts.isNotEmpty)
+          'impacts': impacts.map((e) => e.toJson()).toList(),
+        if (clarifyQuestions.isNotEmpty)
+          'clarify_questions': clarifyQuestions,
+        if (blockReason.isNotEmpty) 'block_reason': blockReason,
+        if (reasoning.isNotEmpty) 'reasoning': reasoning,
+        if (degraded) 'degraded': true,
+      };
+}
+
+/// The mandatory deep-thinking phase between analyze and execute.
+///
+/// Per the v2 design doc (§3.2 + §4.2): every non-trivial run goes through
+/// reflection. The reflector decides:
+/// 1. Goal tree shape (already partially seeded by the analyzer)
+/// 2. Required slots vs missing slots — drives `clarify` strategy
+/// 3. Ecosystem impacts — drives `autoResolve` / `block`
+/// 4. Strategy selection
+///
+/// Failures degrade to `directExecute` with the analyzer's seed tree, so a
+/// reflection outage never bricks the runtime.
+class Reflector {
+  Reflector({
+    required this.client,
+    required this.config,
+  });
+
+  final OpenAiCompatibleClient client;
+  final LlmProviderConfig config;
+
+  /// Maximum LLM retries before degrading to directExecute. Per user spec.
+  static const int maxRetries = 2;
+
+  Future<ReflectionOutput> reflect({
+    required String userMessage,
+    required Map<String, dynamic> analysis,
+    required EcosystemSnapshot snapshot,
+    required List<ToolDefinition> availableTools,
+    required DetectedLanguage language,
+    required RuntimeLogger logger,
+    List<Map<String, String>> recentMessages = const [],
+  }) async {
+    final analyzerSeedTree = _seedTreeFromAnalysis(analysis, userMessage);
+
+    // Don't bother reflecting on trivial chat — empty tree, no slots, no risk.
+    final intent = (analysis['intent'] ?? '').toString();
+    final requiresTools = analysis['requires_tools'] as bool? ?? false;
+    if (!requiresTools && intent.isEmpty) {
+      return ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: analyzerSeedTree,
+        reasoning: 'No tools required; skipping reflection.',
+      );
+    }
+
+    final prompt = _buildPrompt(
+      userMessage: userMessage,
+      analysis: analysis,
+      snapshot: snapshot,
+      availableTools: availableTools,
+      language: language,
+      recentMessages: recentMessages,
+    );
+
+    Map<String, dynamic>? parsed;
+    var attempts = 0;
+    String lastResponse = '';
+    while (attempts < maxRetries && parsed == null) {
+      try {
+        final response = await client.chat(
+          config: config,
+          phase: attempts == 0 ? 'reflect' : 'reflect.repair',
+          messages: [
+            {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
+            {
+              'role': 'user',
+              'content': attempts == 0
+                  ? prompt
+                  : '${PromptConstants.jsonRepairIntro}\n\n$lastResponse',
+            },
+          ],
+        );
+        lastResponse = response;
+        parsed = JsonUtils.tryParseObject(response);
+      } catch (e) {
+        logger.logError('Reflection LLM call failed (attempt ${attempts + 1})', e);
+      }
+      attempts++;
+    }
+
+    if (parsed == null) {
+      logger.logError(
+        'Reflection failed after $attempts attempts; degrading to direct execute',
+      );
+      return ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: analyzerSeedTree,
+        reasoning: 'Reflector failed; degraded to direct execute.',
+        degraded: true,
+      );
+    }
+
+    return _parseOutput(parsed, fallbackTree: analyzerSeedTree);
+  }
+
+  // ─── Prompt builder ────────────────────────────────────────────────────────
+
+  String _buildPrompt({
+    required String userMessage,
+    required Map<String, dynamic> analysis,
+    required EcosystemSnapshot snapshot,
+    required List<ToolDefinition> availableTools,
+    required DetectedLanguage language,
+    required List<Map<String, String>> recentMessages,
+  }) {
+    final historyBlock = recentMessages.isEmpty
+        ? 'No prior conversation.'
+        : recentMessages
+            .map((m) => '${m['role']}: ${m['content']}')
+            .join('\n');
+
+    final ecosystemBlock = snapshot.isRelevantForReflection
+        ? snapshot.toCompactString()
+        : 'ECOSYSTEM SNAPSHOT: omitted (not relevant for this turn).';
+
+    final toolsBlock = availableTools.isEmpty
+        ? 'No tools available.'
+        : availableTools
+            .map((t) => '- ${t.name} (${t.risk}): ${t.description}'
+                '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}')
+            .join('\n');
+
+    return '''${PromptConstants.reflectIntro}
+
+${PromptConstants.reflectRules(language.label)}
+
+User message: "$userMessage"
+
+Analyzer output:
+${_jsonSummary(analysis)}
+
+Recent conversation:
+$historyBlock
+
+$ecosystemBlock
+
+Available tools:
+$toolsBlock
+
+${PromptConstants.reflectResponseFormat}''';
+  }
+
+  String _schemaSummary(Map<String, String> schema) {
+    final entries = schema.entries.take(8).map((e) => '${e.key}:${e.value}');
+    return entries.join(', ');
+  }
+
+  String _jsonSummary(Map<String, dynamic> json) {
+    final keep = ['intent', 'goal', 'requires_tools', 'risk', 'missing_info', 'subgoal_seeds'];
+    final compact = <String, dynamic>{};
+    for (final k in keep) {
+      if (json.containsKey(k)) compact[k] = json[k];
+    }
+    return compact.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+  }
+
+  // ─── Output parser ─────────────────────────────────────────────────────────
+
+  ReflectionOutput _parseOutput(
+    Map<String, dynamic> json, {
+    required GoalTree fallbackTree,
+  }) {
+    final strategy =
+        ReflectionStrategyX.fromLabel(json['strategy'] as String?);
+
+    final treeJson = json['goal_tree'] as Map<String, dynamic>?;
+    final goalTree =
+        treeJson != null ? GoalTree.fromJson(treeJson) : fallbackTree;
+
+    final impactsJson = json['impacts'] as List?;
+    final impacts = impactsJson == null
+        ? const <ReflectionImpact>[]
+        : impactsJson
+            .whereType<Map>()
+            .map((m) => ReflectionImpact.fromJson(m.cast<String, dynamic>()))
+            .toList(growable: false);
+
+    final clarifyQuestionsJson = json['clarify_questions'] as List?;
+    final clarifyQuestions = clarifyQuestionsJson == null
+        ? const <String>[]
+        : clarifyQuestionsJson.map((e) => e.toString()).toList();
+
+    final blockReason = (json['block_reason'] ?? '').toString();
+    final reasoning = (json['reasoning'] ?? '').toString();
+
+    return ReflectionOutput(
+      strategy: strategy,
+      goalTree: goalTree,
+      impacts: impacts,
+      clarifyQuestions: clarifyQuestions,
+      blockReason: blockReason,
+      reasoning: reasoning,
+    );
+  }
+
+  // ─── Fallback seed tree from analyzer ──────────────────────────────────────
+
+  GoalTree _seedTreeFromAnalysis(
+    Map<String, dynamic> analysis,
+    String userMessage,
+  ) {
+    final mainGoal =
+        (analysis['goal'] as String?) ?? userMessage;
+    final seeds = analysis['subgoal_seeds'];
+    if (seeds is List && seeds.isNotEmpty) {
+      return GoalTree(
+        mainGoal: mainGoal,
+        subgoals: [
+          for (var i = 0; i < seeds.length; i++)
+            Subgoal(id: 'sg${i + 1}', label: seeds[i].toString()),
+        ],
+      );
+    }
+    return GoalTree.singleSubgoal(mainGoal: mainGoal, subgoalLabel: mainGoal);
+  }
+}

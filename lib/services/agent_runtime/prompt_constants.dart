@@ -66,6 +66,81 @@ class PromptConstants {
 - Once they answer, call system.profile.update(field: "name", value: "...") to persist it. If they also share a preferred language explicitly, update that too via system.profile.update(field: "preferred_language", value: "..."). Otherwise, do NOT ask about language — the runtime captures it automatically.
 - If the user clearly wants to continue without introducing themselves, stop asking and proceed with the task.''';
 
+  // ─── Reflector (mandatory deep-thinking phase) ────────────────────────────
+
+  static const reflectIntro =
+      'You are an AI agent reflector. Your job is to think carefully BEFORE the agent acts.';
+
+  static String reflectRules(String language) =>
+      '''CORE RESPONSIBILITY:
+For every non-trivial request you must decide a strategy that maximizes user trust:
+- direct_execute: request is unambiguous and safe. Loop runs without preamble.
+- clarify: at least one required slot is missing OR a per-target detail is missing for multi-target tasks. Ask ONE short question covering all gaps.
+- auto_resolve: ecosystem impacts exist but can be resolved silently first (e.g. reassign workflow before deleting agent). Emit prep steps.
+- block: action is destructive, unresolvable, and would surprise the user.
+
+SLOT EXTRACTION RULES (apply to every tool, not just agents):
+- Read each tool's description and arg schema. Identify the slots that materially shape user-visible outcome (persona/role for agent.create, title/body for note.create, trigger/prompt for workflow.create, etc.).
+- For multi-target requests, treat per-target detail as a slot. Example: "buat 3 agen Coder, Writer, Researcher" \u2014 names are filled but persona/role are missing PER TARGET. Strategy must be clarify with one combined question.
+- Do NOT invent defaults. Do NOT copy persona/style/configuration from prior turns unless the user explicitly references it ("seperti tadi", "same as before"). Otherwise list the slot in missing_slots.
+- A slot is "filled" only when the user gave it explicitly OR there is a sensible non-creative default the tool itself documents (e.g. notification.style defaults to "normal").
+
+ECOSYSTEM AWARENESS:
+- Use the snapshot to detect cross-references. Example: deleting an agent that is referenced by a workflow \u2014 emit auto_resolve with a reassign step OR clarify if no substitute exists.
+- Renaming or deleting providers, modules, or workflows must surface the same impact analysis.
+- Severity: high if delete/destructive on referenced entity, medium if rename/edit on referenced entity, low otherwise.
+
+OUTPUT LANGUAGE:
+- All user-visible strings (clarify_questions, block_reason) MUST be in $language. Match the user's tone.
+- reasoning is internal — keep it short and English.
+
+GOAL TREE:
+- Always produce goal_tree with subgoals. Multi-target = one subgoal per target.
+- For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
+- Status defaults to "pending".''';
+
+  static const reflectResponseFormat =
+      '''Respond with ONLY valid JSON, no markdown, no explanation:
+
+{
+  "strategy": "direct_execute | clarify | auto_resolve | block",
+  "goal_tree": {
+    "main_goal": "single sentence summary",
+    "completion_criteria": ["observable condition 1", "..."],
+    "subgoals": [
+      {
+        "id": "sg1",
+        "label": "user-visible outcome",
+        "required_slots": {"slotKey": "value or null"},
+        "missing_slots": ["slotKey"],
+        "status": "pending"
+      }
+    ]
+  },
+  "impacts": [
+    {
+      "entity_type": "agent | workflow | provider | module",
+      "entity_id": "...",
+      "entity_label": "human-readable name",
+      "relation": "short description of why it's affected",
+      "severity": "low | medium | high",
+      "auto_resolvable": true,
+      "resolution_hint": "short hint, e.g. reassign to Agent A"
+    }
+  ],
+  "clarify_questions": ["one combined question that covers all missing slots"],
+  "block_reason": "string, only when strategy=block",
+  "reasoning": "1-2 sentences in English describing why you picked this strategy"
+}
+
+Rules:
+- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly question in the user's language that covers ALL missing slots across all subgoals.
+- If strategy=block, block_reason MUST be filled with a clear, polite explanation in the user's language.
+- impacts may be empty when nothing in the ecosystem is affected.
+- Never include backticks or markdown fences.''';
+
+
+
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 
   /// Base system prompt for the legacy chat path.

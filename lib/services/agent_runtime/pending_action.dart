@@ -29,6 +29,7 @@ class PendingAction {
     required this.userFacingSummary,
     this.userFacingPreview = '',
     this.languageCode = 'en',
+    this.resumeContext,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -39,6 +40,27 @@ class PendingAction {
   final String languageCode;
   final DateTime createdAt;
 
+  /// Optional snapshot of runtime state captured when the confirmation gate
+  /// fired in the middle of a multi-subgoal task. Lets [executeConfirmed]
+  /// resume the execute loop after the confirmed tool runs, instead of
+  /// short-circuiting to a single "done" reply.
+  ///
+  /// Shape (all JSON-serializable):
+  ///   {
+  ///     'plan': `Map`,                  // planner output
+  ///     'goal_tree': `Map`,             // GoalTree.toJson()
+  ///     'previous_results': `List<Map>`,// loop scratchpad
+  ///     'current_step': int,          // 1-indexed
+  ///     'available_tools': `List<String>`,
+  ///     'memory_snapshot': String,
+  ///     'auto_approve_sensitive': bool,
+  ///     'is_workflow_auto_execute': bool,
+  ///   }
+  ///
+  /// Null when the pending action does not need a resumable context
+  /// (single-target tasks, legacy callers).
+  final Map<String, dynamic>? resumeContext;
+
   Map<String, dynamic> toJson() => {
         'tool': toolName,
         'args': toolArgs,
@@ -46,6 +68,7 @@ class PendingAction {
         'preview': userFacingPreview,
         'lang': languageCode,
         'created_at': createdAt.toIso8601String(),
+        if (resumeContext != null) 'resume': resumeContext,
       };
 
   factory PendingAction.fromJson(Map<String, dynamic> json) => PendingAction(
@@ -54,6 +77,7 @@ class PendingAction {
         userFacingSummary: json['summary'] as String? ?? '',
         userFacingPreview: json['preview'] as String? ?? '',
         languageCode: json['lang'] as String? ?? 'en',
+        resumeContext: (json['resume'] as Map<String, dynamic>?),
         createdAt: json['created_at'] != null
             ? DateTime.parse(json['created_at'] as String)
             : DateTime.now(),

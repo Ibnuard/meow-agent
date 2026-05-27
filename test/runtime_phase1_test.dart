@@ -337,4 +337,91 @@ Name: [Your Name]
       expect(WorkspaceLoader.isUserNameMissing(soul), true);
     });
   });
+
+  group('PendingAction.resumeContext (multi-subgoal confirm fix)', () {
+    test('defaults to null when not specified (backwards compat)', () {
+      final p = PendingAction(
+        toolName: 'system.agents.delete',
+        toolArgs: const {'name': 'Writer'},
+        userFacingSummary: 'Delete Writer?',
+      );
+      expect(p.resumeContext, isNull);
+      expect(p.toJson().containsKey('resume'), isFalse);
+    });
+
+    test('round-trips a populated resume context through JSON', () {
+      final ctx = <String, dynamic>{
+        'plan': {
+          'steps': [
+            {'id': 1, 'description': 'delete writer', 'tool': null}
+          ]
+        },
+        'goal_tree': {
+          'main_goal': 'multi step',
+          'completion_criteria': const [],
+          'subgoals': [
+            {
+              'id': 'sg1',
+              'label': 'delete Writer',
+              'status': 'in_progress',
+            },
+            {
+              'id': 'sg2',
+              'label': 'create HOTDoG',
+              'status': 'pending',
+            },
+            {
+              'id': 'sg3',
+              'label': 'update Researcher',
+              'status': 'pending',
+            },
+          ],
+        },
+        'previous_results': const [],
+        'current_step': 1,
+        'available_tools': const ['system.agents.delete', 'system.agents.create'],
+        'memory_snapshot': '',
+        'auto_approve_sensitive': false,
+        'is_workflow_auto_execute': false,
+        'language_code': 'id',
+        'language_label': 'Indonesian',
+        'language_script': 'Latin',
+        'language_confidence': 0.9,
+        'user_message': 'tolong hapus Writer lalu buat HOTDoG dan ubah Researcher',
+      };
+
+      final original = PendingAction(
+        toolName: 'system.agents.delete',
+        toolArgs: const {'name': 'Writer'},
+        userFacingSummary: 'Delete Writer?',
+        userFacingPreview: 'will delete Writer',
+        languageCode: 'id',
+        resumeContext: ctx,
+      );
+
+      final restored = PendingAction.fromJson(original.toJson());
+      expect(restored.resumeContext, isNotNull);
+      expect(restored.resumeContext!['current_step'], 1);
+      expect(restored.resumeContext!['language_code'], 'id');
+      final tree = restored.resumeContext!['goal_tree'] as Map<String, dynamic>;
+      final subgoals = tree['subgoals'] as List;
+      expect(subgoals.length, 3);
+      expect((subgoals[0] as Map)['status'], 'in_progress');
+    });
+
+    test('legacy JSON without resume field still parses cleanly', () {
+      // Simulates a PendingAction persisted before this fix landed.
+      final legacy = <String, dynamic>{
+        'tool': 'clipboard.write',
+        'args': const {'text': 'hello'},
+        'summary': 'Write to clipboard?',
+        'preview': '',
+        'lang': 'en',
+        'created_at': '2026-05-27T22:00:00.000Z',
+      };
+      final restored = PendingAction.fromJson(legacy);
+      expect(restored.resumeContext, isNull);
+      expect(restored.toolName, 'clipboard.write');
+    });
+  });
 }
