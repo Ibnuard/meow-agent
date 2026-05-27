@@ -48,7 +48,7 @@ class PromptConstants {
     return '''SYSTEM RULES (always enforced):
 - Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
-- Ask the user before sensitive or destructive actions.
+- For sensitive or destructive actions, CALL the appropriate tool directly. The runtime will automatically render a confirmation card with approve/cancel buttons. NEVER reply with a confirmation question as plain text — the user has no button to press.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
@@ -79,9 +79,23 @@ This is the user's first message. Before handling their request, politely ask wh
   static const analyzeIntro =
       'You are an AI agent runtime analyzer running on an Android device.';
 
+  static const systemMarkdownMap = '''Meow Agent markdown model:
+- System markdown = global standard/base schema used for all agents. It is read-only runtime guidance, not per-agent memory.
+- Agent markdown = mutable files inside the current agent workspace: Documents/MeowAgent/Agents/{AgentName}/.
+- SOUL.md stores agent identity, User Identity, profile fields, durable response/style preferences.
+- MEMORY.md stores long-term facts, learned preferences, bookmarks, and concise persistent context.
+- SKILLS.md stores per-agent tool-use preferences; the real tool registry is injected by the runtime.
+- HEARTBEAT.md stores runtime status and must not be used for user profile or memory.
+- If the user provides their name, nickname, timezone, preferred language, role, or communication style, update the current agent workspace SOUL.md via system.profile.update.
+- If the user asks you to remember a fact/preference, append it to the current agent workspace MEMORY.md via system.memory.append.
+- Never update system markdown/base docs for user-specific memory.''';
+
   static const analyzeRequiresToolsRules = '''Rules for requires_tools:
-- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files
+- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
 - Set true for phrases like: "buka [app]", "open [app]", "launch [app]", "buka [url]", "pergi ke [url]"
+- Set true for identity/profile phrases like: "nama saya ...", "panggil aku ...", "timezone saya ...", "ingat nama saya ...". Use system.profile.update for SOUL.md User Identity.
+- Set true for durable memory phrases like: "ingat bahwa ...", "remember that ...", "simpan preferensi ...". Use system.memory.append for MEMORY.md.
+- Set true for system questions like: "ada berapa module?", "daftar agent", "provider apa saja?", "tool apa yang kamu punya?", "workspace kamu dimana?"
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
@@ -110,6 +124,14 @@ Ambiguity examples (must set requires_tools=false and populate missing_info):
 - "tulis ke clipboard" → clipboard.write
 - "buka pengaturan wifi" → settings.open
 - "app apa yang terinstall" → app.list_installed
+- "nama saya Budi" → system.profile.update(field: "name", value: "Budi")
+- "panggil aku Di" → system.profile.update(field: "nickname", value: "Di")
+- "ingat aku suka jawaban singkat" → system.memory.append(category: "preference", content: "User prefers short answers")
+- "ada berapa modul?" → system.modules.list
+- "workspace kamu dimana?" → system.self
+- "buat agent baru namanya Coder" → system.agents.create(name: "Coder")
+- "buat agent baru bernama Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
+- "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
 
 IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 

@@ -96,11 +96,16 @@ class ToolCatalog {
     },
     'system': {
       'system.self',
+      'system.workspace.schema',
+      'system.workspace.read',
+      'system.profile.update',
+      'system.memory.append',
       'system.agents.list',
       'system.agents.create',
       'system.agents.delete',
       'system.providers.list',
       'system.modules.list',
+      'system.tools.list',
     },
   };
 
@@ -141,10 +146,7 @@ class ToolCatalog {
       }
     }
 
-    scoreGroup(
-      'app',
-      _matchStrength(text, _appOpenWords) + (hasUrl ? 3 : 0),
-    );
+    scoreGroup('app', _matchStrength(text, _appOpenWords) + (hasUrl ? 3 : 0));
     scoreGroup('clipboard', _matchStrength(text, _clipboardWords));
     scoreGroup('notes', _matchStrength(text, _noteWords));
     scoreGroup('calendar', _matchStrength(text, _calendarWords));
@@ -154,10 +156,10 @@ class ToolCatalog {
     scoreGroup('workflow', _matchStrength(text, _workflowWords));
     scoreGroup('system', _matchStrength(text, _systemWords));
 
-    // Memory/identity hits route to files (SOUL.md, MEMORY.md).
+    // Memory/identity hits route to core system workspace tools.
     final memoryStrength = _matchStrength(text, _memoryWords);
     if (memoryStrength > 0) {
-      scoreGroup('files', memoryStrength);
+      scoreGroup('system', memoryStrength);
     }
 
     if (groupStrength.isEmpty) {
@@ -379,6 +381,9 @@ class ToolCatalog {
     'buat file',
     'hapus file',
     'workspace',
+    'profil',
+    'profile',
+    'identitas',
     'direktori',
     'dokumen',
     // EN
@@ -394,6 +399,9 @@ class ToolCatalog {
     'memory.md',
     'skills.md',
     'heartbeat.md',
+    'workspace schema',
+    'system md',
+    'agent md',
   };
 
   static const _deviceWords = {
@@ -485,6 +493,11 @@ class ToolCatalog {
     'llm',
     'module',
     'modul',
+    'tool',
+    'tools',
+    'workspace',
+    'soul',
+    'memory',
     // ID phrases
     'kamu pakai',
     'kamu gunakan',
@@ -497,6 +510,14 @@ class ToolCatalog {
     'daftar agen',
     'daftar modul',
     'daftar provider',
+    'daftar tool',
+    'ada berapa modul',
+    'ada berapa module',
+    'ada berapa agent',
+    'workspace kamu',
+    'file agent',
+    'system md',
+    'agent md',
     // EN phrases
     'your model',
     'which model',
@@ -507,6 +528,9 @@ class ToolCatalog {
     'list agents',
     'list modules',
     'list providers',
+    'list tools',
+    'workspace path',
+    'workspace files',
   };
 
   static const _memoryWords = {

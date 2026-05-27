@@ -49,6 +49,8 @@ class PromptTemplates {
 
 ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
+${PromptConstants.systemMarkdownMap}
+
 Identity context (from SOUL.md — user-editable):
 ${workspace.soul}
 

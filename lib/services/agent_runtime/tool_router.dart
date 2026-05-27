@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import '../../features/agents/data/agent_model.dart';
+import '../../features/agents/data/agent_repository.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -9,8 +11,10 @@ import '../../features/modules/notes/notes_tools.dart';
 import '../../features/modules/workflows/workflow_tools.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
 import '../../features/modules/notification_intelligence/notification_service.dart';
+import '../../features/providers/data/provider_repository.dart';
 import 'app_alias_resolver.dart';
 import 'runtime_models.dart';
+import 'system_tools.dart';
 import 'tool_permission_policy.dart';
 
 /// Routes tool calls to their implementations.
@@ -20,9 +24,17 @@ class ToolRouter {
     this.agentName = '',
     this.agentId = '',
     ModuleRepository? moduleRepository,
+    this.agentRepository,
+    this.providerRepository,
+    this.saveAgent,
+    this.deleteAgent,
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
   final ModuleRepository moduleRepository;
+  final AgentRepository? agentRepository;
+  final ProviderRepository? providerRepository;
+  final Future<void> Function(AgentModel agent)? saveAgent;
+  final Future<void> Function(String id)? deleteAgent;
 
   /// The current agent name — used by workspace-scoped tools (files module).
   String agentName;
@@ -541,6 +553,116 @@ class ToolRouter {
       requiresConfirmation: false,
       inputSchema: {'id': 'string (required)', 'enabled': 'bool (required)'},
     ),
+
+    // ─── Core System ─────────────────────────────────────────────────────────
+    'system.self': const ToolDefinition(
+      name: 'system.self',
+      description:
+          'Inspect the current agent identity, provider, workspace path, core markdown files, and capability counts.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.workspace.schema': const ToolDefinition(
+      name: 'system.workspace.schema',
+      description:
+          'Describe the Meow Agent markdown model: system markdown standard vs mutable per-agent workspace markdown.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.workspace.read': const ToolDefinition(
+      name: 'system.workspace.read',
+      description:
+          'Read one core markdown file from the current agent workspace. Use for SOUL.md, MEMORY.md, SKILLS.md, or HEARTBEAT.md.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'file': 'string (required: SOUL.md|MEMORY.md|SKILLS.md|HEARTBEAT.md)',
+        'section': 'string (optional markdown section title)',
+      },
+    ),
+    'system.profile.update': const ToolDefinition(
+      name: 'system.profile.update',
+      description:
+          'Update a specific User Identity/Profile field in the current agent workspace SOUL.md. Use for user name, nickname, timezone, role, language, and communication style.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'field':
+            'string (required: name|nickname|preferred_language|timezone|work_role|main_project|communication_style|design_preference)',
+        'value': 'string (required)',
+      },
+    ),
+    'system.memory.append': const ToolDefinition(
+      name: 'system.memory.append',
+      description:
+          'Append a concise long-term fact or preference to the current agent workspace MEMORY.md. Never store secrets.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'content': 'string (required)',
+        'category':
+            'string (optional: fact|preference|bookmark|session, default fact)',
+      },
+    ),
+    'system.agents.list': const ToolDefinition(
+      name: 'system.agents.list',
+      description: 'List all configured agents and their public provider info.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.agents.create': const ToolDefinition(
+      name: 'system.agents.create',
+      description:
+          'Create a new agent and generate its workspace markdown from the system standard template. Pass persona/role/description to bake the agent\u2019s personality into its SOUL.md in the same call.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'name': 'string (required)',
+        'providerId':
+            'string (optional if exactly one provider exists; otherwise required)',
+        'maxContextLength': 'int (optional, default 8191)',
+        'iconKey': 'string (optional)',
+        'colorKey': 'string (optional)',
+        'role':
+            'string (optional, short role/title e.g. "Skillful coder agent")',
+        'persona':
+            'string (optional, 2-4 sentence personality description for SOUL.md Agent Identity)',
+        'communicationStyle':
+            'string (optional, e.g. "concise, technical, code-first")',
+      },
+    ),
+    'system.agents.delete': const ToolDefinition(
+      name: 'system.agents.delete',
+      description:
+          'Delete an agent and its workspace. Cannot delete the current active agent from its own chat.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {
+        'id': 'string (required unless name is provided)',
+        'name': 'string (optional fallback)',
+      },
+    ),
+    'system.providers.list': const ToolDefinition(
+      name: 'system.providers.list',
+      description:
+          'List configured LLM providers with public fields only. API keys are never returned.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.modules.list': const ToolDefinition(
+      name: 'system.modules.list',
+      description:
+          'List available and installed modules, enabled state, and module setting toggles.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.tools.list': const ToolDefinition(
+      name: 'system.tools.list',
+      description:
+          'List registered runtime tools, risk levels, confirmation requirements, and current module permission availability.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
   };
 
   /// Get all registered tool names.
@@ -796,6 +918,28 @@ class ToolRouter {
         return _workflowTools().delete(args: request.args);
       case 'workflow.toggle':
         return _workflowTools().toggle(args: request.args);
+      case 'system.self':
+        return _systemTools().executeSelf();
+      case 'system.workspace.schema':
+        return _systemTools().executeWorkspaceSchema();
+      case 'system.workspace.read':
+        return _systemTools().executeWorkspaceRead(request.args);
+      case 'system.profile.update':
+        return _systemTools().executeProfileUpdate(request.args);
+      case 'system.memory.append':
+        return _systemTools().executeMemoryAppend(request.args);
+      case 'system.agents.list':
+        return _systemTools().executeAgentsList();
+      case 'system.agents.create':
+        return _systemTools().executeAgentsCreate(request.args);
+      case 'system.agents.delete':
+        return _systemTools().executeAgentsDelete(request.args);
+      case 'system.providers.list':
+        return _systemTools().executeProvidersList();
+      case 'system.modules.list':
+        return _systemTools().executeModulesList();
+      case 'system.tools.list':
+        return _systemTools().executeToolsList();
       default:
         return ToolExecutionResult(
           success: false,
@@ -1022,6 +1166,17 @@ class ToolRouter {
 
   WorkflowTools _workflowTools() =>
       WorkflowTools(moduleRepository: moduleRepository);
+
+  SystemTools _systemTools() => SystemTools(
+    agentId: agentId,
+    agentName: agentName,
+    moduleRepository: moduleRepository,
+    agentRepository: agentRepository,
+    providerRepository: providerRepository,
+    saveAgent: saveAgent,
+    deleteAgent: deleteAgent,
+    toolDefinitions: _registry.values,
+  );
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {

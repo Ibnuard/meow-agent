@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/modules/data/module_repository.dart';
+import '../../features/agents/data/agent_repository.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../../features/providers/data/provider_config.dart';
+import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
@@ -986,6 +988,18 @@ class AgentRuntimeEngine {
         return isId
             ? 'Saya sudah mencoba menghubungkan ulang WiFi.'
             : 'I tried reconnecting WiFi.';
+      case 'system.profile.update':
+        return isId
+            ? 'Sudah saya simpan di profil agent ini.'
+            : 'Done, I saved it to this agent profile.';
+      case 'system.memory.append':
+        return isId ? 'Sudah saya ingat.' : 'Done, I will remember that.';
+      case 'system.agents.create':
+        return isId ? 'Agent baru sudah dibuat.' : 'Done, I created the agent.';
+      case 'system.agents.delete':
+        return isId
+            ? 'Agent tersebut sudah dihapus.'
+            : 'Done, I deleted that agent.';
       default:
         return null;
     }
@@ -1031,6 +1045,13 @@ class AgentRuntimeEngine {
         return btOn
             ? 'Saya akan menyalakan Bluetooth. Lanjutkan?'
             : 'Saya akan mematikan Bluetooth. Lanjutkan?';
+      case 'system.agents.delete':
+        final name = req.args['name'] as String?;
+        final id = req.args['id'] as String? ?? req.args['agentId'] as String?;
+        final target = name != null && name.isNotEmpty
+            ? name
+            : (id != null && id.isNotEmpty ? id : 'agent tersebut');
+        return 'Saya akan menghapus $target beserta workspace-nya. Tindakan ini tidak bisa dibatalkan. Lanjutkan?';
       default:
         return 'Saya ingin menjalankan sebuah aksi sensitif. Lanjutkan?';
     }
@@ -1044,6 +1065,10 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
     workspaceLoader: WorkspaceLoader(),
     toolRouter: ToolRouter(
       moduleRepository: ref.watch(moduleRepositoryProvider),
+      agentRepository: ref.watch(agentRepositoryProvider),
+      providerRepository: ref.watch(providerRepositoryProvider),
+      saveAgent: ref.read(agentListProvider.notifier).save,
+      deleteAgent: ref.read(agentListProvider.notifier).delete,
     ),
     contextBuilder: ContextBuilder(),
     languageCode: resolveLanguageCode(languagePref),
