@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../../services/workspace/workspace_file_service.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
@@ -132,6 +133,38 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
     }
   }
 
+  Future<void> _deleteSelected(bool isId) async {
+    if (_selectedIds.isEmpty) return;
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: isId,
+      title: isId ? 'Hapus Note?' : 'Delete Notes?',
+      message: isId
+          ? '${_selectedIds.length} note akan dihapus permanen. Lanjutkan?'
+          : '${_selectedIds.length} notes will be permanently deleted. Continue?',
+    );
+    if (!confirmed) return;
+
+    final repo = ref.read(notesRepositoryProvider);
+    final count = _selectedIds.length;
+    for (final id in _selectedIds) {
+      await repo.deleteNote(id);
+    }
+    if (!mounted) return;
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+    ref.invalidate(notesListProvider);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(isId
+            ? '$count note dihapus'
+            : '$count notes deleted'),
+      ),
+    );
+  }
+
   Future<String?> _pickAgent(List<String> names) async {
     return showDialog<String>(
       context: context,
@@ -170,13 +203,19 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
           if (_selectionMode) ...[
             IconButton(
               icon: const Icon(Icons.ios_share_rounded),
-              tooltip: 'Export ke workspace',
+              tooltip: s.isId ? 'Export ke workspace' : 'Export to workspace',
               onPressed: _selectedIds.isEmpty ? null : _exportSelected,
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline_rounded, color: cs.error),
+              tooltip: s.isId ? 'Hapus' : 'Delete',
+              onPressed:
+                  _selectedIds.isEmpty ? null : () => _deleteSelected(s.isId),
             ),
           ] else ...[
             IconButton(
               icon: const Icon(Icons.checklist_rounded),
-              tooltip: 'Export notes',
+              tooltip: s.isId ? 'Pilih beberapa' : 'Select multiple',
               onPressed: _toggleSelection,
             ),
             IconButton(
@@ -218,7 +257,14 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                         size: 20,
                         color: cs.onSurfaceVariant,
                       ),
+                      // Single source of fill+border: the wrapping Container.
+                      filled: false,
                       border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 14,
                         vertical: 12,
@@ -244,7 +290,9 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Pilih note yang ingin di-export sebagai .md',
+                        s.isId
+                            ? 'Pilih note untuk diekspor atau dihapus.'
+                            : 'Select notes to export or delete.',
                         style: TextStyle(fontSize: 12, color: cs.primary),
                       ),
                     ),

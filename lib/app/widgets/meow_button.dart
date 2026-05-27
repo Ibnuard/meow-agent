@@ -123,11 +123,14 @@ class MeowSecondaryButton extends StatelessWidget {
 
     final button = Container(
       decoration: BoxDecoration(
+        color: danger
+            ? cs.error.withValues(alpha: 0.05)
+            : extras.inputFill,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: danger
               ? cs.error.withValues(alpha: 0.4)
-              : extras.subtleBorder,
+              : extras.inputBorder,
           width: 1,
         ),
       ),

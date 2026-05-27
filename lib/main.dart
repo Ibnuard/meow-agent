@@ -9,6 +9,7 @@ import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/modules/data/share_intent_service.dart';
+import 'features/modules/workflows/workflow_event_listener.dart';
 import 'features/modules/workflows/workflow_notification_service.dart';
 import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
@@ -90,8 +91,10 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       await WorkflowNotificationService.initialize();
       await WorkflowScheduler.initialize();
       await WorkflowScheduler.rescheduleAll();
-      // Start the in-app workflow runner (checks every 30s for due workflows).
+      // Start the in-app workflow runner with dynamic scheduling.
       ref.read(workflowRunnerProvider).start();
+      // Start event listener for battery, charging, WiFi triggers.
+      ref.read(workflowEventListenerProvider).start();
     } catch (_) {
       // Non-fatal.
     }

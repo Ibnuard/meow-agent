@@ -3,11 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_editor_screen.dart';
 import 'workflow_scheduler.dart';
+import 'workflow_templates_screen.dart';
 
 /// Lists all workflows with toggle, edit, and delete (with multi-select).
 class WorkflowListScreen extends ConsumerStatefulWidget {
@@ -82,30 +84,17 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   Future<void> _deleteSelected(bool isId) async {
     final count = _selectedIds.length;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text(isId ? 'Hapus Workflow?' : 'Delete Workflows?'),
-        content: Text(isId
-            ? '$count workflow akan dihapus permanen.'
-            : '$count workflows will be deleted permanently.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isId ? 'Batal' : 'Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(
-              isId ? 'Hapus' : 'Delete',
-              style: const TextStyle(color: Colors.redAccent),
-            ),
-          ),
-        ],
-      ),
+    final confirm = await showMeowConfirmDialog(
+      context,
+      isId: isId,
+      title: isId ? 'Hapus Workflow?' : 'Delete Workflows?',
+      message: isId
+          ? '$count workflow akan dihapus permanen. Lanjutkan?'
+          : '$count workflows will be permanently deleted. Continue?',
+      confirmLabel: isId ? 'Hapus' : 'Delete',
+      cancelLabel: isId ? 'Batal' : 'Cancel',
     );
-    if (confirm != true) return;
+    if (!confirm) return;
 
     for (final id in _selectedIds) {
       final wf = _workflows.where((w) => w.id == id).firstOrNull;
@@ -186,6 +175,17 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
         onPressed: () => context.pop(),
       ),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.auto_awesome_rounded),
+          tooltip: isId ? 'Template' : 'Templates',
+          onPressed: () async {
+            final result = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(builder: (_) => const WorkflowTemplatesScreen()),
+            );
+            if (result == true) _load();
+          },
+        ),
         if (_workflows.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.checklist_rounded),
@@ -248,6 +248,23 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                 ? 'Buat workflow untuk menjalankan tugas otomatis'
                 : 'Create workflows to run automated tasks',
             style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+          ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(builder: (_) => const WorkflowTemplatesScreen()),
+              );
+              if (result == true) _load();
+            },
+            icon: const Icon(Icons.auto_awesome_rounded, size: 16),
+            label: Text(isId ? 'Pilih dari Template' : 'Pick a Template'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: cs.primary,
+              side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
           ),
         ],
       ),

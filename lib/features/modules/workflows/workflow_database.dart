@@ -19,7 +19,7 @@ class WorkflowDatabase {
     final path = '$dbDir/meow_workflows.db';
     return openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE workflows (
@@ -35,11 +35,19 @@ class WorkflowDatabase {
             last_run TEXT,
             last_result TEXT,
             retry_count INTEGER NOT NULL DEFAULT 0,
+            priority TEXT NOT NULL DEFAULT 'normal',
+            timeout_seconds INTEGER NOT NULL DEFAULT 60,
+            steps TEXT,
+            variables TEXT,
+            template_id TEXT,
             created_at TEXT NOT NULL
           )
         ''');
         await db.execute('''
           CREATE INDEX idx_workflows_agent ON workflows(agent_id)
+        ''');
+        await db.execute('''
+          CREATE INDEX idx_workflows_priority ON workflows(priority)
         ''');
         await db.execute('''
           CREATE TABLE execution_history (
@@ -51,7 +59,8 @@ class WorkflowDatabase {
             result TEXT NOT NULL,
             executed_at TEXT NOT NULL,
             duration_ms INTEGER,
-            events TEXT
+            events TEXT,
+            step_results TEXT
           )
         ''');
         await db.execute('''
@@ -72,6 +81,29 @@ class WorkflowDatabase {
             'ALTER TABLE execution_history ADD COLUMN events TEXT',
           );
         }
+        if (oldVersion < 4) {
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN priority TEXT NOT NULL DEFAULT \'normal\'',
+          );
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 60',
+          );
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN steps TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN variables TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE workflows ADD COLUMN template_id TEXT',
+          );
+          await db.execute(
+            'ALTER TABLE execution_history ADD COLUMN step_results TEXT',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_workflows_priority ON workflows(priority)',
+          );
+        }
       },
     );
   }
@@ -90,31 +122,76 @@ class WorkflowDatabase {
         'last_run': w.lastRun?.toIso8601String(),
         'last_result': w.lastResult,
         'retry_count': w.retryCount,
+        'priority': w.priority.name,
+        'timeout_seconds': w.timeoutSeconds,
+        'steps': w.steps.isEmpty
+            ? null
+            : jsonEncode(w.steps.map((s) => s.toJson()).toList()),
+        'variables': w.variables.isEmpty ? null : jsonEncode(w.variables),
+        'template_id': w.templateId,
         'created_at': w.createdAt.toIso8601String(),
       };
 
   /// Convert DB row to WorkflowModel.
-  WorkflowModel workflowFromRow(Map<String, dynamic> row) => WorkflowModel(
-        id: row['id'] as String,
-        agentId: row['agent_id'] as String,
-        title: row['title'] as String,
-        prompt: row['prompt'] as String,
-        trigger: TriggerConfig.fromJson(
-          jsonDecode(row['trigger_config'] as String) as Map<String, dynamic>,
-        ),
-        notification: NotifConfig.fromJson(
-          jsonDecode(row['notif_config'] as String) as Map<String, dynamic>,
-        ),
-        sendToChat: (row['send_to_chat'] as int) == 1,
-        allowSensitive: (row['allow_sensitive'] as int? ?? 0) == 1,
-        enabled: (row['enabled'] as int) == 1,
-        lastRun: row['last_run'] != null
-            ? DateTime.tryParse(row['last_run'] as String)
-            : null,
-        lastResult: row['last_result'] as String?,
-        retryCount: row['retry_count'] as int? ?? 0,
-        createdAt: DateTime.parse(row['created_at'] as String),
-      );
+  WorkflowModel workflowFromRow(Map<String, dynamic> row) {
+    // Parse steps.
+    final stepsRaw = row['steps'] as String?;
+    final steps = <WorkflowStep>[];
+    if (stepsRaw != null && stepsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(stepsRaw);
+        if (decoded is List) {
+          for (final s in decoded) {
+            if (s is Map<String, dynamic>) {
+              steps.add(WorkflowStep.fromJson(s));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Parse variables.
+    final varsRaw = row['variables'] as String?;
+    final variables = <String, String>{};
+    if (varsRaw != null && varsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(varsRaw);
+        if (decoded is Map) {
+          decoded.forEach((k, v) => variables[k.toString()] = v.toString());
+        }
+      } catch (_) {}
+    }
+
+    return WorkflowModel(
+      id: row['id'] as String,
+      agentId: row['agent_id'] as String,
+      title: row['title'] as String,
+      prompt: row['prompt'] as String,
+      trigger: TriggerConfig.fromJson(
+        jsonDecode(row['trigger_config'] as String) as Map<String, dynamic>,
+      ),
+      notification: NotifConfig.fromJson(
+        jsonDecode(row['notif_config'] as String) as Map<String, dynamic>,
+      ),
+      sendToChat: (row['send_to_chat'] as int) == 1,
+      allowSensitive: (row['allow_sensitive'] as int? ?? 0) == 1,
+      enabled: (row['enabled'] as int) == 1,
+      lastRun: row['last_run'] != null
+          ? DateTime.tryParse(row['last_run'] as String)
+          : null,
+      lastResult: row['last_result'] as String?,
+      retryCount: row['retry_count'] as int? ?? 0,
+      priority: WorkflowPriority.values.firstWhere(
+        (p) => p.name == (row['priority'] as String? ?? 'normal'),
+        orElse: () => WorkflowPriority.normal,
+      ),
+      timeoutSeconds: row['timeout_seconds'] as int? ?? 60,
+      steps: steps,
+      variables: variables,
+      templateId: row['template_id'] as String?,
+      createdAt: DateTime.parse(row['created_at'] as String),
+    );
+  }
 
   /// Convert DB row to WorkflowExecution.
   WorkflowExecution executionFromRow(Map<String, dynamic> row) {
@@ -130,10 +207,24 @@ class WorkflowDatabase {
             }
           }
         }
-      } catch (_) {
-        // Ignore malformed events.
-      }
+      } catch (_) {}
     }
+
+    final stepResultsRaw = row['step_results'] as String?;
+    final stepResults = <StepResult>[];
+    if (stepResultsRaw != null && stepResultsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(stepResultsRaw);
+        if (decoded is List) {
+          for (final s in decoded) {
+            if (s is Map<String, dynamic>) {
+              stepResults.add(StepResult.fromJson(s));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
     return WorkflowExecution(
       id: row['id'] as int?,
       workflowId: row['workflow_id'] as String,
@@ -144,6 +235,7 @@ class WorkflowDatabase {
       executedAt: DateTime.parse(row['executed_at'] as String),
       durationMs: row['duration_ms'] as int?,
       events: events,
+      stepResults: stepResults,
     );
   }
 }

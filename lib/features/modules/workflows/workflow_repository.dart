@@ -87,6 +87,37 @@ class WorkflowRepository {
     return rows.map(_db.workflowFromRow).toList();
   }
 
+  /// Get all enabled workflows sorted by priority (for queue).
+  Future<List<WorkflowModel>> listEnabledByPriority() async {
+    final db = await _db.database;
+    // Order: critical > high > normal > low
+    final rows = await db.query(
+      'workflows',
+      where: 'enabled = 1',
+      orderBy: '''
+        CASE priority
+          WHEN 'critical' THEN 0
+          WHEN 'high' THEN 1
+          WHEN 'normal' THEN 2
+          WHEN 'low' THEN 3
+          ELSE 2
+        END ASC
+      ''',
+    );
+    return rows.map(_db.workflowFromRow).toList();
+  }
+
+  /// Get workflows with event-based triggers.
+  Future<List<WorkflowModel>> listEventTriggered() async {
+    final db = await _db.database;
+    final rows = await db.rawQuery('''
+      SELECT * FROM workflows
+      WHERE enabled = 1
+      AND json_extract(trigger_config, '\$.type') = 'event'
+    ''');
+    return rows.map(_db.workflowFromRow).toList();
+  }
+
   /// Update last run info after execution.
   Future<void> updateLastRun(
     String id, {
@@ -123,6 +154,9 @@ class WorkflowRepository {
       'events': execution.events.isEmpty
           ? null
           : jsonEncode(execution.events.map((e) => e.toJson()).toList()),
+      'step_results': execution.stepResults.isEmpty
+          ? null
+          : jsonEncode(execution.stepResults.map((s) => s.toJson()).toList()),
     });
   }
 
@@ -153,6 +187,21 @@ class WorkflowRepository {
     final db = await _db.database;
     await db.delete('execution_history',
         where: 'workflow_id = ?', whereArgs: [workflowId]);
+  }
+
+  /// Clear ALL execution history across every workflow and agent.
+  ///
+  /// Optionally filter by [agentId] to only wipe history for one agent.
+  Future<int> clearAllHistory({String? agentId}) async {
+    final db = await _db.database;
+    if (agentId != null) {
+      return db.delete(
+        'execution_history',
+        where: 'agent_id = ?',
+        whereArgs: [agentId],
+      );
+    }
+    return db.delete('execution_history');
   }
 }
 

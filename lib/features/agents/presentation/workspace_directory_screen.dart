@@ -358,7 +358,13 @@ class _WorkspaceFileEditorScreenState extends ConsumerState<WorkspaceFileEditorS
                       height: 1.5,
                     ),
                     decoration: const InputDecoration(
+                      filled: false,
                       border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
                       contentPadding: EdgeInsets.all(16),
                     ),
                   ),

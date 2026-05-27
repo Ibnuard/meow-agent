@@ -40,6 +40,10 @@ dependencies:
   workmanager: ^0.9.0+3
   android_alarm_manager_plus: ^5.0.0
 
+  # Workflow event listeners
+  battery_plus: ^6.2.0
+  connectivity_plus: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

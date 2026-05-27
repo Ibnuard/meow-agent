@@ -10,7 +10,7 @@ import 'workflow_repository.dart';
 const workManagerTaskName = 'meow_workflow_interval';
 
 /// Schedules workflows using AlarmManager (exact time) and WorkManager (intervals).
-/// Notification delivery is handled separately by WorkflowNotificationService.
+/// Event-based workflows are handled by WorkflowEventListener, not here.
 class WorkflowScheduler {
   static bool _initialized = false;
 
@@ -25,6 +25,9 @@ class WorkflowScheduler {
   /// Schedule a workflow based on its trigger config.
   static Future<void> schedule(WorkflowModel workflow) async {
     if (!workflow.enabled) return;
+
+    // Event-based workflows don't need AlarmManager/WorkManager scheduling.
+    if (workflow.trigger.type == TriggerType.event) return;
 
     final alarmId = workflow.id.hashCode.abs() % 2147483647;
 
@@ -41,7 +44,7 @@ class WorkflowScheduler {
       );
     } else {
       // Use AlarmManager for schedule-based (exact time) workflows.
-      final nextFire = _nextFireTime(workflow.trigger);
+      final nextFire = nextFireTime(workflow.trigger);
       if (nextFire == null) return;
 
       await AndroidAlarmManager.oneShotAt(
@@ -61,9 +64,10 @@ class WorkflowScheduler {
 
     if (workflow.trigger.type == TriggerType.interval) {
       await Workmanager().cancelByUniqueName('wf_${workflow.id}');
-    } else {
+    } else if (workflow.trigger.type == TriggerType.schedule) {
       await AndroidAlarmManager.cancel(alarmId);
     }
+    // Event-based workflows have no scheduled alarm to cancel.
   }
 
   /// Reschedule all enabled workflows (e.g., after reboot or app start).
@@ -76,7 +80,10 @@ class WorkflowScheduler {
   }
 
   /// Calculate the next fire time for a schedule trigger.
-  static DateTime? _nextFireTime(TriggerConfig trigger) {
+  /// Made public so the dynamic runner can use it for smart timer calculation.
+  static DateTime? nextFireTime(TriggerConfig trigger) {
+    if (trigger.type != TriggerType.schedule) return null;
+
     final now = DateTime.now();
     final hour = trigger.hour ?? 0;
     final minute = trigger.minute ?? 0;
@@ -102,12 +109,50 @@ class WorkflowScheduler {
 
     return candidate;
   }
+
+  /// Calculate the duration until the next workflow should fire.
+  /// Used by WorkflowRunner for dynamic timer scheduling.
+  static Duration? timeUntilNextFire(List<WorkflowModel> workflows) {
+    final now = DateTime.now();
+    Duration? shortest;
+
+    for (final wf in workflows) {
+      if (!wf.enabled) continue;
+      if (wf.trigger.type == TriggerType.event) continue;
+
+      Duration? untilFire;
+
+      if (wf.trigger.type == TriggerType.interval) {
+        final intervalSecs = (wf.trigger.intervalMinutes ?? 60) * 60;
+        if (wf.lastRun == null) {
+          untilFire = Duration.zero;
+        } else {
+          final elapsed = now.difference(wf.lastRun!).inSeconds;
+          final remaining = intervalSecs - elapsed;
+          untilFire = Duration(seconds: remaining > 0 ? remaining : 0);
+        }
+      } else if (wf.trigger.type == TriggerType.schedule) {
+        final next = nextFireTime(wf.trigger);
+        if (next != null) {
+          untilFire = next.difference(now);
+          if (untilFire.isNegative) untilFire = Duration.zero;
+        }
+      }
+
+      if (untilFire != null) {
+        if (shortest == null || untilFire < shortest) {
+          shortest = untilFire;
+        }
+      }
+    }
+
+    return shortest;
+  }
 }
 
 /// Top-level callback for AlarmManager (must be static/top-level).
-/// Note: This runs in a separate isolate without access to RuntimeEngine.
+/// Runs in a separate isolate — only reschedules the next occurrence.
 /// Actual execution is handled by WorkflowRunner in the main isolate.
-/// This callback only reschedules the next occurrence.
 @pragma('vm:entry-point')
 Future<void> _alarmCallback() async {
   final repo = WorkflowRepository();
@@ -115,14 +160,12 @@ Future<void> _alarmCallback() async {
 
   for (final wf in workflows) {
     if (wf.trigger.type != TriggerType.schedule) continue;
-    // Reschedule for next occurrence so the alarm keeps firing.
     await WorkflowScheduler.schedule(wf);
   }
 }
 
 /// Top-level WorkManager dispatcher.
-/// Same limitation as the alarm callback: cannot access RuntimeEngine
-/// from a background isolate. Actual execution is handled by WorkflowRunner.
+/// Same limitation: cannot access RuntimeEngine from background isolate.
 @pragma('vm:entry-point')
 void _workManagerDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {

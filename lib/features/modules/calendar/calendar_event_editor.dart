@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import 'calendar_event_model.dart';
 import 'calendar_screen.dart';
 
@@ -156,24 +157,12 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
   Future<void> _delete() async {
     if (!_isEditing) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Event?'),
-        content: const Text('Event ini akan dihapus permanen.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+    final confirm = await showMeowConfirmDialog(
+      context,
+      title: 'Hapus Event?',
+      message: 'Event ini akan dihapus permanen. Lanjutkan?',
     );
-    if (confirm != true) return;
+    if (!confirm) return;
 
     final repo = ref.read(calendarRepositoryProvider);
     await repo.deleteEvent(widget.event!.id);
@@ -191,7 +180,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
         actions: [
           if (_isEditing)
             IconButton(
-              icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+              icon: Icon(Icons.delete_outline_rounded, color: cs.error),
               onPressed: _delete,
             ),
         ],
@@ -327,7 +316,13 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
         decoration: InputDecoration(
           hintText: hint,
           hintStyle: TextStyle(fontSize: 14, color: cs.onSurfaceVariant),
+          filled: false,
           border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          errorBorder: InputBorder.none,
+          focusedErrorBorder: InputBorder.none,
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),

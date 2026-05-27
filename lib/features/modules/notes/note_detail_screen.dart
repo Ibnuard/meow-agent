@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'notes_list_screen.dart';
 import 'notes_models.dart';
@@ -36,29 +37,17 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
   Future<void> _delete() async {
     final langPref = ref.read(appLanguageProvider);
     final s = AppStrings(resolveLanguageCode(langPref));
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.isId ? 'Hapus Note' : 'Delete Note'),
-        content: Text(s.isId
-            ? 'Note ini akan dihapus permanen. Lanjutkan?'
-            : 'This note will be permanently deleted. Continue?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(s.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFF87171),
-            ),
-            child: Text(s.delete),
-          ),
-        ],
-      ),
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: s.isId,
+      title: s.isId ? 'Hapus Note?' : 'Delete Note?',
+      message: s.isId
+          ? 'Note ini akan dihapus permanen. Lanjutkan?'
+          : 'This note will be permanently deleted. Continue?',
+      confirmLabel: s.delete,
+      cancelLabel: s.cancel,
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await ref.read(notesRepositoryProvider).deleteNote(widget.noteId);
       ref.invalidate(notesListProvider);
       if (mounted) context.pop();
@@ -128,7 +117,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, size: 20),
+            icon: Icon(Icons.delete_outline_rounded, size: 20, color: cs.error),
             tooltip: s.delete,
             onPressed: _delete,
           ),

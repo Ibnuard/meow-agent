@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../modules/workflows/workflow_log_detail_screen.dart';
@@ -18,6 +19,8 @@ class ActivityScreen extends ConsumerStatefulWidget {
 }
 
 class _ActivityScreenState extends ConsumerState<ActivityScreen> {
+  static const _allAgentsFilter = '__all_agents__';
+
   final WorkflowRepository _repo = WorkflowRepository();
   List<WorkflowExecution> _history = [];
   bool _loading = true;
@@ -34,12 +37,56 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
       agentId: _selectedAgentId,
       limit: 100,
     );
-    if (mounted) setState(() { _history = history; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _history = history;
+        _loading = false;
+      });
+    }
   }
 
   void _onAgentChanged(String? agentId) {
-    setState(() { _selectedAgentId = agentId; _loading = true; });
+    setState(() {
+      _selectedAgentId = agentId;
+      _loading = true;
+    });
     _load();
+  }
+
+  Future<void> _clearAll(bool isId, List<AgentModel> agents) async {
+    final scopedAgent = _selectedAgentId == null
+        ? null
+        : agents.where((a) => a.id == _selectedAgentId).firstOrNull;
+    final scopeLabel = scopedAgent != null
+        ? (isId
+              ? 'untuk agent ${scopedAgent.name}'
+              : 'for agent ${scopedAgent.name}')
+        : (isId ? 'dari semua agent' : 'from all agents');
+
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: isId,
+      title: isId ? 'Bersihkan Aktivitas?' : 'Clear Activity?',
+      message: isId
+          ? 'Semua riwayat eksekusi $scopeLabel akan dihapus permanen. Lanjutkan?'
+          : 'All execution history $scopeLabel will be permanently deleted. Continue?',
+      confirmLabel: isId ? 'Bersihkan' : 'Clear',
+      cancelLabel: isId ? 'Batal' : 'Cancel',
+    );
+    if (!confirmed) return;
+
+    final removed = await _repo.clearAllHistory(agentId: _selectedAgentId);
+    if (!mounted) return;
+    setState(() {
+      _history = [];
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          isId ? '$removed riwayat dibersihkan' : '$removed entries cleared',
+        ),
+      ),
+    );
   }
 
   @override
@@ -51,57 +98,86 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final agents = ref.watch(agentListProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(isId ? 'Aktivitas' : 'Activity')),
+      appBar: AppBar(
+        title: Text(isId ? 'Aktivitas' : 'Activity'),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded),
+            tooltip: isId ? 'Opsi' : 'Options',
+            enabled: _history.isNotEmpty,
+            onSelected: (v) {
+              if (v == 'clear') _clearAll(isId, agents);
+            },
+            itemBuilder: (ctx) => [
+              PopupMenuItem(
+                value: 'clear',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_sweep_outlined,
+                      size: 18,
+                      color: cs.error,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      isId ? 'Bersihkan Semua' : 'Clear All',
+                      style: TextStyle(color: cs.error),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Column(
           children: [
             // Agent filter dropdown.
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: extras.card,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: extras.subtleBorder),
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String?>(
-                    value: _selectedAgentId,
-                    isExpanded: true,
-                    dropdownColor: extras.card,
-                    style: TextStyle(fontSize: 13, color: cs.onSurface),
-                    hint: Text(
-                      isId ? 'Semua Agent' : 'All Agents',
-                      style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
+              child: MeowDropdown<String>(
+                value: _selectedAgentId ?? _allAgentsFilter,
+                presentation: MeowDropdownPresentation.menu,
+                searchable: false,
+                dense: true,
+                options: [
+                  MeowDropdownOption<String>(
+                    value: _allAgentsFilter,
+                    label: isId ? 'Semua Agent' : 'All Agents',
+                    prefix: Icon(
+                      Icons.auto_awesome_motion_rounded,
+                      size: 16,
+                      color: cs.primary,
                     ),
-                    items: [
-                      DropdownMenuItem<String?>(
-                        value: null,
-                        child: Text(isId ? 'Semua Agent' : 'All Agents'),
-                      ),
-                      ...agents.map((a) => DropdownMenuItem<String?>(
-                            value: a.id,
-                            child: Text(a.name),
-                          )),
-                    ],
-                    onChanged: _onAgentChanged,
                   ),
-                ),
+                  ...agents.map(
+                    (agent) => MeowDropdownOption<String>(
+                      value: agent.id,
+                      label: agent.name,
+                      prefix: _AgentFilterAvatar(name: agent.name),
+                    ),
+                  ),
+                ],
+                onChanged: (value) =>
+                    _onAgentChanged(value == _allAgentsFilter ? null : value),
               ),
             ),
             const SizedBox(height: 4),
             // History list.
             Expanded(
               child: _loading
-                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : _history.isEmpty
-                      ? _buildEmpty(cs, isId)
-                      : ListView.builder(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                          itemCount: _history.length,
-                          itemBuilder: (_, i) => _buildEntry(_history[i], cs, extras, agents, isId),
-                        ),
+                  ? _buildEmpty(cs, isId)
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                      itemCount: _history.length,
+                      itemBuilder: (_, i) =>
+                          _buildEntry(_history[i], cs, extras, agents, isId),
+                    ),
             ),
           ],
         ),
@@ -147,10 +223,12 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     List<AgentModel> agents,
     bool isId,
   ) {
-    final agentName = agents
-        .where((a) => a.id == entry.agentId)
-        .map((a) => a.name)
-        .firstOrNull ?? entry.agentId;
+    final agentName =
+        agents
+            .where((a) => a.id == entry.agentId)
+            .map((a) => a.name)
+            .firstOrNull ??
+        entry.agentId;
 
     final statusColor = _statusColor(entry.status);
     final statusIcon = _statusIcon(entry.status);
@@ -194,7 +272,10 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                       ),
                     ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
                       decoration: BoxDecoration(
                         color: statusColor.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
@@ -214,7 +295,11 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                 // Result preview.
                 Text(
                   entry.result,
-                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.4),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurfaceVariant,
+                    height: 1.4,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -222,22 +307,35 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                 // Footer: agent + time + duration.
                 Row(
                   children: [
-                    Icon(Icons.smart_toy_outlined, size: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                    Icon(
+                      Icons.smart_toy_outlined,
+                      size: 11,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       agentName,
-                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     const Spacer(),
                     Text(
                       _formatTime(entry.executedAt),
-                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                     if (entry.durationMs != null) ...[
                       const SizedBox(width: 8),
                       Text(
                         '${(entry.durationMs! / 1000).toStringAsFixed(1)}s',
-                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+                        ),
                       ),
                     ],
                   ],
@@ -295,5 +393,37 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final d = dt.day.toString().padLeft(2, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     return '$d/$mo $h:$m';
+  }
+}
+
+class _AgentFilterAvatar extends StatelessWidget {
+  const _AgentFilterAvatar({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final initial = name.trim().isEmpty
+        ? 'A'
+        : name.trim().substring(0, 1).toUpperCase();
+
+    return Container(
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        initial,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          color: cs.primary,
+        ),
+      ),
+    );
   }
 }

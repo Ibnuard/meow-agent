@@ -61,10 +61,9 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   }
 
   Future<void> _loadWorkspacePath(String agentId, {String? agentName}) async {
-    final path = await ref.read(workspaceServiceProvider).getWorkspacePath(
-      agentId,
-      agentName: agentName,
-    );
+    final path = await ref
+        .read(workspaceServiceProvider)
+        .getWorkspacePath(agentId, agentName: agentName);
     if (mounted) setState(() => _workspacePath = path);
   }
 
@@ -78,9 +77,9 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedProviderId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.pleaseSelectProvider)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.pleaseSelectProvider)));
       return;
     }
     setState(() => _saving = true);
@@ -112,28 +111,17 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.deleteAgent),
-        content: Text(s.deleteAgentBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(s.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFF87171),
-            ),
-            child: Text(s.delete),
-          ),
-        ],
-      ),
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: isId,
+      title: s.deleteAgent,
+      message: s.deleteAgentBody,
+      confirmLabel: s.delete,
+      cancelLabel: s.cancel,
     );
 
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await ref.read(agentListProvider.notifier).delete(widget.agentId!);
       if (!mounted) return;
       if (context.canPop()) {
@@ -212,7 +200,10 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: extras.subtleBorder, width: 1),
+                        border: Border.all(
+                          color: extras.subtleBorder,
+                          width: 1,
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -222,7 +213,11 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                               children: [
                                 Row(
                                   children: [
-                                    Icon(Icons.folder_outlined, size: 18, color: cs.primary),
+                                    Icon(
+                                      Icons.folder_outlined,
+                                      size: 18,
+                                      color: cs.primary,
+                                    ),
                                     const SizedBox(width: 8),
                                     Text(
                                       s.agentWorkspace,
@@ -324,62 +319,24 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                   if (providers.isEmpty)
                     _ProviderEmptyState(s: s)
                   else ...[
-                    // Provider dropdown.
-                    Text(
-                      s.selectProvider,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: cs.onSurfaceVariant,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: extras.inputFill,
-                        borderRadius: BorderRadius.circular(16),
-                        border:
-                            Border.all(color: extras.inputBorder, width: 1),
-                      ),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
-                          value: _selectedProviderId,
-                          isExpanded: true,
-                          hint: Text(
-                            s.chooseProvider,
-                            style: TextStyle(
-                              color: extras.subtleText,
-                              fontSize: 15,
-                            ),
-                          ),
-                          dropdownColor: cs.brightness == Brightness.dark
-                              ? const Color(0xFF0F172A)
-                              : cs.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          icon: Icon(
-                            Icons.keyboard_arrow_down_rounded,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          items: providers.map((p) {
-                            return DropdownMenuItem(
+                    // Provider dropdown — single source of border via MeowDropdown.
+                    MeowDropdown<String>(
+                      label: s.selectProvider,
+                      hint: s.chooseProvider,
+                      sheetTitle: s.selectProvider,
+                      value: providers.any((p) => p.id == _selectedProviderId)
+                          ? _selectedProviderId
+                          : null,
+                      options: providers
+                          .map(
+                            (p) => MeowDropdownOption<String>(
                               value: p.id,
-                              child: Text(
-                                '${p.nickname}  ·  ${p.model}',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w500,
-                                  color: cs.onSurface,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedProviderId = v),
-                        ),
-                      ),
+                              label: p.nickname,
+                              subtitle: p.model,
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _selectedProviderId = v),
                     ),
                   ],
                   const SizedBox(height: 28),
@@ -417,46 +374,54 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: extras.inputFill,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: extras.inputBorder, width: 1),
+                  // Single-source-of-border: TextFormField uses theme decoration only.
+                  TextFormField(
+                    controller: _contextLengthController,
+                    keyboardType: TextInputType.number,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: cs.onSurface,
                     ),
-                    child: TextFormField(
-                      controller: _contextLengthController,
-                      keyboardType: TextInputType.number,
-                      style: TextStyle(
+                    decoration: InputDecoration(
+                      hintText: '8191',
+                      hintStyle: TextStyle(
+                        color: extras.subtleText,
                         fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                        color: cs.onSurface,
                       ),
-                      decoration: InputDecoration(
-                        hintText: '8191',
-                        hintStyle: TextStyle(
-                          color: extras.subtleText,
-                          fontSize: 15,
-                        ),
-                        suffixText: 'tokens',
-                        suffixStyle: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurfaceVariant,
-                        ),
-                        filled: false,
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
+                      suffixText: 'tokens',
+                      suffixStyle: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurfaceVariant,
                       ),
-                      validator: (v) {
-                        final n = int.tryParse(v ?? '');
-                        if (n == null || n < 512) {
-                          return s.isId ? 'Minimal 512 tokens' : 'Minimum 512 tokens';
-                        }
-                        return null;
-                      },
+                      filled: true,
+                      fillColor: extras.inputFill,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: extras.inputBorder),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: extras.inputBorder),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        borderSide: BorderSide(color: extras.inputFocusBorder),
+                      ),
                     ),
+                    validator: (v) {
+                      final n = int.tryParse(v ?? '');
+                      if (n == null || n < 512) {
+                        return s.isId
+                            ? 'Minimal 512 tokens'
+                            : 'Minimum 512 tokens';
+                      }
+                      return null;
+                    },
                   ),
                 ],
               ),
@@ -475,7 +440,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
               ),
             ),
 
-            // Delete button (edit mode only).
+            // Delete button (edit mode only) — banner-style with cs.error.
             if (widget.agentId != null) ...[
               const SizedBox(height: 16),
               Padding(
@@ -483,19 +448,24 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                 child: TextButton(
                   onPressed: _confirmDelete,
                   style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFFF87171),
+                    foregroundColor: cs.error,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.delete_outline_rounded, size: 18),
-                      SizedBox(width: 8),
+                      Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: cs.error,
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         s.deleteAgent,
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
+                          color: cs.error,
                         ),
                       ),
                     ],

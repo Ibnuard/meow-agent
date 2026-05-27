@@ -1,0 +1,72 @@
+import 'package:flutter/material.dart';
+
+import '../../../app/theme.dart';
+
+class ModuleVisuals {
+  const ModuleVisuals._();
+
+  static IconData iconFor(String id) {
+    return switch (id) {
+      'clipboard_ai' => Icons.content_paste_rounded,
+      'app_control' => Icons.apps_rounded,
+      'device_context' => Icons.monitor_heart_rounded,
+      'notification_intelligence' => Icons.notifications_rounded,
+      'notes' => Icons.edit_note_rounded,
+      'files' => Icons.folder_rounded,
+      'calendar' => Icons.calendar_month_rounded,
+      'workflows' => Icons.bolt_rounded,
+      _ => Icons.extension_rounded,
+    };
+  }
+
+  static Color accentFor(String id) {
+    return switch (id) {
+      'clipboard_ai' => const Color(0xFF38BDF8),
+      'app_control' => const Color(0xFF6366F1),
+      'device_context' => const Color(0xFF14B8A6),
+      'notification_intelligence' => const Color(0xFFF59E0B),
+      'notes' => const Color(0xFFEC4899),
+      'files' => const Color(0xFFEAB308),
+      'calendar' => const Color(0xFFEF4444),
+      'workflows' => const Color(0xFF3B82F6),
+      _ => const Color(0xFF64748B),
+    };
+  }
+}
+
+class ModuleIconBadge extends StatelessWidget {
+  const ModuleIconBadge({
+    super.key,
+    required this.moduleId,
+    this.size = 44,
+    this.iconSize = 21,
+    this.radius = 16,
+  });
+
+  final String moduleId;
+  final double size;
+  final double iconSize;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final accent = ModuleVisuals.accentFor(moduleId);
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: isDark ? 0.18 : 0.10),
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: context.extras.subtleBorder),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        ModuleVisuals.iconFor(moduleId),
+        size: iconSize,
+        color: accent,
+      ),
+    );
+  }
+}

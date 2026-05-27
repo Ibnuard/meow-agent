@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../modules/data/module_model.dart';
 import '../../modules/data/module_repository.dart';
+import '../../modules/presentation/module_visuals.dart';
 import '../../settings/data/app_language_provider.dart';
 
 /// Home screen.
@@ -24,6 +25,9 @@ class HomeScreen extends ConsumerWidget {
     final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
+      backgroundColor: Theme.of(context).brightness == Brightness.dark
+          ? context.cs.surface
+          : const Color(0xFFFBFCFE),
       body: SafeArea(
         child: Column(
           children: [
@@ -42,55 +46,85 @@ class HomeScreen extends ConsumerWidget {
 
 class _LogoHeader extends StatelessWidget {
   const _LogoHeader({required this.s});
+
   final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 22),
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
         decoration: BoxDecoration(
-          color: extras.card,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: extras.subtleBorder),
+          color: isDark ? extras.card : const Color(0xFFF6F8FC),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: isDark ? extras.subtleBorder : const Color(0xFFEFF3FA),
+          ),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: 52,
+              height: 52,
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [cs.primary, extras.gradientEnd],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(19),
+                boxShadow: [
+                  BoxShadow(
+                    color: cs.primary.withValues(alpha: isDark ? 0.22 : 0.15),
+                    blurRadius: 20,
+                    spreadRadius: -9,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
               ),
-              alignment: Alignment.center,
-              child: const Text('🐾', style: TextStyle(fontSize: 28)),
+              child: Icon(
+                Icons.auto_awesome_rounded,
+                color: Colors.white.withValues(alpha: 0.92),
+                size: 24,
+              ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
               'MEOW AGENT',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.w800,
-                letterSpacing: 2.0,
+                letterSpacing: 1.9,
                 color: cs.onSurface,
               ),
             ),
             const SizedBox(height: 4),
             Text(
               s.appTagline,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 12,
                 color: cs.onSurfaceVariant,
                 fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 13),
+            Container(
+              width: 44,
+              height: 3,
+              decoration: BoxDecoration(
+                color: cs.primary.withValues(alpha: 0.32),
+                borderRadius: BorderRadius.circular(999),
               ),
             ),
           ],
@@ -102,6 +136,7 @@ class _LogoHeader extends StatelessWidget {
 
 class _ModulesSection extends ConsumerWidget {
   const _ModulesSection({required this.s});
+
   final AppStrings s;
 
   @override
@@ -111,45 +146,81 @@ class _ModulesSection extends ConsumerWidget {
     final modulesAsync = ref.watch(installedModulesProvider);
 
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                s.modules,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: cs.onSurface,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.modules,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      s.isId
+                          ? 'Akses cepat untuk agenmu'
+                          : 'Quick access for your agent',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const Spacer(),
-              TextButton.icon(
+              TextButton(
                 onPressed: () => context.push('/modules/store'),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: Text(s.add),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add_rounded, size: 18),
+                    const SizedBox(width: 5),
+                    Text(s.add),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           Expanded(
             child: modulesAsync.when(
               loading: () => const Center(
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              error: (e, _) => Center(
-                child: Text(s.failedLoadModules),
-              ),
+              error: (e, _) => Center(child: Text(s.failedLoadModules)),
               data: (modules) {
                 if (modules.isEmpty) {
                   return Center(
                     child: Container(
-                      padding: const EdgeInsets.all(28),
+                      padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
                         color: extras.card,
-                        borderRadius: BorderRadius.circular(20),
+                        borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: extras.subtleBorder),
                       ),
                       child: Column(
@@ -157,7 +228,7 @@ class _ModulesSection extends ConsumerWidget {
                         children: [
                           Icon(
                             Icons.extension_outlined,
-                            size: 44,
+                            size: 40,
                             color: cs.primary.withValues(alpha: 0.7),
                           ),
                           const SizedBox(height: 12),
@@ -184,16 +255,19 @@ class _ModulesSection extends ConsumerWidget {
                   );
                 }
 
-                return GridView.count(
-                  crossAxisCount: 4,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 0.78,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: modules
-                      .map((m) => _ModuleCard(module: m, s: s))
-                      .toList(),
+                return GridView.builder(
+                  padding: const EdgeInsets.only(bottom: 104),
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: modules.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 0.92,
+                  ),
+                  itemBuilder: (context, i) {
+                    return _ModuleCard(module: modules[i], s: s);
+                  },
                 );
               },
             ),
@@ -206,6 +280,7 @@ class _ModulesSection extends ConsumerWidget {
 
 class _ModuleCard extends StatelessWidget {
   const _ModuleCard({required this.module, required this.s});
+
   final ModuleModel module;
   final AppStrings s;
 
@@ -213,64 +288,68 @@ class _ModuleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return GestureDetector(
-      onTap: () => context.push('/modules/${module.id}'),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 5),
-        decoration: BoxDecoration(
-          color: extras.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: extras.subtleBorder),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              alignment: Alignment.center,
-              child: Text(
-                module.icon,
-                style: const TextStyle(fontSize: 16),
-              ),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(24),
+      child: InkWell(
+        onTap: () => context.push('/modules/${module.id}'),
+        borderRadius: BorderRadius.circular(24),
+        splashColor: cs.primary.withValues(alpha: 0.08),
+        highlightColor: cs.primary.withValues(alpha: 0.04),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: isDark ? extras.card : const Color(0xFFF4F7FB),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: isDark ? extras.subtleBorder : const Color(0xFFEAF0F8),
             ),
-            const SizedBox(height: 7),
-            Text(
-              module.name,
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: cs.onSurface,
-                height: 1.12,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: module.enabled
-                    ? cs.primary.withValues(alpha: 0.1)
-                    : cs.onSurfaceVariant.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                module.enabled ? s.active : s.disabled,
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w500,
-                  color: module.enabled ? cs.primary : cs.onSurfaceVariant,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ModuleIconBadge(
+                  moduleId: module.id,
+                  size: 42,
+                  iconSize: 20,
+                  radius: 15,
                 ),
-              ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 30,
+                  child: Center(
+                    child: Text(
+                      module.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                        height: 1.12,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  module.enabled ? s.active : s.disabled,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: module.enabled ? cs.primary : cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -279,29 +358,32 @@ class _ModuleCard extends StatelessWidget {
 
 class _SetupCallToAction extends StatelessWidget {
   const _SetupCallToAction({required this.s});
+
   final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 96,
-            height: 96,
+            width: 86,
+            height: 86,
             decoration: BoxDecoration(
-              color: extras.card,
+              color: isDark ? extras.card : const Color(0xFFF4F7FB),
               shape: BoxShape.circle,
               border: Border.all(color: extras.subtleBorder),
             ),
             alignment: Alignment.center,
             child: Icon(
               Icons.auto_awesome_rounded,
-              size: 44,
+              size: 38,
               color: cs.primary,
             ),
           ),

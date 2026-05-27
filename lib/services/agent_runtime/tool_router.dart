@@ -425,16 +425,33 @@ class ToolRouter {
 
     'workflow.create': const ToolDefinition(
       name: 'workflow.create',
-      description: 'Create a scheduled workflow that runs a prompt at specified times.',
+      description: 'Create a scheduled, interval, or event-triggered workflow. Supports single-prompt or chained multi-step execution.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
         'title': 'string (required)',
-        'prompt': 'string (required) - the prompt to execute',
-        'trigger': 'object (required) - {type: schedule|interval, hour: int, minute: int, daysOfWeek: [1-7], intervalMinutes: int}',
+        'prompt': 'string (required if steps not provided)',
+        'trigger': 'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {threshold, keyword, package}}',
         'notification': 'object (optional) - {style: silent|normal|alarm, showResult: bool}',
         'send_to_chat': 'bool (optional, default false)',
+        'priority': 'string (optional) - low|normal|high|critical',
+        'timeout_seconds': 'int (optional, default 60)',
+        'steps': 'list<object> (optional) - [{id, prompt, condition?, onFailure: stop|skip|retry, timeoutSeconds}]',
+        'variables': 'object (optional) - {key: defaultValue} accessed in prompts as {{key}}',
       },
+    ),
+    'workflow.create_from_template': const ToolDefinition(
+      name: 'workflow.create_from_template',
+      description: 'Create a workflow from a pre-built template. Use workflow.list_templates to see available templates.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'template_id': 'string (required)'},
+    ),
+    'workflow.list_templates': const ToolDefinition(
+      name: 'workflow.list_templates',
+      description: 'List all available workflow templates with their categories and metadata.',
+      risk: 'safe',
+      requiresConfirmation: false,
     ),
     'workflow.list': const ToolDefinition(
       name: 'workflow.list',
@@ -444,14 +461,14 @@ class ToolRouter {
     ),
     'workflow.read': const ToolDefinition(
       name: 'workflow.read',
-      description: 'Read details of a specific workflow.',
+      description: 'Read details of a specific workflow including steps and variables.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'id': 'string (required)'},
     ),
     'workflow.update': const ToolDefinition(
       name: 'workflow.update',
-      description: 'Update an existing workflow.',
+      description: 'Update an existing workflow. Any field can be updated.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -461,6 +478,10 @@ class ToolRouter {
         'trigger': 'object (optional)',
         'notification': 'object (optional)',
         'send_to_chat': 'bool (optional)',
+        'priority': 'string (optional)',
+        'timeout_seconds': 'int (optional)',
+        'steps': 'list<object> (optional)',
+        'variables': 'object (optional)',
       },
     ),
     'workflow.delete': const ToolDefinition(
@@ -665,6 +686,13 @@ class ToolRouter {
           agentId: agentId.isNotEmpty ? agentId : agentName,
           args: request.args,
         );
+      case 'workflow.create_from_template':
+        return _workflowTools().createFromTemplate(
+          agentId: agentId.isNotEmpty ? agentId : agentName,
+          args: request.args,
+        );
+      case 'workflow.list_templates':
+        return _workflowTools().listTemplates();
       case 'workflow.list':
         return _workflowTools().list(agentId: agentId.isNotEmpty ? agentId : agentName);
       case 'workflow.read':

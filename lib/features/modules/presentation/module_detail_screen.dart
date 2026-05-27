@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
 import '../workflows/workflow_list_screen.dart';
+import 'module_visuals.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -168,11 +170,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 content: Text(
                   s.isId
                       ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
-                        'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
-                        'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
+                            'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
+                            'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
                       : 'To open apps while Meow Agent is in the background, '
-                        'Android requires the "Display over other apps" permission.\n\n'
-                        'Tap "Open Settings" to enable it, then come back.',
+                            'Android requires the "Display over other apps" permission.\n\n'
+                            'Tap "Open Settings" to enable it, then come back.',
                 ),
                 actions: [
                   TextButton(
@@ -208,10 +210,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             content: Text(
               s.isId
                   ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
-                    'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
                   : 'Foreground app detection requires the "Usage Access" '
-                    'permission.\n\n'
-                    'Tap "Open Settings" to grant it, then come back.',
+                        'permission.\n\n'
+                        'Tap "Open Settings" to grant it, then come back.',
             ),
             actions: [
               TextButton(
@@ -227,35 +229,31 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         );
         if (goSettings != true) return;
         // Open Usage Access settings screen.
-        await const MethodChannel('com.meowagent/app_control')
-            .invokeMethod<bool>(
-          'openSettings',
-          {'action': 'android.settings.USAGE_ACCESS_SETTINGS'},
-        );
+        await const MethodChannel(
+          'com.meowagent/app_control',
+        ).invokeMethod<bool>('openSettings', {
+          'action': 'android.settings.USAGE_ACCESS_SETTINGS',
+        });
         // Fall through — save toggle as true so it reflects user intent.
         // If permission wasn't granted, the tool returns available:false gracefully.
       }
     }
 
     // Device Context — Bluetooth needs BLUETOOTH_CONNECT on Android 12+.
-    if (_module!.id == 'device_context' &&
-        key == 'allow_bluetooth' &&
-        value) {
+    if (_module!.id == 'device_context' && key == 'allow_bluetooth' && value) {
       try {
-        await const MethodChannel('com.meowagent/services')
-            .invokeMethod<Map<dynamic, dynamic>>(
-          'requestRuntimePermissions',
-          {'permissions': ['android.permission.BLUETOOTH_CONNECT']},
-        );
+        await const MethodChannel(
+          'com.meowagent/services',
+        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
+          'permissions': ['android.permission.BLUETOOTH_CONNECT'],
+        });
       } catch (_) {
         // If denied or error, toggle still saves; tools degrade gracefully.
       }
     }
 
     // Device Context — DND needs notification policy access.
-    if (_module!.id == 'device_context' &&
-        key == 'allow_dnd' &&
-        value) {
+    if (_module!.id == 'device_context' && key == 'allow_dnd' && value) {
       if (mounted) {
         final goSettings = await showDialog<bool>(
           context: context,
@@ -264,10 +262,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             content: Text(
               s.isId
                   ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
-                    'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
                   : 'Reading Do Not Disturb status requires '
-                    '"Do Not Disturb access" permission.\n\n'
-                    'Tap "Open Settings" to grant it, then come back.',
+                        '"Do Not Disturb access" permission.\n\n'
+                        'Tap "Open Settings" to grant it, then come back.',
             ),
             actions: [
               TextButton(
@@ -282,29 +280,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         );
         if (goSettings != true) return;
-        await const MethodChannel('com.meowagent/app_control')
-            .invokeMethod<bool>(
-          'openSettings',
-          {'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS'},
-        );
+        await const MethodChannel(
+          'com.meowagent/app_control',
+        ).invokeMethod<bool>('openSettings', {
+          'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS',
+        });
       }
     }
 
     // Device Context — Network Info needs Location (WiFi SSID) + Phone (cellular type) on Android 10+.
-    if (_module!.id == 'device_context' &&
-        key == 'allow_network' &&
-        value) {
+    if (_module!.id == 'device_context' && key == 'allow_network' && value) {
       try {
-        await const MethodChannel('com.meowagent/services')
-            .invokeMethod<Map<dynamic, dynamic>>(
-          'requestRuntimePermissions',
-          {
-            'permissions': [
-              'android.permission.ACCESS_FINE_LOCATION',
-              'android.permission.READ_PHONE_STATE',
-            ],
-          },
-        );
+        await const MethodChannel(
+          'com.meowagent/services',
+        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
+          'permissions': [
+            'android.permission.ACCESS_FINE_LOCATION',
+            'android.permission.READ_PHONE_STATE',
+          ],
+        });
       } catch (_) {
         // If denied or error, toggle still saves; tools degrade gracefully.
       }
@@ -323,11 +317,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             content: Text(
               s.isId
                   ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
-                    'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
-                    'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
+                        'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
+                        'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
                   : 'Reading notifications requires "Notification access" permission.\n\n'
-                    'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
-                    'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
+                        'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
+                        'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
             ),
             actions: [
               TextButton(
@@ -342,8 +336,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         );
         if (goSettings == true) {
-          await const MethodChannel('com.meowagent/notifications')
-              .invokeMethod<bool>('openNotificationAccessSettings');
+          await const MethodChannel(
+            'com.meowagent/notifications',
+          ).invokeMethod<bool>('openNotificationAccessSettings');
         }
       }
     }
@@ -366,9 +361,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(s.isId
-                ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
-                : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.'),
+            content: Text(
+              s.isId
+                  ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
+                  : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.',
+            ),
             action: SnackBarAction(
               label: s.isId ? 'Buka' : 'Open',
               onPressed: _openAlarmSettings,
@@ -415,26 +412,17 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
 
     if (!mounted) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.uninstallModule),
-        content: Text(s.isId
-            ? 'Hapus ${_module?.name ?? 'modul ini'}?'
-            : 'Remove ${_module?.name ?? 'this module'}?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(s.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(s.uninstall),
-          ),
-        ],
-      ),
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: s.isId,
+      title: s.uninstallModule,
+      message: s.isId
+          ? 'Hapus ${_module?.name ?? 'modul ini'}? Pengaturan dan izin akan dilepas.'
+          : 'Remove ${_module?.name ?? 'this module'}? Settings and permissions will be detached.',
+      confirmLabel: s.uninstall,
+      cancelLabel: s.cancel,
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await ref.read(moduleRepositoryProvider).uninstall(widget.moduleId);
       ref.invalidate(installedModulesProvider);
       if (mounted) context.pop();
@@ -445,6 +433,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (_module == null) {
       return Scaffold(
@@ -460,11 +449,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final settingLabels = _settingLabels(module.id, isId: isId);
 
     return Scaffold(
+      backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
       appBar: AppBar(
         title: Text(module.name),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_outline_rounded),
+            icon: Icon(Icons.delete_outline_rounded, color: cs.error),
             tooltip: isId ? 'Hapus modul' : 'Uninstall',
             onPressed: _uninstall,
           ),
@@ -479,44 +469,51 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         ),
         children: [
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: extras.subtleBorder),
+              color: isDark ? extras.card : const Color(0xFFF4F7FB),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark ? extras.subtleBorder : const Color(0xFFEAF0F8),
+              ),
             ),
-            child: Column(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: cs.primary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    module.icon,
-                    style: const TextStyle(fontSize: 28),
-                  ),
+                ModuleIconBadge(
+                  moduleId: module.id,
+                  size: 58,
+                  iconSize: 27,
+                  radius: 20,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  module.name,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: cs.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _moduleDescription(module, isId: isId),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: cs.onSurfaceVariant,
-                    height: 1.4,
+                const SizedBox(width: 15),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        module.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: cs.onSurface,
+                          height: 1.1,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        _moduleDescription(module, isId: isId),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurfaceVariant,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -543,7 +540,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               ),
               subtitle: Text(
-                isId ? 'Nyalakan untuk mengaktifkan modul ini.' : 'Turn on to activate this module.',
+                isId
+                    ? 'Nyalakan untuk mengaktifkan modul ini.'
+                    : 'Turn on to activate this module.',
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
               value: module.enabled,
@@ -563,7 +562,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               onTap: () => context.push('/notes'),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: cs.primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
@@ -594,13 +596,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             GestureDetector(
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const CalendarScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const CalendarScreen()),
               ),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: cs.primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
@@ -609,7 +612,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.calendar_month_rounded, size: 18, color: cs.primary),
+                    Icon(
+                      Icons.calendar_month_rounded,
+                      size: 18,
+                      color: cs.primary,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       isId ? 'Buka Kalender' : 'Open Calendar',
@@ -631,13 +638,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             GestureDetector(
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const WorkflowListScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const WorkflowListScreen()),
               ),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
                 decoration: BoxDecoration(
                   color: cs.primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
@@ -703,8 +711,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     value: entry.value,
                     activeTrackColor: cs.primary.withValues(alpha: 0.82),
                     activeThumbColor: Colors.white,
-                    inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.22),
-                    inactiveThumbColor: cs.onSurfaceVariant.withValues(alpha: 0.72),
+                    inactiveTrackColor: cs.onSurfaceVariant.withValues(
+                      alpha: 0.22,
+                    ),
+                    inactiveThumbColor: cs.onSurfaceVariant.withValues(
+                      alpha: 0.72,
+                    ),
                     onChanged: (v) => _toggleSetting(entry.key, v),
                   );
                 }).toList(),
@@ -856,14 +868,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         };
       case 'notes':
         return {
-          'allow_create': (
-            'Allow Create Notes',
-            'Agent can create new notes.',
-          ),
-          'allow_read': (
-            'Allow Read Notes',
-            'Agent can read and list notes.',
-          ),
+          'allow_create': ('Allow Create Notes', 'Agent can create new notes.'),
+          'allow_read': ('Allow Read Notes', 'Agent can read and list notes.'),
           'allow_search': (
             'Allow Search Notes',
             'Agent can search notes by keyword.',

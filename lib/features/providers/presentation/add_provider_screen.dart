@@ -121,49 +121,23 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final agents = ref.read(agentListProvider);
     final affectedAgents =
         agents.where((a) => a.providerId == widget.providerId).toList();
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(s.deleteProvider),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(s.deleteProviderBody(_nicknameController.text)),
-            if (affectedAgents.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                s.affectedAgentsWarning(affectedAgents.length),
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              ...affectedAgents.map(
-                (a) => Padding(
-                  padding: const EdgeInsets.only(left: 8, top: 2),
-                  child: Text('• ${a.name}'),
-                ),
-              ),
-            ],
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(s.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFF87171),
-            ),
-            child: Text(s.delete),
-          ),
-        ],
-      ),
+    final affectedWarning = affectedAgents.isNotEmpty
+        ? '\n\n${s.affectedAgentsWarning(affectedAgents.length)}\n'
+            '${affectedAgents.map((a) => '• ${a.name}').join('\n')}'
+        : '';
+
+    final confirmed = await showMeowConfirmDialog(
+      context,
+      isId: isId,
+      title: s.deleteProvider,
+      message: '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
+      confirmLabel: s.delete,
+      cancelLabel: s.cancel,
     );
 
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await ref.read(providerListProvider.notifier).delete(widget.providerId!);
       if (!mounted) return;
       if (context.canPop()) {
@@ -400,19 +374,20 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                     child: TextButton(
                       onPressed: _confirmDelete,
                       style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFFF87171),
+                        foregroundColor: cs.error,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delete_outline_rounded, size: 18),
-                          SizedBox(width: 8),
+                          Icon(Icons.delete_outline_rounded, size: 18, color: cs.error),
+                          const SizedBox(width: 8),
                           Text(
                             s.deleteProvider,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
+                              color: cs.error,
                             ),
                           ),
                         ],

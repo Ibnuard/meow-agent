@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/theme_mode_provider.dart';
+import '../../../app/widgets/widgets.dart';
 import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
 
@@ -54,9 +55,9 @@ class SettingsScreen extends ConsumerWidget {
                   label: strings.darkMode,
                   value: isDark,
                   onChanged: (v) {
-                    ref.read(themeModeProvider.notifier).set(
-                          v ? ThemeMode.dark : ThemeMode.light,
-                        );
+                    ref
+                        .read(themeModeProvider.notifier)
+                        .set(v ? ThemeMode.dark : ThemeMode.light);
                   },
                 ),
                 _SettingsTile(
@@ -70,12 +71,8 @@ class SettingsScreen extends ConsumerWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  onTap: () => _showLanguageSheet(
-                    context,
-                    ref,
-                    appLanguage,
-                    strings,
-                  ),
+                  onTap: () =>
+                      _showLanguageSheet(context, ref, appLanguage, strings),
                 ),
               ],
             ),
@@ -122,144 +119,59 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _showLanguageSheet(
+  Future<void> _showLanguageSheet(
     BuildContext context,
     WidgetRef ref,
     AppLanguage current,
     AppStrings strings,
-  ) {
-    final cs = context.cs;
-    final extras = context.extras;
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-
-    // Modal sheet should cover AppShell's floating dock, but still float above
-    // Android navigation. Keep a generous lift so it never feels buried.
-    final sheetBottomPadding = bottomInset > 0 ? bottomInset + 76.0 : 56.0;
-
-    showModalBottomSheet<void>(
-      context: context,
+  ) async {
+    final selected = await MeowDropdown.showSheet<AppLanguage>(
+      context,
+      title: strings.language,
+      subtitle: strings.languageDescription,
+      selectedValue: current,
+      searchable: false,
       useRootNavigator: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, sheetBottomPadding),
-          child: Container(
-            decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: extras.subtleBorder, width: 1),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.22),
-                  blurRadius: 32,
-                  offset: const Offset(0, 18),
-                ),
-              ],
+      options: AppLanguage.values
+          .map(
+            (language) => MeowDropdownOption<AppLanguage>(
+              value: language,
+              label: language.label,
+              prefix: _LanguageOptionIcon(language: language),
             ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.28),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    strings.language,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    strings.languageDescription,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.35,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  for (final lang in AppLanguage.values)
-                    _LanguageOptionTile(
-                      language: lang,
-                      selected: lang == current,
-                      onTap: () async {
-                        await ref.read(appLanguageProvider.notifier).set(lang);
-                        if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-                      },
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+          )
+          .toList(),
     );
+
+    if (selected != null) {
+      await ref.read(appLanguageProvider.notifier).set(selected);
+    }
   }
 }
 
-class _LanguageOptionTile extends StatelessWidget {
-  const _LanguageOptionTile({
-    required this.language,
-    required this.selected,
-    required this.onTap,
-  });
+class _LanguageOptionIcon extends StatelessWidget {
+  const _LanguageOptionIcon({required this.language});
 
   final AppLanguage language;
-  final bool selected;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: selected
-            ? cs.primary.withValues(alpha: 0.12)
-            : cs.onSurface.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    language.label,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                ),
-                if (selected)
-                  Icon(
-                    Icons.check_circle_rounded,
-                    size: 20,
-                    color: cs.primary,
-                  ),
-              ],
-            ),
-          ),
-        ),
+    final icon = switch (language) {
+      AppLanguage.system => Icons.phone_android_rounded,
+      AppLanguage.id => Icons.translate_rounded,
+      AppLanguage.en => Icons.language_rounded,
+    };
+
+    return Container(
+      width: 30,
+      height: 30,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(11),
       ),
+      child: Icon(icon, size: 16, color: cs.primary),
     );
   }
 }
@@ -358,10 +270,7 @@ class _SettingsTile extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(width: 8),
-                  trailing!,
-                ],
+                if (trailing != null) ...[const SizedBox(width: 8), trailing!],
                 const SizedBox(width: 4),
                 Icon(
                   Icons.chevron_right_rounded,
