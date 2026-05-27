@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../services/agent_runtime/i18n_fallback.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../agents/data/agent_repository.dart';
@@ -245,9 +246,14 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   /// Reject a pending tool.
   Future<void> reject(String agentId) async {
+    // Reuse the language captured when the pending action was created so
+    // the rejection message stays consistent with the prompt the user saw.
+    final pending = engine.getPendingAction(agentId);
+    final lang = pending?.languageCode ?? 'en';
+    final rejectMsg = I18nFallback.get('cancel', lang);
     await history.addMessage(
       agentId,
-      ChatMessage(role: 'assistant', content: '❌ Aksi dibatalkan oleh pengguna.'),
+      ChatMessage(role: 'assistant', content: rejectMsg),
     );
     _set(agentId, sessionFor(agentId).copyWith(
       isRunning: false,

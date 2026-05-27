@@ -52,10 +52,19 @@ class PromptConstants {
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
-- If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
 - When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
 - AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
   }
+
+  /// Appended to the system prompt when the user has not introduced themselves
+  /// yet (User Identity > Name in SOUL.md is still a placeholder). Replaces
+  /// the old hardcoded "first introduction rule" that lived in chat_screen.
+  static const introductionGateRule = '''INTRODUCTION GATE:
+- The user has not introduced themselves yet. Their User Identity > Name is empty or a placeholder.
+- Before doing the user's task, gently and briefly ask for their preferred name or nickname so future replies can be personal.
+- Ask in the user's detected language. Keep it natural, one short sentence, and offer to skip if they prefer.
+- Once they answer, call system.profile.update(field: "name", value: "...") to persist it. If they also share a preferred language explicitly, update that too via system.profile.update(field: "preferred_language", value: "..."). Otherwise, do NOT ask about language — the runtime captures it automatically.
+- If the user clearly wants to continue without introducing themselves, stop asking and proceed with the task.''';
 
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 

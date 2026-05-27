@@ -94,7 +94,6 @@ class WorkspaceInitializer {
   // ─── Default Templates ─────────────────────────────────────────────────────
 
   static String _defaultSoul(String agentName, String languageCode) {
-    final lang = languageCode == 'id' ? 'Indonesian' : 'English';
     return '''# SOUL.md
 
 ## Agent Identity
@@ -102,7 +101,6 @@ class WorkspaceInitializer {
 Name: $agentName
 Role: Android-native personal agentic AI assistant.
 Personality: Calm, helpful, practical, friendly.
-Default Language: $lang.
 
 ---
 
@@ -110,7 +108,7 @@ Default Language: $lang.
 
 Name: [Your Name]
 Nickname: [Optional Nickname]
-Preferred Language: $lang
+Preferred Language: [Not set]
 Timezone: [Your Timezone]
 
 ---

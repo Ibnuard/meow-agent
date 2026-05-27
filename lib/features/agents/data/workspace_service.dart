@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/workspace/workspace_file_service.dart';
 import '../../../services/workspace/workspace_initializer.dart';
 import '../../../services/workspace/workspace_paths.dart';
-import '../../settings/data/app_language_provider.dart';
 
 /// Manages per-agent workspace folders in external Documents storage.
 ///
@@ -135,7 +134,6 @@ tools: []
 ''';
 
   String soulTemplate(String agentName, String languageCode) {
-    final language = languageLabelFromCode(languageCode);
     return '''# SOUL.md
 
 ## Agent Identity
@@ -151,16 +149,13 @@ Personality:
 - Practical
 - Friendly
 
-Default Language:
-$language
-
 ---
 
 ## User Identity
 
 Name: [Your Name]
 Nickname: [Optional Nickname]
-Preferred Language: $language
+Preferred Language: [Not set]
 Timezone: [Your Timezone]
 
 Work/Role: [Your Role]

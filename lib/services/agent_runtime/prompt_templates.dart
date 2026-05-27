@@ -25,7 +25,7 @@ class PromptTemplates {
               'Tool: ${pendingAction.toolName}\n'
               'Args: ${pendingAction.toolArgs}\n'
               'Summary: ${pendingAction.userFacingSummary}\n'
-              'Preview result: ${pendingAction.previewText}\n\n'
+              'Debug: ${pendingAction.debugDescriptor}\n\n'
               '${PromptConstants.pendingActionInstructions}'
         : '';
 

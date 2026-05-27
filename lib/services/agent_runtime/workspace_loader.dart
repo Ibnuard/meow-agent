@@ -98,6 +98,56 @@ Updated at: ${DateTime.now().toIso8601String()}
     }
   }
 
+  /// Silently fill the User Identity > Preferred Language line if it is
+  /// still a placeholder. Called by the runtime once per turn after the
+  /// user's language is detected, so the field self-heals without forcing
+  /// a tool round-trip.
+  ///
+  /// No-op when the field is already a real value.
+  Future<void> maybeFillPreferredLanguage(
+    String agentName,
+    String languageLabel,
+  ) async {
+    if (languageLabel.isEmpty) return;
+    final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
+    if (soul.isEmpty) return;
+    // Match the row regardless of bracket placeholder text.
+    final regex = RegExp(
+      r'^Preferred Language:\s*(\[[^\]\n]*\]|)\s*$',
+      multiLine: true,
+    );
+    if (!regex.hasMatch(soul)) return;
+    final updated = soul.replaceFirst(
+      regex,
+      'Preferred Language: $languageLabel',
+    );
+    if (updated == soul) return;
+    await WorkspaceFileService.writeFile(agentName, 'SOUL.md', updated);
+  }
+
+  /// True if User Identity > Name is still a placeholder (e.g. "[Your Name]"
+  /// or empty). Drives the introduction gate in [AgentRuntimeEngine.run].
+  static bool isUserNameMissing(String soulContent) {
+    if (soulContent.trim().isEmpty) return true;
+    // Find the User Identity section.
+    final sectionMatch = RegExp(
+      r'##\s*User Identity[^\n]*\n([\s\S]*?)(?=\n##\s|---\s*\n|$)',
+      caseSensitive: false,
+    ).firstMatch(soulContent);
+    if (sectionMatch == null) return true;
+    final body = sectionMatch.group(1) ?? '';
+    final nameMatch = RegExp(
+      r'^Name:[ \t]*(.*?)[ \t]*$',
+      multiLine: true,
+    ).firstMatch(body);
+    if (nameMatch == null) return true;
+    final value = (nameMatch.group(1) ?? '').trim();
+    if (value.isEmpty) return true;
+    // Bracketed placeholder like [Your Name].
+    if (RegExp(r'^\[.*\]$').hasMatch(value)) return true;
+    return false;
+  }
+
   static String _defaultSoul(String name, String lang) => '''# SOUL.md
 
 ## Agent Identity
@@ -105,7 +155,6 @@ Updated at: ${DateTime.now().toIso8601String()}
 Name: $name
 Role: Android-native personal AI assistant.
 Personality: Calm, helpful, practical, friendly.
-Default Language: ${lang == 'id' ? 'Indonesian' : 'English'}.
 
 ---
 
@@ -113,7 +162,7 @@ Default Language: ${lang == 'id' ? 'Indonesian' : 'English'}.
 
 Name: [Your Name]
 Nickname: [Optional Nickname]
-Preferred Language: ${lang == 'id' ? 'Indonesian' : 'English'}
+Preferred Language: [Not set]
 Timezone: [Your Timezone]
 ''';
 

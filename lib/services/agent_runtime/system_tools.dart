@@ -858,7 +858,7 @@ Role: Android-native personal agentic AI assistant.
 
 Name: [Your Name]
 Nickname: [Optional Nickname]
-Preferred Language: Indonesian
+Preferred Language: [Not set]
 Timezone: [Your Timezone]
 ''';
 
@@ -903,7 +903,7 @@ Timezone: [Your Timezone]
       ..writeln()
       ..writeln('Name: [Your Name]')
       ..writeln('Nickname: [Optional Nickname]')
-      ..writeln('Preferred Language: Indonesian')
+      ..writeln('Preferred Language: [Not set]')
       ..writeln('Timezone: [Your Timezone]');
     return buf.toString();
   }

@@ -9,6 +9,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
 import 'executor.dart';
+import 'language_detector.dart';
 import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
@@ -19,6 +20,7 @@ import 'runtime_models.dart';
 import 'tool_catalog.dart';
 import 'tool_permission_policy.dart';
 import 'tool_router.dart';
+import 'tool_verbalizer.dart';
 import 'workspace_loader.dart';
 
 /// Callback for real-time event streaming.
@@ -46,13 +48,19 @@ class AgentRuntimeEngine {
   static const int maxSteps = 5;
 
   /// System-level behavior rules for direct (no-tool) responses.
-  /// Always enforced regardless of SOUL.md content.
-  String _directResponseRulesFor({bool isWorkflowAutoExecute = false}) {
-    final language = languageLabelFromCode(languageCode);
-    return PromptConstants.systemRules(
-      language,
+  /// Always enforced regardless of SOUL.md content. Output language follows
+  /// the **detected** language of the current turn, not a global setting.
+  String _directResponseRulesFor({
+    required String languageLabel,
+    bool isWorkflowAutoExecute = false,
+    bool userNotIntroduced = false,
+  }) {
+    final base = PromptConstants.systemRules(
+      languageLabel,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
     );
+    if (!userNotIntroduced || isWorkflowAutoExecute) return base;
+    return '$base\n\n${PromptConstants.introductionGateRule}';
   }
 
   /// Pending actions per agent (agentId → PendingAction).
@@ -67,6 +75,18 @@ class AgentRuntimeEngine {
   /// Persists across turns so the planner can reference prior tool output
   /// (e.g. noteId from notes.search when user later says "hapus yang itu").
   final RuntimeMemory _memory = RuntimeMemory();
+
+  /// Per-turn user-message language detector. Drives every user-facing string.
+  final LanguageDetector _languageDetector = LanguageDetector();
+
+  /// Build a [DetectedLanguage] for the engine's fallback code.
+  /// Used when the engine has no real user message (e.g. executeConfirmed).
+  DetectedLanguage _fallbackLanguage() => DetectedLanguage(
+        code: languageCode,
+        label: LanguageDetector.labelForCode(languageCode),
+        script: 'Latin',
+        confidence: 0.4,
+      );
 
   /// Get pending action for an agent.
   PendingAction? getPendingAction(String agentId) => _pendingActions[agentId];
@@ -114,12 +134,48 @@ class AgentRuntimeEngine {
     final isWorkflowAutoExecute =
         request.source == RequestSource.workflow && autoApproveSensitive;
 
+    // Detect the user's language for THIS turn. Drives every user-facing
+    // string built by the verbalizer below.
+    final detectedLang = _languageDetector.detect(
+      userMessage: request.userMessage,
+      fallbackCode: languageCode,
+    );
+    logger.logStateChange(
+      AgentRuntimeState.analyzing,
+      'Language detected: ${detectedLang.code} '
+      '(${detectedLang.script}, conf ${detectedLang.confidence.toStringAsFixed(2)})',
+    );
+    emit(logger.events.last);
+
+    final verbalizer = ToolVerbalizer(client: client, config: llmConfig);
+    verbalizer.resetTurn();
+
     try {
       // Check if there's a pending action for this agent.
       final pending = _pendingActions[request.agentId];
       if (pending != null) {
-        // Deterministic pre-check: does the user confirm/reject/preview?
-        final decision = ConfirmationChecker.check(request.userMessage);
+        // Tier-1: deterministic ID/EN keyword check.
+        var decision = ConfirmationChecker.check(request.userMessage);
+
+        // Tier-2: LLM classifier when tier-1 unclear OR user language not
+        // covered by tier-1 keyword maps. Keeps multilingual support working
+        // without maintaining keyword sets per locale.
+        final pendingLang = pending.languageCode;
+        final coveredByTier1 =
+            pendingLang == 'id' || pendingLang == 'en' ||
+            detectedLang.code == 'id' || detectedLang.code == 'en';
+        if (decision == ConfirmationDecision.unclear || !coveredByTier1) {
+          final classifier = ConfirmationClassifier(
+            client: client,
+            config: llmConfig,
+          );
+          decision = await classifier.classify(
+            userMessage: request.userMessage,
+            pendingSummary: pending.userFacingSummary,
+            languageCode: pendingLang,
+          );
+        }
+
         logger.logStateChange(
           AgentRuntimeState.analyzing,
           'Pending action detected: ${pending.toolName}, decision: ${decision.name}',
@@ -134,6 +190,8 @@ class AgentRuntimeEngine {
               request: request,
               pending: pending,
               executor: executor,
+              verbalizer: verbalizer,
+              detectedLang: detectedLang,
               logger: logger,
               emit: emit,
             );
@@ -145,23 +203,43 @@ class AgentRuntimeEngine {
               'User rejected pending action',
             );
             emit(logger.events.last);
+            final cancelMsg = await verbalizer.cancel(
+              tool: ToolCallRequest(
+                name: pending.toolName,
+                args: pending.toolArgs,
+                risk: 'sensitive',
+                requiresConfirmation: true,
+              ),
+              language: detectedLang,
+            );
             return AgentRuntimeResponse(
-              finalMessage: '❌ Aksi dibatalkan.',
+              finalMessage: cancelMsg,
               success: true,
               state: AgentRuntimeState.done,
               events: logger.events,
             );
 
           case ConfirmationDecision.previewOnly:
-            // Don't execute, just show preview.
+            // Don't execute. Generate preview lazily via verbalizer.
             _pendingActions.remove(request.agentId);
             logger.logStateChange(
               AgentRuntimeState.done,
               'User requested preview only',
             );
             emit(logger.events.last);
+            final previewMsg = pending.userFacingPreview.isNotEmpty
+                ? pending.userFacingPreview
+                : await verbalizer.preview(
+                    tool: ToolCallRequest(
+                      name: pending.toolName,
+                      args: pending.toolArgs,
+                      risk: 'sensitive',
+                      requiresConfirmation: true,
+                    ),
+                    language: detectedLang,
+                  );
             return AgentRuntimeResponse(
-              finalMessage: pending.previewText,
+              finalMessage: previewMsg,
               success: true,
               state: AgentRuntimeState.done,
               events: logger.events,
@@ -181,7 +259,21 @@ class AgentRuntimeEngine {
       toolRouter.agentName = wsName;
       toolRouter.agentId = request.agentId;
       await workspaceLoader.ensureWorkspace(wsName);
+
+      // Opportunistic auto-fill: if SOUL.md still says "Preferred Language:
+      // [Not set]" / placeholder, silently set it to the detected language.
+      // Only when detection is reasonably confident, else leave alone so
+      // ambiguous turns don't lock-in the wrong language.
+      if (detectedLang.isHighConfidence) {
+        await workspaceLoader.maybeFillPreferredLanguage(
+          wsName,
+          detectedLang.label,
+        );
+      }
+
       final workspace = await workspaceLoader.load(wsName);
+      final userNotIntroduced =
+          WorkspaceLoader.isUserNameMissing(workspace.soul);
       // Tool list comes from the ToolRouter registry (system source of truth),
       // NOT from user-editable SKILLS.md template.
       final toolSelection = ToolCatalog.select(
@@ -299,8 +391,11 @@ class AgentRuntimeEngine {
         // System rules are always enforced; SOUL.md is identity context only.
         final identityBlock =
             'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
-        final baseSystem =
-            '${_directResponseRulesFor(isWorkflowAutoExecute: isWorkflowAutoExecute)}\n\n$identityBlock';
+        final baseSystem = '${_directResponseRulesFor(
+              languageLabel: detectedLang.label,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              userNotIntroduced: userNotIntroduced,
+            )}\n\n$identityBlock';
         final systemContent = pending != null
             ? '$baseSystem\n\n'
                   'PENDING ACTION (user was asked to confirm):\n'
@@ -391,6 +486,8 @@ class AgentRuntimeEngine {
         request: request,
         plan: plan,
         executor: executor,
+        verbalizer: verbalizer,
+        detectedLang: detectedLang,
         availableTools: availableTools,
         logger: logger,
         emit: emit,
@@ -429,16 +526,34 @@ class AgentRuntimeEngine {
     final client = _client;
     final executor = Executor(client: client, config: llmConfig);
 
+    // Confirmed-button taps don't carry a user message. Reuse the language
+    // captured at the time the pending action was created (or fall back to
+    // the engine's default).
+    final priorPending = _pendingActions[request.agentId];
+    final detectedLang = priorPending != null
+        ? DetectedLanguage(
+            code: priorPending.languageCode,
+            label: LanguageDetector.labelForCode(priorPending.languageCode),
+            script: 'Latin',
+            confidence: 0.5,
+          )
+        : _fallbackLanguage();
+    final verbalizer = ToolVerbalizer(client: client, config: llmConfig);
+    verbalizer.resetTurn();
+
     final pending = PendingAction(
       toolName: toolName,
       toolArgs: toolArgs,
       userFacingSummary: 'Confirmed by user',
+      languageCode: detectedLang.code,
     );
 
     return _executePendingTool(
       request: request,
       pending: pending,
       executor: executor,
+      verbalizer: verbalizer,
+      detectedLang: detectedLang,
       logger: logger,
       emit: emit,
     );
@@ -449,6 +564,8 @@ class AgentRuntimeEngine {
     required AgentRuntimeRequest request,
     required PendingAction pending,
     required Executor executor,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage detectedLang,
     required RuntimeLogger logger,
     required void Function(RuntimeEvent) emit,
   }) async {
@@ -500,9 +617,15 @@ class AgentRuntimeEngine {
         );
       }
 
-      final localFinal = _localFinalResponseFor(pending.toolName, result);
-      if (localFinal != null) {
-        logger.logFinalResponse(localFinal);
+      // Verbalizer generates the user-facing success message in the
+      // detected language. Generic across all tools — no per-tool switch.
+      if (result.success) {
+        final successMsg = await verbalizer.success(
+          tool: toolRequest,
+          result: result,
+          language: detectedLang,
+        );
+        logger.logFinalResponse(successMsg);
         await workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,
           state: 'done',
@@ -511,7 +634,7 @@ class AgentRuntimeEngine {
           lastResult: 'success',
         );
         return AgentRuntimeResponse(
-          finalMessage: localFinal,
+          finalMessage: successMsg,
           success: true,
           state: AgentRuntimeState.done,
           events: logger.events,
@@ -524,11 +647,12 @@ class AgentRuntimeEngine {
         state: state.name,
         task: request.userMessage,
         lastTool: pending.toolName,
-        lastResult: result.success ? 'success' : 'failed',
+        lastResult: 'failed',
         lastError: result.error,
       );
 
-      // Review result.
+      // Failure path: let the reviewer LLM craft the human reply, but if it
+      // fails fall back to the verbalizer abort message — never a raw error.
       state = AgentRuntimeState.reviewing;
       logger.logStateChange(state, 'Reviewing tool result');
       emit(logger.events.last);
@@ -547,36 +671,31 @@ class AgentRuntimeEngine {
         currentStep: 1,
         userMessage: request.userMessage,
         logger: logger,
-        language: languageLabelFromCode(languageCode),
+        language: detectedLang.label,
       );
       emit(logger.events.last);
 
-      if (review == null) {
-        return _fail('Review phase failed.', logger);
-      }
-
-      final reviewStatus = review['status'] as String? ?? '';
-      if (reviewStatus == 'done') {
-        final finalResponse =
-            review['final_response'] as String? ?? 'Task completed.';
-        logger.logFinalResponse(finalResponse);
+      final reviewMessage = review?['final_response'] as String?;
+      if (reviewMessage != null && reviewMessage.isNotEmpty) {
+        logger.logFinalResponse(reviewMessage);
         return AgentRuntimeResponse(
-          finalMessage: finalResponse,
-          success: true,
+          finalMessage: reviewMessage,
+          success: false,
           state: AgentRuntimeState.done,
           events: logger.events,
-          actions: result.actions,
         );
       }
 
+      final fallbackMsg = await verbalizer.abort(
+        reason: result.error ?? 'tool failed',
+        language: detectedLang,
+      );
+      logger.logFinalResponse(fallbackMsg);
       return AgentRuntimeResponse(
-        finalMessage: result.success
-            ? 'Tool ${pending.toolName} executed successfully.'
-            : 'Tool ${pending.toolName} failed: ${result.error}',
-        success: result.success,
+        finalMessage: fallbackMsg,
+        success: false,
         state: AgentRuntimeState.done,
         events: logger.events,
-        actions: result.success ? result.actions : const [],
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
@@ -588,6 +707,8 @@ class AgentRuntimeEngine {
     required AgentRuntimeRequest request,
     required Map<String, dynamic> plan,
     required Executor executor,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage detectedLang,
     required List<String> availableTools,
     required RuntimeLogger logger,
     required void Function(RuntimeEvent) emit,
@@ -717,14 +838,28 @@ class AgentRuntimeEngine {
           );
           emit(logger.events.last);
 
-          // Build a humanized confirmation summary that hides the tool name.
-          final summary = _humanizeConfirmation(toolRequest);
+          // Generic verbalizer builds the confirmation message in the user's
+          // detected language. No per-tool switch.
+          final summary = await verbalizer.confirm(
+            tool: toolRequest,
+            definition: definition,
+            language: detectedLang,
+          );
 
-          // Store as pending action.
+          // Pre-verbalize the preview as well so future preview-only replies
+          // can return instantly without an extra LLM call.
+          final preview = await verbalizer.preview(
+            tool: toolRequest,
+            language: detectedLang,
+          );
+
+          // Store as pending action — language is captured for follow-up turns.
           final pending = PendingAction(
             toolName: toolRequest.name,
             toolArgs: toolRequest.args,
             userFacingSummary: summary,
+            userFacingPreview: preview,
+            languageCode: detectedLang.code,
           );
           _pendingActions[request.agentId] = pending;
 
@@ -785,10 +920,14 @@ class AgentRuntimeEngine {
           );
         }
 
-        final localFinal = _isLastPlannedStep(plan, currentStep)
-            ? _localFinalResponseFor(toolRequest.name, result)
-            : null;
-        if (localFinal != null) {
+        // Last planned step + success: short-circuit with verbalizer.success.
+        // No per-tool switch; works for every tool generically.
+        if (result.success && _isLastPlannedStep(plan, currentStep)) {
+          final localFinal = await verbalizer.success(
+            tool: toolRequest,
+            result: result,
+            language: detectedLang,
+          );
           logger.logFinalResponse(localFinal);
           await workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -826,7 +965,7 @@ class AgentRuntimeEngine {
           currentStep: currentStep,
           userMessage: request.userMessage,
           logger: logger,
-          language: languageLabelFromCode(languageCode),
+          language: detectedLang.label,
         );
         emit(logger.events.last);
 
@@ -951,111 +1090,6 @@ class AgentRuntimeEngine {
         : 'I cannot $actionLabel because the $module module is not active. Enable that module in Modules first, then try again.';
   }
 
-  String? _localFinalResponseFor(String toolName, ToolExecutionResult result) {
-    if (!result.success) return null;
-    final isId = languageCode == 'id';
-
-    switch (toolName) {
-      case 'notes.create':
-        return isId
-            ? 'Sudah saya buatkan catatannya.'
-            : 'Done, I created the note.';
-      case 'calendar.create':
-        return isId
-            ? 'Sudah saya jadwalkan.'
-            : 'Done, I added it to the calendar.';
-      case 'clipboard.write':
-        return isId
-            ? 'Sudah saya salin ke clipboard.'
-            : 'Done, I copied it to the clipboard.';
-      case 'app.open':
-        return isId ? 'Saya buka sekarang.' : 'Opening it now.';
-      case 'intent.open_url':
-        return isId ? 'Saya buka URL-nya sekarang.' : 'Opening the URL now.';
-      case 'settings.open':
-        return isId
-            ? 'Saya buka pengaturannya sekarang.'
-            : 'Opening settings now.';
-      case 'device.dnd.set':
-        return isId
-            ? 'Pengaturan Do Not Disturb sudah diperbarui.'
-            : 'Do Not Disturb has been updated.';
-      case 'device.bluetooth.set':
-        return isId
-            ? 'Pengaturan Bluetooth sudah diperbarui.'
-            : 'Bluetooth has been updated.';
-      case 'device.wifi.reconnect':
-        return isId
-            ? 'Saya sudah mencoba menghubungkan ulang WiFi.'
-            : 'I tried reconnecting WiFi.';
-      case 'system.profile.update':
-        return isId
-            ? 'Sudah saya simpan di profil agent ini.'
-            : 'Done, I saved it to this agent profile.';
-      case 'system.memory.append':
-        return isId ? 'Sudah saya ingat.' : 'Done, I will remember that.';
-      case 'system.agents.create':
-        return isId ? 'Agent baru sudah dibuat.' : 'Done, I created the agent.';
-      case 'system.agents.delete':
-        return isId
-            ? 'Agent tersebut sudah dihapus.'
-            : 'Done, I deleted that agent.';
-      default:
-        return null;
-    }
-  }
-
-  /// Translate a raw tool request into a human-friendly Indonesian summary
-  /// that does not expose internal tool names.
-  String _humanizeConfirmation(ToolCallRequest req) {
-    String? truncate(String? s, [int n = 80]) {
-      if (s == null || s.isEmpty) return null;
-      return s.length > n ? '${s.substring(0, n)}…' : s;
-    }
-
-    switch (req.name) {
-      case 'clipboard.write':
-        final text = truncate(req.args['text'] as String?);
-        return text != null
-            ? 'Saya akan menulis ke clipboard:\n\n"$text"\n\nLanjutkan?'
-            : 'Saya akan menulis sesuatu ke clipboard. Lanjutkan?';
-      case 'app.open':
-        final pkg = req.args['package'] as String? ?? '';
-        final hint = pkg.isNotEmpty ? ' ($pkg)' : '';
-        return 'Saya akan membuka sebuah aplikasi$hint. Lanjutkan?';
-      case 'intent.open_url':
-        final url = truncate(req.args['url'] as String?, 60);
-        return url != null
-            ? 'Saya akan membuka URL:\n\n$url\n\nLanjutkan?'
-            : 'Saya akan membuka sebuah URL. Lanjutkan?';
-      case 'settings.open':
-        return 'Saya akan membuka pengaturan sistem. Lanjutkan?';
-      case 'device.dnd.set':
-        final enabled = req.args['enabled'] as bool? ?? false;
-        final mode = req.args['mode'] as String?;
-        if (enabled) {
-          final modeLabel = mode ?? 'priority_only';
-          return 'Saya akan mengaktifkan Do Not Disturb (mode: $modeLabel). Lanjutkan?';
-        }
-        return 'Saya akan mematikan Do Not Disturb. Lanjutkan?';
-      case 'device.wifi.reconnect':
-        return 'Saya akan menghubungkan ulang ke jaringan WiFi terakhir. Lanjutkan?';
-      case 'device.bluetooth.set':
-        final btOn = req.args['enabled'] as bool? ?? false;
-        return btOn
-            ? 'Saya akan menyalakan Bluetooth. Lanjutkan?'
-            : 'Saya akan mematikan Bluetooth. Lanjutkan?';
-      case 'system.agents.delete':
-        final name = req.args['name'] as String?;
-        final id = req.args['id'] as String? ?? req.args['agentId'] as String?;
-        final target = name != null && name.isNotEmpty
-            ? name
-            : (id != null && id.isNotEmpty ? id : 'agent tersebut');
-        return 'Saya akan menghapus $target beserta workspace-nya. Tindakan ini tidak bisa dibatalkan. Lanjutkan?';
-      default:
-        return 'Saya ingin menjalankan sebuah aksi sensitif. Lanjutkan?';
-    }
-  }
 }
 
 /// Riverpod provider for the runtime engine.
