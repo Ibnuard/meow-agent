@@ -7,11 +7,17 @@ import 'prompt_constants.dart';
 class ContextCompactor {
   ContextCompactor();
 
-  /// Rough token estimation: ~4 chars per token for English, ~2.5 for mixed.
+  /// How many recent LLM calls to inspect when computing peak input usage.
+  /// 8 covers ~2 full agentic turns (analyze → plan → selectTool → review).
+  static const int _peakLookbackWindow = 8;
+
+  /// Compaction trigger threshold (fraction of max context length).
+  static const double _compactionThreshold = 0.80;
+
+  /// Rough token estimation: ~3.2 chars per token for mixed EN/ID content.
   /// This is a conservative estimate to avoid exceeding limits.
   static int estimateTokens(String text) {
     if (text.isEmpty) return 0;
-    // Use ~3.2 chars per token as a middle ground for mixed EN/ID content.
     return (text.length / 3.2).ceil();
   }
 
@@ -36,14 +42,37 @@ class ContextCompactor {
     return total;
   }
 
+  /// Peak inputTokens across the last [_peakLookbackWindow] LLM calls.
+  ///
+  /// This is the source of truth for context pressure. The chat history
+  /// estimate vastly under-counts what actually goes to the LLM (system
+  /// rules + workspace files + tool catalog + recent messages all add up
+  /// per call). Returns 0 if no LLM call has been recorded yet.
+  static int peakRecentInputTokens() {
+    final records = OpenAiCompatibleClient.usageRecords;
+    if (records.isEmpty) return 0;
+    final start = records.length > _peakLookbackWindow
+        ? records.length - _peakLookbackWindow
+        : 0;
+    var peak = 0;
+    for (var i = start; i < records.length; i++) {
+      final v = records[i].inputTokens;
+      if (v > peak) peak = v;
+    }
+    return peak;
+  }
+
   /// Check if context needs compaction.
-  /// Returns true if estimated tokens exceed threshold percentage of max.
+  ///
+  /// Prefers the measured peak from recent LLM calls (real payload size).
+  /// Falls back to chat history estimation for cold start (no calls yet).
   static bool needsCompaction({
     required List<ChatMessage> messages,
     required int maxContextLength,
-    double threshold = 0.80,
+    double threshold = _compactionThreshold,
   }) {
-    final estimated = estimateChatTokens(messages);
+    final peak = peakRecentInputTokens();
+    final estimated = peak > 0 ? peak : estimateChatTokens(messages);
     return estimated >= (maxContextLength * threshold).toInt();
   }
 
@@ -86,20 +115,41 @@ class ContextCompactor {
   }
 
   /// Get context usage info.
-  static ({int estimated, int max, double percentage, bool needsCompact})
+  ///
+  /// Returns:
+  /// - `estimated`: best available estimate (measured peak or chat fallback)
+  /// - `chatTokens`: chat-history-only estimate (for reference)
+  /// - `peakMeasured`: peak inputTokens from recent LLM calls (0 if none yet)
+  /// - `source`: 'measured' if a real LLM call drives the number, else 'estimated'
+  /// - `max`, `percentage`, `needsCompact`: derived from `estimated`.
+  static ({
+    int estimated,
+    int chatTokens,
+    int peakMeasured,
+    String source,
+    int max,
+    double percentage,
+    bool needsCompact,
+  })
   getUsageInfo({
     required List<ChatMessage> messages,
     required int maxContextLength,
   }) {
-    final estimated = estimateChatTokens(messages);
+    final chatTokens = estimateChatTokens(messages);
+    final peakMeasured = peakRecentInputTokens();
+    final estimated = peakMeasured > 0 ? peakMeasured : chatTokens;
     final percentage = maxContextLength > 0
         ? (estimated / maxContextLength * 100)
         : 0.0;
     return (
       estimated: estimated,
+      chatTokens: chatTokens,
+      peakMeasured: peakMeasured,
+      source: peakMeasured > 0 ? 'measured' : 'estimated',
       max: maxContextLength,
       percentage: percentage,
-      needsCompact: estimated >= (maxContextLength * 0.80).toInt(),
+      needsCompact:
+          estimated >= (maxContextLength * _compactionThreshold).toInt(),
     );
   }
 }

@@ -519,6 +519,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ? 'Auto-compact aman, belum perlu dijalankan.'
               : 'Auto-compact OK, no action needed.');
 
+    final usageLine = usage.source == 'measured'
+        ? (isId
+              ? 'Pemakaian aktual (puncak ${usage.peakMeasured} token dari LLM call terakhir): '
+                    '$pct% dari $maxCtx max. Histori chat sendiri ~${usage.chatTokens} token.'
+              : 'Actual usage (peak ${usage.peakMeasured} tokens from recent LLM calls): '
+                    '$pct% of $maxCtx max. Chat history alone is ~${usage.chatTokens} tokens.')
+        : (isId
+              ? 'Belum ada panggilan LLM tercatat. Estimasi histori chat: '
+                    '${usage.chatTokens} token ($pct% dari $maxCtx max).'
+              : 'No LLM call recorded yet. Chat history estimate: '
+                    '${usage.chatTokens} tokens ($pct% of $maxCtx max).');
+
     final buf = StringBuffer();
 
     if (isId) {
@@ -536,11 +548,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ..writeln('- Agen aktif: ${agent?.name ?? "default"}')
         ..writeln('- Provider: ${provider?.nickname ?? "—"}')
         ..writeln('- Model: ${provider?.model ?? "—"}')
+        ..writeln('- Pesan tersimpan: ${_messages.length}')
         ..writeln()
-        ..writeln(
-          'Konteks saat ini: ${_messages.length} pesan, '
-          'sekitar ${usage.estimated} token dari $maxCtx max ($pct%).',
-        )
+        ..writeln(usageLine)
         ..writeln()
         ..writeln(compactNote);
     } else {
@@ -558,11 +568,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ..writeln('- Active agent: ${agent?.name ?? "default"}')
         ..writeln('- Provider: ${provider?.nickname ?? "—"}')
         ..writeln('- Model: ${provider?.model ?? "—"}')
+        ..writeln('- Stored messages: ${_messages.length}')
         ..writeln()
-        ..writeln(
-          'Current context: ${_messages.length} messages, '
-          'about ${usage.estimated} tokens of $maxCtx max ($pct%).',
-        )
+        ..writeln(usageLine)
         ..writeln()
         ..writeln(compactNote);
     }

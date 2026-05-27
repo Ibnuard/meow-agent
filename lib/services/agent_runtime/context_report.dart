@@ -2,15 +2,17 @@ import '../../features/chat/data/chat_history_service.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../llm/openai_compatible_client.dart';
 import '../workspace/workspace_file_service.dart';
+import 'context_compactor.dart';
 import 'prompt_constants.dart';
 import 'tool_catalog.dart';
 import 'tool_router.dart';
 
-/// Builds a human-readable, chat-friendly summary of the agent's runtime
-/// context for the `/context` command.
+/// Builds a human-readable summary of the agent's runtime context for the
+/// `/context` command.
 ///
-/// Uses descriptive prose with bullet points instead of wide markdown tables
-/// — those tables overflow the chat bubble width on phones.
+/// Designed to be approachable — no internal file names (SOUL.md etc.), no
+/// LLM call traces, no tool filter jargon. Just: how full is the agent's
+/// short-term memory, what does it know about you, and how much room is left.
 class ContextReport {
   ContextReport._();
 
@@ -50,12 +52,14 @@ class ContextReport {
       'HEARTBEAT.md',
     );
 
-    // Token estimates per section.
-    final rulesTokens = OpenAiCompatibleClient.estimateTokens(systemRules);
-    final soulTokens = OpenAiCompatibleClient.estimateTokens(soul);
-    final memoryTokens = OpenAiCompatibleClient.estimateTokens(memory);
-    final skillsTokens = OpenAiCompatibleClient.estimateTokens(skills);
-    final heartbeatTokens = OpenAiCompatibleClient.estimateTokens(heartbeat);
+    // Aggregate token estimates by purpose, not by source file.
+    final identityTokens =
+        OpenAiCompatibleClient.estimateTokens(soul) +
+        OpenAiCompatibleClient.estimateTokens(memory);
+    final knowledgeTokens =
+        OpenAiCompatibleClient.estimateTokens(skills) +
+        OpenAiCompatibleClient.estimateTokens(heartbeat) +
+        OpenAiCompatibleClient.estimateTokens(systemRules);
     final messagesText = recentMessages
         .map((m) => '${m.role}: ${m.content}')
         .join('\n');
@@ -67,102 +71,116 @@ class ContextReport {
     );
     final allToolsTokens = OpenAiCompatibleClient.estimateTokens(allToolsText);
 
-    final activeContext =
-        rulesTokens +
-        soulTokens +
-        memoryTokens +
-        skillsTokens +
-        heartbeatTokens +
+    // Prefer the actually-measured peak from recent LLM calls.
+    // Fall back to the synthesized estimate when no calls have happened yet.
+    final peakMeasured = ContextCompactor.peakRecentInputTokens();
+    final synthesizedTotal =
+        identityTokens +
+        knowledgeTokens +
         messagesTokens +
         selectedToolsTokens;
-    final fullToolContext = activeContext - selectedToolsTokens + allToolsTokens;
+    final usedTokens = peakMeasured > 0 ? peakMeasured : synthesizedTotal;
+    final remainingTokens = (maxContextLength - usedTokens).clamp(
+      0,
+      1 << 30,
+    );
 
     final pct = maxContextLength > 0
-        ? ((activeContext / maxContextLength) * 100).clamp(0, 999).round()
+        ? ((usedTokens / maxContextLength) * 100).clamp(0, 999).round()
         : 0;
 
-    String fmt(int tokens) => '~$tokens';
+    String headline;
+    if (pct < 30) {
+      headline = isId
+          ? 'masih sangat lega, baru terpakai $pct%'
+          : 'plenty of room, only $pct% used';
+    } else if (pct < 60) {
+      headline = isId
+          ? 'masih nyaman, sekitar $pct% terpakai'
+          : 'comfortable, around $pct% used';
+    } else if (pct < 80) {
+      headline = isId
+          ? 'mulai padat, sudah $pct% terpakai'
+          : 'getting tight, $pct% used';
+    } else {
+      headline = isId
+          ? 'hampir penuh, sudah $pct% — sebentar lagi otomatis dirapikan'
+          : 'almost full, $pct% used — auto-cleanup will kick in soon';
+    }
+
+    final fullContextDelta = (allToolsTokens - selectedToolsTokens).clamp(
+      0,
+      1 << 30,
+    );
 
     final buf = StringBuffer();
 
     if (isId) {
       buf
-        ..writeln('🧠 Konteks Agen — $agentName')
+        ..writeln('🧠 Memori $agentName')
+        ..writeln()
+        ..writeln('$headline.')
         ..writeln()
         ..writeln(
-          'Saat ini agen menggunakan ${fmt(activeContext)} dari $maxContextLength token ($pct% dari kapasitas).',
+          'Dari $maxContextLength token kapasitas, sekitar $usedTokens '
+          'sedang digunakan dan $remainingTokens masih kosong.',
         )
         ..writeln()
-        ..writeln('Rincian token aktif:')
-        ..writeln()
-        ..writeln('- Aturan sistem: ${fmt(rulesTokens)}')
-        ..writeln('- SOUL.md: ${fmt(soulTokens)}')
-        ..writeln('- MEMORY.md: ${fmt(memoryTokens)}')
-        ..writeln('- SKILLS.md: ${fmt(skillsTokens)}')
-        ..writeln('- HEARTBEAT.md: ${fmt(heartbeatTokens)}')
-        ..writeln(
-          '- ${recentMessages.length} pesan terakhir: ${fmt(messagesTokens)}',
-        )
-        ..writeln(
-          '- Tools terpilih (${selectedTools.length}/${allTools.length}): ${fmt(selectedToolsTokens)}',
-        )
+        ..writeln('Apa saja yang sedang diingat:')
         ..writeln()
         ..writeln(
-          'Filter tools: ${toolSelection.reason}. Confidence ${toolSelection.confidence.toStringAsFixed(2)}.',
+          '- Identitas kamu dan catatan personal (~$identityTokens token)',
         )
-        ..writeln()
         ..writeln(
-          'Tanpa filter (semua tools dikirim), perkiraan ${fmt(fullToolContext)} token — '
-          'penghematan ~${(fullToolContext - activeContext).clamp(0, 1 << 31)} token tiap turn.',
+          '- ${recentMessages.length} pesan percakapan terakhir (~$messagesTokens token)',
+        )
+        ..writeln(
+          '- Kemampuan yang relevan untuk topik sekarang '
+          '(${selectedTools.length} dari ${allTools.length} kemampuan, '
+          '~$selectedToolsTokens token)',
         );
+
+      if (fullContextDelta > 100) {
+        buf
+          ..writeln()
+          ..writeln(
+            'Karena agen cuma membawa kemampuan yang relevan, kamu hemat '
+            'sekitar $fullContextDelta token tiap pesan.',
+          );
+      }
     } else {
       buf
-        ..writeln('🧠 Agent Context — $agentName')
+        ..writeln('🧠 $agentName\u2019s Memory')
+        ..writeln()
+        ..writeln('$headline.')
         ..writeln()
         ..writeln(
-          'The agent is currently using ${fmt(activeContext)} of $maxContextLength tokens ($pct% of capacity).',
+          'Out of $maxContextLength tokens of capacity, about $usedTokens '
+          'are in use and $remainingTokens are free.',
         )
         ..writeln()
-        ..writeln('Active token breakdown:')
-        ..writeln()
-        ..writeln('- System rules: ${fmt(rulesTokens)}')
-        ..writeln('- SOUL.md: ${fmt(soulTokens)}')
-        ..writeln('- MEMORY.md: ${fmt(memoryTokens)}')
-        ..writeln('- SKILLS.md: ${fmt(skillsTokens)}')
-        ..writeln('- HEARTBEAT.md: ${fmt(heartbeatTokens)}')
-        ..writeln(
-          '- Last ${recentMessages.length} messages: ${fmt(messagesTokens)}',
-        )
-        ..writeln(
-          '- Selected tools (${selectedTools.length}/${allTools.length}): ${fmt(selectedToolsTokens)}',
-        )
+        ..writeln('What it\u2019s currently keeping in mind:')
         ..writeln()
         ..writeln(
-          'Tool filter: ${toolSelection.reason}. Confidence ${toolSelection.confidence.toStringAsFixed(2)}.',
+          '- Your identity and personal notes (~$identityTokens tokens)',
         )
-        ..writeln()
         ..writeln(
-          'Without filtering (all tools sent), it would be roughly ${fmt(fullToolContext)} tokens — '
-          'saving ~${(fullToolContext - activeContext).clamp(0, 1 << 31)} tokens per turn.',
+          '- The last ${recentMessages.length} messages of your conversation '
+          '(~$messagesTokens tokens)',
+        )
+        ..writeln(
+          '- Capabilities relevant to the current topic '
+          '(${selectedTools.length} of ${allTools.length} skills, '
+          '~$selectedToolsTokens tokens)',
         );
-    }
 
-    final recentUsage = OpenAiCompatibleClient.usageRecords.reversed
-        .take(5)
-        .toList();
-    if (recentUsage.isNotEmpty) {
-      buf
-        ..writeln()
-        ..writeln(isId ? 'Panggilan LLM terakhir:' : 'Recent LLM calls:')
-        ..writeln();
-      for (final usage in recentUsage) {
-        final out = usage.outputTokens == null
-            ? '?'
-            : '~${usage.outputTokens}';
-        buf.writeln(
-          '- ${usage.phase}: in ~${usage.inputTokens} → out $out '
-          '(${usage.messageCount} msgs · ${usage.model})',
-        );
+      if (fullContextDelta > 100) {
+        buf
+          ..writeln()
+          ..writeln(
+            'Because the agent only loads skills that fit the topic, you save '
+            'around $fullContextDelta tokens per message.',
+          );
       }
     }
 
