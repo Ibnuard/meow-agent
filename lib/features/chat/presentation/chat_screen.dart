@@ -508,25 +508,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       maxContextLength: maxCtx,
     );
 
-    final buf = StringBuffer()
-      ..writeln('### 📊 Status\n')
-      ..writeln('| | |')
-      ..writeln('|---|---|')
-      ..writeln('| **App** | Meow Agent v1.0.0 |')
-      ..writeln('| **Agent** | ${agent?.name ?? "default"} |')
-      ..writeln('| **Provider** | ${provider?.nickname ?? "—"} |')
-      ..writeln('| **Model** | ${provider?.model ?? "—"} |')
-      ..writeln()
-      ..writeln('### 📐 Context\n')
-      ..writeln('| | |')
-      ..writeln('|---|---|')
-      ..writeln('| **Messages** | ${_messages.length} |')
-      ..writeln('| **Est. tokens** | ~${usage.estimated} |')
-      ..writeln('| **Max context** | $maxCtx |')
-      ..writeln('| **Usage** | ${usage.percentage.toStringAsFixed(1)}% |')
-      ..writeln(
-        '| **Auto-compact** | ${usage.needsCompact ? "⚠️ threshold reached" : "✓ OK"} |',
-      );
+    final isId =
+        resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    final pct = usage.percentage.toStringAsFixed(1);
+    final compactNote = usage.needsCompact
+        ? (isId
+              ? 'Threshold auto-compact tercapai — pertimbangkan jalankan /compact.'
+              : 'Auto-compact threshold reached — consider running /compact.')
+        : (isId
+              ? 'Auto-compact aman, belum perlu dijalankan.'
+              : 'Auto-compact OK, no action needed.');
+
+    final buf = StringBuffer();
+
+    if (isId) {
+      buf
+        ..writeln('📊 Status Agen — ${agent?.name ?? "default"}')
+        ..writeln()
+        ..writeln(
+          'Agent terhubung ke provider ${provider?.nickname ?? "—"} '
+          'dengan model ${provider?.model ?? "—"}.',
+        )
+        ..writeln()
+        ..writeln('Detail:')
+        ..writeln()
+        ..writeln('- Aplikasi: Meow Agent v1.0.0')
+        ..writeln('- Agen aktif: ${agent?.name ?? "default"}')
+        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
+        ..writeln('- Model: ${provider?.model ?? "—"}')
+        ..writeln()
+        ..writeln(
+          'Konteks saat ini: ${_messages.length} pesan, '
+          'sekitar ${usage.estimated} token dari $maxCtx max ($pct%).',
+        )
+        ..writeln()
+        ..writeln(compactNote);
+    } else {
+      buf
+        ..writeln('📊 Agent Status — ${agent?.name ?? "default"}')
+        ..writeln()
+        ..writeln(
+          'Connected to provider ${provider?.nickname ?? "—"} '
+          'using model ${provider?.model ?? "—"}.',
+        )
+        ..writeln()
+        ..writeln('Details:')
+        ..writeln()
+        ..writeln('- App: Meow Agent v1.0.0')
+        ..writeln('- Active agent: ${agent?.name ?? "default"}')
+        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
+        ..writeln('- Model: ${provider?.model ?? "—"}')
+        ..writeln()
+        ..writeln(
+          'Current context: ${_messages.length} messages, '
+          'about ${usage.estimated} tokens of $maxCtx max ($pct%).',
+        )
+        ..writeln()
+        ..writeln(compactNote);
+    }
 
     return buf.toString().trim();
   }

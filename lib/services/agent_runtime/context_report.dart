@@ -6,6 +6,11 @@ import 'prompt_constants.dart';
 import 'tool_catalog.dart';
 import 'tool_router.dart';
 
+/// Builds a human-readable, chat-friendly summary of the agent's runtime
+/// context for the `/context` command.
+///
+/// Uses descriptive prose with bullet points instead of wide markdown tables
+/// — those tables overflow the chat bubble width on phones.
 class ContextReport {
   ContextReport._();
 
@@ -16,6 +21,8 @@ class ContextReport {
     required int maxContextLength,
     String userMessageHint = '',
   }) async {
+    final isId = languageCode == 'id';
+
     final recentMessages = messages.length > 20
         ? messages.sublist(messages.length - 20)
         : messages;
@@ -43,94 +50,122 @@ class ContextReport {
       'HEARTBEAT.md',
     );
 
-    final sections = <_ContextSection>[
-      _ContextSection('system rules', systemRules),
-      _ContextSection('SOUL.md', soul),
-      _ContextSection('MEMORY.md', memory),
-      _ContextSection('SKILLS.md', skills),
-      _ContextSection('HEARTBEAT.md', heartbeat),
-      _ContextSection(
-        'recent messages (${recentMessages.length})',
-        recentMessages.map((m) => '${m.role}: ${m.content}').join('\n'),
-      ),
-      _ContextSection(
-        'selected tools (${selectedTools.length})',
-        selectedTools.join('\n'),
-      ),
-      _ContextSection('all tools (${allTools.length})', allTools.join('\n')),
-    ];
-
-    final selectedToolsSection = sections.firstWhere(
-      (s) => s.name.startsWith('selected tools'),
+    // Token estimates per section.
+    final rulesTokens = OpenAiCompatibleClient.estimateTokens(systemRules);
+    final soulTokens = OpenAiCompatibleClient.estimateTokens(soul);
+    final memoryTokens = OpenAiCompatibleClient.estimateTokens(memory);
+    final skillsTokens = OpenAiCompatibleClient.estimateTokens(skills);
+    final heartbeatTokens = OpenAiCompatibleClient.estimateTokens(heartbeat);
+    final messagesText = recentMessages
+        .map((m) => '${m.role}: ${m.content}')
+        .join('\n');
+    final messagesTokens = OpenAiCompatibleClient.estimateTokens(messagesText);
+    final selectedToolsText = selectedTools.join('\n');
+    final allToolsText = allTools.join('\n');
+    final selectedToolsTokens = OpenAiCompatibleClient.estimateTokens(
+      selectedToolsText,
     );
-    final allToolsSection = sections.firstWhere(
-      (s) => s.name.startsWith('all tools'),
-    );
-    final currentRuntimeEstimate = sections
-        .where((s) => !s.name.startsWith('all tools'))
-        .fold<int>(0, (sum, s) => sum + s.tokens);
-    final fullToolEstimate =
-        currentRuntimeEstimate -
-        selectedToolsSection.tokens +
-        allToolsSection.tokens;
+    final allToolsTokens = OpenAiCompatibleClient.estimateTokens(allToolsText);
 
-    final recentUsage = OpenAiCompatibleClient.usageRecords.reversed
-        .take(8)
-        .toList();
+    final activeContext =
+        rulesTokens +
+        soulTokens +
+        memoryTokens +
+        skillsTokens +
+        heartbeatTokens +
+        messagesTokens +
+        selectedToolsTokens;
+    final fullToolContext = activeContext - selectedToolsTokens + allToolsTokens;
 
-    final buf = StringBuffer()
-      ..writeln('### Context Report')
-      ..writeln()
-      ..writeln('| Section | Est. tokens | Chars |')
-      ..writeln('|---|---:|---:|');
+    final pct = maxContextLength > 0
+        ? ((activeContext / maxContextLength) * 100).clamp(0, 999).round()
+        : 0;
 
-    for (final section in sections) {
-      buf.writeln(
-        '| ${section.name} | ~${section.tokens} | ${section.chars} |',
-      );
+    String fmt(int tokens) => '~$tokens';
+
+    final buf = StringBuffer();
+
+    if (isId) {
+      buf
+        ..writeln('🧠 Konteks Agen — $agentName')
+        ..writeln()
+        ..writeln(
+          'Saat ini agen menggunakan ${fmt(activeContext)} dari $maxContextLength token ($pct% dari kapasitas).',
+        )
+        ..writeln()
+        ..writeln('Rincian token aktif:')
+        ..writeln()
+        ..writeln('- Aturan sistem: ${fmt(rulesTokens)}')
+        ..writeln('- SOUL.md: ${fmt(soulTokens)}')
+        ..writeln('- MEMORY.md: ${fmt(memoryTokens)}')
+        ..writeln('- SKILLS.md: ${fmt(skillsTokens)}')
+        ..writeln('- HEARTBEAT.md: ${fmt(heartbeatTokens)}')
+        ..writeln(
+          '- ${recentMessages.length} pesan terakhir: ${fmt(messagesTokens)}',
+        )
+        ..writeln(
+          '- Tools terpilih (${selectedTools.length}/${allTools.length}): ${fmt(selectedToolsTokens)}',
+        )
+        ..writeln()
+        ..writeln(
+          'Filter tools: ${toolSelection.reason}. Confidence ${toolSelection.confidence.toStringAsFixed(2)}.',
+        )
+        ..writeln()
+        ..writeln(
+          'Tanpa filter (semua tools dikirim), perkiraan ${fmt(fullToolContext)} token — '
+          'penghematan ~${(fullToolContext - activeContext).clamp(0, 1 << 31)} token tiap turn.',
+        );
+    } else {
+      buf
+        ..writeln('🧠 Agent Context — $agentName')
+        ..writeln()
+        ..writeln(
+          'The agent is currently using ${fmt(activeContext)} of $maxContextLength tokens ($pct% of capacity).',
+        )
+        ..writeln()
+        ..writeln('Active token breakdown:')
+        ..writeln()
+        ..writeln('- System rules: ${fmt(rulesTokens)}')
+        ..writeln('- SOUL.md: ${fmt(soulTokens)}')
+        ..writeln('- MEMORY.md: ${fmt(memoryTokens)}')
+        ..writeln('- SKILLS.md: ${fmt(skillsTokens)}')
+        ..writeln('- HEARTBEAT.md: ${fmt(heartbeatTokens)}')
+        ..writeln(
+          '- Last ${recentMessages.length} messages: ${fmt(messagesTokens)}',
+        )
+        ..writeln(
+          '- Selected tools (${selectedTools.length}/${allTools.length}): ${fmt(selectedToolsTokens)}',
+        )
+        ..writeln()
+        ..writeln(
+          'Tool filter: ${toolSelection.reason}. Confidence ${toolSelection.confidence.toStringAsFixed(2)}.',
+        )
+        ..writeln()
+        ..writeln(
+          'Without filtering (all tools sent), it would be roughly ${fmt(fullToolContext)} tokens — '
+          'saving ~${(fullToolContext - activeContext).clamp(0, 1 << 31)} tokens per turn.',
+        );
     }
 
-    buf
-      ..writeln()
-      ..writeln('### Runtime Estimate')
-      ..writeln()
-      ..writeln('| | |')
-      ..writeln('|---|---:|')
-      ..writeln('| Selected tool context | ~$currentRuntimeEstimate tokens |')
-      ..writeln('| Full tool context | ~$fullToolEstimate tokens |')
-      ..writeln('| Agent max context | $maxContextLength tokens |')
-      ..writeln('| Tool selection | ${toolSelection.reason} |')
-      ..writeln(
-        '| Tool confidence | ${toolSelection.confidence.toStringAsFixed(2)} |',
-      );
-
+    final recentUsage = OpenAiCompatibleClient.usageRecords.reversed
+        .take(5)
+        .toList();
     if (recentUsage.isNotEmpty) {
       buf
         ..writeln()
-        ..writeln('### Recent LLM Calls')
-        ..writeln()
-        ..writeln('| Phase | Input | Output | Messages | Model |')
-        ..writeln('|---|---:|---:|---:|---|');
+        ..writeln(isId ? 'Panggilan LLM terakhir:' : 'Recent LLM calls:')
+        ..writeln();
       for (final usage in recentUsage) {
+        final out = usage.outputTokens == null
+            ? '?'
+            : '~${usage.outputTokens}';
         buf.writeln(
-          '| ${usage.phase} | ~${usage.inputTokens} | '
-          '${usage.outputTokens == null ? '-' : '~${usage.outputTokens}'} | '
-          '${usage.messageCount} | ${usage.model} |',
+          '- ${usage.phase}: in ~${usage.inputTokens} → out $out '
+          '(${usage.messageCount} msgs · ${usage.model})',
         );
       }
     }
 
     return buf.toString().trim();
   }
-}
-
-class _ContextSection {
-  _ContextSection(this.name, this.content)
-    : chars = content.length,
-      tokens = OpenAiCompatibleClient.estimateTokens(content);
-
-  final String name;
-  final String content;
-  final int chars;
-  final int tokens;
 }
