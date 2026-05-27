@@ -122,7 +122,14 @@ Ambiguity examples (must set requires_tools=false and populate missing_info):
 - "jam 10 saya ingin ada jadwal mabar" → missing_info: ["jam 10 pagi atau malam?"]
 - "buatkan note" without subject → missing_info: ["judul dan isi notenya apa?"]
 - "ingetin meeting besok" → missing_info: ["jam berapa meetingnya?"]
-- "hapus itu" with no clear target → missing_info: ["yang mana yang mau dihapus?"]''';
+- "hapus itu" with no clear target → missing_info: ["yang mana yang mau dihapus?"]
+
+Multi-target enumeration rule (CRITICAL):
+- When the user mentions multiple targets (numerals like "3 agen", lists separated by comma/dan/and/atau, or "masing-masing"), enumerate each target as its own subgoal_seed entry.
+- Do NOT collapse multi-target requests into a single goal. Example: "buat 3 agen Coder, Writer, Researcher" → 3 subgoal_seeds.
+- A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent Coder").
+- If the request is single-target, return a single-element subgoal_seeds array.
+- subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).''';
 
   static const analyzeExamples = '''Examples that require tools:
 - "buka wa" → app.resolve("wa") then app.open(packageName)
@@ -138,9 +145,15 @@ Ambiguity examples (must set requires_tools=false and populate missing_info):
 - "ingat aku suka jawaban singkat" → system.memory.append(category: "preference", content: "User prefers short answers")
 - "ada berapa modul?" → system.modules.list
 - "workspace kamu dimana?" → system.self
-- "buat agent baru namanya Coder" → system.agents.create(name: "Coder")
+- "buat agent baru namanya Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
 - "buat agent baru bernama Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
 - "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
+
+Multi-target examples (subgoal_seeds MUST list each target):
+- "buat 3 agen baru: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]
+- "create 3 different agents A, B, and C" → subgoal_seeds: ["create agent A", "create agent B", "create agent C"]
+- "bikin 5 note dengan judul A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
+- "hapus agent X dan Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
 
 IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 
@@ -152,7 +165,8 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "goal": "one sentence describing what user wants",
   "requires_tools": true/false,
   "risk": "safe/sensitive/dangerous",
-  "missing_info": ["clarifying question 1", "clarifying question 2"]
+  "missing_info": ["clarifying question 1", "clarifying question 2"],
+  "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."]
 }
 
 If missing_info has items, requires_tools MUST be false.''';
@@ -162,17 +176,32 @@ If missing_info has items, requires_tools MUST be false.''';
   static const planIntro = 'You are an AI agent planner.';
 
   static const planResponseFormat =
-      '''Create a short execution plan (max 5 steps). Respond with ONLY valid JSON, no markdown, no explanation:
+      '''Build a goal tree (NOT a flat step list). Respond with ONLY valid JSON, no markdown, no explanation:
 
 {
-  "steps": [
+  "main_goal": "single sentence summarizing the user's overall goal",
+  "completion_criteria": [
+    "observable condition 1 that must be true at the end",
+    "observable condition 2"
+  ],
+  "subgoals": [
     {
-      "id": 1,
-      "description": "what to do",
-      "tool": "tool.name or null if no tool needed"
+      "id": "sg1",
+      "label": "one user-visible outcome",
+      "required_slots": {"name": "...", "persona": "..."},
+      "missing_slots": ["persona"],
+      "status": "pending"
     }
   ]
-}''';
+}
+
+Rules:
+- One subgoal per user-visible outcome. Multi-target requests (e.g. "buat 3 agen X, Y, Z") MUST emit one subgoal per target.
+- ids must be short, stable, unique within the tree (e.g. sg1, sg2, sg_create_X).
+- required_slots is what the subgoal needs to be executable. Leave empty when not applicable.
+- missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
+- Use status="pending" for all subgoals at planning time.
+- completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.''';
 
   // ─── Tool Selector ─────────────────────────────────────────────────────────
 
@@ -232,36 +261,47 @@ If you need more info from the user:
 - If it failed, explain what went wrong in plain language and suggest a next step.''';
 
   static const reviewResponseFormat =
-      '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation:
+      '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
+
+ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
+  "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
+
+If the active subgoal succeeded but other subgoals are still pending: status=continue.
+Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
 
 If task is complete:
 {
   "status": "done",
-  "final_response": "natural human reply, no tool names"
+  "final_response": "natural human reply, no tool names",
+  "subgoal_update": {"id": "sgX", "status": "done"}
 }
 
-If more steps needed:
+If more subgoals remain:
 {
   "status": "continue",
-  "reason": "why we need to continue"
+  "reason": "why we need to continue",
+  "subgoal_update": {"id": "sgX", "status": "done"}
 }
 
 If tool failed and should retry:
 {
   "status": "retry",
-  "reason": "why retry might work"
+  "reason": "why retry might work",
+  "subgoal_update": {"id": "sgX", "status": "in_progress"}
 }
 
 If you need user input:
 {
   "status": "ask_user",
-  "question": "what you need"
+  "question": "what you need",
+  "subgoal_update": {"id": "sgX", "status": "in_progress"}
 }
 
 If unrecoverable:
 {
   "status": "failed",
-  "error": "what went wrong"
+  "error": "what went wrong",
+  "subgoal_update": {"id": "sgX", "status": "failed"}
 }''';
 
   // ─── Context Compactor ─────────────────────────────────────────────────────

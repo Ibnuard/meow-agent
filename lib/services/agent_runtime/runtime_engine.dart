@@ -9,6 +9,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
 import 'executor.dart';
+import 'goal_tree.dart';
 import 'language_detector.dart';
 import 'pending_action.dart';
 import 'pending_clarification.dart';
@@ -434,12 +435,19 @@ class AgentRuntimeEngine {
       // confidence AND there's no pending action / workflow auto-execute,
       // skip the planner LLM call and synthesize a 1-step plan locally.
       // The selectTool phase will still pick the exact tool + args.
+      //
+      // CRITICAL: never take the fast path when analyzer enumerated multiple
+      // subgoal_seeds. A 1-step synthetic plan would short-circuit the loop
+      // before sg2/sg3 ever ran (the "buat 3 agen → 1 agen" bug).
+      final seeds = analysis['subgoal_seeds'];
+      final hasMultiTarget = seeds is List && seeds.length > 1;
       final canSkipPlanner =
           pending == null &&
           !isWorkflowAutoExecute &&
           toolSelection.isHighConfidence &&
           toolSelection.groups.length == 1 &&
-          missingInfo.isEmpty;
+          missingInfo.isEmpty &&
+          !hasMultiTarget;
 
       Map<String, dynamic>? plan;
       if (canSkipPlanner) {
@@ -481,10 +489,21 @@ class AgentRuntimeEngine {
         }
       }
 
+      // Build the goal tree from the planner output. If the planner returned
+      // a legacy flat plan or no subgoals, fall back to a single-subgoal tree
+      // so the rest of the loop has a consistent shape to reason about.
+      final goalTree = _buildGoalTree(
+        plan: plan,
+        analysis: analysis,
+        userMessage: request.userMessage,
+      );
+      logger.logLlmDecision('plan.goal_tree', goalTree.toJson());
+
       // 4. Execute loop.
       return _executeLoop(
         request: request,
         plan: plan,
+        goalTree: goalTree,
         executor: executor,
         verbalizer: verbalizer,
         detectedLang: detectedLang,
@@ -706,6 +725,7 @@ class AgentRuntimeEngine {
   Future<AgentRuntimeResponse> _executeLoop({
     required AgentRuntimeRequest request,
     required Map<String, dynamic> plan,
+    required GoalTree goalTree,
     required Executor executor,
     required ToolVerbalizer verbalizer,
     required DetectedLanguage detectedLang,
@@ -719,8 +739,17 @@ class AgentRuntimeEngine {
     final previousResults = <Map<String, dynamic>>[];
     var currentStep = 1;
     var retryCount = 0;
+    var rePlanned = false;
+    final stuck = StuckDetector();
 
-    for (var i = 0; i < maxSteps; i++) {
+    // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3
+    // for safety. Multi-target tasks need more headroom than the legacy 5.
+    final adaptiveLimit = goalTree.isEmpty
+        ? maxSteps
+        : (maxSteps + goalTree.subgoals.length * 2)
+            .clamp(maxSteps, maxSteps * 3);
+
+    for (var i = 0; i < adaptiveLimit; i++) {
       var state = AgentRuntimeState.selectingTool;
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);
@@ -733,6 +762,7 @@ class AgentRuntimeEngine {
         logger: logger,
         recentToolMemory: memorySnapshot,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
+        goalTree: goalTree,
       );
       emit(logger.events.last);
 
@@ -743,6 +773,23 @@ class AgentRuntimeEngine {
       final status = selection['status'] as String? ?? '';
 
       if (status == 'done') {
+        // Reviewer/selector wants to wrap up. Honor it only when the goal
+        // tree agrees — otherwise it would short-circuit a multi-target task
+        // (the original "buat 3 agen → 1 agen" bug).
+        if (goalTree.isNotEmpty && !goalTree.isComplete) {
+          logger.logError(
+            'Selector tried to finish early but goal tree is incomplete '
+            '(${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoals remaining). Continuing loop.',
+          );
+          previousResults.add({
+            'step': currentStep,
+            'note':
+                'Selector returned status=done but subgoals remain. Forcing continue.',
+          });
+          currentStep++;
+          continue;
+        }
+
         final finalResponse =
             selection['final_response'] as String? ?? 'Task completed.';
 
@@ -785,6 +832,39 @@ class AgentRuntimeEngine {
         }
 
         final toolRequest = ToolCallRequest.fromJson(toolJson);
+
+        // Stuck detection: same tool+args repeated 3 turns in a row indicates
+        // the agent is looping. Try a single re-plan, then abort gracefully
+        // via verbalizer rather than hammering tokens forever.
+        if (stuck.observe(toolName: toolRequest.name, args: toolRequest.args)) {
+          if (!rePlanned) {
+            rePlanned = true;
+            stuck.reset();
+            logger.logError(
+              'Stuck loop detected (same call ×3). Forcing one re-plan.',
+            );
+            previousResults.add({
+              'step': currentStep,
+              'note':
+                  'Detected stuck loop on ${toolRequest.name}. Reconsider approach for active subgoal.',
+            });
+            currentStep++;
+            continue;
+          }
+          // Already re-planned and still stuck — abort with a polite,
+          // localized message instead of swallowing more tokens.
+          final abortMsg = await verbalizer.abort(
+            reason: 'agent looped on ${toolRequest.name} after retry',
+            language: detectedLang,
+          );
+          logger.logFinalResponse(abortMsg);
+          return AgentRuntimeResponse(
+            finalMessage: abortMsg,
+            success: false,
+            state: AgentRuntimeState.failed,
+            events: logger.events,
+          );
+        }
 
         final validationError = toolRouter.validate(toolRequest);
         if (validationError != null) {
@@ -922,7 +1002,17 @@ class AgentRuntimeEngine {
 
         // Last planned step + success: short-circuit with verbalizer.success.
         // No per-tool switch; works for every tool generically.
-        if (result.success && _isLastPlannedStep(plan, currentStep)) {
+        //
+        // CRITICAL: when goalTree has multiple subgoals, the loop must
+        // continue through the reviewer so subgoal status advances. Skipping
+        // straight to verbalizer.success here was the "buat 3 agen → 1 agen"
+        // bug — we'd return after the first successful tool while sg2/sg3
+        // were still pending.
+        final treeAllowsShortCircuit =
+            goalTree.isEmpty || goalTree.isComplete;
+        if (result.success &&
+            _isLastPlannedStep(plan, currentStep) &&
+            treeAllowsShortCircuit) {
           final localFinal = await verbalizer.success(
             tool: toolRequest,
             result: result,
@@ -966,8 +1056,37 @@ class AgentRuntimeEngine {
           userMessage: request.userMessage,
           logger: logger,
           language: detectedLang.label,
+          goalTree: goalTree,
         );
         emit(logger.events.last);
+
+        if (review != null) {
+          // Apply the reviewer's subgoal_update so the tree advances even when
+          // the reviewer chose status=continue. This is the lynchpin of the
+          // multi-target fix.
+          final update = review['subgoal_update'] as Map<String, dynamic>?;
+          if (update != null) {
+            final ok = goalTree.applyStatusUpdate(
+              subgoalId: (update['id'] ?? '').toString(),
+              status: SubgoalStatusX.fromLabel(update['status'] as String?),
+              resultRef: update['result_ref'] as String?,
+              notes: update['notes'] as String?,
+            );
+            if (!ok) {
+              // Fall back to advancing the active subgoal if the id was bogus,
+              // so we don't softlock when the LLM hallucinates an id.
+              final active = goalTree.nextActionable;
+              if (active != null && result.success) {
+                active.status = SubgoalStatus.done;
+              }
+            }
+          } else if (result.success) {
+            // No subgoal_update emitted but the tool succeeded — mark the
+            // active subgoal done so progress is monotonic.
+            final active = goalTree.nextActionable;
+            if (active != null) active.status = SubgoalStatus.done;
+          }
+        }
 
         if (review == null) {
           return _fail('Review phase failed.', logger);
@@ -976,6 +1095,23 @@ class AgentRuntimeEngine {
         final reviewStatus = review['status'] as String? ?? '';
 
         if (reviewStatus == 'done') {
+          // Same gate as the selector branch: the tree must agree.
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            logger.logError(
+              'Reviewer tried to finish early. Goal tree still has '
+              '${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoal(s) outstanding. Continuing.',
+            );
+            previousResults.add({
+              'step': currentStep,
+              'tool': toolRequest.name,
+              'result': result.data,
+              'note': 'Reviewer status=done overridden because subgoals remain.',
+            });
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
           final finalResponse =
               review['final_response'] as String? ?? 'Task completed.';
           logger.logFinalResponse(finalResponse);
@@ -1033,8 +1169,54 @@ class AgentRuntimeEngine {
     }
 
     return _fail(
-      'Maximum runtime steps ($maxSteps) reached without completion.',
+      'Maximum runtime steps ($adaptiveLimit) reached without completion.',
       logger,
+    );
+  }
+
+  /// Build a [GoalTree] from the planner output. Tolerates legacy
+  /// `steps[]`-only plans by collapsing them into a single subgoal.
+  GoalTree _buildGoalTree({
+    required Map<String, dynamic> plan,
+    required Map<String, dynamic> analysis,
+    required String userMessage,
+  }) {
+    final mainGoal = (plan['main_goal'] as String?) ??
+        (analysis['goal'] as String?) ??
+        userMessage;
+
+    final subgoalsJson = plan['subgoals'];
+    if (subgoalsJson is List && subgoalsJson.isNotEmpty) {
+      try {
+        return GoalTree.fromJson({
+          'main_goal': mainGoal,
+          'completion_criteria': plan['completion_criteria'] ?? const [],
+          'subgoals': subgoalsJson,
+        });
+      } catch (_) {
+        // Fall through to legacy fallback.
+      }
+    }
+
+    // Try analysis.subgoal_seeds (analyzer-side enumeration).
+    final seeds = analysis['subgoal_seeds'];
+    if (seeds is List && seeds.length > 1) {
+      return GoalTree(
+        mainGoal: mainGoal,
+        subgoals: [
+          for (var i = 0; i < seeds.length; i++)
+            Subgoal(
+              id: 'sg${i + 1}',
+              label: seeds[i].toString(),
+            ),
+        ],
+      );
+    }
+
+    // Single-subgoal fallback so the rest of the loop has consistent shape.
+    return GoalTree.singleSubgoal(
+      mainGoal: mainGoal,
+      subgoalLabel: mainGoal,
     );
   }
 

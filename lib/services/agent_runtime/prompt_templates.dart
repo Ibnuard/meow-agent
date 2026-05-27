@@ -1,4 +1,5 @@
 import '../../features/settings/data/app_language_provider.dart';
+import 'goal_tree.dart';
 import 'pending_action.dart';
 import 'prompt_constants.dart';
 import 'runtime_models.dart';
@@ -94,6 +95,7 @@ ${PromptConstants.planResponseFormat}''';
     required List<String> availableTools,
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
+    GoalTree? goalTree,
   }) {
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n${PromptConstants.selectToolMemoryHeader}\n$recentToolMemory\n'
@@ -106,6 +108,12 @@ ${PromptConstants.planResponseFormat}''';
               '- If the plan step needs a tool and arguments are clear, return status=tool_required.\n'
               '- Set requires_confirmation=false in the tool JSON — runtime approval is already granted.\n'
         : '';
+    final goalBlock = goalTree == null || goalTree.isEmpty
+        ? ''
+        : '\nGoal tree state:\n${goalTree.toCompactString()}\n'
+              'Active subgoal: ${goalTree.nextActionable?.id ?? 'none'} '
+              '— ${goalTree.nextActionable?.label ?? 'all subgoals are terminal'}\n'
+              'Pick the tool that advances the active subgoal. If all subgoals are terminal, return status=done.\n';
     return '''${PromptConstants.selectToolIntro}
 
 Execution plan:
@@ -114,7 +122,7 @@ ${_jsonString(plan)}
 Current step: $currentStep
 Previous results (this turn):
 ${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
-$memoryBlock$sourceModeBlock
+$goalBlock$memoryBlock$sourceModeBlock
 Available tools:
 ${availableTools.join('\n')}
 
@@ -128,14 +136,21 @@ ${PromptConstants.selectToolResponseFormat}''';
     required int currentStep,
     required String userMessage,
     String language = 'Indonesian',
+    GoalTree? goalTree,
   }) {
+    final goalBlock = goalTree == null || goalTree.isEmpty
+        ? ''
+        : '\nGoal tree state (BEFORE this review):\n${goalTree.toCompactString()}\n'
+              'Active subgoal: ${goalTree.nextActionable?.id ?? 'none'}\n'
+              'You MUST emit "subgoal_update" for the active subgoal. '
+              'Only return status=done when every subgoal is terminal and every completion criterion is satisfied.\n';
     return '''${PromptConstants.reviewIntro}
 
 Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
-
+$goalBlock
 Current step: $currentStep
 
 Tool result:

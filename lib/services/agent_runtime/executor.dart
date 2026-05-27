@@ -1,5 +1,6 @@
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
+import 'goal_tree.dart';
 import 'json_utils.dart';
 import 'prompt_constants.dart';
 import 'prompt_templates.dart';
@@ -22,6 +23,7 @@ class Executor {
     required RuntimeLogger logger,
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
+    GoalTree? goalTree,
   }) async {
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
@@ -30,6 +32,7 @@ class Executor {
       availableTools: availableTools,
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
+      goalTree: goalTree,
     );
 
     return _callLlm(prompt, 'selectTool', logger);
@@ -43,6 +46,7 @@ class Executor {
     required String userMessage,
     required RuntimeLogger logger,
     String language = 'Indonesian',
+    GoalTree? goalTree,
   }) async {
     final prompt = PromptTemplates.reviewPrompt(
       result: result,
@@ -50,6 +54,7 @@ class Executor {
       currentStep: currentStep,
       userMessage: userMessage,
       language: language,
+      goalTree: goalTree,
     );
 
     return _callLlm(prompt, 'review', logger);
