@@ -612,6 +612,12 @@ class _ClipboardProcessScreenState
 }
 
 /// Tiny uppercase-leaning label used by every section header on this screen.
+///
+/// The screen-level `Column` defaults to `CrossAxisAlignment.center`, which
+/// would otherwise center small `Text` widgets while stretching the cards
+/// and dropdowns to full width. We wrap in `SizedBox(width: double.infinity)`
+/// so the label always spans the row and reads left-aligned, matching the
+/// content blocks underneath it.
 class _ClipboardSectionLabel extends StatelessWidget {
   const _ClipboardSectionLabel({required this.label, required this.cs});
 
@@ -620,13 +626,17 @@ class _ClipboardSectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-        color: cs.onSurfaceVariant,
-        letterSpacing: 0.3,
+    return SizedBox(
+      width: double.infinity,
+      child: Text(
+        label,
+        textAlign: TextAlign.start,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: cs.onSurfaceVariant,
+          letterSpacing: 0.3,
+        ),
       ),
     );
   }
