@@ -422,11 +422,18 @@ class SystemTools {
       // Doing it here avoids the cross-agent boundary issue —
       // system.profile.update would only touch the *current* chat agent.
       final role = (args['role'] as String? ?? '').trim();
-      final persona = (args['persona'] as String? ?? args['description'] as String? ?? '').trim();
+      final persona =
+          (args['persona'] as String? ?? args['description'] as String? ?? '')
+              .trim();
       final communicationStyle =
-          (args['communicationStyle'] as String? ?? args['style'] as String? ?? '').trim();
+          (args['communicationStyle'] as String? ??
+                  args['style'] as String? ??
+                  '')
+              .trim();
       String? personaApplied;
-      if (role.isNotEmpty || persona.isNotEmpty || communicationStyle.isNotEmpty) {
+      if (role.isNotEmpty ||
+          persona.isNotEmpty ||
+          communicationStyle.isNotEmpty) {
         final soul = _buildPersonaSoul(
           name: name,
           role: role,
@@ -451,7 +458,7 @@ class SystemTools {
             agent.name,
           ),
           'createdFrom': 'system markdown standard template',
-          if (personaApplied != null) 'personaApplied': personaApplied,
+          'personaApplied': ?personaApplied,
         },
       );
     } catch (e) {
