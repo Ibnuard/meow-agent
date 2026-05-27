@@ -292,7 +292,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             children: [
               _sectionLabel(isId ? 'Agent' : 'Agent', cs),
               const SizedBox(height: 8),
-              _buildAgentPicker(agents, cs, extras, isId),
+              _buildAgentPicker(agents, isId),
               const SizedBox(height: 20),
 
               _sectionLabel(isId ? 'Judul' : 'Title', cs),
@@ -1086,12 +1086,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAgentPicker(
-    List<AgentModel> agents,
-    ColorScheme cs,
-    MeowExtras extras,
-    bool isId,
-  ) {
+  Widget _buildAgentPicker(List<AgentModel> agents, bool isId) {
     final selectedValue = agents.any((a) => a.id == _selectedAgentId)
         ? _selectedAgentId
         : null;
@@ -1112,7 +1107,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               label: agent.name.trim().isEmpty
                   ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
                   : agent.name.trim(),
-              prefix: _buildAgentAvatar(agent, cs, extras),
+              prefix: const MeowAgentIcon(),
               searchText: '${agent.providerId} ${agent.maxContextLength}',
             ),
           )
@@ -1121,34 +1116,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         if (value == null) return;
         setState(() => _selectedAgentId = value);
       },
-    );
-  }
-
-  Widget _buildAgentAvatar(
-    AgentModel agent,
-    ColorScheme cs,
-    MeowExtras extras,
-  ) {
-    final name = agent.name.trim();
-    final initial = name.isEmpty ? 'A' : name.substring(0, 1).toUpperCase();
-
-    return Container(
-      width: 30,
-      height: 30,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(11),
-        border: Border.all(color: extras.inputBorder),
-      ),
-      child: Text(
-        initial,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          color: cs.primary,
-        ),
-      ),
     );
   }
 

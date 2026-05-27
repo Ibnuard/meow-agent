@@ -145,17 +145,13 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                   MeowDropdownOption<String>(
                     value: _allAgentsFilter,
                     label: isId ? 'Semua Agent' : 'All Agents',
-                    prefix: Icon(
-                      Icons.auto_awesome_motion_rounded,
-                      size: 16,
-                      color: cs.primary,
-                    ),
+                    prefix: const MeowAgentIcon(size: 22, radius: 8),
                   ),
                   ...agents.map(
                     (agent) => MeowDropdownOption<String>(
                       value: agent.id,
                       label: agent.name,
-                      prefix: _AgentFilterAvatar(name: agent.name),
+                      prefix: const MeowAgentIcon(size: 22, radius: 8),
                     ),
                   ),
                 ],
@@ -393,37 +389,5 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final d = dt.day.toString().padLeft(2, '0');
     final mo = dt.month.toString().padLeft(2, '0');
     return '$d/$mo $h:$m';
-  }
-}
-
-class _AgentFilterAvatar extends StatelessWidget {
-  const _AgentFilterAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = context.cs;
-    final initial = name.trim().isEmpty
-        ? 'A'
-        : name.trim().substring(0, 1).toUpperCase();
-
-    return Container(
-      width: 22,
-      height: 22,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        initial,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          color: cs.primary,
-        ),
-      ),
-    );
   }
 }

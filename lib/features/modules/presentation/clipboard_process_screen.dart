@@ -316,7 +316,7 @@ class _ClipboardProcessScreenState
                         subtitle: provider == null
                             ? null
                             : '${provider.nickname} - ${provider.model}',
-                        prefix: _ClipboardAgentAvatar(name: agent.name),
+                        prefix: const MeowAgentIcon(),
                         searchText: provider == null
                             ? agent.providerId
                             : '${provider.nickname} ${provider.model}',
@@ -553,38 +553,6 @@ class _ClipboardProcessScreenState
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ClipboardAgentAvatar extends StatelessWidget {
-  const _ClipboardAgentAvatar({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = context.cs;
-    final initial = name.trim().isEmpty
-        ? 'A'
-        : name.trim().substring(0, 1).toUpperCase();
-
-    return Container(
-      width: 30,
-      height: 30,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Text(
-        initial,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          color: cs.primary,
         ),
       ),
     );
