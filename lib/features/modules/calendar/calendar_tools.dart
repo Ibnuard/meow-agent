@@ -4,14 +4,17 @@ import 'calendar_repository.dart';
 
 /// Executes calendar-related tool calls.
 class CalendarTools {
-  CalendarTools({CalendarRepository? repository})
-      : _repo = repository ?? CalendarRepository();
+  CalendarTools({
+    CalendarRepository? repository,
+    ModuleRepository? moduleRepository,
+  }) : _repo = repository ?? CalendarRepository(),
+       _moduleRepository = moduleRepository ?? ModuleRepository();
 
   final CalendarRepository _repo;
+  final ModuleRepository _moduleRepository;
 
   Future<bool> _isAllowed(String settingKey) async {
-    final moduleRepo = ModuleRepository();
-    final modules = await moduleRepo.getInstalled();
+    final modules = await _moduleRepository.getInstalled();
     final calMod = modules.where((m) => m.id == 'calendar').firstOrNull;
     if (calMod == null || !calMod.enabled) return false;
     return calMod.settings[settingKey] ?? true;
@@ -124,13 +127,15 @@ class CalendarTools {
           'date': DateTime.now().toIso8601String().split('T').first,
           'count': events.length,
           'events': events
-              .map((e) => {
-                    'id': e.id,
-                    'title': e.title,
-                    'startTime': e.startTime.toIso8601String(),
-                    'endTime': e.endTime.toIso8601String(),
-                    'allDay': e.allDay,
-                  })
+              .map(
+                (e) => {
+                  'id': e.id,
+                  'title': e.title,
+                  'startTime': e.startTime.toIso8601String(),
+                  'endTime': e.endTime.toIso8601String(),
+                  'allDay': e.allDay,
+                },
+              )
               .toList(),
         },
       );
@@ -186,13 +191,15 @@ class CalendarTools {
           'to': toStr,
           'count': events.length,
           'events': events
-              .map((e) => {
-                    'id': e.id,
-                    'title': e.title,
-                    'startTime': e.startTime.toIso8601String(),
-                    'endTime': e.endTime.toIso8601String(),
-                    'allDay': e.allDay,
-                  })
+              .map(
+                (e) => {
+                  'id': e.id,
+                  'title': e.title,
+                  'startTime': e.startTime.toIso8601String(),
+                  'endTime': e.endTime.toIso8601String(),
+                  'allDay': e.allDay,
+                },
+              )
               .toList(),
         },
       );

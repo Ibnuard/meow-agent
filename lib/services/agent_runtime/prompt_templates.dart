@@ -17,32 +17,30 @@ class PromptTemplates {
     bool isWorkflowAutoExecute = false,
   }) {
     final historyBlock = recentMessages.isNotEmpty
-        ? recentMessages
-            .map((m) => '${m['role']}: ${m['content']}')
-            .join('\n')
+        ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
         : 'No prior conversation.';
 
     final pendingBlock = pendingAction != null
         ? '\nPENDING ACTION (user was previously asked to confirm this):\n'
-            'Tool: ${pendingAction.toolName}\n'
-            'Args: ${pendingAction.toolArgs}\n'
-            'Summary: ${pendingAction.userFacingSummary}\n'
-            'Preview result: ${pendingAction.previewText}\n\n'
-            '${PromptConstants.pendingActionInstructions}'
+              'Tool: ${pendingAction.toolName}\n'
+              'Args: ${pendingAction.toolArgs}\n'
+              'Summary: ${pendingAction.userFacingSummary}\n'
+              'Preview result: ${pendingAction.previewText}\n\n'
+              '${PromptConstants.pendingActionInstructions}'
         : '';
 
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n\n${PromptConstants.memoryHeader}\n$recentToolMemory\n\n'
-            '${PromptConstants.memoryInstructions}'
+              '${PromptConstants.memoryInstructions}'
         : '';
 
     final sourceModeBlock = isWorkflowAutoExecute
         ? '\n\nWORKFLOW EXECUTION MODE:\n'
-            '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
-            '- The user pre-approved sensitive actions when creating this workflow.\n'
-            '- ALWAYS set requires_tools=true if the prompt describes an action (open app, send intent, etc.).\n'
-            '- NEVER set requires_tools=false to ask for permission — execute directly via the appropriate tool.\n'
-            '- If a required detail is genuinely missing, set requires_tools=false and put the failure reason in missing_info, but do NOT phrase it as a confirmation question.\n'
+              '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
+              '- The user pre-approved sensitive actions when creating this workflow.\n'
+              '- ALWAYS set requires_tools=true if the prompt describes an action (open app, send intent, etc.).\n'
+              '- NEVER set requires_tools=false to ask for permission — execute directly via the appropriate tool.\n'
+              '- If a required detail is genuinely missing, set requires_tools=false and put the failure reason in missing_info, but do NOT phrase it as a confirmation question.\n'
         : '';
 
     final language = languageLabelFromCode(languageCode);
@@ -55,7 +53,7 @@ Identity context (from SOUL.md — user-editable):
 ${workspace.soul}
 
 Available tools:
-${availableTools.map((t) => '- $t').join('\n')}
+${availableTools.join('\n')}
 
 Recent conversation:
 $historyBlock
@@ -81,7 +79,7 @@ Analysis result:
 ${_jsonString(analysis)}
 
 Available tools:
-${availableTools.map((t) => '- $t').join('\n')}
+${availableTools.join('\n')}
 
 ${PromptConstants.planResponseFormat}''';
   }
@@ -100,11 +98,11 @@ ${PromptConstants.planResponseFormat}''';
         : '';
     final sourceModeBlock = isWorkflowAutoExecute
         ? '\nWORKFLOW EXECUTION MODE:\n'
-            '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
-            '- The user pre-approved sensitive actions when creating this workflow.\n'
-            '- Do NOT return status=done with text asking for permission or confirmation.\n'
-            '- If the plan step needs a tool and arguments are clear, return status=tool_required.\n'
-            '- Set requires_confirmation=false in the tool JSON — runtime approval is already granted.\n'
+              '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
+              '- The user pre-approved sensitive actions when creating this workflow.\n'
+              '- Do NOT return status=done with text asking for permission or confirmation.\n'
+              '- If the plan step needs a tool and arguments are clear, return status=tool_required.\n'
+              '- Set requires_confirmation=false in the tool JSON — runtime approval is already granted.\n'
         : '';
     return '''${PromptConstants.selectToolIntro}
 
@@ -116,7 +114,7 @@ Previous results (this turn):
 ${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
 $memoryBlock$sourceModeBlock
 Available tools:
-${availableTools.map((t) => '- $t').join('\n')}
+${availableTools.join('\n')}
 
 ${PromptConstants.selectToolResponseFormat}''';
   }

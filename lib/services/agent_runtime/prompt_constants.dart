@@ -11,15 +11,30 @@ class PromptConstants {
   static const jsonOnlySystem =
       'You are a JSON-only responder. Never use markdown.';
 
+  /// Cache for systemRules — keyed by `language|isWorkflowAutoExecute`.
+  /// The string content is identical across turns for the same key, so
+  /// rebuilding it repeatedly is wasted work.
+  static final Map<String, String> _systemRulesCache = {};
+
   /// System rules always enforced regardless of SOUL.md content.
   /// Use [language] placeholder for the resolved language label.
   /// When [isWorkflowAutoExecute] is true, the run is a background scheduled
   /// workflow with no user reading the message and pre-approved sensitive
   /// actions — the rules are reworded to make the LLM execute directly.
+
   static String systemRules(
     String language, {
     bool isWorkflowAutoExecute = false,
   }) {
+    final cacheKey = '$language|$isWorkflowAutoExecute';
+    final cached = _systemRulesCache[cacheKey];
+    if (cached != null) return cached;
+    final built = _buildSystemRules(language, isWorkflowAutoExecute);
+    _systemRulesCache[cacheKey] = built;
+    return built;
+  }
+
+  static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {
       return '''SYSTEM RULES (always enforced):
 - This run is a scheduled WORKFLOW execution. There is NO user reading this message in real-time.
@@ -27,6 +42,7 @@ class PromptConstants {
 - Default language: $language. Be concise and practical.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and report the error clearly. Do not turn it into a question.
+- If a module permission blocks an action, report the disabled module/toggle exactly and do not attempt a workaround.
 - AMBIGUITY: If a required detail is missing, fail with a clear error message. Do NOT ask the user — there is no user.''';
     }
     return '''SYSTEM RULES (always enforced):
@@ -35,6 +51,7 @@ class PromptConstants {
 - Ask the user before sensitive or destructive actions.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
+- If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
 - If the user's identity (Name) in SOUL.md is still a placeholder, politely ask once and offer to fill it in. Do not ask repeatedly.
 - When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
 - AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
@@ -43,7 +60,8 @@ class PromptConstants {
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 
   /// Base system prompt for the legacy chat path.
-  static String chatSystemPrompt(String agentName) => '''You are $agentName, an Android-native AI assistant.
+  static String chatSystemPrompt(String agentName) =>
+      '''You are $agentName, an Android-native AI assistant.
 Be concise and helpful.
 Use Indonesian by default unless requested otherwise.
 
@@ -95,7 +113,8 @@ Ambiguity examples (must set requires_tools=false and populate missing_info):
 
 IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 
-  static const analyzeResponseFormat = '''Respond with ONLY valid JSON, no markdown, no explanation:
+  static const analyzeResponseFormat =
+      '''Respond with ONLY valid JSON, no markdown, no explanation:
 
 {
   "intent": "short.intent.name",
@@ -159,7 +178,8 @@ If you need more info from the user:
 
   static const reviewIntro = 'You are an AI agent reviewer.';
 
-  static String reviewRulesFor(String language) => '''CRITICAL RULES for final_response:
+  static String reviewRulesFor(String language) =>
+      '''CRITICAL RULES for final_response:
 - Reply in $language. Match the user's language exactly. Never switch languages.
 - NEVER use technical phrasing like "Step 1 completed", "execution plan", "tool executed", "with ID xxx".
 - NEVER mention internal tool names (e.g. "notes.create", "clipboard.write").
@@ -167,7 +187,8 @@ If you need more info from the user:
 - Speak as a helpful assistant who just did the task naturally.
 - Be concise (1–2 short sentences).
 - If success, confirm what was done in human terms (e.g. "Sudah saya buatkan catatan tentang AI.").
-- If failed, explain what went wrong in plain language and suggest a next step.''';
+- If failed, explain what went wrong in plain language and suggest a next step.
+- If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.''';
 
   /// Backward-compat stub. Prefer reviewRulesFor(language).
   static const reviewRules = '''CRITICAL RULES for final_response:
@@ -228,7 +249,8 @@ If unrecoverable:
 
   // ─── Pending Action Context ────────────────────────────────────────────────
 
-  static const pendingActionInstructions = '''If user refers to "hasilnya", "itu", "yang tadi", "disini" — they mean this pending action.
+  static const pendingActionInstructions =
+      '''If user refers to "hasilnya", "itu", "yang tadi", "disini" — they mean this pending action.
 If user asks to preview, show, or just see the result — set requires_tools to false and answer using the preview.
 If user rejects — set requires_tools to false.
 If user confirms — set requires_tools to true.''';

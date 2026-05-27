@@ -11,11 +11,18 @@ import '../../features/modules/notification_intelligence/notification_repository
 import '../../features/modules/notification_intelligence/notification_service.dart';
 import 'app_alias_resolver.dart';
 import 'runtime_models.dart';
+import 'tool_permission_policy.dart';
 
 /// Routes tool calls to their implementations.
 /// Validates tool existence and enforces risk/confirmation rules.
 class ToolRouter {
-  ToolRouter({this.agentName = '', this.agentId = ''});
+  ToolRouter({
+    this.agentName = '',
+    this.agentId = '',
+    ModuleRepository? moduleRepository,
+  }) : moduleRepository = moduleRepository ?? ModuleRepository();
+
+  final ModuleRepository moduleRepository;
 
   /// The current agent name — used by workspace-scoped tools (files module).
   String agentName;
@@ -40,14 +47,16 @@ class ToolRouter {
     ),
     'app.resolve': const ToolDefinition(
       name: 'app.resolve',
-      description: 'Resolve a friendly app name (e.g. "wa", "toko ijo", "youtube") to a package name. ALWAYS call this first before app.open.',
+      description:
+          'Resolve a friendly app name (e.g. "wa", "toko ijo", "youtube") to a package name. ALWAYS call this first before app.open.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'query': 'string (friendly name to resolve)'},
     ),
     'app.open': const ToolDefinition(
       name: 'app.open',
-      description: 'Open an installed app by exact package name. Use app.resolve first to get the package name.',
+      description:
+          'Open an installed app by exact package name. Use app.resolve first to get the package name.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'package': 'string (exact package name from app.resolve)'},
@@ -105,13 +114,15 @@ class ToolRouter {
     ),
     'device.summary': const ToolDefinition(
       name: 'device.summary',
-      description: 'Read a summary of battery, network, storage, time, and locale.',
+      description:
+          'Read a summary of battery, network, storage, time, and locale.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
     'device.foreground_app': const ToolDefinition(
       name: 'device.foreground_app',
-      description: 'Read the app that is CURRENTLY in the foreground RIGHT NOW. '
+      description:
+          'Read the app that is CURRENTLY in the foreground RIGHT NOW. '
           'This does NOT provide usage history, screen time, or statistics. '
           'If asked about past usage or most-used apps, say you cannot access that data.',
       risk: 'safe',
@@ -119,7 +130,8 @@ class ToolRouter {
     ),
     'device.usage_stats': const ToolDefinition(
       name: 'device.usage_stats',
-      description: 'Read real app usage statistics for the past N days (default 7). '
+      description:
+          'Read real app usage statistics for the past N days (default 7). '
           'Returns top 10 user-facing apps sorted by total usage time in minutes. '
           'Use this when asked about most-used apps, screen time, or app usage history. '
           'Args: days (int, optional, default 7).',
@@ -129,7 +141,8 @@ class ToolRouter {
     ),
     'device.charging': const ToolDefinition(
       name: 'device.charging',
-      description: 'Read current charging state and plug type (usb, ac, wireless, dock).',
+      description:
+          'Read current charging state and plug type (usb, ac, wireless, dock).',
       risk: 'safe',
       requiresConfirmation: false,
     ),
@@ -141,31 +154,36 @@ class ToolRouter {
     ),
     'device.bluetooth': const ToolDefinition(
       name: 'device.bluetooth',
-      description: 'Read Bluetooth status and connected devices when permission is available.',
+      description:
+          'Read Bluetooth status and connected devices when permission is available.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
     'device.dnd.set': const ToolDefinition(
       name: 'device.dnd.set',
-      description: 'Toggle Do Not Disturb on or off. '
+      description:
+          'Toggle Do Not Disturb on or off. '
           'Args: enabled (bool, required), mode (string, optional: priority_only | alarms_only | total_silence, default priority_only). '
           'Requires notification policy access permission.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {
         'enabled': 'bool (required, true=on false=off)',
-        'mode': 'string (optional: priority_only | alarms_only | total_silence)',
+        'mode':
+            'string (optional: priority_only | alarms_only | total_silence)',
       },
     ),
     'device.wifi.reconnect': const ToolDefinition(
       name: 'device.wifi.reconnect',
-      description: 'Reconnect to the last known WiFi network. WiFi must be enabled first.',
+      description:
+          'Reconnect to the last known WiFi network. WiFi must be enabled first.',
       risk: 'sensitive',
       requiresConfirmation: true,
     ),
     'device.bluetooth.set': const ToolDefinition(
       name: 'device.bluetooth.set',
-      description: 'Toggle Bluetooth on or off. Requires Nearby Devices permission on Android 12+. '
+      description:
+          'Toggle Bluetooth on or off. Requires Nearby Devices permission on Android 12+. '
           'Args: enabled (bool, required).',
       risk: 'sensitive',
       requiresConfirmation: true,
@@ -173,13 +191,15 @@ class ToolRouter {
     ),
     'device.wifi': const ToolDefinition(
       name: 'device.wifi',
-      description: 'Read detailed WiFi status: enabled, connected, SSID, signal strength, link speed, frequency, IP address.',
+      description:
+          'Read detailed WiFi status: enabled, connected, SSID, signal strength, link speed, frequency, IP address.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
     'device.cellular': const ToolDefinition(
       name: 'device.cellular',
-      description: 'Read cellular/mobile data status: SIM ready, data connected, network type (4G/5G/LTE), operator, roaming.',
+      description:
+          'Read cellular/mobile data status: SIM ready, data connected, network type (4G/5G/LTE), operator, roaming.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
@@ -187,34 +207,39 @@ class ToolRouter {
     // ── Notification Intelligence ───────────────────────────────────────
     'notification.status': const ToolDefinition(
       name: 'notification.status',
-      description: 'Check whether notification access is granted. Use this BEFORE other notification.* tools to verify availability.',
+      description:
+          'Check whether notification access is granted. Use this BEFORE other notification.* tools to verify availability.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
     'notification.read_recent': const ToolDefinition(
       name: 'notification.read_recent',
-      description: 'Read the most recent Android notifications from the read-only cache. Returns app name, title, text, timestamp.',
+      description:
+          'Read the most recent Android notifications from the read-only cache. Returns app name, title, text, timestamp.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {'limit': 'int (optional, default 10, max 100)'},
     ),
     'notification.summarize': const ToolDefinition(
       name: 'notification.summarize',
-      description: 'Summarize recent notifications grouped by app. USE when user asks "ringkas notifikasi" or "ada notif apa".',
+      description:
+          'Summarize recent notifications grouped by app. USE when user asks "ringkas notifikasi" or "ada notif apa".',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {'limit': 'int (optional, default 25, max 100)'},
     ),
     'notification.classify': const ToolDefinition(
       name: 'notification.classify',
-      description: 'Classify which recent notifications look important (urgent wording, mentions, deadlines). Read-only.',
+      description:
+          'Classify which recent notifications look important (urgent wording, mentions, deadlines). Read-only.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {'limit': 'int (optional, default 15, max 100)'},
     ),
     'notification.reply_suggestion': const ToolDefinition(
       name: 'notification.reply_suggestion',
-      description: 'Generate a SUGGESTED reply for a notification. DOES NOT SEND. User must copy or send manually.',
+      description:
+          'Generate a SUGGESTED reply for a notification. DOES NOT SEND. User must copy or send manually.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {
@@ -224,16 +249,20 @@ class ToolRouter {
     ),
     'notification.open_app': const ToolDefinition(
       name: 'notification.open_app',
-      description: 'Open the source app of a specific notification. Resolves package then uses app.open flow.',
+      description:
+          'Open the source app of a specific notification. Resolves package then uses app.open flow.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {'notificationId': 'string (required, id from notification.read_recent)'},
+      inputSchema: {
+        'notificationId': 'string (required, id from notification.read_recent)',
+      },
     ),
 
     // ── Notes ────────────────────────────────────────────────────────────
     'notes.create': const ToolDefinition(
       name: 'notes.create',
-      description: 'Create a markdown note. Use when user says "catat", "simpan", "buat note".',
+      description:
+          'Create a markdown note. Use when user says "catat", "simpan", "buat note".',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -266,7 +295,8 @@ class ToolRouter {
     ),
     'notes.update': const ToolDefinition(
       name: 'notes.update',
-      description: 'Update an existing note. Requires confirmation before overwriting.',
+      description:
+          'Update an existing note. Requires confirmation before overwriting.',
       risk: 'sensitive-lite',
       requiresConfirmation: true,
       inputSchema: {
@@ -285,7 +315,8 @@ class ToolRouter {
     ),
     'notes.export': const ToolDefinition(
       name: 'notes.export',
-      description: 'Export notes as markdown files to the agent workspace notes/ folder. Pass empty noteIds to export all.',
+      description:
+          'Export notes as markdown files to the agent workspace notes/ folder. Pass empty noteIds to export all.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -295,10 +326,10 @@ class ToolRouter {
     ),
 
     // ─── Files Module ──────────────────────────────────────────────────────────
-
     'files.create': const ToolDefinition(
       name: 'files.create',
-      description: 'Create a new file in the agent workspace. Fails if file already exists.',
+      description:
+          'Create a new file in the agent workspace. Fails if file already exists.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -315,7 +346,8 @@ class ToolRouter {
     ),
     'files.write': const ToolDefinition(
       name: 'files.write',
-      description: 'Write or overwrite content to a file in the agent workspace.',
+      description:
+          'Write or overwrite content to a file in the agent workspace.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -326,21 +358,26 @@ class ToolRouter {
     ),
     'files.delete': const ToolDefinition(
       name: 'files.delete',
-      description: 'Delete a file or directory in the agent workspace. Requires confirmation.',
+      description:
+          'Delete a file or directory in the agent workspace. Requires confirmation.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'path': 'string (required, relative to workspace)'},
     ),
     'files.list': const ToolDefinition(
       name: 'files.list',
-      description: 'List files and directories in the agent workspace. Empty path = workspace root.',
+      description:
+          'List files and directories in the agent workspace. Empty path = workspace root.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {'path': 'string (optional, relative to workspace, empty = root)'},
+      inputSchema: {
+        'path': 'string (optional, relative to workspace, empty = root)',
+      },
     ),
     'files.move': const ToolDefinition(
       name: 'files.move',
-      description: 'Move or rename a file/directory within the agent workspace.',
+      description:
+          'Move or rename a file/directory within the agent workspace.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -357,7 +394,6 @@ class ToolRouter {
     ),
 
     // ─── Calendar Module ───────────────────────────────────────────────────────
-
     'calendar.create': const ToolDefinition(
       name: 'calendar.create',
       description: 'Create a new calendar event.',
@@ -422,34 +458,40 @@ class ToolRouter {
     ),
 
     // ─── Workflow Module ─────────────────────────────────────────────────────────────
-
     'workflow.create': const ToolDefinition(
       name: 'workflow.create',
-      description: 'Create a scheduled, interval, or event-triggered workflow. Supports single-prompt or chained multi-step execution.',
+      description:
+          'Create a scheduled, interval, or event-triggered workflow. Supports single-prompt or chained multi-step execution.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
         'title': 'string (required)',
         'prompt': 'string (required if steps not provided)',
-        'trigger': 'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {threshold, keyword, package}}',
-        'notification': 'object (optional) - {style: silent|normal|alarm, showResult: bool}',
+        'trigger':
+            'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {threshold, keyword, package}}',
+        'notification':
+            'object (optional) - {style: silent|normal|alarm, showResult: bool}',
         'send_to_chat': 'bool (optional, default false)',
         'priority': 'string (optional) - low|normal|high|critical',
         'timeout_seconds': 'int (optional, default 60)',
-        'steps': 'list<object> (optional) - [{id, prompt, condition?, onFailure: stop|skip|retry, timeoutSeconds}]',
-        'variables': 'object (optional) - {key: defaultValue} accessed in prompts as {{key}}',
+        'steps':
+            'list<object> (optional) - [{id, prompt, condition?, onFailure: stop|skip|retry, timeoutSeconds}]',
+        'variables':
+            'object (optional) - {key: defaultValue} accessed in prompts as {{key}}',
       },
     ),
     'workflow.create_from_template': const ToolDefinition(
       name: 'workflow.create_from_template',
-      description: 'Create a workflow from a pre-built template. Use workflow.list_templates to see available templates.',
+      description:
+          'Create a workflow from a pre-built template. Use workflow.list_templates to see available templates.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'template_id': 'string (required)'},
     ),
     'workflow.list_templates': const ToolDefinition(
       name: 'workflow.list_templates',
-      description: 'List all available workflow templates with their categories and metadata.',
+      description:
+          'List all available workflow templates with their categories and metadata.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
@@ -461,7 +503,8 @@ class ToolRouter {
     ),
     'workflow.read': const ToolDefinition(
       name: 'workflow.read',
-      description: 'Read details of a specific workflow including steps and variables.',
+      description:
+          'Read details of a specific workflow including steps and variables.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'id': 'string (required)'},
@@ -496,12 +539,8 @@ class ToolRouter {
       description: 'Enable or disable a workflow.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {
-        'id': 'string (required)',
-        'enabled': 'bool (required)',
-      },
+      inputSchema: {'id': 'string (required)', 'enabled': 'bool (required)'},
     ),
-
   };
 
   /// Get all registered tool names.
@@ -519,20 +558,63 @@ class ToolRouter {
   List<String> buildAllToolDescriptions() {
     final descriptions = <String>[];
     for (final def in _registry.values) {
-      final parts = StringBuffer();
-      parts.write('- ${def.name}: ${def.description} Risk: ${def.risk}.');
-      if (def.requiresConfirmation) {
-        parts.write(' Requires confirmation.');
-      }
-      if (def.inputSchema.isNotEmpty) {
-        final args = def.inputSchema.entries
-            .map((e) => '${e.key} (${e.value})')
-            .join(', ');
-        parts.write(' Args: $args.');
-      }
-      descriptions.add(parts.toString());
+      descriptions.add(_formatToolDescription(def));
     }
     return descriptions;
+  }
+
+  /// Build formatted descriptions for a selected subset of tools.
+  ///
+  /// Unknown names are ignored so callers can safely pass policy-generated
+  /// sets across app versions.
+  List<String> buildToolDescriptions(Set<String> names) {
+    final descriptions = <String>[];
+    for (final def in _registry.values) {
+      if (names.contains(def.name)) {
+        descriptions.add(_formatToolDescription(def));
+      }
+    }
+    return descriptions;
+  }
+
+  /// Slim format for the analyzer phase: just `name: description`.
+  ///
+  /// The analyzer only decides intent + whether tools are needed; it does not
+  /// pick arguments or evaluate risk. Schema, risk, and confirmation metadata
+  /// add tokens without changing analyzer accuracy, so we drop them here.
+  /// Saves ~60% of the tool surface tokens for that phase.
+  List<String> buildAnalyzerToolDescriptions(Set<String> names) {
+    final descriptions = <String>[];
+    for (final def in _registry.values) {
+      if (names.contains(def.name)) {
+        descriptions.add('- ${def.name}: ${def.description}');
+      }
+    }
+    return descriptions;
+  }
+
+  /// Slim descriptions for every registered tool.
+  List<String> buildAllAnalyzerToolDescriptions() {
+    final descriptions = <String>[];
+    for (final def in _registry.values) {
+      descriptions.add('- ${def.name}: ${def.description}');
+    }
+    return descriptions;
+  }
+
+  String _formatToolDescription(ToolDefinition def) {
+    final parts = StringBuffer();
+    parts.write('- ${def.name}: ${def.description} Risk: ${def.risk}.');
+    if (def.requiresConfirmation) {
+      parts.write(' Requires confirmation.');
+    }
+    if (def.inputSchema.isNotEmpty) {
+      final args = def.inputSchema.entries
+          .map((e) => '${e.key} (${e.value})')
+          .join(', ');
+      parts.write(' Args: $args.');
+    }
+    return parts.toString();
   }
 
   /// Validate a tool call request against the registry.
@@ -542,6 +624,10 @@ class ToolRouter {
       return 'Unknown tool: ${request.name}. Not registered.';
     }
     return null;
+  }
+
+  Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
+    return ToolPermissionPolicy(moduleRepository).deniedResult(toolName);
   }
 
   /// Execute a tool. Returns the result.
@@ -555,6 +641,9 @@ class ToolRouter {
         error: 'Tool not found: ${request.name}',
       );
     }
+
+    final denied = await permissionDeniedResult(request.name);
+    if (denied != null) return denied;
 
     // Enforce confirmation from registry definition, not LLM.
     if (definition.requiresConfirmation) {
@@ -578,6 +667,8 @@ class ToolRouter {
         error: 'Tool not found: ${request.name}',
       );
     }
+    final denied = await permissionDeniedResult(request.name);
+    if (denied != null) return denied;
     return _dispatch(request);
   }
 
@@ -694,7 +785,9 @@ class ToolRouter {
       case 'workflow.list_templates':
         return _workflowTools().listTemplates();
       case 'workflow.list':
-        return _workflowTools().list(agentId: agentId.isNotEmpty ? agentId : agentName);
+        return _workflowTools().list(
+          agentId: agentId.isNotEmpty ? agentId : agentName,
+        );
       case 'workflow.read':
         return _workflowTools().read(args: request.args);
       case 'workflow.update':
@@ -731,7 +824,8 @@ class ToolRouter {
   }
 
   Future<ToolExecutionResult> _executeClipboardWrite(
-      Map<String, dynamic> args) async {
+    Map<String, dynamic> args,
+  ) async {
     try {
       final text = args['text'] as String? ?? '';
       await Clipboard.setData(ClipboardData(text: text));
@@ -751,9 +845,12 @@ class ToolRouter {
 
   static const _appChannel = MethodChannel('com.meowagent/app_control');
 
-  Future<ToolExecutionResult> _executeAppResolve(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> _executeAppResolve(
+    Map<String, dynamic> args,
+  ) async {
     try {
-      final query = (args['query'] as String? ?? args['name'] as String? ?? '').trim();
+      final query = (args['query'] as String? ?? args['name'] as String? ?? '')
+          .trim();
       if (query.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -773,11 +870,7 @@ class ToolRouter {
       return ToolExecutionResult(
         success: true,
         toolName: 'app.resolve',
-        data: {
-          'query': query,
-          'matched': true,
-          'app': result.toJson(),
-        },
+        data: {'query': query, 'matched': true, 'app': result.toJson()},
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -792,7 +885,8 @@ class ToolRouter {
     try {
       // Prefer explicit package; fall back to resolving "name" via resolver.
       var pkg = (args['package'] as String? ?? '').trim();
-      final friendlyName = (args['name'] as String? ?? args['query'] as String? ?? '').trim();
+      final friendlyName =
+          (args['name'] as String? ?? args['query'] as String? ?? '').trim();
 
       if (pkg.isEmpty && friendlyName.isNotEmpty) {
         final result = await AppAliasResolver.resolve(friendlyName);
@@ -803,11 +897,9 @@ class ToolRouter {
           return ToolExecutionResult(
             success: false,
             toolName: 'app.open',
-            data: {
-              'matched': result.toJson(),
-              'low_confidence': true,
-            },
-            error: 'Low confidence match (${result.confidence.toStringAsFixed(2)}) for "$friendlyName". Best guess: ${result.name}. Use app.resolve and ask user to confirm.',
+            data: {'matched': result.toJson(), 'low_confidence': true},
+            error:
+                'Low confidence match (${result.confidence.toStringAsFixed(2)}) for "$friendlyName". Best guess: ${result.name}. Use app.resolve and ask user to confirm.',
           );
         }
       }
@@ -816,11 +908,14 @@ class ToolRouter {
         return ToolExecutionResult(
           success: false,
           toolName: 'app.open',
-          error: 'Could not resolve app. Call app.resolve first to get the package name.',
+          error:
+              'Could not resolve app. Call app.resolve first to get the package name.',
         );
       }
 
-      final success = await _appChannel.invokeMethod<bool>('openApp', {'package': pkg}) ?? false;
+      final success =
+          await _appChannel.invokeMethod<bool>('openApp', {'package': pkg}) ??
+          false;
       return ToolExecutionResult(
         success: success,
         toolName: 'app.open',
@@ -839,18 +934,25 @@ class ToolRouter {
   Future<ToolExecutionResult> _executeListInstalledApps() async {
     try {
       final raw = await _appChannel.invokeMethod<List>('listInstalledApps');
-      final apps = raw?.map((e) => Map<String, String>.from(e as Map)).toList() ?? [];
+      final apps =
+          raw?.map((e) => Map<String, String>.from(e as Map)).toList() ?? [];
       return ToolExecutionResult(
         success: true,
         toolName: 'app.list_installed',
         data: {'apps': apps, 'count': apps.length},
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'app.list_installed', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'app.list_installed',
+        error: e.toString(),
+      );
     }
   }
 
-  Future<ToolExecutionResult> _executeOpenSettings(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> _executeOpenSettings(
+    Map<String, dynamic> args,
+  ) async {
     try {
       final action = args['action'] as String? ?? 'android.settings.SETTINGS';
       await _appChannel.invokeMethod<bool>('openSettings', {'action': action});
@@ -860,7 +962,11 @@ class ToolRouter {
         data: {'action': action},
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'settings.open', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'settings.open',
+        error: e.toString(),
+      );
     }
   }
 
@@ -881,7 +987,9 @@ class ToolRouter {
           !lower.contains('://')) {
         url = 'https://$url';
       }
-      final success = await _appChannel.invokeMethod<bool>('openUrl', {'url': url}) ?? false;
+      final success =
+          await _appChannel.invokeMethod<bool>('openUrl', {'url': url}) ??
+          false;
       return ToolExecutionResult(
         success: success,
         toolName: 'intent.open_url',
@@ -889,24 +997,31 @@ class ToolRouter {
         error: success ? null : 'Failed to open URL: $url',
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'intent.open_url', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'intent.open_url',
+        error: e.toString(),
+      );
     }
   }
 
   // ── Device Context helpers ───────────────────────────────────────────
 
   DeviceContextRepository _deviceRepo() => DeviceContextRepository(
-        service: DeviceContextService(),
-        moduleRepository: ModuleRepository(),
-      );
+    service: DeviceContextService(),
+    moduleRepository: moduleRepository,
+  );
 
-  NotesTools _notesTools() => NotesTools();
+  NotesTools _notesTools() => NotesTools(moduleRepository: moduleRepository);
 
-  FilesTools _filesTools() => FilesTools(agentName: agentName);
+  FilesTools _filesTools() =>
+      FilesTools(agentName: agentName, moduleRepository: moduleRepository);
 
-  CalendarTools _calendarTools() => CalendarTools();
+  CalendarTools _calendarTools() =>
+      CalendarTools(moduleRepository: moduleRepository);
 
-  WorkflowTools _workflowTools() => WorkflowTools();
+  WorkflowTools _workflowTools() =>
+      WorkflowTools(moduleRepository: moduleRepository);
 
   Future<ToolExecutionResult> _executeDeviceBattery() async {
     try {
@@ -916,7 +1031,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.battery',
-          error: 'Device Context module is disabled or battery info not allowed.',
+          error:
+              'Device Context module is disabled or battery info not allowed.',
         );
       }
       return ToolExecutionResult(
@@ -925,7 +1041,11 @@ class ToolRouter {
         data: info.toJson(),
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.battery', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.battery',
+        error: e.toString(),
+      );
     }
   }
 
@@ -936,12 +1056,21 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.network',
-          error: 'Device Context module is disabled or network info not allowed.',
+          error:
+              'Device Context module is disabled or network info not allowed.',
         );
       }
-      return ToolExecutionResult(success: true, toolName: 'device.network', data: info.toJson());
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.network',
+        data: info.toJson(),
+      );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.network', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.network',
+        error: e.toString(),
+      );
     }
   }
 
@@ -952,12 +1081,21 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.storage',
-          error: 'Device Context module is disabled or storage info not allowed.',
+          error:
+              'Device Context module is disabled or storage info not allowed.',
         );
       }
-      return ToolExecutionResult(success: true, toolName: 'device.storage', data: info.toJson());
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.storage',
+        data: info.toJson(),
+      );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.storage', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.storage',
+        error: e.toString(),
+      );
     }
   }
 
@@ -971,9 +1109,17 @@ class ToolRouter {
           error: 'Device Context module is disabled or time info not allowed.',
         );
       }
-      return ToolExecutionResult(success: true, toolName: 'device.time', data: info.toJson());
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.time',
+        data: info.toJson(),
+      );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.time', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.time',
+        error: e.toString(),
+      );
     }
   }
 
@@ -984,12 +1130,21 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.locale',
-          error: 'Device Context module is disabled or locale info not allowed.',
+          error:
+              'Device Context module is disabled or locale info not allowed.',
         );
       }
-      return ToolExecutionResult(success: true, toolName: 'device.locale', data: info.toJson());
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'device.locale',
+        data: info.toJson(),
+      );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.locale', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.locale',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1009,7 +1164,11 @@ class ToolRouter {
         data: result.data ?? {},
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.summary', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.summary',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1020,21 +1179,30 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.foreground_app',
-          error: 'Device Context module is disabled or foreground app detection not allowed.',
+          error:
+              'Device Context module is disabled or foreground app detection not allowed.',
         );
       }
       return ToolExecutionResult(
         success: info.available,
         toolName: 'device.foreground_app',
         data: info.toJson(),
-        error: info.available ? null : 'Foreground app unavailable: ${info.reason}',
+        error: info.available
+            ? null
+            : 'Foreground app unavailable: ${info.reason}',
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.foreground_app', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.foreground_app',
+        error: e.toString(),
+      );
     }
   }
 
-  Future<ToolExecutionResult> _executeDeviceUsageStats(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> _executeDeviceUsageStats(
+    Map<String, dynamic> args,
+  ) async {
     try {
       final days = (args['days'] as num?)?.toInt() ?? 7;
       final result = await _deviceRepo().getUsageStats(days: days);
@@ -1042,7 +1210,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.usage_stats',
-          error: 'Device Context module is disabled or foreground app permission not granted.',
+          error:
+              'Device Context module is disabled or foreground app permission not granted.',
         );
       }
       final available = result['available'] as bool? ?? false;
@@ -1060,7 +1229,11 @@ class ToolRouter {
         data: result,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.usage_stats', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.usage_stats',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1071,7 +1244,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.charging',
-          error: 'Device Context module is disabled or charging info not allowed.',
+          error:
+              'Device Context module is disabled or charging info not allowed.',
         );
       }
       return ToolExecutionResult(
@@ -1080,7 +1254,11 @@ class ToolRouter {
         data: info.toJson(),
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.charging', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.charging',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1100,7 +1278,11 @@ class ToolRouter {
         data: info.toJson(),
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.dnd', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.dnd',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1111,7 +1293,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.bluetooth',
-          error: 'Device Context module is disabled or Bluetooth status not allowed.',
+          error:
+              'Device Context module is disabled or Bluetooth status not allowed.',
         );
       }
       return ToolExecutionResult(
@@ -1120,11 +1303,17 @@ class ToolRouter {
         data: info.toJson(),
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.bluetooth', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.bluetooth',
+        error: e.toString(),
+      );
     }
   }
 
-  Future<ToolExecutionResult> _executeDeviceDndSet(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> _executeDeviceDndSet(
+    Map<String, dynamic> args,
+  ) async {
     try {
       final enabled = args['enabled'] as bool? ?? false;
       final mode = args['mode'] as String?;
@@ -1133,7 +1322,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.dnd.set',
-          error: 'Device Context module is disabled or DND control not allowed.',
+          error:
+              'Device Context module is disabled or DND control not allowed.',
         );
       }
       final success = result['success'] as bool? ?? false;
@@ -1151,7 +1341,11 @@ class ToolRouter {
         data: result,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.dnd.set', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.dnd.set',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1162,7 +1356,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.wifi.reconnect',
-          error: 'Device Context module is disabled or network control not allowed.',
+          error:
+              'Device Context module is disabled or network control not allowed.',
         );
       }
       final success = result['success'] as bool? ?? false;
@@ -1173,11 +1368,17 @@ class ToolRouter {
         error: success ? null : result['error'] as String?,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.wifi.reconnect', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.wifi.reconnect',
+        error: e.toString(),
+      );
     }
   }
 
-  Future<ToolExecutionResult> _executeDeviceBluetoothSet(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> _executeDeviceBluetoothSet(
+    Map<String, dynamic> args,
+  ) async {
     try {
       final enabled = args['enabled'] as bool? ?? false;
       final result = await _deviceRepo().setBluetoothEnabled(enabled: enabled);
@@ -1185,7 +1386,8 @@ class ToolRouter {
         return const ToolExecutionResult(
           success: false,
           toolName: 'device.bluetooth.set',
-          error: 'Device Context module is disabled or Bluetooth control not allowed.',
+          error:
+              'Device Context module is disabled or Bluetooth control not allowed.',
         );
       }
       final success = result['success'] as bool? ?? false;
@@ -1196,7 +1398,11 @@ class ToolRouter {
         error: success ? null : result['error'] as String?,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.bluetooth.set', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.bluetooth.set',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1216,7 +1422,11 @@ class ToolRouter {
         data: result.data,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.wifi', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.wifi',
+        error: e.toString(),
+      );
     }
   }
 
@@ -1236,16 +1446,20 @@ class ToolRouter {
         data: result.data,
       );
     } catch (e) {
-      return ToolExecutionResult(success: false, toolName: 'device.cellular', error: e.toString());
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'device.cellular',
+        error: e.toString(),
+      );
     }
   }
 
   // ── Notification Intelligence helpers ─────────────────────────────────
 
   NotificationRepository _notifRepo() => NotificationRepository(
-        service: NotificationService(),
-        moduleRepository: ModuleRepository(),
-      );
+    service: NotificationService(),
+    moduleRepository: moduleRepository,
+  );
 
   Future<ToolExecutionResult> _executeNotificationStatus() async {
     try {
@@ -1425,8 +1639,8 @@ class ToolRouter {
           'tone': tone,
           'hint':
               'Generate ONE short reply suggestion in Indonesian (or matching the source language) with $tone tone. '
-                  'DO NOT actually send. The user will copy the reply manually. '
-                  'Reply field key: "suggestion".',
+              'DO NOT actually send. The user will copy the reply manually. '
+              'Reply field key: "suggestion".',
         },
       );
     } catch (e) {
@@ -1461,15 +1675,13 @@ class ToolRouter {
       final pkg = res.data!.packageName;
       // Reuse app.open flow via MethodChannel.
       const channel = MethodChannel('com.meowagent/app_control');
-      final success = await channel.invokeMethod<bool>('openApp', {'package': pkg}) ?? false;
+      final success =
+          await channel.invokeMethod<bool>('openApp', {'package': pkg}) ??
+          false;
       return ToolExecutionResult(
         success: success,
         toolName: 'notification.open_app',
-        data: {
-          'package': pkg,
-          'appName': res.data!.appName,
-          'opened': success,
-        },
+        data: {'package': pkg, 'appName': res.data!.appName, 'opened': success},
         error: success ? null : 'Failed to open app: $pkg',
       );
     } catch (e) {

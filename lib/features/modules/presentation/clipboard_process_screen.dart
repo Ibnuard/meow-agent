@@ -29,14 +29,14 @@ enum ClipboardAction {
   final IconData icon;
 
   String labelFor(AppStrings s) => switch (this) {
-        ClipboardAction.sendToChat => s.clipboardActionSendToChat,
-        ClipboardAction.translate => s.clipboardActionTranslate,
-        ClipboardAction.summarize => s.clipboardActionSummarize,
-        ClipboardAction.rewrite => s.clipboardActionRewrite,
-        ClipboardAction.explain => s.clipboardActionExplain,
-        ClipboardAction.grammar => s.clipboardActionGrammar,
-        ClipboardAction.reply => s.clipboardActionReply,
-      };
+    ClipboardAction.sendToChat => s.clipboardActionSendToChat,
+    ClipboardAction.translate => s.clipboardActionTranslate,
+    ClipboardAction.summarize => s.clipboardActionSummarize,
+    ClipboardAction.rewrite => s.clipboardActionRewrite,
+    ClipboardAction.explain => s.clipboardActionExplain,
+    ClipboardAction.grammar => s.clipboardActionGrammar,
+    ClipboardAction.reply => s.clipboardActionReply,
+  };
 }
 
 /// Screen for processing shared/clipboard text with AI.
@@ -120,6 +120,7 @@ class _ClipboardProcessScreenState
       );
       final reply = await OpenAiCompatibleClient().chat(
         config: llmConfig,
+        phase: 'clipboard_custom',
         messages: [
           {
             'role': 'system',
@@ -153,9 +154,9 @@ class _ClipboardProcessScreenState
     // Intercept "Send to Chat" — navigate without LLM processing.
     if (action == ClipboardAction.sendToChat) {
       if (_selectedAgentId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.clipboardNoAgentSelected)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(s.clipboardNoAgentSelected)));
         return;
       }
       final encoded = Uri.encodeComponent(widget.inputText);
@@ -222,6 +223,7 @@ class _ClipboardProcessScreenState
       );
       final reply = await OpenAiCompatibleClient().chat(
         config: llmConfig,
+        phase: 'clipboard_process',
         messages: [
           {'role': 'system', 'content': systemPrompt},
           {'role': 'user', 'content': widget.inputText},
@@ -566,8 +568,7 @@ class _ClipboardProcessScreenState
                       )
                     : Center(
                         child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 32),
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
                           child: Text(
                             s.chooseActionAbove,
                             textAlign: TextAlign.center,

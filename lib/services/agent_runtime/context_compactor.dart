@@ -69,11 +69,9 @@ class ContextCompactor {
     final client = OpenAiCompatibleClient();
     final summary = await client.chat(
       config: config,
+      phase: 'compact',
       messages: [
-        {
-          'role': 'system',
-          'content': PromptConstants.compactorSystemPrompt,
-        },
+        {'role': 'system', 'content': PromptConstants.compactorSystemPrompt},
         {'role': 'user', 'content': historyText},
       ],
     );
@@ -88,7 +86,8 @@ class ContextCompactor {
   }
 
   /// Get context usage info.
-  static ({int estimated, int max, double percentage, bool needsCompact}) getUsageInfo({
+  static ({int estimated, int max, double percentage, bool needsCompact})
+  getUsageInfo({
     required List<ChatMessage> messages,
     required int maxContextLength,
   }) {

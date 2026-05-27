@@ -1,7 +1,6 @@
-import 'dart:convert';
-
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
+import 'json_utils.dart';
 import 'prompt_constants.dart';
 import 'prompt_templates.dart';
 import 'runtime_logger.dart';
@@ -64,13 +63,14 @@ class Executor {
   ) async {
     final response = await client.chat(
       config: config,
+      phase: phase,
       messages: [
         {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
         {'role': 'user', 'content': prompt},
       ],
     );
 
-    var parsed = _tryParseJson(response);
+    var parsed = JsonUtils.tryParseObject(response);
     if (parsed != null) {
       logger.logLlmDecision(phase, parsed);
       return parsed;
@@ -81,31 +81,19 @@ class Executor {
     final repairPrompt = PromptTemplates.jsonRepairPrompt(response);
     final repaired = await client.chat(
       config: config,
+      phase: '$phase.repair',
       messages: [
         {'role': 'user', 'content': repairPrompt},
       ],
     );
 
-    parsed = _tryParseJson(repaired);
+    parsed = JsonUtils.tryParseObject(repaired);
     if (parsed != null) {
       logger.logLlmDecision(phase, parsed);
       return parsed;
     }
 
     logger.logError('JSON repair also failed in $phase');
-    return null;
-  }
-
-  Map<String, dynamic>? _tryParseJson(String text) {
-    try {
-      var cleaned = text.trim();
-      if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replaceFirst(RegExp(r'^```\w*\n?'), '');
-        cleaned = cleaned.replaceFirst(RegExp(r'\n?```$'), '');
-      }
-      final decoded = jsonDecode(cleaned.trim());
-      if (decoded is Map<String, dynamic>) return decoded;
-    } catch (_) {}
     return null;
   }
 }

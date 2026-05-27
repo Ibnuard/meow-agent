@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meow_agent/features/modules/data/module_model.dart';
+import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:meow_agent/features/modules/device_context/device_context_models.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/tool_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('device.charging', () {
@@ -228,19 +231,30 @@ void main() {
       expect(def.inputSchema.containsKey('mode'), true);
     });
 
-    test('execute returns REQUIRES_CONFIRMATION without forceExecute', () async {
-      final router = ToolRouter();
-      final request = ToolCallRequest(
-        name: 'device.dnd.set',
-        args: {'enabled': true, 'mode': 'priority_only'},
-        risk: 'sensitive',
-        requiresConfirmation: true,
-      );
+    test(
+      'execute returns REQUIRES_CONFIRMATION without forceExecute',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final repo = ModuleRepository();
+        await repo.install(ModuleRegistry.deviceContext);
+        final installed = await repo.getInstalled();
+        final module = installed.singleWhere((m) => m.id == 'device_context');
+        await repo.update(
+          module.copyWith(settings: {...module.settings, 'allow_dnd': true}),
+        );
+        final router = ToolRouter(moduleRepository: repo);
+        final request = ToolCallRequest(
+          name: 'device.dnd.set',
+          args: {'enabled': true, 'mode': 'priority_only'},
+          risk: 'sensitive',
+          requiresConfirmation: true,
+        );
 
-      final result = await router.execute(request);
+        final result = await router.execute(request);
 
-      expect(result.success, false);
-      expect(result.error, 'REQUIRES_CONFIRMATION');
-    });
+        expect(result.success, false);
+        expect(result.error, 'REQUIRES_CONFIRMATION');
+      },
+    );
   });
 }

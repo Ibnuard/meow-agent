@@ -3,14 +3,28 @@ import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/storage/local_storage_service.dart';
 import 'module_model.dart';
 
 const _kInstalledModulesKey = 'installed_modules';
 
 /// Repository for managing installed modules.
 class ModuleRepository {
+  ModuleRepository({SharedPreferences? prefs}) : _prefs = prefs;
+
+  final SharedPreferences? _prefs;
+
+  Future<SharedPreferences> _instance({bool reload = true}) async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    // Keep direct tool reads in sync with settings changed from UI/native code.
+    if (reload) {
+      await prefs.reload();
+    }
+    return prefs;
+  }
+
   Future<List<ModuleModel>> getInstalled() async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _instance();
     final raw = prefs.getStringList(_kInstalledModulesKey) ?? [];
     final stored = raw
         .map((s) => ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>))
@@ -21,7 +35,9 @@ class ModuleRepository {
     var migrated = false;
     final reconciled = <ModuleModel>[];
     for (final m in stored) {
-      final spec = ModuleRegistry.available.where((r) => r.id == m.id).firstOrNull;
+      final spec = ModuleRegistry.available
+          .where((r) => r.id == m.id)
+          .firstOrNull;
       if (spec == null) {
         reconciled.add(m);
         continue;
@@ -39,12 +55,14 @@ class ModuleRepository {
           m.icon != spec.icon) {
         migrated = true;
       }
-      reconciled.add(m.copyWith(
-        name: spec.name,
-        description: spec.description,
-        icon: spec.icon,
-        settings: merged,
-      ));
+      reconciled.add(
+        m.copyWith(
+          name: spec.name,
+          description: spec.description,
+          icon: spec.icon,
+          settings: merged,
+        ),
+      );
     }
     if (migrated) {
       await _save(reconciled);
@@ -82,7 +100,7 @@ class ModuleRepository {
   }
 
   Future<void> _save(List<ModuleModel> modules) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _instance(reload: false);
     final raw = modules.map((m) => jsonEncode(m.toJson())).toList();
     await prefs.setStringList(_kInstalledModulesKey, raw);
   }
@@ -90,7 +108,7 @@ class ModuleRepository {
 
 /// Provider for the module repository.
 final moduleRepositoryProvider = Provider<ModuleRepository>(
-  (ref) => ModuleRepository(),
+  (ref) => ModuleRepository(prefs: ref.watch(sharedPreferencesProvider)),
 );
 
 /// Provider that exposes the list of installed modules.

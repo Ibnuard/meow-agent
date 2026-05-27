@@ -7,14 +7,15 @@ import '../data/module_repository.dart';
 /// Executes file-related tool calls.
 /// All operations are sandboxed to the agent's workspace directory.
 class FilesTools {
-  FilesTools({required this.agentName});
+  FilesTools({required this.agentName, ModuleRepository? moduleRepository})
+    : _moduleRepository = moduleRepository ?? ModuleRepository();
 
   final String agentName;
+  final ModuleRepository _moduleRepository;
 
   /// Check if the files module is enabled and a specific setting is allowed.
   Future<bool> _isAllowed(String settingKey) async {
-    final moduleRepo = ModuleRepository();
-    final modules = await moduleRepo.getInstalled();
+    final modules = await _moduleRepository.getInstalled();
     final filesMod = modules.where((m) => m.id == 'files').firstOrNull;
     if (filesMod == null || !filesMod.enabled) return false;
     return filesMod.settings[settingKey] ?? true;

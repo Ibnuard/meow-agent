@@ -8,12 +8,15 @@ import 'workflow_templates.dart';
 
 /// Agent tools for workflow management.
 class WorkflowTools {
+  WorkflowTools({ModuleRepository? moduleRepository})
+    : _moduleRepository = moduleRepository ?? ModuleRepository();
+
   final WorkflowRepository _repo = WorkflowRepository();
+  final ModuleRepository _moduleRepository;
 
   /// Check if the workflows module is enabled and a specific setting is allowed.
   Future<bool> _isAllowed(String settingKey) async {
-    final moduleRepo = ModuleRepository();
-    final modules = await moduleRepo.getInstalled();
+    final modules = await _moduleRepository.getInstalled();
     final mod = modules.where((m) => m.id == 'workflows').firstOrNull;
     if (mod == null || !mod.enabled) return false;
     return mod.settings[settingKey] ?? true;
@@ -42,16 +45,18 @@ class WorkflowTools {
       for (var i = 0; i < stepsRaw.length; i++) {
         final s = stepsRaw[i];
         if (s is Map<String, dynamic>) {
-          steps.add(WorkflowStep(
-            id: s['id'] as String? ?? 'step_${i + 1}',
-            prompt: s['prompt'] as String? ?? '',
-            condition: s['condition'] as String?,
-            onFailure: StepFailureAction.values.firstWhere(
-              (a) => a.name == s['onFailure'],
-              orElse: () => StepFailureAction.stop,
+          steps.add(
+            WorkflowStep(
+              id: s['id'] as String? ?? 'step_${i + 1}',
+              prompt: s['prompt'] as String? ?? '',
+              condition: s['condition'] as String?,
+              onFailure: StepFailureAction.values.firstWhere(
+                (a) => a.name == s['onFailure'],
+                orElse: () => StepFailureAction.stop,
+              ),
+              timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
             ),
-            timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
-          ));
+          );
         }
       }
     }
@@ -85,7 +90,9 @@ class WorkflowTools {
 
     // Parse notification config (optional).
     final notifRaw = args['notification'] as Map<String, dynamic>?;
-    final notif = notifRaw != null ? NotifConfig.fromJson(notifRaw) : const NotifConfig();
+    final notif = notifRaw != null
+        ? NotifConfig.fromJson(notifRaw)
+        : const NotifConfig();
     final sendToChat = args['send_to_chat'] as bool? ?? false;
 
     // Parse priority.
@@ -184,7 +191,8 @@ class WorkflowTools {
       agentId: agentId,
       title: tpl.titleId,
       prompt: tpl.defaultPrompt,
-      trigger: tpl.defaultTrigger ??
+      trigger:
+          tpl.defaultTrigger ??
           const TriggerConfig(type: TriggerType.interval, intervalMinutes: 60),
       enabled: true,
       priority: tpl.defaultPriority,
@@ -218,14 +226,18 @@ class WorkflowTools {
   /// List available templates.
   Future<ToolExecutionResult> listTemplates() async {
     final templates = WorkflowTemplateRegistry.templates;
-    final items = templates.map((t) => {
-          'id': t.id,
-          'title': t.titleId,
-          'description': t.descriptionId,
-          'category': t.category.name,
-          'icon': t.icon,
-          'isChained': t.defaultSteps.isNotEmpty,
-        }).toList();
+    final items = templates
+        .map(
+          (t) => {
+            'id': t.id,
+            'title': t.titleId,
+            'description': t.descriptionId,
+            'category': t.category.name,
+            'icon': t.icon,
+            'isChained': t.defaultSteps.isNotEmpty,
+          },
+        )
+        .toList();
 
     return ToolExecutionResult(
       success: true,
@@ -246,16 +258,18 @@ class WorkflowTools {
 
     final workflows = await _repo.list(agentId: agentId);
     final items = workflows
-        .map((w) => {
-              'id': w.id,
-              'title': w.title,
-              'trigger': w.trigger.summary,
-              'enabled': w.enabled,
-              'lastRun': w.lastRun?.toIso8601String(),
-              'priority': w.priority.name,
-              'isChained': w.isChained,
-              'stepCount': w.steps.length,
-            })
+        .map(
+          (w) => {
+            'id': w.id,
+            'title': w.title,
+            'trigger': w.trigger.summary,
+            'enabled': w.enabled,
+            'lastRun': w.lastRun?.toIso8601String(),
+            'priority': w.priority.name,
+            'isChained': w.isChained,
+            'stepCount': w.steps.length,
+          },
+        )
         .toList();
 
     return ToolExecutionResult(
@@ -317,7 +331,9 @@ class WorkflowTools {
   }
 
   /// Update a workflow.
-  Future<ToolExecutionResult> update({required Map<String, dynamic> args}) async {
+  Future<ToolExecutionResult> update({
+    required Map<String, dynamic> args,
+  }) async {
     if (!await _isAllowed('allow_update')) {
       return const ToolExecutionResult(
         success: false,
@@ -352,16 +368,18 @@ class WorkflowTools {
       for (var i = 0; i < stepsRaw.length; i++) {
         final s = stepsRaw[i];
         if (s is Map<String, dynamic>) {
-          newSteps.add(WorkflowStep(
-            id: s['id'] as String? ?? 'step_${i + 1}',
-            prompt: s['prompt'] as String? ?? '',
-            condition: s['condition'] as String?,
-            onFailure: StepFailureAction.values.firstWhere(
-              (a) => a.name == s['onFailure'],
-              orElse: () => StepFailureAction.stop,
+          newSteps.add(
+            WorkflowStep(
+              id: s['id'] as String? ?? 'step_${i + 1}',
+              prompt: s['prompt'] as String? ?? '',
+              condition: s['condition'] as String?,
+              onFailure: StepFailureAction.values.firstWhere(
+                (a) => a.name == s['onFailure'],
+                orElse: () => StepFailureAction.stop,
+              ),
+              timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
             ),
-            timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
-          ));
+          );
         }
       }
     }
@@ -417,7 +435,9 @@ class WorkflowTools {
   }
 
   /// Delete a workflow.
-  Future<ToolExecutionResult> delete({required Map<String, dynamic> args}) async {
+  Future<ToolExecutionResult> delete({
+    required Map<String, dynamic> args,
+  }) async {
     if (!await _isAllowed('allow_delete')) {
       return const ToolExecutionResult(
         success: false,
@@ -452,7 +472,9 @@ class WorkflowTools {
   }
 
   /// Toggle workflow enabled/disabled.
-  Future<ToolExecutionResult> toggle({required Map<String, dynamic> args}) async {
+  Future<ToolExecutionResult> toggle({
+    required Map<String, dynamic> args,
+  }) async {
     if (!await _isAllowed('allow_update')) {
       return const ToolExecutionResult(
         success: false,

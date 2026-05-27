@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
+import '../../../services/agent_runtime/context_report.dart';
 import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/workspace_file_service.dart';
@@ -40,6 +41,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
   }
+
   final _input = TextEditingController();
   final _scroll = ScrollController();
   // Per-agent message history — paginated from local storage.
@@ -223,6 +225,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       final reply = await OpenAiCompatibleClient().chat(
         config: llmConfig,
+        phase: 'legacy_chat',
         messages: _buildHistory(),
       );
       if (!mounted) return;
@@ -246,8 +249,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final service = ref.read(chatHistoryServiceProvider);
     final history = await service.loadLatest(agentId);
 
-    final hasPending =
-        _manager?.sessionFor(agentId).pendingTool != null;
+    final hasPending = _manager?.sessionFor(agentId).pendingTool != null;
     // Find the index of the last assistant message (where the live
     // confirmation marker, if any, lives).
     int lastAssistantIdx = -1;
@@ -261,18 +263,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cleaned = <ChatMessage>[];
     for (var i = 0; i < history.length; i++) {
       final m = history[i];
-      final isLiveConfirmation =
-          hasPending && i == lastAssistantIdx;
+      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
       if (!isLiveConfirmation &&
           m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(ChatMessage(
-          id: m.id,
-          role: m.role,
-          content: m.content
-              .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-              .trim(),
-          actions: m.actions,
-        ));
+        cleaned.add(
+          ChatMessage(
+            id: m.id,
+            role: m.role,
+            content: m.content
+                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+                .trim(),
+            actions: m.actions,
+          ),
+        );
       } else {
         cleaned.add(m);
       }
@@ -415,10 +418,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         return;
       case '/help':
-        response = 'Available commands:\n'
+        response =
+            'Available commands:\n'
             '• /clear — Clear chat history & context\n'
             '• /help — Show this list\n'
             '• /status — Show agent & context info\n'
+            '• /context — Show token/context breakdown\n'
             '• /reset — Reset context only\n'
             '• /model — Show current model info\n'
             '• /compact — Compact context window\n'
@@ -436,7 +441,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? providers.where((p) => p.id == agent.providerId).firstOrNull
             : null;
         if (provider != null) {
-          response = '🤖 Model Info:\n'
+          response =
+              '🤖 Model Info:\n'
               '• Provider: ${provider.nickname}\n'
               '• Model: ${provider.model}\n'
               '• Endpoint: ${provider.baseUrl}';
@@ -448,8 +454,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return;
       case '/status':
         response = _buildStatusInfo();
+      case '/context':
+        response = await _buildContextReport();
       case '/cron':
-        response = '📋 Scheduled Tasks (HEARTBEAT.md):\n'
+        response =
+            '📋 Scheduled Tasks (HEARTBEAT.md):\n'
             'No active cron jobs configured.\n'
             'Edit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
       default:
@@ -460,6 +469,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _messages.add(botMsg));
     if (shouldPersist) _persistMessage(botMsg);
     _scrollToEnd();
+  }
+
+  Future<String> _buildContextReport() async {
+    final agents = ref.read(agentListProvider);
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    if (agent == null) {
+      return 'No active agent.';
+    }
+
+    final languagePref = ref.read(appLanguageProvider);
+    final languageCode = resolveLanguageCode(languagePref);
+    return ContextReport.build(
+      agentName: agent.name,
+      languageCode: languageCode,
+      messages: _messages,
+      maxContextLength: agent.maxContextLength,
+      userMessageHint: _input.text,
+    );
   }
 
   /// Build /status info string.
@@ -495,7 +524,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ..writeln('| **Est. tokens** | ~${usage.estimated} |')
       ..writeln('| **Max context** | $maxCtx |')
       ..writeln('| **Usage** | ${usage.percentage.toStringAsFixed(1)}% |')
-      ..writeln('| **Auto-compact** | ${usage.needsCompact ? "⚠️ threshold reached" : "✓ OK"} |');
+      ..writeln(
+        '| **Auto-compact** | ${usage.needsCompact ? "⚠️ threshold reached" : "✓ OK"} |',
+      );
 
     return buf.toString().trim();
   }
@@ -523,7 +554,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_messages.length <= 8) {
       final msg = ChatMessage(
         role: 'assistant',
-        content: '✓ Context sudah ringkas (${_messages.length} pesan, '
+        content:
+            '✓ Context sudah ringkas (${_messages.length} pesan, '
             '~${ContextCompactor.estimateChatTokens(_messages)} tokens / $maxCtx max).',
       );
       setState(() => _messages.add(msg));
@@ -556,7 +588,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Clear old history and replace with compacted.
       await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
       for (final msg in compacted) {
-        await ref.read(chatHistoryServiceProvider).addMessage(_activeAgentId, msg);
+        await ref
+            .read(chatHistoryServiceProvider)
+            .addMessage(_activeAgentId, msg);
       }
 
       // Remove loading indicator and reload.
@@ -574,7 +608,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       final doneMsg = ChatMessage(
         role: 'assistant',
-        content: '✓ Context compacted: ${compacted.length} pesan '
+        content:
+            '✓ Context compacted: ${compacted.length} pesan '
             '(~${ContextCompactor.estimateChatTokens(compacted)} tokens).',
       );
       setState(() => _messages.add(doneMsg));
@@ -626,7 +661,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Persist compacted history.
       await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
       for (final msg in compacted) {
-        await ref.read(chatHistoryServiceProvider).addMessage(_activeAgentId, msg);
+        await ref
+            .read(chatHistoryServiceProvider)
+            .addMessage(_activeAgentId, msg);
       }
 
       setState(() {
@@ -636,7 +673,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Notify user.
       final infoMsg = ChatMessage(
         role: 'assistant',
-        content: '🔄 Context auto-compacted (threshold 80% reached). '
+        content:
+            '🔄 Context auto-compacted (threshold 80% reached). '
             '${compacted.length} pesan tersisa.',
       );
       setState(() => _messages.add(infoMsg));
@@ -684,18 +722,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cleaned = <ChatMessage>[];
     for (var i = 0; i < history.length; i++) {
       final m = history[i];
-      final isLiveConfirmation =
-          hasPending && i == lastAssistantIdx;
+      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
       if (!isLiveConfirmation &&
           m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(ChatMessage(
-          id: m.id,
-          role: m.role,
-          content: m.content
-              .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-              .trim(),
-          actions: m.actions,
-        ));
+        cleaned.add(
+          ChatMessage(
+            id: m.id,
+            role: m.role,
+            content: m.content
+                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+                .trim(),
+            actions: m.actions,
+          ),
+        );
       } else {
         cleaned.add(m);
       }
@@ -731,10 +770,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() {}); // Show loading indicator.
 
     final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(
-      _activeAgentId,
-      beforeId: oldestId,
-    );
+    final older = await service.loadOlder(_activeAgentId, beforeId: oldestId);
 
     if (!mounted) return;
 
@@ -784,192 +820,200 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-        title: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(agentName),
-            if (modelName != null) ...[
-              const SizedBox(height: 3),
-              Text(
-                modelName,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w400,
-                  color: cs.onSurfaceVariant,
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(agentName),
+              if (modelName != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  modelName,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: cs.onSurfaceVariant,
+                  ),
                 ),
-              ),
+              ],
             ],
+          ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () {
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/');
+              }
+            },
+          ),
+          actions: [
+            Builder(
+              builder: (ctx) => IconButton(
+                tooltip: s.switchAgent,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                constraints: const BoxConstraints(),
+                icon: agent != null
+                    ? MeowAgentIcon(
+                        agent: agent,
+                        size: 30,
+                        iconSize: 16,
+                        radius: 10,
+                      )
+                    : const Icon(Icons.switch_account_rounded),
+                onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+              ),
+            ),
+            const SizedBox(width: 4),
           ],
         ),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/');
-            }
-          },
+        endDrawer: _AgentDrawer(
+          agents: agents,
+          currentAgentId: _activeAgentId,
+          onSwitch: _switchAgent,
+          s: s,
         ),
-        actions: [
-          Builder(
-            builder: (ctx) => IconButton(
-              tooltip: s.switchAgent,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              constraints: const BoxConstraints(),
-              icon: agent != null
-                  ? MeowAgentIcon(
-                      agent: agent,
-                      size: 30,
-                      iconSize: 16,
-                      radius: 10,
-                    )
-                  : const Icon(Icons.switch_account_rounded),
-              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      endDrawer: _AgentDrawer(
-        agents: agents,
-        currentAgentId: _activeAgentId,
-        onSwitch: _switchAgent,
-        s: s,
-      ),
-      body: GestureDetector(
-        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-        behavior: HitTestBehavior.translucent,
-        child: SafeArea(
-          child: agent == null
-              ? Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.smart_toy_outlined,
-                      size: 44,
-                      color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+        body: GestureDetector(
+          onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+          behavior: HitTestBehavior.translucent,
+          child: SafeArea(
+            child: agent == null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.smart_toy_outlined,
+                          size: 44,
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          s.noAgentConfigured,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          s.createAgentToChat,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        TextButton.icon(
+                          onPressed: () => context.push('/agents/new'),
+                          icon: const Icon(Icons.add_rounded),
+                          label: Text(s.addAgent),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      s.noAgentConfigured,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: cs.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      s.createAgentToChat,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    TextButton.icon(
-                      onPressed: () => context.push('/agents/new'),
-                      icon: const Icon(Icons.add_rounded),
-                      label: Text(s.addAgent),
-                    ),
-                  ],
-                ),
-              )
-            : Column(
-                children: [
-                  Expanded(
-                    child: _initialLoading
-                        ? const Center(
-                            child: SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                              ),
-                            ),
-                          )
-                        : _messages.isEmpty && !_sending
+                  )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: _initialLoading
+                            ? const Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            : _messages.isEmpty && !_sending
                             ? _ChatEmptyState(s: s)
                             : ListView.builder(
-                            controller: _scroll,
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                            // +1 loading indicator at top, +N debug bubbles, +1 thinking.
-                            itemCount: (_loadingOlder ? 1 : 0) +
-                                _messages.length +
-                                (_manager
-                                        ?.sessionFor(_activeAgentId)
-                                        .debugMessages
-                                        .length ??
-                                    0) +
-                                (_sending ? 1 : 0),
-                            itemBuilder: (context, i) {
-                              // Loading indicator at top.
-                              if (_loadingOlder && i == 0) {
-                                return const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8),
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
+                                controller: _scroll,
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  12,
+                                ),
+                                // +1 loading indicator at top, +N debug bubbles, +1 thinking.
+                                itemCount:
+                                    (_loadingOlder ? 1 : 0) +
+                                    _messages.length +
+                                    (_manager
+                                            ?.sessionFor(_activeAgentId)
+                                            .debugMessages
+                                            .length ??
+                                        0) +
+                                    (_sending ? 1 : 0),
+                                itemBuilder: (context, i) {
+                                  // Loading indicator at top.
+                                  if (_loadingOlder && i == 0) {
+                                    return const Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        vertical: 8,
                                       ),
-                                    ),
-                                  ),
-                                );
-                              }
-                              final debugBubbles = _manager
-                                      ?.sessionFor(_activeAgentId)
-                                      .debugMessages ??
-                                  const <ChatMessage>[];
-                              final msgIndex =
-                                  i - (_loadingOlder ? 1 : 0);
-                              // Order: messages → debug bubbles → thinking.
-                              if (msgIndex < _messages.length) {
-                                return RepaintBoundary(
-                                  child: _Bubble(
-                                    msg: _messages[msgIndex],
-                                    onConfirmAction: (action) =>
-                                        _handleConfirmation(action, msgIndex),
-                                    onActionTap: _handleResultAction,
-                                  ),
-                                );
-                              }
-                              final debugIdx = msgIndex - _messages.length;
-                              if (debugIdx < debugBubbles.length) {
-                                return RepaintBoundary(
-                                  child: _Bubble(msg: debugBubbles[debugIdx]),
-                                );
-                              }
-                              // Thinking bubble at very bottom.
-                              return const _ThinkingBubble();
-                            },
-                          ),
+                                      child: Center(
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                  final debugBubbles =
+                                      _manager
+                                          ?.sessionFor(_activeAgentId)
+                                          .debugMessages ??
+                                      const <ChatMessage>[];
+                                  final msgIndex = i - (_loadingOlder ? 1 : 0);
+                                  // Order: messages → debug bubbles → thinking.
+                                  if (msgIndex < _messages.length) {
+                                    return RepaintBoundary(
+                                      child: _Bubble(
+                                        msg: _messages[msgIndex],
+                                        onConfirmAction: (action) =>
+                                            _handleConfirmation(
+                                              action,
+                                              msgIndex,
+                                            ),
+                                        onActionTap: _handleResultAction,
+                                      ),
+                                    );
+                                  }
+                                  final debugIdx = msgIndex - _messages.length;
+                                  if (debugIdx < debugBubbles.length) {
+                                    return RepaintBoundary(
+                                      child: _Bubble(
+                                        msg: debugBubbles[debugIdx],
+                                      ),
+                                    );
+                                  }
+                                  // Thinking bubble at very bottom.
+                                  return const _ThinkingBubble();
+                                },
+                              ),
+                      ),
+                      _ChatInput(
+                        controller: _input,
+                        sending: _sending,
+                        onSend: _send,
+                        s: s,
+                      ),
+                    ],
                   ),
-            _ChatInput(
-              controller: _input,
-              sending: _sending,
-              onSend: _send,
-              s: s,
-            ),
-          ],
+          ),
         ),
       ),
-      ),
-    ),
     );
   }
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({
-    required this.msg,
-    this.onConfirmAction,
-    this.onActionTap,
-  });
+  const _Bubble({required this.msg, this.onConfirmAction, this.onActionTap});
   final ChatMessage msg;
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action)? onActionTap;
@@ -980,8 +1024,9 @@ class _Bubble extends StatelessWidget {
     final extras = context.extras;
     final isUser = msg.role == 'user';
     final isConfirmation = msg.content.contains('[[CONFIRMATION_REQUIRED]]');
-    final displayContent =
-        msg.content.replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '').trim();
+    final displayContent = msg.content
+        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+        .trim();
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -1020,11 +1065,7 @@ class _Bubble extends StatelessWidget {
                 selectable: true,
                 shrinkWrap: true,
                 styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(
-                    color: cs.onSurface,
-                    fontSize: 14,
-                    height: 1.4,
-                  ),
+                  p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.4),
                   strong: TextStyle(
                     color: cs.onSurface,
                     fontWeight: FontWeight.w700,
@@ -1035,14 +1076,10 @@ class _Bubble extends StatelessWidget {
                   ),
                   code: TextStyle(
                     color: cs.primary,
-                    backgroundColor:
-                        cs.primary.withValues(alpha: 0.08),
+                    backgroundColor: cs.primary.withValues(alpha: 0.08),
                     fontSize: 13,
                   ),
-                  listBullet: TextStyle(
-                    color: cs.onSurface,
-                    fontSize: 14,
-                  ),
+                  listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
                 ),
               ),
             // Confirmation action buttons.
@@ -1080,10 +1117,12 @@ class _Bubble extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 6,
                 children: msg.actions
-                    .map((a) => _ResultActionButton(
-                          action: a,
-                          onTap: () => onActionTap!(a),
-                        ))
+                    .map(
+                      (a) => _ResultActionButton(
+                        action: a,
+                        onTap: () => onActionTap!(a),
+                      ),
+                    )
                     .toList(),
               ),
             ],
@@ -1204,7 +1243,6 @@ class _ResultActionButton extends ConsumerWidget {
 class _ThinkingBubble extends StatefulWidget {
   const _ThinkingBubble();
 
-
   @override
   State<_ThinkingBubble> createState() => _ThinkingBubbleState();
 }
@@ -1315,10 +1353,7 @@ class _ChatEmptyState extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               s.askAnythingToStart,
-              style: TextStyle(
-                fontSize: 13,
-                color: cs.onSurfaceVariant,
-              ),
+              style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
             ),
           ],
         ),
@@ -1349,6 +1384,7 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/clear', 'Clear chat history & context'),
     _SlashCommand('/help', 'Show available commands'),
     _SlashCommand('/status', 'Show agent & context info'),
+    _SlashCommand('/context', 'Show token/context breakdown'),
     _SlashCommand('/reset', 'Reset context only'),
     _SlashCommand('/model', 'Show current model info'),
     _SlashCommand('/compact', 'Compact context window'),
@@ -1414,8 +1450,9 @@ class _ChatInputState extends State<_ChatInput> {
     final text = widget.controller.text;
     if (text.startsWith('/')) {
       final query = text.toLowerCase();
-      final matches =
-          _commands.where((c) => c.command.startsWith(query)).toList();
+      final matches = _commands
+          .where((c) => c.command.startsWith(query))
+          .toList();
       setState(() {
         _filtered = matches;
         _showSuggestions = matches.isNotEmpty;
@@ -1470,7 +1507,9 @@ class _ChatInputState extends State<_ChatInput> {
                   onTap: () => _selectCommand(cmd.command),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 10),
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
                     child: Row(
                       children: [
                         Text(
@@ -1510,19 +1549,12 @@ class _ChatInputState extends State<_ChatInput> {
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.attach_file_rounded,
-                  size: 18,
-                  color: cs.primary,
-                ),
+                Icon(Icons.attach_file_rounded, size: 18, color: cs.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _attachedFileName ?? 'File',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.onSurface,
-                    ),
+                    style: TextStyle(fontSize: 12, color: cs.onSurface),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -1702,11 +1734,14 @@ class _AgentDrawer extends StatelessWidget {
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 4),
+                        horizontal: 12,
+                        vertical: 4,
+                      ),
                       itemCount: agents.length,
                       itemBuilder: (context, i) {
                         final agent = agents[i];
-                        final isActive = agent.id == currentAgentId ||
+                        final isActive =
+                            agent.id == currentAgentId ||
                             (currentAgentId == 'default' && i == 0);
 
                         return Padding(
@@ -1724,7 +1759,9 @@ class _AgentDrawer extends StatelessWidget {
                               },
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 12),
+                                  horizontal: 14,
+                                  vertical: 12,
+                                ),
                                 child: Row(
                                   children: [
                                     Stack(
@@ -1790,4 +1827,3 @@ class _AgentDrawer extends StatelessWidget {
     );
   }
 }
-

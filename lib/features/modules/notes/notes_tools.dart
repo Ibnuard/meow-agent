@@ -5,15 +5,16 @@ import 'notes_repository.dart';
 
 /// Executes notes-related tool calls.
 class NotesTools {
-  NotesTools({NotesRepository? repository})
-      : _repo = repository ?? NotesRepository();
+  NotesTools({NotesRepository? repository, ModuleRepository? moduleRepository})
+    : _repo = repository ?? NotesRepository(),
+      _moduleRepository = moduleRepository ?? ModuleRepository();
 
   final NotesRepository _repo;
+  final ModuleRepository _moduleRepository;
 
   /// Check if the notes module is enabled and a specific setting is allowed.
   Future<bool> _isAllowed(String settingKey) async {
-    final moduleRepo = ModuleRepository();
-    final modules = await moduleRepo.getInstalled();
+    final modules = await _moduleRepository.getInstalled();
     final notesMod = modules.where((m) => m.id == 'notes').firstOrNull;
     if (notesMod == null || !notesMod.enabled) return false;
     return notesMod.settings[settingKey] ?? true;
@@ -69,7 +70,8 @@ class NotesTools {
   }
 
   Future<ToolExecutionResult> executeListRecent(
-      Map<String, dynamic> args) async {
+    Map<String, dynamic> args,
+  ) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -85,12 +87,14 @@ class NotesTools {
         toolName: 'notes.list_recent',
         data: {
           'notes': notes
-              .map((n) => {
-                    'id': n.id,
-                    'title': n.title,
-                    'pinned': n.pinned,
-                    'updatedAt': n.updatedAt.millisecondsSinceEpoch,
-                  })
+              .map(
+                (n) => {
+                  'id': n.id,
+                  'title': n.title,
+                  'pinned': n.pinned,
+                  'updatedAt': n.updatedAt.millisecondsSinceEpoch,
+                },
+              )
               .toList(),
         },
       );
@@ -175,11 +179,13 @@ class NotesTools {
         toolName: 'notes.search',
         data: {
           'results': results
-              .map((n) => {
-                    'id': n.id,
-                    'title': n.title,
-                    'updatedAt': n.updatedAt.millisecondsSinceEpoch,
-                  })
+              .map(
+                (n) => {
+                  'id': n.id,
+                  'title': n.title,
+                  'updatedAt': n.updatedAt.millisecondsSinceEpoch,
+                },
+              )
               .toList(),
         },
       );
@@ -212,7 +218,12 @@ class NotesTools {
       final title = args['title'] as String?;
       final content = args['content'] as String?;
       final tags = (args['tags'] as List?)?.cast<String>();
-      await _repo.updateNote(noteId, title: title, content: content, tags: tags);
+      await _repo.updateNote(
+        noteId,
+        title: title,
+        content: content,
+        tags: tags,
+      );
       return const ToolExecutionResult(
         success: true,
         toolName: 'notes.update',
@@ -267,6 +278,7 @@ class NotesTools {
       );
     }
   }
+
   Future<ToolExecutionResult> executeExport(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_export')) {
       return const ToolExecutionResult(
@@ -293,9 +305,9 @@ class NotesTools {
       // Empty noteIds → export all notes.
       final notes = noteIds.isEmpty
           ? await _repo.listRecentNotes(limit: 1000)
-          : (await Future.wait(noteIds.map(_repo.getNote)))
-              .whereType<dynamic>()
-              .toList();
+          : (await Future.wait(
+              noteIds.map(_repo.getNote),
+            )).whereType<dynamic>().toList();
 
       if (notes.isEmpty) {
         return const ToolExecutionResult(

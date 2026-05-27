@@ -2,6 +2,25 @@ import 'package:dio/dio.dart';
 
 import '../../features/settings/data/llm_provider_config.dart';
 
+/// Lightweight request usage estimate for local diagnostics.
+class LlmRequestUsage {
+  const LlmRequestUsage({
+    required this.phase,
+    required this.model,
+    required this.inputTokens,
+    this.outputTokens,
+    required this.messageCount,
+    required this.createdAt,
+  });
+
+  final String phase;
+  final String model;
+  final int inputTokens;
+  final int? outputTokens;
+  final int messageCount;
+  final DateTime createdAt;
+}
+
 /// Minimal OpenAI-compatible chat completions client.
 ///
 /// Only [chat] is needed for the MVP. The class also supports a lightweight
@@ -11,6 +30,35 @@ class OpenAiCompatibleClient {
   OpenAiCompatibleClient({Dio? dio}) : _dio = dio ?? Dio();
 
   final Dio _dio;
+
+  static const int _maxUsageRecords = 80;
+  static final List<LlmRequestUsage> _usageRecords = [];
+
+  static List<LlmRequestUsage> get usageRecords =>
+      List.unmodifiable(_usageRecords);
+
+  static void clearUsageRecords() => _usageRecords.clear();
+
+  static int estimateTokens(String text) {
+    if (text.isEmpty) return 0;
+    return (text.length / 3.2).ceil();
+  }
+
+  static int estimateMessagesTokens(List<Map<String, String>> messages) {
+    var total = 0;
+    for (final message in messages) {
+      total += 4;
+      total += estimateTokens(message['content'] ?? '');
+    }
+    return total;
+  }
+
+  static void _recordUsage(LlmRequestUsage usage) {
+    _usageRecords.add(usage);
+    if (_usageRecords.length > _maxUsageRecords) {
+      _usageRecords.removeRange(0, _usageRecords.length - _maxUsageRecords);
+    }
+  }
 
   Uri _resolve(String baseUrl, String path) {
     final trimmed = baseUrl.endsWith('/')
@@ -22,13 +70,12 @@ class OpenAiCompatibleClient {
   Future<String> chat({
     required LlmProviderConfig config,
     required List<Map<String, String>> messages,
+    String phase = 'chat',
   }) async {
+    final estimatedInputTokens = estimateMessagesTokens(messages);
     final response = await _dio.postUri<Map<String, dynamic>>(
       _resolve(config.baseUrl, '/chat/completions'),
-      data: {
-        'model': config.model,
-        'messages': messages,
-      },
+      data: {'model': config.model, 'messages': messages},
       options: Options(
         headers: {
           'Authorization': 'Bearer ${config.apiKey}',
@@ -52,6 +99,18 @@ class OpenAiCompatibleClient {
     if (content is! String) {
       throw Exception('Malformed message content.');
     }
+    final usage = data['usage'] as Map?;
+    final completionTokens = usage?['completion_tokens'];
+    _recordUsage(
+      LlmRequestUsage(
+        phase: phase,
+        model: config.model,
+        inputTokens: estimatedInputTokens,
+        outputTokens: completionTokens is int ? completionTokens : null,
+        messageCount: messages.length,
+        createdAt: DateTime.now(),
+      ),
+    );
     return content;
   }
 
