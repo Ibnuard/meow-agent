@@ -179,7 +179,7 @@ class WorkflowStep {
     required this.prompt,
     this.condition,
     this.onFailure = StepFailureAction.stop,
-    this.timeoutSeconds = 60,
+    this.timeoutSeconds = 300,
   });
 
   final String id;
@@ -212,7 +212,7 @@ class WorkflowStep {
           (a) => a.name == json['onFailure'],
           orElse: () => StepFailureAction.stop,
         ),
-        timeoutSeconds: json['timeoutSeconds'] as int? ?? 60,
+        timeoutSeconds: json['timeoutSeconds'] as int? ?? 300,
       );
 }
 

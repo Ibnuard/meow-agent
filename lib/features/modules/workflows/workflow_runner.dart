@@ -24,6 +24,14 @@ class WorkflowRunner {
   Timer? _timer;
   final Set<String> _runningWorkflows = {};
 
+  /// Minimum timeout per step in seconds. Prevents legacy workflows stored
+  /// with old defaults (15s/30s) from timing out prematurely.
+  static const _minStepTimeoutSeconds = 120;
+
+  /// Enforce minimum floor on step timeout.
+  static int _effectiveTimeout(int stored) =>
+      stored < _minStepTimeoutSeconds ? _minStepTimeoutSeconds : stored;
+
   /// Priority-ordered execution queue.
   final Queue<WorkflowModel> _executionQueue = Queue();
   bool _processingQueue = false;
@@ -181,17 +189,8 @@ class WorkflowRunner {
     final notifId = wf.id.hashCode.abs() % 2147483647;
     final capturedEvents = <WorkflowExecutionEvent>[];
 
-    // Show 'running' notification.
-    if (wf.notification.showResult) {
-      await WorkflowNotificationService.show(
-        id: notifId,
-        title: 'Menjalankan workflow ${wf.title}',
-        body: 'Memproses...',
-        style: wf.notification.style.name,
-        payload: 'workflow:${wf.id}',
-        ongoing: true,
-      );
-    }
+    // Foreground service notification is already shown by _processQueue().
+    // No separate "running" notification needed here — avoids double notif.
 
     try {
       final engine = _ref.read(agentRuntimeEngineProvider);
@@ -224,7 +223,7 @@ class WorkflowRunner {
       }
     } on TimeoutException {
       stopwatch.stop();
-      await _handleFailure(wf, 'Timeout: eksekusi melebihi ${wf.timeoutSeconds} detik.', stopwatch.elapsedMilliseconds, capturedEvents);
+      await _handleFailure(wf, 'Timeout: eksekusi melebihi ${_effectiveTimeout(wf.timeoutSeconds)} detik.', stopwatch.elapsedMilliseconds, capturedEvents);
     } catch (e, st) {
       stopwatch.stop();
       // ignore: avoid_print
@@ -243,7 +242,10 @@ class WorkflowRunner {
     Stopwatch stopwatch,
     int notifId,
   ) async {
-    final prompt = _resolveVariables(wf.prompt, wf.variables, {});
+    final now = DateTime.now();
+    final vars = Map<String, String>.from(wf.variables);
+    vars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final prompt = _resolveVariables(wf.prompt, vars, {});
 
     final response = await engine.run(
       AgentRuntimeRequest(
@@ -261,7 +263,7 @@ class WorkflowRunner {
           createdAt: event.createdAt,
         ));
       },
-    ).timeout(Duration(seconds: wf.timeoutSeconds));
+    ).timeout(Duration(seconds: _effectiveTimeout(wf.timeoutSeconds)));
 
     stopwatch.stop();
     final result = response.finalMessage;
@@ -284,8 +286,8 @@ class WorkflowRunner {
       await WorkflowNotificationService.show(
         id: notifId,
         title: response.success
-            ? '✓ ${wf.title}'
-            : '✗ ${wf.title}',
+            ? '✅ ${wf.title}'
+            : '❌ ${wf.title}',
         body: result,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
@@ -296,8 +298,8 @@ class WorkflowRunner {
       await _injectToChat(
         wf.agentId,
         response.success
-            ? '✓ Workflow **${wf.title}** berhasil dijalankan.'
-            : '✗ Workflow **${wf.title}** gagal dijalankan.',
+            ? '✅ Workflow **${wf.title}** berhasil dijalankan.'
+            : '❌ Workflow **${wf.title}** gagal dijalankan.',
       );
     }
   }
@@ -318,6 +320,8 @@ class WorkflowRunner {
 
     // Runtime variables: start with workflow defaults, accumulate step results.
     final runtimeVars = Map<String, String>.from(wf.variables);
+    final now = DateTime.now();
+    runtimeVars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
 
     for (int i = 0; i < wf.steps.length; i++) {
       final step = wf.steps[i];
@@ -342,7 +346,19 @@ class WorkflowRunner {
       // Resolve variables in prompt.
       runtimeVars['prev'] = previousResult;
       runtimeVars['step_index'] = i.toString();
-      final resolvedPrompt = _resolveVariables(step.prompt, runtimeVars, {});
+      final rawPrompt = _resolveVariables(step.prompt, runtimeVars, {});
+
+      // Inject system context so the agent understands what {{prev}} was.
+      // This prevents the agent from saying "berikan ide jurnalnya" when
+      // {{prev}} already contains the journal content from step 1.
+      final systemPrefix = i > 0 && previousResult.isNotEmpty
+          ? '[SYSTEM CONTEXT: This is step ${i + 1} of a multi-step workflow. '
+            'The previous step\'s output is provided below as context — use it '
+            'directly, do NOT ask the user to provide it again.]\n'
+            '--- PREVIOUS STEP RESULT ---\n$previousResult\n'
+            '--- END PREVIOUS STEP RESULT ---\n\n'
+          : '';
+      final resolvedPrompt = '$systemPrefix$rawPrompt';
 
       capturedEvents.add(WorkflowExecutionEvent(
         type: 'step_start',
@@ -369,7 +385,7 @@ class WorkflowRunner {
               createdAt: event.createdAt,
             ));
           },
-        ).timeout(Duration(seconds: step.timeoutSeconds));
+        ).timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
 
         stepStopwatch.stop();
         previousResult = response.finalMessage;
@@ -422,7 +438,7 @@ class WorkflowRunner {
                     createdAt: event.createdAt,
                   ));
                 },
-              ).timeout(Duration(seconds: step.timeoutSeconds));
+              ).timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
 
               previousResult = retryResponse.finalMessage;
               runtimeVars['step_${step.id}_result'] = previousResult;
@@ -452,7 +468,7 @@ class WorkflowRunner {
         stepResults.add(StepResult(
           stepId: step.id,
           status: 'failed',
-          result: 'Timeout (${step.timeoutSeconds}s)',
+          result: 'Timeout (${_effectiveTimeout(step.timeoutSeconds)}s)',
           durationMs: stepStopwatch.elapsedMilliseconds,
         ));
         if (step.onFailure == StepFailureAction.stop) {
@@ -505,8 +521,8 @@ class WorkflowRunner {
       await WorkflowNotificationService.show(
         id: notifId,
         title: overallStatus == 'success'
-            ? '✓ ${wf.title} (${stepResults.length} steps)'
-            : '✗ ${wf.title} — $overallStatus',
+            ? '✅ ${wf.title} (${stepResults.length} steps)'
+            : '❌ ${wf.title} — $overallStatus',
         body: previousResult.isNotEmpty ? previousResult : summaryResult,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
@@ -514,7 +530,7 @@ class WorkflowRunner {
     }
 
     if (wf.sendToChat) {
-      final emoji = overallStatus == 'success' ? '✓' : '✗';
+      final emoji = overallStatus == 'success' ? '✅' : '❌';
       await _injectToChat(
         wf.agentId,
         '$emoji Workflow **${wf.title}** ($overallStatus) — ${stepResults.length} steps completed.',
@@ -618,14 +634,14 @@ class WorkflowRunner {
     await WorkflowNotificationService.cancel(notifId);
     await WorkflowNotificationService.show(
       id: notifId,
-      title: '✗ ${wf.title}',
+      title: '❌ ${wf.title}',
       body: error,
       style: wf.notification.style.name,
       payload: 'workflow:${wf.id}',
     );
 
     if (wf.sendToChat) {
-      await _injectToChat(wf.agentId, '✗ Workflow **${wf.title}** gagal: $error');
+      await _injectToChat(wf.agentId, '❌ Workflow **${wf.title}** gagal: $error');
     }
   }
 

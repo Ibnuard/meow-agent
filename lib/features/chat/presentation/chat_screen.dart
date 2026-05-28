@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -54,6 +55,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   // Tracks the last manager reply timestamp so we know when to reload.
   DateTime? _lastSeenReplyAt;
   ChatRuntimeManager? _manager;
+
+  /// Message currently being replied to (WhatsApp-style quote). Null when no
+  /// active reply context. Cleared after send or when user taps the X.
+  ChatMessage? _replyTo;
 
   @override
   void initState() {
@@ -152,6 +157,124 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return _manager!;
   }
 
+  void _stop() {
+    final mgr = _manager;
+    if (mgr == null) return;
+    mgr.cancelActive(_activeAgentId);
+  }
+
+  /// Show long-press action sheet for a chat bubble.
+  void _showMessageActions(ChatMessage msg) {
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              leading: const Icon(Icons.reply_rounded),
+              title: Text(isId ? 'Balas' : 'Reply'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _handleReply(msg);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_rounded),
+              title: Text(isId ? 'Salin teks' : 'Copy text'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _handleCopy(msg);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleCopy(ChatMessage msg) {
+    final text = _cleanContent(msg.content);
+    Clipboard.setData(ClipboardData(text: text));
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isId ? 'Disalin ke clipboard' : 'Copied to clipboard'),
+          duration: const Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _handleReply(ChatMessage msg) {
+    final clean = _cleanContent(msg.content);
+    if (clean.isEmpty) {
+      final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isId
+            ? 'Tidak bisa membalas pesan kosong.'
+            : 'Cannot reply to an empty message.'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    setState(() => _replyTo = msg);
+    // Auto-focus the input.
+    FocusScope.of(context).requestFocus(FocusNode());
+  }
+
+  void _cancelReply() {
+    setState(() => _replyTo = null);
+  }
+
+  /// Strip all sentinels (confirmation, reply-quote opening + closing) and
+  /// trim whitespace. Used everywhere we need the "clean" user-visible text.
+  static String _cleanContent(String raw) {
+    return raw
+        .replaceAll(
+          RegExp(
+            r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
+            dotAll: true,
+          ),
+          '',
+        )
+        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
+        .trim();
+  }
+
+  /// Wrap user text with a quote sentinel so the LLM and the UI both see
+  /// what's being referenced. Sentinels are stripped from display by [_Bubble]
+  /// which renders the quote as a styled inline chip above the user's text.
+  String _buildReplyPayload(ChatMessage quoted, String userText) {
+    final quotedText = _cleanContent(quoted.content);
+    // Truncate very long quotes so we don't blow up context.
+    final truncated = quotedText.length > 280
+        ? '${quotedText.substring(0, 280)}…'
+        : quotedText;
+    final role = quoted.role == 'user' ? 'You' : 'Agent';
+    return '[[REPLY_QUOTE:$role]]$truncated[[/REPLY_QUOTE]]\n$userText';
+  }
+
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
@@ -190,6 +313,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     _input.clear();
+    final replyContext = _replyTo;
+    if (replyContext != null) {
+      setState(() => _replyTo = null);
+    }
+
+    // Build the user-visible message with an optional reply quote.
+    // The quote is included in both the displayed bubble and the LLM payload
+    // so the agent has the full context of what was referenced.
+    final messageText = replyContext == null
+        ? text
+        : _buildReplyPayload(replyContext, text);
 
     if (enableAgentRuntimeV1) {
       // Auto-compact if context threshold reached.
@@ -197,7 +331,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Manager persists user msg + final reply, listener reloads history.
       final mgr = _ensureManager();
       // Optimistically show the user message immediately.
-      final userMsg = ChatMessage(role: 'user', content: text);
+      final userMsg = ChatMessage(role: 'user', content: messageText);
       setState(() => _messages.add(userMsg));
       _scrollToEnd();
       // Send recent persisted messages (those with id) as context.
@@ -205,7 +339,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Fire-and-forget — manager keeps running even if screen disposes.
       mgr.send(
         agentId: _activeAgentId,
-        userMessage: text,
+        userMessage: messageText,
         recentMessages: recent,
       );
       return;
@@ -1036,6 +1170,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               msgIndex,
                                             ),
                                         onActionTap: _handleResultAction,
+                                        onLongPress: () =>
+                                            _showMessageActions(_messages[msgIndex]),
                                       ),
                                     );
                                   }
@@ -1067,6 +1203,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         controller: _input,
                         sending: _sending,
                         onSend: _send,
+                        onStop: _stop,
+                        replyTo: _replyTo,
+                        onCancelReply: _cancelReply,
                         s: s,
                       ),
                     ],
@@ -1079,10 +1218,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _Bubble extends StatelessWidget {
-  const _Bubble({required this.msg, this.onConfirmAction, this.onActionTap});
+  const _Bubble({
+    required this.msg,
+    this.onConfirmAction,
+    this.onActionTap,
+    this.onLongPress,
+  });
   final ChatMessage msg;
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action)? onActionTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1090,111 +1235,178 @@ class _Bubble extends StatelessWidget {
     final extras = context.extras;
     final isUser = msg.role == 'user';
     final isConfirmation = msg.content.contains('[[CONFIRMATION_REQUIRED]]');
-    final displayContent = msg.content
+
+    // Extract reply-quote sentinel if present.
+    String? quoteRole;
+    String? quoteText;
+    var rawContent = msg.content;
+    final quoteMatch = RegExp(
+      r'\[\[REPLY_QUOTE:([^\]]+)\]\](.*?)\[\[/REPLY_QUOTE\]\]\n?',
+      dotAll: true,
+    ).firstMatch(rawContent);
+    if (quoteMatch != null) {
+      quoteRole = quoteMatch.group(1);
+      quoteText = quoteMatch.group(2)?.trim();
+      rawContent = rawContent.replaceFirst(quoteMatch.group(0)!, '');
+    }
+    final displayContent = rawContent
         .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
         .trim();
 
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
+    final bubble = Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.78,
+      ),
+      decoration: BoxDecoration(
+        color: isUser ? cs.primary : extras.card,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: Radius.circular(isUser ? 16 : 4),
+          bottomRight: Radius.circular(isUser ? 4 : 16),
         ),
-        decoration: BoxDecoration(
-          color: isUser ? cs.primary : extras.card,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
-          ),
-          border: isUser ? null : Border.all(color: extras.subtleBorder),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isUser)
-              Text(
-                displayContent,
-                style: TextStyle(
-                  color: cs.onPrimary,
-                  fontSize: 14,
-                  height: 1.4,
-                ),
-              )
-            else
-              MarkdownBody(
-                data: displayContent,
-                selectable: true,
-                shrinkWrap: true,
-                styleSheet: MarkdownStyleSheet(
-                  p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.4),
-                  strong: TextStyle(
-                    color: cs.onSurface,
-                    fontWeight: FontWeight.w700,
+        border: isUser ? null : Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Reply quote chip (WhatsApp-style).
+          if (quoteText != null && quoteText.isNotEmpty) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : cs.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border(
+                  left: BorderSide(
+                    color: isUser ? Colors.white70 : cs.primary,
+                    width: 3,
                   ),
-                  em: TextStyle(
-                    color: cs.onSurface,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  code: TextStyle(
-                    color: cs.primary,
-                    backgroundColor: cs.primary.withValues(alpha: 0.08),
-                    fontSize: 13,
-                  ),
-                  listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
                 ),
               ),
-            // Confirmation action buttons.
-            if (isConfirmation && onConfirmAction != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  _ConfirmButton(
-                    label: 'Accept',
-                    icon: Icons.check_rounded,
-                    color: cs.primary,
-                    onTap: () => onConfirmAction!('accept'),
+                  Text(
+                    quoteRole ?? '',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: isUser ? Colors.white : cs.primary,
+                    ),
                   ),
-                  _ConfirmButton(
-                    label: 'Always',
-                    icon: Icons.done_all_rounded,
-                    color: Colors.green,
-                    onTap: () => onConfirmAction!('always_accept'),
-                  ),
-                  _ConfirmButton(
-                    label: 'Reject',
-                    icon: Icons.close_rounded,
-                    color: Colors.redAccent,
-                    onTap: () => onConfirmAction!('reject'),
+                  const SizedBox(height: 2),
+                  Text(
+                    quoteText,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isUser
+                          ? Colors.white70
+                          : cs.onSurfaceVariant,
+                      height: 1.3,
+                    ),
                   ),
                 ],
               ),
-            ],
-            // Contextual result actions (e.g., "Open Calendar").
-            if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: msg.actions
-                    .map(
-                      (a) => _ResultActionButton(
-                        action: a,
-                        onTap: () => onActionTap!(a),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
+            ),
           ],
-        ),
+          if (isUser)
+            Text(
+              displayContent,
+              style: TextStyle(
+                color: cs.onPrimary,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            )
+          else
+            MarkdownBody(
+              data: displayContent,
+              selectable: true,
+              shrinkWrap: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.4),
+                strong: TextStyle(
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+                em: TextStyle(
+                  color: cs.onSurface,
+                  fontStyle: FontStyle.italic,
+                ),
+                code: TextStyle(
+                  color: cs.primary,
+                  backgroundColor: cs.primary.withValues(alpha: 0.08),
+                  fontSize: 13,
+                ),
+                listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
+              ),
+            ),
+          // Confirmation action buttons.
+          if (isConfirmation && onConfirmAction != null) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _ConfirmButton(
+                  label: 'Accept',
+                  icon: Icons.check_rounded,
+                  color: cs.primary,
+                  onTap: () => onConfirmAction!('accept'),
+                ),
+                _ConfirmButton(
+                  label: 'Always',
+                  icon: Icons.done_all_rounded,
+                  color: Colors.green,
+                  onTap: () => onConfirmAction!('always_accept'),
+                ),
+                _ConfirmButton(
+                  label: 'Reject',
+                  icon: Icons.close_rounded,
+                  color: Colors.redAccent,
+                  onTap: () => onConfirmAction!('reject'),
+                ),
+              ],
+            ),
+          ],
+          // Contextual result actions (e.g., "Open Calendar").
+          if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: msg.actions
+                  .map(
+                    (a) => _ResultActionButton(
+                      action: a,
+                      onTap: () => onActionTap!(a),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ],
       ),
+    );
+
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: onLongPress != null
+          ? GestureDetector(
+              onLongPress: onLongPress,
+              child: bubble,
+            )
+          : bubble,
     );
   }
 }
@@ -1525,13 +1737,19 @@ class _ChatInput extends StatefulWidget {
     required this.controller,
     required this.sending,
     required this.onSend,
+    required this.onStop,
     required this.s,
+    this.replyTo,
+    this.onCancelReply,
   });
 
   final TextEditingController controller;
   final bool sending;
   final VoidCallback onSend;
+  final VoidCallback onStop;
   final AppStrings s;
+  final ChatMessage? replyTo;
+  final VoidCallback? onCancelReply;
 
   @override
   State<_ChatInput> createState() => _ChatInputState();
@@ -1695,6 +1913,73 @@ class _ChatInputState extends State<_ChatInput> {
               }).toList(),
             ),
           ),
+        // Reply preview chip (WhatsApp-style).
+        if (widget.replyTo != null)
+          Container(
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: extras.card,
+              borderRadius: BorderRadius.circular(10),
+              border: Border(
+                left: BorderSide(color: cs.primary, width: 3),
+                top: BorderSide(color: extras.subtleBorder),
+                right: BorderSide(color: extras.subtleBorder),
+                bottom: BorderSide(color: extras.subtleBorder),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.reply_rounded, size: 16, color: cs.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        widget.replyTo!.role == 'user' ? 'You' : 'Agent',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.replyTo!.content
+                            .replaceAll(
+                              RegExp(
+                                r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
+                                dotAll: true,
+                              ),
+                              '',
+                            )
+                            .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+                            .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
+                            .trim(),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                GestureDetector(
+                  onTap: widget.onCancelReply,
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         // File preview chip.
         if (_attachedFile != null)
           Container(
@@ -1777,22 +2062,18 @@ class _ChatInputState extends State<_ChatInput> {
               ),
               const SizedBox(width: 6),
               Material(
-                color: cs.primary,
+                color: widget.sending
+                    ? Colors.red.shade400
+                    : cs.primary,
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: widget.sending ? null : widget.onSend,
+                  onTap: widget.sending ? widget.onStop : widget.onSend,
                   child: SizedBox(
                     width: 48,
                     height: 48,
                     child: widget.sending
-                        ? Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: cs.onPrimary,
-                            ),
-                          )
+                        ? const Icon(Icons.stop_rounded, color: Colors.white, size: 24)
                         : Icon(Icons.send_rounded, color: cs.onPrimary),
                   ),
                 ),

@@ -76,6 +76,11 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   final Map<String, ChatRuntimeSession> _sessions = {};
 
+  /// Agents whose current in-flight send was cancelled by the user.
+  /// Used to suppress trailing events and empty responses that arrive
+  /// after the engine.run() Future finally resolves post-cancellation.
+  final Set<String> _cancelledSends = {};
+
   ChatRuntimeSession sessionFor(String agentId) =>
       _sessions[agentId] ?? ChatRuntimeSession(agentId: agentId);
 
@@ -111,6 +116,9 @@ class ChatRuntimeManager extends ChangeNotifier {
     final userMsg = ChatMessage(role: 'user', content: userMessage);
     await history.addMessage(agentId, userMsg);
 
+    // Reset cancellation flag from any previous send.
+    _cancelledSends.remove(agentId);
+
     _set(agentId, sessionFor(agentId).copyWith(
       isRunning: true,
       debugMessages: [],
@@ -138,6 +146,11 @@ class ChatRuntimeManager extends ChangeNotifier {
         ),
         provider: provider,
         onEvent: (event) {
+          // Drop trailing events after cancellation. The engine's loop is
+          // cooperative and may emit a few more events before bailing out;
+          // we don't want them polluting the chat after the cancel message.
+          if (_cancelledSends.contains(agentId)) return;
+
           // LLM-driven narrative bubble: ONLY update when an explicit
           // narrative event arrives. State_change events no longer override
           // — the last LLM narrative stays sticky across phases that don't
@@ -164,6 +177,14 @@ class ChatRuntimeManager extends ChangeNotifier {
         },
       );
 
+      // If cancelled during the run, the cancel message has already been
+      // posted by cancelActive() and isRunning has been cleared. Don't
+      // overwrite that with the empty/aborted response from engine.run().
+      if (_cancelledSends.contains(agentId)) {
+        _cancelledSends.remove(agentId);
+        return;
+      }
+
       final isConfirm =
           response.state == AgentRuntimeState.waitingConfirmation;
       final replyMsg = ChatMessage(
@@ -184,6 +205,11 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearNarrative: true,
       ));
     } catch (e) {
+      // Don't post an error if the user explicitly cancelled.
+      if (_cancelledSends.contains(agentId)) {
+        _cancelledSends.remove(agentId);
+        return;
+      }
       await history.addMessage(
         agentId,
         ChatMessage(role: 'assistant', content: 'Error: $e'),
@@ -308,6 +334,25 @@ class ChatRuntimeManager extends ChangeNotifier {
       ChatMessage(role: 'assistant', content: rejectMsg),
     );
     _set(agentId, sessionFor(agentId).copyWith(
+      isRunning: false,
+      debugMessages: [],
+      clearPending: true,
+      lastReplyAt: DateTime.now(),
+      clearNarrative: true,
+    ));
+  }
+
+  /// Cancel an in-flight runtime task (user pressed stop button).
+  Future<void> cancelActive(String agentId) async {
+    final s = sessionFor(agentId);
+    if (!s.isRunning) return;
+    _cancelledSends.add(agentId);
+    await engine.abortActiveTask(agentId);
+    await history.addMessage(
+      agentId,
+      ChatMessage(role: 'assistant', content: '⏹️ Proses dibatalkan.'),
+    );
+    _set(agentId, s.copyWith(
       isRunning: false,
       debugMessages: [],
       clearPending: true,

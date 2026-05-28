@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+import 'dart:ui' show Color;
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// Notification service for workflow execution results.
@@ -66,6 +69,14 @@ class WorkflowNotificationService {
       ongoing: ongoing,
       autoCancel: !ongoing,
       onlyAlertOnce: ongoing,
+      // Alarm mode: aggressive vibration pattern + insistent to keep alerting.
+      vibrationPattern: style == 'alarm' && !ongoing
+          ? Int64List.fromList([0, 500, 200, 500, 200, 500, 200, 1000])
+          : null,
+      enableLights: style == 'alarm',
+      ledColor: const Color(0xFF3B82F6),
+      ledOnMs: 1000,
+      ledOffMs: 500,
       category: style == 'alarm'
           ? AndroidNotificationCategory.alarm
           : AndroidNotificationCategory.reminder,

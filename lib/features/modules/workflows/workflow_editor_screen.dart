@@ -69,7 +69,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       hour: wf.trigger.hour ?? 8,
       minute: wf.trigger.minute ?? 0,
     );
-    _selectedDays = wf.trigger.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7];
+    _selectedDays = List<int>.from(wf.trigger.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
     _intervalMinutes = wf.trigger.intervalMinutes ?? 60;
     _notifStyle = wf.notification.style;
     _sendToChat = wf.sendToChat;
@@ -94,7 +94,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       if (t.hour != null) {
         _time = TimeOfDay(hour: t.hour!, minute: t.minute ?? 0);
       }
-      _selectedDays = t.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7];
+      _selectedDays = List<int>.from(t.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
       _intervalMinutes = t.intervalMinutes ?? 60;
     }
     _steps = List.from(tpl.defaultSteps);
@@ -112,9 +112,28 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   Future<void> _save() async {
-    if (_titleCtrl.text.trim().isEmpty) return;
-    if (_steps.isEmpty && _promptCtrl.text.trim().isEmpty) return;
-    if (_selectedAgentId == null) return;
+    final isId = Localizations.localeOf(context).languageCode == 'id';
+    if (_selectedAgentId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    if (_titleCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isId ? 'Judul workflow tidak boleh kosong.' : 'Workflow title is required.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+    if (_steps.isEmpty && _promptCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(isId ? 'Prompt atau langkah tidak boleh kosong.' : 'Prompt or steps are required.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
 
     Map<String, dynamic>? eventParams;
     if (_triggerType == TriggerType.event) {
@@ -677,7 +696,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       if (name != null && name.isNotEmpty) used.add(name);
     }
     // Exclude reserved runtime vars.
-    used.removeAll(['prev', 'step_index']);
+    used.removeAll(['prev', 'step_index', 'date']);
     return used;
   }
 
@@ -714,7 +733,49 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             color: cs.onSurfaceVariant.withValues(alpha: 0.6),
           ),
         ),
-        // Auto-detected suggestions.
+        // System variables info — only shown for multi-step workflows.
+        if (_steps.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: cs.onSurface.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: cs.onSurfaceVariant.withValues(alpha: 0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.info_outline_rounded, size: 13, color: cs.onSurfaceVariant),
+                    const SizedBox(width: 6),
+                    Text(
+                      isId ? 'Variabel Sistem (otomatis):' : 'System Variables (auto):',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                _systemVarRow('{{prev}}',
+                    isId ? 'Hasil output dari langkah sebelumnya' : 'Output from the previous step',
+                    cs),
+                const SizedBox(height: 3),
+                _systemVarRow('{{date}}',
+                    isId ? 'Tanggal hari ini (YYYY-MM-DD)' : 'Today\'s date (YYYY-MM-DD)',
+                    cs),
+                const SizedBox(height: 3),
+                _systemVarRow('{{step_index}}',
+                    isId ? 'Nomor urut langkah saat ini (0, 1, 2...)' : 'Current step index (0, 1, 2...)',
+                    cs),
+              ],
+            ),
+          ),
+        ],
         if (undefinedVars.isNotEmpty) ...[
           const SizedBox(height: 10),
           Container(
@@ -1048,6 +1109,33 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     ),
   );
 
+  Widget _systemVarRow(String varName, String desc, ColorScheme cs) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          varName,
+          style: TextStyle(
+            fontSize: 11,
+            color: cs.primary.withValues(alpha: 0.8),
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            desc,
+            style: TextStyle(
+              fontSize: 11,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildInput(
     TextEditingController ctrl,
     String hint,
@@ -1315,14 +1403,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           ),
         ),
         const SizedBox(width: 12),
-        Transform.scale(
-          scale: 0.85,
-          child: Switch(
-            value: value,
-            onChanged: onChanged,
-            activeTrackColor: cs.primary,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          ),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeTrackColor: cs.primary,
         ),
       ],
     );

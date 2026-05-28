@@ -94,6 +94,10 @@ class AgentRuntimeEngine {
   /// Pending actions per agent (agentId → PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
 
+  /// Agents whose in-flight task has been cancelled by the user.
+  /// Checked cooperatively inside [_executeLoop] to bail out early.
+  final Set<String> _cancelledAgents = {};
+
   /// Pending clarification per agent.
   /// Used when analyzer asked missing-info questions. The next user message is
   /// merged with the original request before analysis.
@@ -135,6 +139,7 @@ class AgentRuntimeEngine {
     String agentId, {
     RequestSource source = RequestSource.chat,
   }) async {
+    _cancelledAgents.add(agentId);
     await _finishTaskScope(
       agentId: agentId,
       source: source,
@@ -153,6 +158,8 @@ class AgentRuntimeEngine {
     RuntimeEventCallback? onEvent,
     bool autoApproveSensitive = false,
   }) async {
+    // Clear any prior cancellation flag for this agent.
+    _cancelledAgents.remove(request.agentId);
     final logger = RuntimeLogger();
 
     void emit(RuntimeEvent event) {
@@ -1374,6 +1381,16 @@ class AgentRuntimeEngine {
           );
 
     for (var i = 0; i < adaptiveLimit; i++) {
+      // Cooperative cancellation check.
+      if (_cancelledAgents.contains(request.agentId)) {
+        _cancelledAgents.remove(request.agentId);
+        return AgentRuntimeResponse(
+          finalMessage: '',
+          success: false,
+          state: AgentRuntimeState.failed,
+        );
+      }
+
       var state = AgentRuntimeState.selectingTool;
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);

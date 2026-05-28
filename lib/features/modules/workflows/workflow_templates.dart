@@ -87,16 +87,15 @@ class WorkflowTemplateRegistry {
         WorkflowStep(
           id: 'generate_prompt',
           prompt: 'Buat prompt refleksi jurnal yang unik untuk hari ini.',
-          timeoutSeconds: 30,
+          timeoutSeconds: 120,
         ),
         WorkflowStep(
           id: 'save_note',
           prompt: 'Simpan prompt berikut sebagai note baru dengan judul "Jurnal {{date}}": {{prev}}',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 15,
+          timeoutSeconds: 120,
         ),
       ],
-      defaultVariables: {'date': ''},
     ),
 
     // ─── Monitoring ───────────────────────────────────────────────────────────
@@ -205,19 +204,19 @@ class WorkflowTemplateRegistry {
         WorkflowStep(
           id: 'gather_device',
           prompt: 'Kumpulkan informasi device: baterai, storage, dan koneksi.',
-          timeoutSeconds: 30,
+          timeoutSeconds: 120,
         ),
         WorkflowStep(
           id: 'gather_calendar',
           prompt: 'Ambil jadwal kalender untuk hari ini dan besok.',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 30,
+          timeoutSeconds: 120,
         ),
         WorkflowStep(
           id: 'compile_report',
           prompt: 'Kompilasi informasi berikut menjadi laporan ringkas dan simpan sebagai note:\n\nDevice: {{step_gather_device_result}}\nKalender: {{step_gather_calendar_result}}',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 45,
+          timeoutSeconds: 180,
         ),
       ],
       defaultTrigger: TriggerConfig(
