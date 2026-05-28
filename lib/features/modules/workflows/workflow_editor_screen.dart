@@ -70,7 +70,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       minute: wf.trigger.minute ?? 0,
     );
     _selectedDays = List<int>.from(wf.trigger.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
-    _intervalMinutes = wf.trigger.intervalMinutes ?? 60;
+    _intervalMinutes = _snapIntervalToOption(wf.trigger.intervalMinutes ?? 60);
     _notifStyle = wf.notification.style;
     _sendToChat = wf.sendToChat;
     _allowSensitive = wf.allowSensitive;
@@ -95,7 +95,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         _time = TimeOfDay(hour: t.hour!, minute: t.minute ?? 0);
       }
       _selectedDays = List<int>.from(t.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
-      _intervalMinutes = t.intervalMinutes ?? 60;
+      _intervalMinutes = _snapIntervalToOption(t.intervalMinutes ?? 60);
     }
     _steps = List.from(tpl.defaultSteps);
     _variables = Map.from(tpl.defaultVariables);
@@ -274,6 +274,19 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       if (opt >= stored) return opt;
     }
     return 300;
+  }
+
+  /// Snap any loaded interval to the nearest valid chip option so the UI
+  /// always has a selected state. Falls back to 60m (1h) for values that
+  /// don't match any option.
+  static int _snapIntervalToOption(int stored) {
+    const options = [15, 30, 60, 120, 180, 360, 720, 1440];
+    if (options.contains(stored)) return stored;
+    // Pick the smallest option >= stored, else default to 1h.
+    for (final opt in options) {
+      if (opt >= stored) return opt;
+    }
+    return 60;
   }
 
   void _removeStep(int index) {
@@ -1311,8 +1324,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   Widget _buildIntervalPicker(ColorScheme cs, bool isId) {
-    final options = [15, 30, 60, 120, 360, 720, 1440];
-    final labels = ['15m', '30m', '1h', '2h', '6h', '12h', '24h'];
+    final options = [15, 30, 60, 120, 180, 360, 720, 1440];
+    final labels = ['15m', '30m', '1h', '2h', '3h', '6h', '12h', '24h'];
     return Wrap(
       spacing: 8,
       runSpacing: 8,

@@ -242,7 +242,7 @@ class WorkflowTemplateRegistry {
           'atau stretching exercise yang bisa dilakukan dalam 2 menit.',
       defaultTrigger: TriggerConfig(
         type: TriggerType.interval,
-        intervalMinutes: 90,
+        intervalMinutes: 120,
       ),
       defaultPriority: WorkflowPriority.low,
     ),
