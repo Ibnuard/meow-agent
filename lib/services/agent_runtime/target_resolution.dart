@@ -1,6 +1,7 @@
 import 'ecosystem_snapshot.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
+import 'language_registry.dart';
 import 'reflector.dart';
 import 'runtime_models.dart';
 import 'snapshot_target_resolver.dart';
@@ -875,14 +876,17 @@ class TargetResolver {
         .where((name) => name.trim().isNotEmpty)
         .toSet()
         .join(', ');
-    if (language.code == 'id') {
-      return names.isEmpty
-          ? 'Aku belum bisa memastikan target yang dimaksud. Target mana yang mau dipakai?'
-          : 'Aku belum bisa memastikan target ini: $names. Mau pakai target yang mana?';
+    if (names.isEmpty) {
+      return LanguageRegistry.phrase(
+        'clarify_target_unknown',
+        language.code,
+      );
     }
-    return names.isEmpty
-        ? 'I cannot verify the requested target yet. Which target should I use?'
-        : 'I cannot verify these target(s): $names. Which target should I use?';
+    return LanguageRegistry.phrase(
+      'clarify_target_unverified',
+      language.code,
+      {'names': names},
+    );
   }
 
   static String _blockForNoEligibleTargets(
@@ -894,14 +898,14 @@ class TargetResolver {
         .where((name) => name.trim().isNotEmpty)
         .toSet()
         .join(', ');
-    if (language.code == 'id') {
-      return names.isEmpty
-          ? 'Tidak ada target valid yang bisa aku kerjakan dari permintaan ini.'
-          : 'Tidak ada target valid yang bisa aku kerjakan. Target yang dilewati: $names.';
+    if (names.isEmpty) {
+      return LanguageRegistry.phrase('block_no_targets', language.code);
     }
-    return names.isEmpty
-        ? 'There are no valid targets I can act on for this request.'
-        : 'There are no valid targets I can act on. Skipped target(s): $names.';
+    return LanguageRegistry.phrase(
+      'clarify_target_no_eligible',
+      language.code,
+      {'names': names},
+    );
   }
 }
 

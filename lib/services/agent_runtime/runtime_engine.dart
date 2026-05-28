@@ -12,10 +12,13 @@ import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
+import 'language_registry.dart';
 import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
+import 'post_execute_validator.dart';
 import 'prompt_constants.dart';
+import 'recovery_coordinator.dart';
 import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
@@ -486,37 +489,6 @@ class AgentRuntimeEngine {
         }
       }
 
-      // Conflict-clarify: when an active ledger exists and the new message
-      // is classified as a brand-new unrelated task, ask the user to confirm
-      // whether to abandon the in-flight task before continuing. Revision
-      // and continuation simply proceed — they edit/answer the same goal.
-      if (activeLedger != null && relation == '__legacy_disabled__') {
-        final legacyRelation = (analysis['task_relation'] as String? ?? 'none')
-            .trim();
-        if (legacyRelation == 'new_task') {
-          // Soft-archive the old ledger as aborted to free the scope, then
-          // surface a friendly heads-up so the user knows their previous task
-          // was set aside. The runtime continues with the new request.
-          await ledgerDb.archive(activeLedger.id, LedgerStatus.aborted);
-          final headsUp = await verbalizer.taskAborted(
-            previousMainGoal: activeLedger.mainGoal,
-            language: detectedLang,
-          );
-          logger.logStateChange(
-            AgentRuntimeState.analyzing,
-            'Active ledger ${activeLedger.id} archived (aborted) due to '
-            'new_task classification. Heads-up surfaced.',
-          );
-          emit(logger.events.last);
-          // We do NOT short-circuit — we just emit the heads-up as a system
-          // narrative event and continue planning the new request.
-          logger.logNarrative('relation', headsUp);
-          emit(logger.events.last);
-        }
-        // For 'revision' / 'continuation' / 'none' we keep the ledger and
-        // let the analyzer's own narrative + downstream phases proceed.
-      }
-
       // If analyzer detected ambiguity, ask user before doing anything else.
       final missingInfo =
           (analysis['missing_info'] as List?)
@@ -749,6 +721,25 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
 
         if (plan == null) {
+          // Pre-loop recovery: retry once with the full tool catalog before
+          // giving up. Mirrors the in-loop rethink behavior — broaden the
+          // tool set when the original selection didn't yield a plan.
+          logger.logError(
+            'Planner returned null on first attempt; retrying with broadened tools.',
+          );
+          final broadenedAnalyzer =
+              toolRouter.buildAllAnalyzerToolDescriptions();
+          plan = await planner.plan(
+            analysis: analysis,
+            availableTools: broadenedAnalyzer.isNotEmpty
+                ? broadenedAnalyzer
+                : toolRouter.buildAllToolDescriptions(),
+            logger: logger,
+          );
+          emit(logger.events.last);
+        }
+
+        if (plan == null) {
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail('Failed to create execution plan.', logger);
         }
@@ -788,7 +779,68 @@ class AgentRuntimeEngine {
               source: request.source,
             );
 
-      // 4. Execute loop.
+      // 4. Execute loop with recovery + post-execute verification.
+      final recovery = RecoveryCoordinator();
+      final validator = PostExecuteValidator(
+        snapshotBuilder: () async => _buildSnapshot(),
+      );
+
+      // Capture a non-nullable snapshot of analysis for the rethink closure.
+      // The null check above guarantees analysis is non-null here, but
+      // Dart's flow analysis cannot carry that promotion into the closure
+      // body, so we promote explicitly.
+      final capturedAnalysis = Map<String, dynamic>.from(analysis);
+
+      Future<({Map<String, dynamic> plan, GoalTree goalTree})?> rethink() async {
+        try {
+          final freshSnapshot = await _buildSnapshot();
+          final freshAnalysis = Map<String, dynamic>.from(capturedAnalysis);
+          final priorContext = recovery.toReflectionContextList();
+          if (priorContext.isNotEmpty) {
+            freshAnalysis['prior_attempts'] = priorContext;
+          }
+
+          // On recovery, broaden the tool set. The original selection might
+          // have missed the right tool category; giving the planner the full
+          // catalog lets it pivot to a different approach.
+          final broadenedTools = toolRouter.buildAllToolDescriptions();
+          final broadenedAnalyzerTools =
+              toolRouter.buildAllAnalyzerToolDescriptions();
+          freshAnalysis['available_tools_broadened'] = true;
+
+          final reReflection = await reflector.reflect(
+            userMessage: effectiveUserMessage,
+            analysis: freshAnalysis,
+            snapshot: freshSnapshot,
+            availableTools:
+                _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+            language: detectedLang,
+            logger: logger,
+            recentMessages: recentMsgs,
+          );
+          final newPlan = await planner.plan(
+            analysis: freshAnalysis,
+            availableTools: broadenedAnalyzerTools.isNotEmpty
+                ? broadenedAnalyzerTools
+                : broadenedTools,
+            logger: logger,
+          );
+          if (newPlan == null) return null;
+
+          final newTree = reReflection.goalTree.isNotEmpty
+              ? reReflection.goalTree
+              : _buildGoalTree(
+                  plan: newPlan,
+                  analysis: freshAnalysis,
+                  userMessage: effectiveUserMessage,
+                );
+          return (plan: newPlan, goalTree: newTree);
+        } catch (e) {
+          logger.logError('Recovery rethink failed', e);
+          return null;
+        }
+      }
+
       return _executeLoop(
         request: loopRequest,
         plan: plan,
@@ -800,6 +852,9 @@ class AgentRuntimeEngine {
         logger: logger,
         emit: emit,
         memorySnapshot: _memory.formatForPrompt(request.agentId),
+        recovery: recovery,
+        postExecuteValidator: validator,
+        rethink: rethink,
         autoApproveSensitive: autoApproveSensitive,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
@@ -1278,6 +1333,10 @@ class AgentRuntimeEngine {
     required RuntimeLogger logger,
     required void Function(RuntimeEvent) emit,
     required String memorySnapshot,
+    RecoveryCoordinator? recovery,
+    PostExecuteValidator? postExecuteValidator,
+    Future<({Map<String, dynamic> plan, GoalTree goalTree})?> Function()?
+        rethink,
     bool autoApproveSensitive = false,
     bool isWorkflowAutoExecute = false,
     List<Map<String, dynamic>>? initialPreviousResults,
@@ -1316,8 +1375,37 @@ class AgentRuntimeEngine {
       emit(logger.events.last);
 
       if (selection == null) {
+        final recoveryDecision = await _maybeRecover(
+          recovery: recovery,
+          rethink: rethink,
+          reason: 'selector_null',
+          stageHint: 'select_tool',
+          logger: logger,
+        );
+        if (recoveryDecision != null) {
+          return _executeLoop(
+            request: request,
+            plan: recoveryDecision.plan,
+            goalTree: recoveryDecision.goalTree,
+            executor: executor,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            availableTools: availableTools,
+            logger: logger,
+            emit: emit,
+            memorySnapshot: memorySnapshot,
+            recovery: recovery,
+            postExecuteValidator: postExecuteValidator,
+            rethink: rethink,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+          );
+        }
         await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-        return _fail('Tool selection failed.', logger);
+        return _fail(
+          recovery?.giveUpMessage(detectedLang) ?? 'Tool selection failed.',
+          logger,
+        );
       }
 
       final selectNarrative = (selection['narrative'] ?? '').toString();
@@ -1399,9 +1487,37 @@ class AgentRuntimeEngine {
       }
 
       if (status == 'failed') {
+        final recoveryDecision = await _maybeRecover(
+          recovery: recovery,
+          rethink: rethink,
+          reason: 'selector_failed',
+          stageHint: 'select_tool',
+          errorSummary: selection['error']?.toString() ?? '',
+          logger: logger,
+        );
+        if (recoveryDecision != null) {
+          return _executeLoop(
+            request: request,
+            plan: recoveryDecision.plan,
+            goalTree: recoveryDecision.goalTree,
+            executor: executor,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            availableTools: availableTools,
+            logger: logger,
+            emit: emit,
+            memorySnapshot: memorySnapshot,
+            recovery: recovery,
+            postExecuteValidator: postExecuteValidator,
+            rethink: rethink,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+          );
+        }
         await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         return _fail(
-          selection['error'] as String? ?? 'Runtime failed.',
+          recovery?.giveUpMessage(detectedLang) ??
+              (selection['error'] as String? ?? 'Runtime failed.'),
           logger,
         );
       }
@@ -1409,8 +1525,38 @@ class AgentRuntimeEngine {
       if (status == 'tool_required') {
         final toolJson = selection['tool'] as Map<String, dynamic>?;
         if (toolJson == null) {
+          final recoveryDecision = await _maybeRecover(
+            recovery: recovery,
+            rethink: rethink,
+            reason: 'selector_missing_tool',
+            stageHint: 'select_tool',
+            logger: logger,
+          );
+          if (recoveryDecision != null) {
+            return _executeLoop(
+              request: request,
+              plan: recoveryDecision.plan,
+              goalTree: recoveryDecision.goalTree,
+              executor: executor,
+              verbalizer: verbalizer,
+              detectedLang: detectedLang,
+              availableTools: availableTools,
+              logger: logger,
+              emit: emit,
+              memorySnapshot: memorySnapshot,
+              recovery: recovery,
+              postExecuteValidator: postExecuteValidator,
+              rethink: rethink,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+            );
+          }
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-          return _fail('Tool selection returned no tool data.', logger);
+          return _fail(
+            recovery?.giveUpMessage(detectedLang) ??
+                'Tool selection returned no tool data.',
+            logger,
+          );
         }
 
         final toolRequest = ToolCallRequest.fromJson(toolJson);
@@ -1433,12 +1579,44 @@ class AgentRuntimeEngine {
             currentStep++;
             continue;
           }
-          // Already re-planned and still stuck — abort with a polite,
-          // localized message instead of swallowing more tokens.
-          final abortMsg = await verbalizer.abort(
-            reason: 'agent looped on ${toolRequest.name} after retry',
-            language: detectedLang,
+          // Already re-planned and still stuck — try recovery before giving
+          // up. The recovery flow re-reflects with the failure context AND
+          // broadens the tool set, which often unsticks loops caused by a
+          // missing-tool blind spot.
+          final recoveryDecision = await _maybeRecover(
+            recovery: recovery,
+            rethink: rethink,
+            failedTool: toolRequest,
+            reason: 'stuck_loop',
+            logger: logger,
           );
+          if (recoveryDecision != null) {
+            stuck.reset();
+            rePlanned = false;
+            return _executeLoop(
+              request: request,
+              plan: recoveryDecision.plan,
+              goalTree: recoveryDecision.goalTree,
+              executor: executor,
+              verbalizer: verbalizer,
+              detectedLang: detectedLang,
+              availableTools: availableTools,
+              logger: logger,
+              emit: emit,
+              memorySnapshot: memorySnapshot,
+              recovery: recovery,
+              postExecuteValidator: postExecuteValidator,
+              rethink: rethink,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+            );
+          }
+          // No recovery possible — abort with a localized message.
+          final abortMsg = recovery?.giveUpMessage(detectedLang) ??
+              await verbalizer.abort(
+                reason: 'agent looped on ${toolRequest.name} after retry',
+                language: detectedLang,
+              );
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(abortMsg);
           return AgentRuntimeResponse(
@@ -1662,6 +1840,65 @@ class AgentRuntimeEngine {
             state: AgentRuntimeState.failed,
             events: logger.events,
           );
+        }
+
+        // Post-execute verification: confirm mutating tools actually landed
+        // in the snapshot. Replaces the agent-only check with a generic
+        // metadata-driven gate. Skipped silently when the tool has no
+        // verification probe (retrieval tools, snapshot-less environments).
+        if (postExecuteValidator != null && result.success) {
+          final toolDef = toolRouter.getDefinition(toolRequest.name);
+          if (toolDef != null) {
+            final verification = await postExecuteValidator.verify(
+              tool: toolRequest,
+              definition: toolDef,
+              result: result,
+            );
+            if (verification.isUnverified) {
+              logger.logError(
+                'Post-execute verification failed: ${verification.reason} '
+                '(entity=${verification.expectedEntity}, type=${verification.entityType})',
+              );
+              final recoveryDecision = await _maybeRecover(
+                recovery: recovery,
+                rethink: rethink,
+                failedTool: toolRequest,
+                reason: 'verification_unverified',
+                logger: logger,
+                unverifiedEntity: verification.expectedEntity,
+                unverifiedEntityType: verification.entityType,
+              );
+              if (recoveryDecision != null) {
+                return _executeLoop(
+                  request: request,
+                  plan: recoveryDecision.plan,
+                  goalTree: recoveryDecision.goalTree,
+                  executor: executor,
+                  verbalizer: verbalizer,
+                  detectedLang: detectedLang,
+                  availableTools: availableTools,
+                  logger: logger,
+                  emit: emit,
+                  memorySnapshot: memorySnapshot,
+                  recovery: recovery,
+                  postExecuteValidator: postExecuteValidator,
+                  rethink: rethink,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                );
+              }
+              await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+              final unverifiedMessage =
+                  verification.userFacingMessage(detectedLang);
+              logger.logFinalResponse(unverifiedMessage);
+              return AgentRuntimeResponse(
+                finalMessage: unverifiedMessage,
+                success: false,
+                state: AgentRuntimeState.failed,
+                events: logger.events,
+              );
+            }
+          }
         }
 
         // Last planned step + success: short-circuit with verbalizer.success.
@@ -1929,11 +2166,37 @@ class AgentRuntimeEngine {
         }
 
         if (reviewStatus == 'failed') {
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-          return _fail(
-            review['error'] as String? ?? 'Unrecoverable error.',
-            logger,
+          final recoveryDecision = await _maybeRecover(
+            recovery: recovery,
+            rethink: rethink,
+            failedTool: toolRequest,
+            reason: 'tool_failed',
+            errorSummary: review['error']?.toString() ?? '',
+            logger: logger,
           );
+          if (recoveryDecision != null) {
+            return _executeLoop(
+              request: request,
+              plan: recoveryDecision.plan,
+              goalTree: recoveryDecision.goalTree,
+              executor: executor,
+              verbalizer: verbalizer,
+              detectedLang: detectedLang,
+              availableTools: availableTools,
+              logger: logger,
+              emit: emit,
+              memorySnapshot: memorySnapshot,
+              recovery: recovery,
+              postExecuteValidator: postExecuteValidator,
+              rethink: rethink,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+            );
+          }
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          final giveUp = recovery?.giveUpMessage(detectedLang) ??
+              (review['error'] as String? ?? 'Unrecoverable error.');
+          return _fail(giveUp, logger);
         }
 
         if (reviewStatus == 'retry' && retryCount < 1) {
@@ -1962,6 +2225,87 @@ class AgentRuntimeEngine {
       'Maximum runtime steps ($adaptiveLimit) reached without completion.',
       logger,
     );
+  }
+
+  /// Records a failure with the [RecoveryCoordinator] and, if budget allows,
+  /// invokes the [rethink] closure to obtain a fresh plan + goal tree.
+  ///
+  /// Returns `null` when:
+  /// - no recovery coordinator/rethink closure was wired (legacy callers)
+  /// - the coordinator decided to give up (budget exhausted, structural fail)
+  /// - rethink failed to produce a new plan
+  ///
+  /// The caller is expected to fall back to its previous "give up" branch
+  /// in those cases.
+  Future<({Map<String, dynamic> plan, GoalTree goalTree})?> _maybeRecover({
+    required RecoveryCoordinator? recovery,
+    required Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
+            Function()?
+        rethink,
+    required String reason,
+    required RuntimeLogger logger,
+    ToolCallRequest? failedTool,
+    String stageHint = '',
+    String errorSummary = '',
+    String unverifiedEntity = '',
+    String unverifiedEntityType = '',
+  }) async {
+    if (recovery == null || rethink == null) return null;
+
+    final toolMarker = failedTool?.name ?? stageHint;
+    final argsSummary = failedTool == null
+        ? errorSummary
+        : _summarizeArgs(failedTool.args);
+
+    recovery.recordAttemptFailure(
+      RecoveryAttempt(
+        reason: reason,
+        failedToolName: toolMarker,
+        failedArgsSummary: argsSummary,
+        unverifiedEntity: unverifiedEntity,
+        unverifiedEntityType: unverifiedEntityType,
+      ),
+    );
+
+    final decision = recovery.evaluate(
+      snapshotMaybeStale: reason == 'verification_unverified',
+    );
+    if (decision != RecoveryDecision.rethinkAndReplan) {
+      logger.logError(
+        'Recovery decision=${decision.name} after $reason '
+        '(attempts=${recovery.attemptCount}/${recovery.maxAttempts})',
+      );
+      return null;
+    }
+
+    logger.logStateChange(
+      AgentRuntimeState.analyzing,
+      'Recovery: re-reflecting with prior failure context '
+      '(attempt ${recovery.attemptCount}/${recovery.maxAttempts}, reason=$reason)',
+    );
+
+    final replan = await rethink();
+    if (replan == null) {
+      logger.logError('Recovery: rethink returned no new plan; giving up.');
+      return null;
+    }
+    logger.logLlmDecision('recovery.replan', {
+      'attempt': recovery.attemptCount,
+      'reason': reason,
+      'subgoals': replan.goalTree.subgoals.length,
+    });
+    return replan;
+  }
+
+  String _summarizeArgs(Map<String, dynamic> args) {
+    if (args.isEmpty) return '';
+    final parts = <String>[];
+    args.forEach((key, value) {
+      final v = value?.toString() ?? '';
+      final truncated = v.length > 24 ? '${v.substring(0, 24)}…' : v;
+      parts.add('$key=$truncated');
+    });
+    return parts.take(4).join(', ');
   }
 
   /// Build a [GoalTree] from the planner output. Tolerates legacy
@@ -2344,31 +2688,17 @@ class AgentRuntimeEngine {
     }
 
     final mismatchNames = [...missingCreates, ...stillPresentDeletes];
-    final missingText = missingCreates.join(', ');
-    final stillPresentText = stillPresentDeletes.join(', ');
-    if (language.code == 'id') {
-      final detail = [
-        if (missingCreates.isNotEmpty) '$missingText belum ada',
-        if (stillPresentDeletes.isNotEmpty) '$stillPresentText masih ada',
-      ].join(', dan ');
-      return _CompletionVerification(
-        ok: false,
-        missingNames: mismatchNames,
-        message:
-            'Aku cek ulang daftar agen: $detail, jadi task ini belum aku anggap selesai. Mau aku lanjut bereskan bagian yang belum sesuai?',
-        question: 'Lanjut bereskan bagian yang belum sesuai: $detail?',
-      );
-    }
-    final detail = [
-      if (missingCreates.isNotEmpty) '$missingText is still missing',
-      if (stillPresentDeletes.isNotEmpty) '$stillPresentText is still present',
-    ].join(', and ');
+    final entityList = mismatchNames.join(', ');
+    final message = LanguageRegistry.phrase(
+      'completion_unverified',
+      language.code,
+      {'entity': entityList.isEmpty ? 'agen yang diminta' : entityList},
+    );
     return _CompletionVerification(
       ok: false,
       missingNames: mismatchNames,
-      message:
-          'I checked the agent list again: $detail, so I am not marking this task complete. Should I continue fixing the unfinished part?',
-      question: 'Continue fixing the unfinished part: $detail?',
+      message: message,
+      question: message,
     );
   }
 
@@ -2785,6 +3115,10 @@ class AgentRuntimeEngine {
   }
 
   bool _isRetrievalTool(String toolName) {
+    // Authoritative source: ToolDefinition metadata. Falls back to a name
+    // heuristic for tools that haven't been explicitly flagged yet.
+    final def = toolRouter.getDefinition(toolName);
+    if (def != null && def.isRetrieval) return true;
     final name = toolName.toLowerCase();
     if (name.endsWith('.read') ||
         name.endsWith('.list') ||
@@ -2851,33 +3185,43 @@ class AgentRuntimeEngine {
       return null;
     }
 
-    final isId = languageCode == 'id';
+    // The user's effective language for THIS engine instance. The runtime is
+    // constructed per turn so this is already the right setting/detected lang.
+    final code = languageCode;
     final reason = data['reason'] as String? ?? '';
     final moduleName = (data['moduleName'] as String? ?? '').trim();
     final module = moduleName.isEmpty
-        ? (isId ? 'modul terkait' : 'the required module')
+        ? LanguageRegistry.phrase('permission_module_default', code)
         : moduleName;
-    final action =
-        ((isId ? data['actionLabelId'] : data['actionLabel']) as String? ?? '')
-            .trim();
+
+    // Action labels are still keyed by id/en in the policy data because that
+    // matches what the modules ship. We pick the user-language-friendly
+    // variant when available, otherwise default to the English variant
+    // since LanguageRegistry will wrap it in a properly localized sentence.
+    final actionRawKey = code == 'id' ? 'actionLabelId' : 'actionLabel';
+    final action = ((data[actionRawKey] ?? data['actionLabel']) as String? ?? '')
+        .trim();
     final actionLabel = action.isEmpty
-        ? (isId ? 'menjalankan aksi itu' : 'do that')
+        ? LanguageRegistry.phrase('permission_action_default', code)
         : action;
+
+    final settingRawKey = code == 'id' ? 'settingLabelId' : 'settingLabel';
     final setting =
-        ((isId ? data['settingLabelId'] : data['settingLabel']) as String? ??
-                '')
-            .trim();
+        ((data[settingRawKey] ?? data['settingLabel']) as String? ?? '').trim();
 
     if (reason == ToolPermissionBlockReason.settingDisabled.name &&
         setting.isNotEmpty) {
-      return isId
-          ? 'Saya belum bisa $actionLabel karena izin "$setting" di modul $module sedang nonaktif. Aktifkan dulu izin itu di halaman Modules, lalu coba lagi.'
-          : 'I cannot $actionLabel because "$setting" is turned off in the $module module. Enable that permission in Modules first, then try again.';
+      return LanguageRegistry.phrase('permission_denied', code, {
+        'action': actionLabel,
+        'module': module,
+        'setting': setting,
+      });
     }
 
-    return isId
-        ? 'Saya belum bisa $actionLabel karena modul $module belum aktif. Aktifkan dulu modul itu di halaman Modules, lalu coba lagi.'
-        : 'I cannot $actionLabel because the $module module is not active. Enable that module in Modules first, then try again.';
+    return LanguageRegistry.phrase('permission_denied_no_setting', code, {
+      'action': actionLabel,
+      'module': module,
+    });
   }
 }
 

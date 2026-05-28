@@ -145,7 +145,7 @@ ${PromptConstants.selectToolResponseFormat}''';
     required Map<String, dynamic> plan,
     required int currentStep,
     required String userMessage,
-    String language = 'Indonesian',
+    String language = 'English',
     GoalTree? goalTree,
   }) {
     final goalBlock = goalTree == null || goalTree.isEmpty

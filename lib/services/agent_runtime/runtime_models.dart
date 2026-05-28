@@ -191,6 +191,8 @@ class ToolDefinition {
     this.selectorArgs = const [],
     this.policies = const [],
     this.postconditions = const {},
+    this.isRetrieval = false,
+    this.verificationProbe,
   });
 
   final String name;
@@ -204,12 +206,31 @@ class ToolDefinition {
   final List<String> policies;
   final Map<String, String> postconditions;
 
+  /// True for read-only / informational tools (read, list, search, status,
+  /// summary, classify, etc). Replaces the old hardcoded `_isRetrievalTool`
+  /// whitelist in the engine.
+  ///
+  /// Retrieval tools are EXEMPT from the post-execute mutation verifier and
+  /// are also the only ones that may legitimately answer the user from a
+  /// single tool call.
+  final bool isRetrieval;
+
+  /// Optional spec describing how to verify a mutating tool actually
+  /// landed in the ecosystem after execution. Drives the generic
+  /// PostExecuteValidator (replacing the agent-only
+  /// `_verifyAgentRegistryCompletion`).
+  ///
+  /// `null` means "no automatic post-execute verification" — typically used
+  /// for retrieval tools or tools whose outcome is not snapshot-observable.
+  final ToolVerificationProbe? verificationProbe;
+
   bool get hasRuntimeMetadata =>
       operation.isNotEmpty ||
       targetEntity.isNotEmpty ||
       selectorArgs.isNotEmpty ||
       policies.isNotEmpty ||
-      postconditions.isNotEmpty;
+      postconditions.isNotEmpty ||
+      verificationProbe != null;
 
   String get runtimeMetadataSummary {
     if (!hasRuntimeMetadata) return '';
@@ -220,9 +241,65 @@ class ToolDefinition {
       if (policies.isNotEmpty) 'policies:${policies.join("|")}',
       if (postconditions.isNotEmpty)
         'postconditions:${postconditions.entries.map((e) => '${e.key}=${e.value}').join("|")}',
+      if (verificationProbe != null) 'verify:${verificationProbe!.kind}',
     ];
     return parts.join(', ');
   }
+}
+
+/// Specifies how the runtime should verify a mutating tool's outcome.
+///
+/// The runtime evaluates the probe AFTER the tool reports success. If the
+/// probe fails, the runtime treats the operation as unverified and triggers
+/// the recovery flow (re-reflect → re-plan) instead of trusting the LLM.
+///
+/// This is the "anti-halu" gate: tool said it worked, but did it actually?
+class ToolVerificationProbe {
+  const ToolVerificationProbe({
+    required this.kind,
+    this.entityType = '',
+    this.expectPresent = true,
+    this.selectorArgKey = '',
+    this.expectedDataKeys = const [],
+  });
+
+  /// Probe kind:
+  /// - `snapshot_contains` — rebuild ecosystem snapshot, expect entity present
+  /// - `snapshot_absent`   — rebuild snapshot, expect entity absent (delete)
+  /// - `tool_result_data`  — trust tool result data has expected shape
+  /// - `none`              — no probe (alias for null)
+  final String kind;
+
+  /// Snapshot entity type to look up (`agent`, `workflow`, `provider`, ...).
+  final String entityType;
+
+  /// True for create/update probes (entity must exist after).
+  /// False for delete probes (entity must NOT exist after).
+  final bool expectPresent;
+
+  /// Tool arg key whose value is the entity selector (typically a name).
+  /// Falls back to `name` / `title` heuristics when empty.
+  final String selectorArgKey;
+
+  /// For `tool_result_data` probes: the runtime asserts that every key in
+  /// this list exists in `result.data` with a non-null, non-empty value.
+  ///
+  /// Use this for non-snapshot entities (notes, calendar events, files,
+  /// profile fields) where the tool's own result payload is the only
+  /// observable proof of mutation. Example: `['noteId']` for notes.create.
+  final List<String> expectedDataKeys;
+
+  /// Helper for common create/update verification.
+  static const ToolVerificationProbe createOrUpdate = ToolVerificationProbe(
+    kind: 'snapshot_contains',
+    expectPresent: true,
+  );
+
+  /// Helper for common delete verification.
+  static const ToolVerificationProbe delete = ToolVerificationProbe(
+    kind: 'snapshot_absent',
+    expectPresent: false,
+  );
 }
 
 /// Agent workspace files loaded from storage.

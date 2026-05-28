@@ -323,6 +323,44 @@ class Reflector {
                 '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}')
             .join('\n');
 
+    // Recovery context: when the runtime is asking the reflector to rethink
+    // after a previous failure, surface the full attempt history. This is
+    // what makes "never give up" actually work — without it, the LLM has no
+    // memory of what already failed and would just retry the same approach.
+    final priorAttempts = analysis['prior_attempts'];
+    String? priorAttemptsBlock;
+    if (priorAttempts is List && priorAttempts.isNotEmpty) {
+      final lines = <String>[];
+      for (var i = 0; i < priorAttempts.length; i++) {
+        final entry = priorAttempts[i];
+        if (entry is Map) {
+          final reason = (entry['reason'] ?? 'unknown').toString();
+          final tool = (entry['tool'] ?? entry['failed_tool'] ?? '').toString();
+          final args =
+              (entry['args'] ?? entry['failed_args'] ?? '').toString();
+          final entity = (entry['unverified_entity'] ?? '').toString();
+          final detail = [
+            if (tool.isNotEmpty) 'tool=$tool',
+            if (args.isNotEmpty) 'args=$args',
+            if (entity.isNotEmpty) 'unverified=$entity',
+          ].join(', ');
+          lines.add(
+            '  ${i + 1}. reason=$reason${detail.isEmpty ? '' : ' · $detail'}',
+          );
+        }
+      }
+      if (lines.isNotEmpty) {
+        priorAttemptsBlock =
+            'PRIOR ATTEMPTS (these already failed — DO NOT repeat them; '
+            'pick a fundamentally different approach):\n${lines.join('\n')}';
+      }
+    }
+
+    final broadenedNote = analysis['available_tools_broadened'] == true
+        ? 'NOTE: The full tool catalog is now available. Consider tools '
+            'outside the original selection if they fit better.'
+        : '';
+
     return '''${PromptConstants.reflectIntro}
 
 ${PromptConstants.reflectRules(language.label)}
@@ -331,7 +369,7 @@ User message: "$userMessage"
 
 Analyzer output:
 ${_jsonSummary(analysis)}
-
+${priorAttemptsBlock == null ? '' : '\n$priorAttemptsBlock\n'}${broadenedNote.isEmpty ? '' : '\n$broadenedNote\n'}
 Recent conversation:
 $historyBlock
 

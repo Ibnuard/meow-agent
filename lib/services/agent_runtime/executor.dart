@@ -45,7 +45,7 @@ class Executor {
     required int currentStep,
     required String userMessage,
     required RuntimeLogger logger,
-    String language = 'Indonesian',
+    String language = 'English',
     GoalTree? goalTree,
   }) async {
     final prompt = PromptTemplates.reviewPrompt(

@@ -3,6 +3,7 @@ import '../../features/settings/data/app_language_provider.dart';
 import '../llm/openai_compatible_client.dart';
 import '../workspace/workspace_file_service.dart';
 import 'context_compactor.dart';
+import 'language_registry.dart';
 import 'prompt_constants.dart';
 import 'tool_catalog.dart';
 import 'tool_router.dart';
@@ -23,8 +24,6 @@ class ContextReport {
     required int maxContextLength,
     String userMessageHint = '',
   }) async {
-    final isId = languageCode == 'id';
-
     final recentMessages = messages.length > 20
         ? messages.sublist(messages.length - 20)
         : messages;
@@ -89,99 +88,68 @@ class ContextReport {
         ? ((usedTokens / maxContextLength) * 100).clamp(0, 999).round()
         : 0;
 
-    String headline;
-    if (pct < 30) {
-      headline = isId
-          ? 'masih sangat lega, baru terpakai $pct%'
-          : 'plenty of room, only $pct% used';
-    } else if (pct < 60) {
-      headline = isId
-          ? 'masih nyaman, sekitar $pct% terpakai'
-          : 'comfortable, around $pct% used';
-    } else if (pct < 80) {
-      headline = isId
-          ? 'mulai padat, sudah $pct% terpakai'
-          : 'getting tight, $pct% used';
-    } else {
-      headline = isId
-          ? 'hampir penuh, sudah $pct% — sebentar lagi otomatis dirapikan'
-          : 'almost full, $pct% used — auto-cleanup will kick in soon';
-    }
+    final headlineKey = pct < 30
+        ? 'context_headline_low'
+        : pct < 60
+            ? 'context_headline_comfortable'
+            : pct < 80
+                ? 'context_headline_tight'
+                : 'context_headline_full';
+    final headline = LanguageRegistry.phrase(headlineKey, languageCode, {
+      'pct': pct.toString(),
+    });
 
     final fullContextDelta = (allToolsTokens - selectedToolsTokens).clamp(
       0,
       1 << 30,
     );
 
-    final buf = StringBuffer();
+    final buf = StringBuffer()
+      ..writeln(
+        LanguageRegistry.phrase('context_title', languageCode, {
+          'agent': agentName,
+        }),
+      )
+      ..writeln()
+      ..writeln('$headline.')
+      ..writeln()
+      ..writeln(
+        LanguageRegistry.phrase('context_capacity_line', languageCode, {
+          'max': maxContextLength.toString(),
+          'used': usedTokens.toString(),
+          'free': remainingTokens.toString(),
+        }),
+      )
+      ..writeln()
+      ..writeln(LanguageRegistry.phrase('context_currently_holding', languageCode))
+      ..writeln()
+      ..writeln(
+        LanguageRegistry.phrase('context_item_identity', languageCode, {
+          'tokens': identityTokens.toString(),
+        }),
+      )
+      ..writeln(
+        LanguageRegistry.phrase('context_item_messages', languageCode, {
+          'count': recentMessages.length.toString(),
+          'tokens': messagesTokens.toString(),
+        }),
+      )
+      ..writeln(
+        LanguageRegistry.phrase('context_item_capabilities', languageCode, {
+          'used': selectedTools.length.toString(),
+          'total': allTools.length.toString(),
+          'tokens': selectedToolsTokens.toString(),
+        }),
+      );
 
-    if (isId) {
+    if (fullContextDelta > 100) {
       buf
-        ..writeln('🧠 Memori $agentName')
-        ..writeln()
-        ..writeln('$headline.')
         ..writeln()
         ..writeln(
-          'Dari $maxContextLength token kapasitas, sekitar $usedTokens '
-          'sedang digunakan dan $remainingTokens masih kosong.',
-        )
-        ..writeln()
-        ..writeln('Apa saja yang sedang diingat:')
-        ..writeln()
-        ..writeln(
-          '- Identitas kamu dan catatan personal (~$identityTokens token)',
-        )
-        ..writeln(
-          '- ${recentMessages.length} pesan percakapan terakhir (~$messagesTokens token)',
-        )
-        ..writeln(
-          '- Kemampuan yang relevan untuk topik sekarang '
-          '(${selectedTools.length} dari ${allTools.length} kemampuan, '
-          '~$selectedToolsTokens token)',
+          LanguageRegistry.phrase('context_savings_note', languageCode, {
+            'delta': fullContextDelta.toString(),
+          }),
         );
-
-      if (fullContextDelta > 100) {
-        buf
-          ..writeln()
-          ..writeln(
-            'Karena agen cuma membawa kemampuan yang relevan, kamu hemat '
-            'sekitar $fullContextDelta token tiap pesan.',
-          );
-      }
-    } else {
-      buf
-        ..writeln('🧠 $agentName\u2019s Memory')
-        ..writeln()
-        ..writeln('$headline.')
-        ..writeln()
-        ..writeln(
-          'Out of $maxContextLength tokens of capacity, about $usedTokens '
-          'are in use and $remainingTokens are free.',
-        )
-        ..writeln()
-        ..writeln('What it\u2019s currently keeping in mind:')
-        ..writeln()
-        ..writeln(
-          '- Your identity and personal notes (~$identityTokens tokens)',
-        )
-        ..writeln(
-          '- The last ${recentMessages.length} messages of your conversation '
-          '(~$messagesTokens tokens)',
-        )
-        ..writeln(
-          '- Capabilities relevant to the current topic '
-          '(${selectedTools.length} of ${allTools.length} skills, '
-          '~$selectedToolsTokens tokens)',
-        );
-
-      if (fullContextDelta > 100) {
-        buf
-          ..writeln()
-          ..writeln(
-            'Because the agent only loads skills that fit the topic, you save '
-            'around $fullContextDelta tokens per message.',
-          );
-      }
     }
 
     return buf.toString().trim();

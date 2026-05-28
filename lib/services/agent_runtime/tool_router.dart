@@ -283,6 +283,14 @@ class ToolRouter {
         'tags': 'list<string> (optional)',
         'source': 'string (optional, default runtime)',
       },
+      operation: 'create',
+      targetEntity: 'note',
+      selectorArgs: ['title'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['noteId'],
+      ),
     ),
     'notes.list_recent': const ToolDefinition(
       name: 'notes.list_recent',
@@ -317,6 +325,14 @@ class ToolRouter {
         'content': 'string (optional)',
         'tags': 'list<string> (optional)',
       },
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated'],
+      ),
     ),
     'notes.delete': const ToolDefinition(
       name: 'notes.delete',
@@ -324,6 +340,14 @@ class ToolRouter {
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'noteId': 'string (required)'},
+      operation: 'delete',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['deleted'],
+      ),
     ),
     'notes.export': const ToolDefinition(
       name: 'notes.export',
@@ -353,6 +377,11 @@ class ToolRouter {
       targetEntity: 'file',
       selectorArgs: ['path'],
       postconditions: {'file_present': 'path'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['path'],
+      ),
     ),
     'files.read': const ToolDefinition(
       name: 'files.read',
@@ -384,6 +413,11 @@ class ToolRouter {
       targetEntity: 'file',
       selectorArgs: ['path'],
       postconditions: {'file_present': 'path'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['path'],
+      ),
     ),
     'files.delete': const ToolDefinition(
       name: 'files.delete',
@@ -399,6 +433,11 @@ class ToolRouter {
       targetEntity: 'file',
       selectorArgs: ['path'],
       postconditions: {'file_absent': 'path'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['deleted'],
+      ),
     ),
     'files.list': const ToolDefinition(
       name: 'files.list',
@@ -427,6 +466,11 @@ class ToolRouter {
       operation: 'rename',
       targetEntity: 'file',
       selectorArgs: ['from', 'to'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['to'],
+      ),
     ),
     'files.mkdir': const ToolDefinition(
       name: 'files.mkdir',
@@ -442,6 +486,11 @@ class ToolRouter {
       targetEntity: 'file',
       selectorArgs: ['path'],
       postconditions: {'directory_present': 'path'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['path'],
+      ),
     ),
 
     // ─── Calendar Module ───────────────────────────────────────────────────────
@@ -459,6 +508,14 @@ class ToolRouter {
         'color': 'string (optional, hex)',
         'tags': 'list<string> (optional)',
       },
+      operation: 'create',
+      targetEntity: 'calendar_event',
+      selectorArgs: ['title'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'calendar_event',
+        expectedDataKeys: ['eventId'],
+      ),
     ),
     'calendar.today': const ToolDefinition(
       name: 'calendar.today',
@@ -499,6 +556,14 @@ class ToolRouter {
         'color': 'string (optional)',
         'tags': 'list<string> (optional)',
       },
+      operation: 'update',
+      targetEntity: 'calendar_event',
+      selectorArgs: ['eventId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'calendar_event',
+        expectedDataKeys: ['updated'],
+      ),
     ),
     'calendar.delete': const ToolDefinition(
       name: 'calendar.delete',
@@ -506,6 +571,14 @@ class ToolRouter {
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'eventId': 'string (required)'},
+      operation: 'delete',
+      targetEntity: 'calendar_event',
+      selectorArgs: ['eventId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'calendar_event',
+        expectedDataKeys: ['deleted'],
+      ),
     ),
 
     // ─── Workflow Module ─────────────────────────────────────────────────────────────
@@ -530,6 +603,16 @@ class ToolRouter {
         'variables':
             'object (optional) - {key: defaultValue} accessed in prompts as {{key}}',
       },
+      operation: 'create',
+      targetEntity: 'workflow',
+      selectorArgs: ['title'],
+      postconditions: {'workflow_present': 'title'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'snapshot_contains',
+        entityType: 'workflow',
+        expectPresent: true,
+        selectorArgKey: 'title',
+      ),
     ),
     'workflow.create_from_template': const ToolDefinition(
       name: 'workflow.create_from_template',
@@ -548,9 +631,16 @@ class ToolRouter {
     ),
     'workflow.list': const ToolDefinition(
       name: 'workflow.list',
-      description: 'List all workflows for this agent.',
+      description:
+          'List workflows. By default returns ALL workflows across the app, '
+          'matching what the user sees in the Workflows screen. Pass '
+          '"assignedTo" (agent id or name) to filter to one agent.',
       risk: 'safe',
       requiresConfirmation: false,
+      inputSchema: {
+        'assignedTo':
+            'string (optional, agent id or name to filter on)',
+      },
       operation: 'list',
       targetEntity: 'workflow',
     ),
@@ -586,6 +676,12 @@ class ToolRouter {
       targetEntity: 'workflow',
       selectorArgs: ['id', 'title'],
       postconditions: {'workflow_updated': 'id'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'snapshot_contains',
+        entityType: 'workflow',
+        expectPresent: true,
+        selectorArgKey: 'id',
+      ),
     ),
     'workflow.delete': const ToolDefinition(
       name: 'workflow.delete',
@@ -597,6 +693,12 @@ class ToolRouter {
       targetEntity: 'workflow',
       selectorArgs: ['id', 'title'],
       postconditions: {'workflow_absent': 'id'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'snapshot_absent',
+        entityType: 'workflow',
+        expectPresent: false,
+        selectorArgKey: 'id',
+      ),
     ),
     'workflow.toggle': const ToolDefinition(
       name: 'workflow.toggle',
@@ -647,6 +749,14 @@ class ToolRouter {
             'string (required: name|nickname|preferred_language|timezone|work_role|main_project|communication_style|design_preference)',
         'value': 'string (required)',
       },
+      operation: 'update',
+      targetEntity: 'profile',
+      selectorArgs: ['field'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'profile',
+        expectedDataKeys: ['field'],
+      ),
     ),
     'system.memory.append': const ToolDefinition(
       name: 'system.memory.append',
@@ -659,6 +769,14 @@ class ToolRouter {
         'category':
             'string (optional: fact|preference|bookmark|session, default fact)',
       },
+      operation: 'create',
+      targetEntity: 'memory',
+      selectorArgs: ['content'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'memory',
+        expectedDataKeys: ['entry'],
+      ),
     ),
     'system.agents.list': const ToolDefinition(
       name: 'system.agents.list',
@@ -692,6 +810,12 @@ class ToolRouter {
       targetEntity: 'agent',
       selectorArgs: ['name'],
       postconditions: {'agent_present': 'name'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'snapshot_contains',
+        entityType: 'agent',
+        expectPresent: true,
+        selectorArgKey: 'name',
+      ),
     ),
     'system.agents.delete': const ToolDefinition(
       name: 'system.agents.delete',
@@ -710,6 +834,12 @@ class ToolRouter {
       selectorArgs: ['id', 'agentId', 'name'],
       policies: ['deny_current_agent'],
       postconditions: {'agent_absent': 'name'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'snapshot_absent',
+        entityType: 'agent',
+        expectPresent: false,
+        selectorArgKey: 'name',
+      ),
     ),
     'system.providers.list': const ToolDefinition(
       name: 'system.providers.list',
@@ -1012,7 +1142,8 @@ class ToolRouter {
         return _workflowTools().listTemplates();
       case 'workflow.list':
         return _workflowTools().list(
-          agentId: agentId.isNotEmpty ? agentId : agentName,
+          callerAgentId: agentId.isNotEmpty ? agentId : agentName,
+          args: request.args,
         );
       case 'workflow.read':
         return _workflowTools().read(args: request.args);

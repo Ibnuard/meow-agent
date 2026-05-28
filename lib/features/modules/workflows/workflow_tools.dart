@@ -246,8 +246,13 @@ class WorkflowTools {
     );
   }
 
-  /// List all workflows for the agent.
-  Future<ToolExecutionResult> list({required String agentId}) async {
+  /// List workflows. Defaults to ALL workflows across the app (matching the
+  /// Workflows UI). Pass `assignedTo` (agent id or name) to scope to one
+  /// agent. `callerAgentId` is logged for traceability but does NOT filter.
+  Future<ToolExecutionResult> list({
+    required String callerAgentId,
+    Map<String, dynamic> args = const {},
+  }) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -256,14 +261,23 @@ class WorkflowTools {
       );
     }
 
-    final workflows = await _repo.list(agentId: agentId);
-    final items = workflows
+    final workflows = await _repo.list();
+    final assignedTo = (args['assignedTo'] as String? ?? '').trim();
+    final filtered = assignedTo.isEmpty
+        ? workflows
+        : workflows
+            .where((w) =>
+                w.agentId.toLowerCase() == assignedTo.toLowerCase())
+            .toList();
+
+    final items = filtered
         .map(
           (w) => {
             'id': w.id,
             'title': w.title,
             'trigger': w.trigger.summary,
             'enabled': w.enabled,
+            'assignedAgentId': w.agentId,
             'lastRun': w.lastRun?.toIso8601String(),
             'priority': w.priority.name,
             'isChained': w.isChained,
@@ -275,7 +289,13 @@ class WorkflowTools {
     return ToolExecutionResult(
       success: true,
       toolName: 'workflow.list',
-      data: {'count': items.length, 'workflows': items},
+      data: {
+        'count': items.length,
+        'totalCount': workflows.length,
+        'callerAgentId': callerAgentId,
+        if (assignedTo.isNotEmpty) 'filteredBy': assignedTo,
+        'workflows': items,
+      },
     );
   }
 
