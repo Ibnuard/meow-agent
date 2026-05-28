@@ -16,6 +16,7 @@ class PromptTemplates {
     PendingAction? pendingAction,
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
+    String activeTaskContext = '',
   }) {
     final historyBlock = recentMessages.isNotEmpty
         ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
@@ -44,6 +45,14 @@ class PromptTemplates {
               '- If a required detail is genuinely missing, set requires_tools=false and put the failure reason in missing_info, but do NOT phrase it as a confirmation question.\n'
         : '';
 
+    final activeTaskBlock = activeTaskContext.isNotEmpty
+        ? '\n\nACTIVE TASK CONTEXT (a task is already in flight for this agent):\n'
+              '$activeTaskContext\n\n'
+              'Use this context to set task_relation. If the new user message is unrelated, set task_relation="new_task". '
+              'If it edits or refines the same goal (a parameter, name, or scope change), set task_relation="revision". '
+              'If it just answers a clarify/affirms ("ok", "yes", "lanjut"), set task_relation="continuation".'
+        : '';
+
     final language = languageLabelFromCode(languageCode);
 
     return '''${PromptConstants.analyzeIntro}
@@ -60,7 +69,7 @@ ${availableTools.join('\n')}
 
 Recent conversation:
 $historyBlock
-$pendingBlock$memoryBlock$sourceModeBlock
+$pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
 
 User message: "$userMessage"
 

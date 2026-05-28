@@ -21,27 +21,69 @@ class FilesTools {
     return filesMod.settings[settingKey] ?? true;
   }
 
-  /// Resolve and validate a path within the workspace.
-  /// Returns null if the path escapes the workspace (security).
+  /// Resolve and validate a path. The sandbox boundary is the MeowAgent
+  /// root (`/Documents/MeowAgent/`), NOT the calling agent's own workspace.
+  /// This lets agents read/write peer workspaces (e.g. swap personalities)
+  /// while still preventing traversal to arbitrary device paths.
+  ///
+  /// A path can be supplied in three forms:
+  /// - relative (`SOUL.md`, `notes/foo.md`) → resolved against the calling
+  ///   agent's own workspace.
+  /// - workspace-relative (`Agents/Penulis/SOUL.md`) → resolved against the
+  ///   MeowAgent root, which lets agents reach peer workspaces.
+  /// - absolute (`/storage/emulated/0/Documents/MeowAgent/...`) → accepted
+  ///   only when the absolute path stays under MeowAgent root.
+  ///
+  /// Returns null when the resolved path escapes MeowAgent root (security).
   Future<String?> _resolveSafePath(String relativePath) async {
+    final result = await _resolveWithMeta(relativePath);
+    return result?.path;
+  }
+
+  /// Same resolution as [_resolveSafePath] but also tells the caller whether
+  /// the resolved path is OUTSIDE the calling agent's own workspace so the
+  /// runtime can decide whether to require confirmation.
+  Future<_ResolvedPath?> _resolveWithMeta(String relativePath) async {
     final wsDir = await WorkspacePaths.getAgentWorkspace(agentName);
-    final wsPath = wsDir.path;
+    final root = await WorkspacePaths.getMeowRoot();
+    final wsNorm = Directory(wsDir.path).absolute.path;
+    final rootNorm = Directory(root.path).absolute.path;
 
-    // Normalize: remove leading slashes, prevent traversal.
-    final cleaned = relativePath
-        .replaceAll('\\', '/')
-        .replaceAll(RegExp(r'^/+'), '');
+    // Normalize separators — keep absolute markers intact.
+    var cleaned = relativePath.replaceAll('\\', '/');
+    if (cleaned.contains('..')) return null; // No traversal up.
 
-    if (cleaned.contains('..')) return null;
+    String resolvedRaw;
+    if (cleaned.startsWith('/')) {
+      // Caller passed an absolute path. Accept only when it's under
+      // MeowAgent root to keep arbitrary device paths out of reach.
+      resolvedRaw = cleaned;
+    } else if (cleaned.startsWith('Agents/') || cleaned.startsWith('agents/')) {
+      // Workspace-relative: resolve against MeowAgent root so agents can
+      // address peer workspaces by `Agents/<Name>/SOUL.md`.
+      resolvedRaw = '$rootNorm/$cleaned';
+    } else {
+      // Default: relative to own workspace, same as before the widening.
+      resolvedRaw = '${wsDir.path}/$cleaned';
+    }
 
-    final resolved = '$wsPath/$cleaned';
+    final resolvedNorm = File(resolvedRaw).absolute.path;
 
-    // Double-check the resolved path is still within workspace.
-    final resolvedNorm = File(resolved).absolute.path;
-    final wsNorm = Directory(wsPath).absolute.path;
-    if (!resolvedNorm.startsWith(wsNorm)) return null;
+    // Hard boundary: must stay under MeowAgent root.
+    if (!resolvedNorm.startsWith(rootNorm)) return null;
 
-    return resolved;
+    final isOutsideOwn = !resolvedNorm.startsWith(wsNorm);
+    return _ResolvedPath(resolvedNorm, isOutsideOwn);
+  }
+
+  /// Public preflight: tells the runtime whether [relativePath] would land
+  /// outside the calling agent's own workspace. The runtime escalates such
+  /// calls to a confirmation gate even when the tool is normally "safe".
+  /// Returns false when the path is invalid — the actual tool execution
+  /// will surface the error.
+  Future<bool> isCrossWorkspacePath(String relativePath) async {
+    final meta = await _resolveWithMeta(relativePath);
+    return meta?.isOutsideOwnWorkspace ?? false;
   }
 
   // ─── files.create ──────────────────────────────────────────────────────────
@@ -486,4 +528,12 @@ class FilesTools {
       );
     }
   }
+}
+
+/// Internal: resolved-path bundle so file ops can report cross-workspace
+/// landings to the runtime without re-resolving.
+class _ResolvedPath {
+  const _ResolvedPath(this.path, this.isOutsideOwnWorkspace);
+  final String path;
+  final bool isOutsideOwnWorkspace;
 }

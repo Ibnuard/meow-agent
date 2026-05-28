@@ -255,11 +255,19 @@ class ChatRuntimeManager extends ChangeNotifier {
         },
       );
 
+      // Wrap with confirmation marker when the runtime is asking for ANOTHER
+      // confirmation (e.g. multi-step task: gate #1 done, gate #2 awaiting).
+      // Without the marker the UI renders plain text and the user has to type
+      // "lanjut" manually, which breaks the multi-task UX.
+      final isNextConfirm =
+          response.state == AgentRuntimeState.waitingConfirmation;
       await history.addMessage(
         agentId,
         ChatMessage(
           role: 'assistant',
-          content: response.finalMessage,
+          content: isNextConfirm
+              ? '🔐 ${response.finalMessage}\n\n[[CONFIRMATION_REQUIRED]]'
+              : response.finalMessage,
           actions: response.actions,
         ),
       );
@@ -267,6 +275,9 @@ class ChatRuntimeManager extends ChangeNotifier {
       _set(agentId, sessionFor(agentId).copyWith(
         isRunning: false,
         debugMessages: [],
+        // Store the next pending action so the Confirm tap finds the tool.
+        pendingTool: response.pendingTool,
+        pendingToolArgs: response.pendingToolArgs,
         lastReplyAt: DateTime.now(),
         clearNarrative: true,
       ));

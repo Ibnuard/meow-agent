@@ -360,6 +360,46 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     );
   }
 
+  /// Heads-up emitted when the analyzer classifies a new user request as
+  /// unrelated to an active in-flight task. The runtime archives the old
+  /// task as aborted; this string tells the user politely so they aren't
+  /// surprised that their previous task is no longer being worked on.
+  Future<String> taskAborted({
+    required String previousMainGoal,
+    required DetectedLanguage language,
+  }) async {
+    final cacheKey = _key(
+      'task_aborted',
+      'ledger',
+      const {},
+      language.code,
+      extra: {'goal': previousMainGoal},
+    );
+    final cached = _turnCache[cacheKey];
+    if (cached != null) return cached;
+
+    final prompt = '''You write ONE short, friendly note because the user just sent a request that is unrelated to a task that was still in progress.
+
+Previous task in progress: "$previousMainGoal"
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- 1 short sentence in first-person, casual tone.
+- Acknowledge the previous task is being set aside (not "deleted", not "failed").
+- Do not promise to come back to it. Do not ask the user anything.
+- No tool names, no IDs, no jargon.
+
+Reply with the message only. No JSON, no quotes, no markdown.''';
+
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.task_aborted',
+      languageCode: language.code,
+      fallbackPhase: 'preview',
+      cacheKey: cacheKey,
+    );
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Internals
   // ───────────────────────────────────────────────────────────────────────────

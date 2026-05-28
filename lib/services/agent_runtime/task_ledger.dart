@@ -82,6 +82,9 @@ class TaskLedger {
     this.memorySnapshot = '',
     this.autoApproveSensitive = false,
     this.isWorkflowAutoExecute = false,
+    this.plan,
+    this.pendingToolName,
+    this.pendingToolArgs,
     this.status = LedgerStatus.active,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -117,6 +120,14 @@ class TaskLedger {
   final bool autoApproveSensitive;
   final bool isWorkflowAutoExecute;
 
+  /// Snapshot of the planner output. Needed by the loop on resume.
+  Map<String, dynamic>? plan;
+
+  /// Tool currently awaiting confirmation when the app was last killed.
+  /// Used to rehydrate [PendingAction] on relaunch.
+  String? pendingToolName;
+  Map<String, dynamic>? pendingToolArgs;
+
   LedgerStatus status;
   final DateTime createdAt;
   DateTime updatedAt;
@@ -142,6 +153,9 @@ class TaskLedger {
         'memory_snapshot': memorySnapshot,
         'auto_approve_sensitive': autoApproveSensitive,
         'is_workflow_auto_execute': isWorkflowAutoExecute,
+        if (plan != null) 'plan': plan,
+        if (pendingToolName != null) 'pending_tool_name': pendingToolName,
+        if (pendingToolArgs != null) 'pending_tool_args': pendingToolArgs,
         'status': status.label,
         'created_at': createdAt.toIso8601String(),
         'updated_at': updatedAt.toIso8601String(),
@@ -182,6 +196,10 @@ class TaskLedger {
       memorySnapshot: json['memory_snapshot'] as String? ?? '',
       autoApproveSensitive: json['auto_approve_sensitive'] as bool? ?? false,
       isWorkflowAutoExecute: json['is_workflow_auto_execute'] as bool? ?? false,
+      plan: (json['plan'] as Map?)?.cast<String, dynamic>(),
+      pendingToolName: json['pending_tool_name'] as String?,
+      pendingToolArgs:
+          (json['pending_tool_args'] as Map?)?.cast<String, dynamic>(),
       status: LedgerStatusX.fromLabel(json['status'] as String?),
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),

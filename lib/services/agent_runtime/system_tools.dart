@@ -489,10 +489,25 @@ class SystemTools {
       final name = (args['name'] as String? ?? '').trim();
       final target = _findAgent(agents, id: id, name: name);
       if (target == null) {
-        return const ToolExecutionResult(
+        // Provide the live agent list so the reviewer can replan with a
+        // fallback `name` lookup. Stale ids occur naturally in multi-step
+        // tasks because the planner's snapshot is captured BEFORE earlier
+        // mutating subgoals have run.
+        final available = agents
+            .where((a) => a.id != agentId)
+            .map((a) => {'id': a.id, 'name': a.name})
+            .toList();
+        return ToolExecutionResult(
           success: false,
           toolName: 'system.agents.delete',
-          error: 'Target agent not found.',
+          error:
+              'Target agent not found by id="$id" or name="$name". Retry with one of the names listed in `data.available`.',
+          data: {
+            'available': available,
+            'tried': {'id': id, 'name': name},
+            'hint':
+                'Names are case-insensitive. Prefer name when calling this tool inside a multi-step task.',
+          },
         );
       }
       if (target.id == agentId) {

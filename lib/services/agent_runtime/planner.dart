@@ -29,6 +29,7 @@ class Planner {
     PendingAction? pendingAction,
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
+    String activeTaskContext = '',
   }) async {
     final prompt = PromptTemplates.analyzePrompt(
       userMessage: userMessage,
@@ -39,6 +40,7 @@ class Planner {
       pendingAction: pendingAction,
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
+      activeTaskContext: activeTaskContext,
     );
 
     final result = await _callLlm(prompt, 'analyze', logger);

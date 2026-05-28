@@ -341,29 +341,35 @@ class ToolRouter {
     'files.create': const ToolDefinition(
       name: 'files.create',
       description:
-          'Create a new file in the agent workspace. Fails if file already exists.',
+          'Create a new file under the MeowAgent workspace root. Defaults to the calling agent. To target a peer agent use "Agents/<Name>/<rel>" — the runtime will require user confirmation. Fails if file already exists.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'path': 'string (required, relative to workspace)',
+        'path':
+            'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
         'content': 'string (optional, file content)',
       },
     ),
     'files.read': const ToolDefinition(
       name: 'files.read',
-      description: 'Read the content of a file in the agent workspace.',
+      description:
+          'Read a file under the MeowAgent workspace root. Use "Agents/<Name>/<rel>" to read a peer agent’s file (e.g. "Agents/Penulis/SOUL.md"); the runtime will require confirmation for cross-agent reads.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {'path': 'string (required, relative to workspace)'},
+      inputSchema: {
+        'path':
+            'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
+      },
     ),
     'files.write': const ToolDefinition(
       name: 'files.write',
       description:
-          'Write or overwrite content to a file in the agent workspace.',
+          'Write or overwrite content to a file under the MeowAgent workspace root. Cross-agent writes (e.g. "Agents/<Name>/SOUL.md") require user confirmation — use this when swapping or syncing peer-agent personas.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'path': 'string (required, relative to workspace)',
+        'path':
+            'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
         'content': 'string (required)',
         'append': 'bool (optional, default false)',
       },
@@ -371,38 +377,46 @@ class ToolRouter {
     'files.delete': const ToolDefinition(
       name: 'files.delete',
       description:
-          'Delete a file or directory in the agent workspace. Requires confirmation.',
+          'Delete a file or directory under the MeowAgent workspace root. Always requires confirmation — cross-agent paths are also surfaced for explicit user approval.',
       risk: 'sensitive',
       requiresConfirmation: true,
-      inputSchema: {'path': 'string (required, relative to workspace)'},
+      inputSchema: {
+        'path':
+            'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
+      },
     ),
     'files.list': const ToolDefinition(
       name: 'files.list',
       description:
-          'List files and directories in the agent workspace. Empty path = workspace root.',
+          'List files and directories under the MeowAgent workspace root. Empty path = own workspace root. Use "Agents" to enumerate peer agents, or "Agents/<Name>" for a peer’s root — cross-agent reads ask for confirmation.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'path': 'string (optional, relative to workspace, empty = root)',
+        'path':
+            'string (optional; empty = own root, "Agents/<Name>" for a peer)',
       },
     ),
     'files.move': const ToolDefinition(
       name: 'files.move',
       description:
-          'Move or rename a file/directory within the agent workspace.',
+          'Move or rename a file/directory under the MeowAgent workspace root. Cross-agent moves (using "Agents/<Name>/..." on either side) require confirmation.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'from': 'string (required, relative source path)',
-        'to': 'string (required, relative destination path)',
+        'from': 'string (required, relative or "Agents/<Name>/...")',
+        'to': 'string (required, relative or "Agents/<Name>/...")',
       },
     ),
     'files.mkdir': const ToolDefinition(
       name: 'files.mkdir',
-      description: 'Create a directory in the agent workspace.',
+      description:
+          'Create a directory under the MeowAgent workspace root. Cross-agent creation ("Agents/<Name>/...") requires confirmation.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {'path': 'string (required, relative to workspace)'},
+      inputSchema: {
+        'path':
+            'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
+      },
     ),
 
     // ─── Calendar Module ───────────────────────────────────────────────────────
@@ -634,12 +648,14 @@ class ToolRouter {
     'system.agents.delete': const ToolDefinition(
       name: 'system.agents.delete',
       description:
-          'Delete an agent and its workspace. Cannot delete the current active agent from its own chat.',
+          'Delete an agent and its workspace. Cannot delete the current active agent from its own chat. ALWAYS pass `name` (preferred) and `id` together when known — names are user-visible and stable; ids are opaque hashes that may not match across mutating ops in the same multi-step task. The handler resolves by id first, then falls back to name (case-insensitive).',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {
-        'id': 'string (required unless name is provided)',
-        'name': 'string (optional fallback)',
+        'name':
+            'string (preferred; case-insensitive match on the agent display name)',
+        'id':
+            'string (optional fallback; only reliable when produced by a system.agents.list call in the SAME planning round)',
       },
     ),
     'system.providers.list': const ToolDefinition(
@@ -750,6 +766,37 @@ class ToolRouter {
 
   Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
     return ToolPermissionPolicy(moduleRepository).deniedResult(toolName);
+  }
+
+  /// Returns true when this is a `files.*` call whose target path lands
+  /// OUTSIDE the calling agent's own workspace. The runtime escalates such
+  /// calls to a confirmation gate even when the registered risk is `safe`,
+  /// because reading/writing peer workspaces is sensitive by intent.
+  ///
+  /// For tools that don't operate on a path (or non-files.* tools) this
+  /// returns false and the registry-level confirmation rule still applies.
+  Future<bool> requiresCrossWorkspaceConfirmation(
+    ToolCallRequest request,
+  ) async {
+    if (!request.name.startsWith('files.')) return false;
+    final files = _filesTools();
+    final candidatePaths = <String>[];
+    final path = request.args['path'];
+    if (path is String && path.trim().isNotEmpty) {
+      candidatePaths.add(path.trim());
+    }
+    final from = request.args['from'];
+    if (from is String && from.trim().isNotEmpty) {
+      candidatePaths.add(from.trim());
+    }
+    final to = request.args['to'];
+    if (to is String && to.trim().isNotEmpty) {
+      candidatePaths.add(to.trim());
+    }
+    for (final p in candidatePaths) {
+      if (await files.isCrossWorkspacePath(p)) return true;
+    }
+    return false;
   }
 
   /// Execute a tool. Returns the result.

@@ -183,7 +183,13 @@ This is the user's first message. Before handling their request, politely ask wh
 - HEARTBEAT.md stores runtime status and must not be used for user profile or memory.
 - If the user provides their name, nickname, timezone, preferred language, role, or communication style, update the current agent workspace SOUL.md via system.profile.update.
 - If the user asks you to remember a fact/preference, append it to the current agent workspace MEMORY.md via system.memory.append.
-- Never update system markdown/base docs for user-specific memory.''';
+- Never update system markdown/base docs for user-specific memory.
+
+World model (files.* tools):
+- The MeowAgent root (Documents/MeowAgent/) is the file sandbox. The calling agent's own workspace (Documents/MeowAgent/Agents/{ThisAgent}/) is the default scope.
+- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/Penulis/SOUL.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
+- Use this for tasks that span peer agents: swapping personalities, syncing memory snippets, copying files between agent workspaces, etc.
+- DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.''';
 
   static const analyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
@@ -252,12 +258,19 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "risk": "safe/sensitive/dangerous",
   "missing_info": ["clarifying question 1", "clarifying question 2"],
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
+  "task_relation": "none | continuation | revision | new_task",
   "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Aku coba paham nih, kamu mau hapus 3 agen sekaligus.' / 'Got it \u2014 you want to open WhatsApp.')"
 }
 
 Rules:
 - If missing_info has items, requires_tools MUST be false.
-- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.''';
+- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
+- task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
+  * "none"          -> no active task context provided, OR the new message clearly stands on its own and has nothing to do with the active task.
+  * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok lanjut", "yes", short answer to a clarify). Treat as same task.
+  * "revision"      -> user is editing/adjusting parameters of the active task (changing a name, slot, or scope of the same goal).
+  * "new_task"      -> user is asking for something different and unrelated; the active task should be considered abandoned.
+- When ACTIVE TASK CONTEXT is absent, task_relation MUST be "none".''';
 
   // ─── Planner ───────────────────────────────────────────────────────────────
 
@@ -327,7 +340,12 @@ If you need more info from the user:
   "status": "ask_user",
   "question": "what you need to know",
   "narrative": ""
-}''';
+}
+
+CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
+- When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
+- ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
+- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
 
   // ─── Reviewer ──────────────────────────────────────────────────────────────
 

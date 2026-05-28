@@ -175,6 +175,15 @@ class AgentRuntimeEngine {
     verbalizer.resetTurn();
 
     try {
+      // Resume from a persisted ledger if the in-memory pending was lost
+      // (e.g. app was killed). Best-effort — unable-to-resume cases just
+      // proceed normally and the next turn will plan from scratch.
+      try {
+        await _maybeRestorePendingFromLedger(request.agentId);
+      } catch (e) {
+        logger.logError('Ledger auto-resume failed; continuing fresh', e);
+      }
+
       // Check if there's a pending action for this agent.
       final pending = _pendingActions[request.agentId];
       if (pending != null) {
@@ -355,6 +364,25 @@ class AgentRuntimeEngine {
         task: effectiveUserMessage,
       );
 
+      // Build active-task context for the analyzer when an unresolved ledger
+      // exists for this scope. The analyzer uses it to set task_relation so
+      // the engine can decide between continuation, revision, or new task.
+      String activeTaskContext = '';
+      TaskLedger? activeLedger;
+      if (pending == null) {
+        // Only ask for relation classification when we are NOT mid-confirmation.
+        // A pending action already implies continuation.
+        activeLedger = await ledgerDb.findActive(
+          agentId: request.agentId,
+          source: request.source == RequestSource.workflow
+              ? LedgerSource.workflow
+              : LedgerSource.chat,
+        );
+        if (activeLedger != null) {
+          activeTaskContext = activeLedger.describeForUser();
+        }
+      }
+
       final analysis = await planner.analyze(
         userMessage: effectiveUserMessage,
         workspace: workspace,
@@ -364,6 +392,7 @@ class AgentRuntimeEngine {
         pendingAction: pending,
         recentToolMemory: _memory.formatForPrompt(request.agentId),
         isWorkflowAutoExecute: isWorkflowAutoExecute,
+        activeTaskContext: activeTaskContext,
       );
       emit(logger.events.last);
 
@@ -375,6 +404,37 @@ class AgentRuntimeEngine {
       if (analyzeNarrative.isNotEmpty) {
         logger.logNarrative('analyze', analyzeNarrative);
         emit(logger.events.last);
+      }
+
+      // Conflict-clarify: when an active ledger exists and the new message
+      // is classified as a brand-new unrelated task, ask the user to confirm
+      // whether to abandon the in-flight task before continuing. Revision
+      // and continuation simply proceed — they edit/answer the same goal.
+      if (activeLedger != null) {
+        final relation =
+            (analysis['task_relation'] as String? ?? 'none').trim();
+        if (relation == 'new_task') {
+          // Soft-archive the old ledger as aborted to free the scope, then
+          // surface a friendly heads-up so the user knows their previous task
+          // was set aside. The runtime continues with the new request.
+          await ledgerDb.archive(activeLedger.id, LedgerStatus.aborted);
+          final headsUp = await verbalizer.taskAborted(
+            previousMainGoal: activeLedger.mainGoal,
+            language: detectedLang,
+          );
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Active ledger ${activeLedger.id} archived (aborted) due to '
+            'new_task classification. Heads-up surfaced.',
+          );
+          emit(logger.events.last);
+          // We do NOT short-circuit — we just emit the heads-up as a system
+          // narrative event and continue planning the new request.
+          logger.logNarrative('relation', headsUp);
+          emit(logger.events.last);
+        }
+        // For 'revision' / 'continuation' / 'none' we keep the ledger and
+        // let the analyzer's own narrative + downstream phases proceed.
       }
 
       // If analyzer detected ambiguity, ask user before doing anything else.
@@ -1182,9 +1242,15 @@ class AgentRuntimeEngine {
           );
         }
 
-        // Check confirmation requirement from REGISTRY.
-        // Skip the gate when the caller (e.g., a sensitive workflow) opted in.
-        if (definition.requiresConfirmation && !autoApproveSensitive) {
+        // Check confirmation requirement from REGISTRY, then escalate when
+        // the file op targets a peer agent's workspace. Workflow auto-execute
+        // bypasses both: the user already approved at workflow creation time.
+        final crossWs = await toolRouter
+            .requiresCrossWorkspaceConfirmation(toolRequest);
+        final mustConfirm =
+            (definition.requiresConfirmation || crossWs) &&
+            !autoApproveSensitive;
+        if (mustConfirm) {
           state = AgentRuntimeState.waitingConfirmation;
           logger.logStateChange(
             state,
@@ -1234,6 +1300,7 @@ class AgentRuntimeEngine {
                 detectedLang: detectedLang,
                 autoApproveSensitive: autoApproveSensitive,
                 isWorkflowAutoExecute: isWorkflowAutoExecute,
+                pendingTool: toolRequest,
               );
               ledgerIdForPending = ledger.id;
             }
@@ -1632,6 +1699,7 @@ class AgentRuntimeEngine {
     required DetectedLanguage detectedLang,
     required bool autoApproveSensitive,
     required bool isWorkflowAutoExecute,
+    ToolCallRequest? pendingTool,
   }) async {
     final source = request.source == RequestSource.workflow
         ? LedgerSource.workflow
@@ -1647,6 +1715,9 @@ class AgentRuntimeEngine {
       existing.goalTree = goalTree;
       existing.previousResults = List.of(previousResults);
       existing.currentStep = currentStep;
+      existing.plan = plan;
+      existing.pendingToolName = pendingTool?.name;
+      existing.pendingToolArgs = pendingTool?.args;
       return ledgerDb.upsert(existing);
     }
 
@@ -1667,8 +1738,53 @@ class AgentRuntimeEngine {
       memorySnapshot: memorySnapshot,
       autoApproveSensitive: autoApproveSensitive,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
+      plan: plan,
+      pendingToolName: pendingTool?.name,
+      pendingToolArgs: pendingTool?.args,
     );
     return ledgerDb.upsert(ledger);
+  }
+
+  /// Auto-resume a [PendingAction] from a persisted ledger when the in-memory
+  /// map for [agentId] is empty (e.g. after the app was killed mid-task).
+  ///
+  /// Only fires when the ledger was last persisted at a confirmation gate
+  /// (i.e. it has both [TaskLedger.pendingToolName] and
+  /// [TaskLedger.pendingToolArgs]). Lossy/early-stage ledgers stay dormant
+  /// and the next user turn will plan from scratch.
+  Future<void> _maybeRestorePendingFromLedger(String agentId) async {
+    if (_pendingActions.containsKey(agentId)) return;
+    final ledger = await ledgerDb.findActive(
+      agentId: agentId,
+      source: LedgerSource.chat,
+    );
+    if (ledger == null) return;
+    final toolName = ledger.pendingToolName;
+    final toolArgs = ledger.pendingToolArgs;
+    if (toolName == null || toolArgs == null) return;
+
+    _pendingActions[agentId] = PendingAction(
+      toolName: toolName,
+      toolArgs: toolArgs,
+      userFacingSummary: 'Resuming the task from where we left off.',
+      languageCode: ledger.languageCode,
+      resumeContext: {
+        'ledger_id': ledger.id,
+        'plan': ledger.plan ?? const {'steps': []},
+        'goal_tree': ledger.goalTree.toJson(),
+        'previous_results': ledger.previousResults,
+        'current_step': ledger.currentStep,
+        'available_tools': ledger.availableTools,
+        'memory_snapshot': ledger.memorySnapshot,
+        'auto_approve_sensitive': ledger.autoApproveSensitive,
+        'is_workflow_auto_execute': ledger.isWorkflowAutoExecute,
+        'language_code': ledger.languageCode,
+        'language_label': LanguageDetector.labelForCode(ledger.languageCode),
+        'language_script': 'Latin',
+        'language_confidence': 0.6,
+        'user_message': ledger.originalUserMessage,
+      },
+    );
   }
 
   /// Archive a ledger as completed when the goal tree finishes successfully.
@@ -1765,29 +1881,38 @@ class AgentRuntimeEngine {
     final snapshot = await _buildSnapshot();
     if (snapshot.isEmpty) return null;
 
-    // Try the obvious arg keys first. Order matters — id > explicit name.
     final candidates = _candidatesForTool(name, snapshot);
     if (candidates.isEmpty) return null;
 
-    final argKeys = const [
-      'name',
-      'agentName',
-      'workflowName',
-      'title',
-      'label',
-      'id',
-      'agentId',
-      'workflowId',
-    ];
+    // Distinguish NAME-like args (suitable for fuzzy match against the
+    // candidates list) from ID-like args (opaque hashes). Fuzzy-matching an
+    // ID against names is nonsense and produced false-positive 'not found'
+    // errors when the LLM only passed `id` for a still-existing entity.
+    const nameKeys = ['name', 'agentName', 'workflowName', 'title', 'label'];
+    const idKeys = ['id', 'agentId', 'workflowId'];
+
     String? userTyped;
-    for (final k in argKeys) {
+    for (final k in nameKeys) {
       final v = tool.args[k];
       if (v is String && v.trim().isNotEmpty) {
         userTyped = v.trim();
         break;
       }
     }
-    if (userTyped == null) return null;
+
+    // No name-like arg: bail out and let the tool handler validate the id
+    // directly. If the id is stale the handler will surface a structured
+    // error and the reviewer can replan.
+    if (userTyped == null) {
+      // Sanity: if every id arg is also empty, we have nothing to validate
+      // and the handler will simply fail with 'required field missing'.
+      final hasAnyId = idKeys.any((k) {
+        final v = tool.args[k];
+        return v is String && v.trim().isNotEmpty;
+      });
+      if (!hasAnyId) return null;
+      return null;
+    }
 
     final match = EntityResolver.resolve(userTyped, candidates);
     if (match.isExact) return null;
