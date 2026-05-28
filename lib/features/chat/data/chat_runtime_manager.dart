@@ -301,6 +301,7 @@ class ChatRuntimeManager extends ChangeNotifier {
     // the rejection message stays consistent with the prompt the user saw.
     final pending = engine.getPendingAction(agentId);
     final lang = pending?.languageCode ?? 'en';
+    await engine.abortActiveTask(agentId);
     final rejectMsg = I18nFallback.get('cancel', lang);
     await history.addMessage(
       agentId,

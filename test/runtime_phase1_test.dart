@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:meow_agent/services/agent_runtime/i18n_fallback.dart';
 import 'package:meow_agent/services/agent_runtime/language_detector.dart';
 import 'package:meow_agent/services/agent_runtime/pending_action.dart';
+import 'package:meow_agent/services/agent_runtime/prompt_templates.dart';
+import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/workspace_loader.dart';
 
 void main() {
@@ -225,6 +227,15 @@ void main() {
       );
     });
 
+    test('returns unclear for a fresh create-agent request', () {
+      expect(
+        ConfirmationChecker.check(
+          'bikinin 2 agen baru dengan nama bumi dan mars',
+        ),
+        ConfirmationDecision.unclear,
+      );
+    });
+
     test('returns unclear for empty string', () {
       expect(ConfirmationChecker.check(''), ConfirmationDecision.unclear);
     });
@@ -422,6 +433,28 @@ Name: [Your Name]
       final restored = PendingAction.fromJson(legacy);
       expect(restored.resumeContext, isNull);
       expect(restored.toolName, 'clipboard.write');
+    });
+  });
+
+  group('PromptTemplates active task relation', () {
+    test('pending action prompt allows unrelated messages to become new_task', () {
+      final prompt = PromptTemplates.analyzePrompt(
+        userMessage: 'bikinin 2 agen baru dengan nama bumi dan mars',
+        workspace: const AgentWorkspace(soul: 'Preferred Language: Indonesian'),
+        availableTools: const ['- system.agents.create: Create an agent'],
+        languageCode: 'id',
+        pendingAction: PendingAction(
+          toolName: 'system.agents.delete',
+          toolArgs: const {'name': 'HotDog'},
+          userFacingSummary: 'Hapus agen HotDog?',
+          languageCode: 'id',
+        ),
+        activeTaskContext: 'main goal: hapus agen HotDog (progress: 0/1)',
+      );
+
+      expect(prompt, contains('task_relation="new_task"'));
+      expect(prompt, contains('different action'));
+      expect(prompt, contains('ACTIVE TASK CONTEXT'));
     });
   });
 }

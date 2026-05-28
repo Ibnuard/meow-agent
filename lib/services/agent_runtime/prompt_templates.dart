@@ -28,7 +28,8 @@ class PromptTemplates {
               'Args: ${pendingAction.toolArgs}\n'
               'Summary: ${pendingAction.userFacingSummary}\n'
               'Debug: ${pendingAction.debugDescriptor}\n\n'
-              '${PromptConstants.pendingActionInstructions}'
+              '${PromptConstants.pendingActionInstructions}\n'
+              'If the user asks for a different action instead of confirming/rejecting/previewing this pending action, set task_relation="new_task" and analyze the new request on its own.'
         : '';
 
     final memoryBlock = recentToolMemory.isNotEmpty
@@ -48,7 +49,7 @@ class PromptTemplates {
     final activeTaskBlock = activeTaskContext.isNotEmpty
         ? '\n\nACTIVE TASK CONTEXT (a task is already in flight for this agent):\n'
               '$activeTaskContext\n\n'
-              'Use this context to set task_relation. If the new user message is unrelated, set task_relation="new_task". '
+              'Use this context to set task_relation before anything else. If the new user message is a standalone request or unrelated action, set task_relation="new_task". '
               'If it edits or refines the same goal (a parameter, name, or scope change), set task_relation="revision". '
               'If it just answers a clarify/affirms ("ok", "yes", "lanjut"), set task_relation="continuation".'
         : '';

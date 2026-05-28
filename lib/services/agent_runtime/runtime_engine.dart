@@ -121,6 +121,22 @@ class AgentRuntimeEngine {
   void clearPendingClarification(String agentId) =>
       _pendingClarifications.remove(agentId);
 
+  /// Abort the current chat task scope for an agent.
+  ///
+  /// Used by the UI reject path: clearing the visible confirmation is not
+  /// enough, because a persisted ledger can otherwise rehydrate the same
+  /// pending tool on the next user turn.
+  Future<void> abortActiveTask(
+    String agentId, {
+    RequestSource source = RequestSource.chat,
+  }) async {
+    await _finishTaskScope(
+      agentId: agentId,
+      source: source,
+      terminal: LedgerStatus.aborted,
+    );
+  }
+
   /// Run the full agentic loop for a request.
   ///
   /// [autoApproveSensitive] bypasses the confirmation gate for tools that
@@ -185,103 +201,36 @@ class AgentRuntimeEngine {
       }
 
       // Check if there's a pending action for this agent.
-      final pending = _pendingActions[request.agentId];
+      //
+      // Only deterministic yes/no/preview replies are resolved immediately.
+      // Ambiguous replies must go through the analyzer with active-task
+      // context first; otherwise a fresh request can be misread as approval
+      // for the old pending tool and re-lock the conversation.
+      var pending = _pendingActions[request.agentId];
+      var pendingDecision = ConfirmationDecision.none;
       if (pending != null) {
         // Tier-1: deterministic ID/EN keyword check.
-        var decision = ConfirmationChecker.check(request.userMessage);
-
-        // Tier-2: LLM classifier when tier-1 unclear OR user language not
-        // covered by tier-1 keyword maps. Keeps multilingual support working
-        // without maintaining keyword sets per locale.
-        final pendingLang = pending.languageCode;
-        final coveredByTier1 =
-            pendingLang == 'id' || pendingLang == 'en' ||
-            detectedLang.code == 'id' || detectedLang.code == 'en';
-        if (decision == ConfirmationDecision.unclear || !coveredByTier1) {
-          final classifier = ConfirmationClassifier(
-            client: client,
-            config: llmConfig,
-          );
-          decision = await classifier.classify(
-            userMessage: request.userMessage,
-            pendingSummary: pending.userFacingSummary,
-            languageCode: pendingLang,
-          );
-        }
+        pendingDecision = ConfirmationChecker.check(request.userMessage);
 
         logger.logStateChange(
           AgentRuntimeState.analyzing,
-          'Pending action detected: ${pending.toolName}, decision: ${decision.name}',
+          'Pending action detected: ${pending.toolName}, '
+          'deterministic decision: ${pendingDecision.name}',
         );
         emit(logger.events.last);
 
-        switch (decision) {
-          case ConfirmationDecision.confirmed:
-            // Execute the pending tool.
-            _pendingActions.remove(request.agentId);
-            return _executePendingTool(
-              request: request,
-              pending: pending,
-              executor: executor,
-              verbalizer: verbalizer,
-              detectedLang: detectedLang,
-              logger: logger,
-              emit: emit,
-            );
-
-          case ConfirmationDecision.rejected:
-            _pendingActions.remove(request.agentId);
-            logger.logStateChange(
-              AgentRuntimeState.done,
-              'User rejected pending action',
-            );
-            emit(logger.events.last);
-            final cancelMsg = await verbalizer.cancel(
-              tool: ToolCallRequest(
-                name: pending.toolName,
-                args: pending.toolArgs,
-                risk: 'sensitive',
-                requiresConfirmation: true,
-              ),
-              language: detectedLang,
-            );
-            return AgentRuntimeResponse(
-              finalMessage: cancelMsg,
-              success: true,
-              state: AgentRuntimeState.done,
-              events: logger.events,
-            );
-
-          case ConfirmationDecision.previewOnly:
-            // Don't execute. Generate preview lazily via verbalizer.
-            _pendingActions.remove(request.agentId);
-            logger.logStateChange(
-              AgentRuntimeState.done,
-              'User requested preview only',
-            );
-            emit(logger.events.last);
-            final previewMsg = pending.userFacingPreview.isNotEmpty
-                ? pending.userFacingPreview
-                : await verbalizer.preview(
-                    tool: ToolCallRequest(
-                      name: pending.toolName,
-                      args: pending.toolArgs,
-                      risk: 'sensitive',
-                      requiresConfirmation: true,
-                    ),
-                    language: detectedLang,
-                  );
-            return AgentRuntimeResponse(
-              finalMessage: previewMsg,
-              success: true,
-              state: AgentRuntimeState.done,
-              events: logger.events,
-            );
-
-          case ConfirmationDecision.unclear:
-          case ConfirmationDecision.none:
-            // Let LLM decide with full context including pending action.
-            break;
+        final pendingResponse = await _handlePendingDecision(
+          request: request,
+          pending: pending,
+          decision: pendingDecision,
+          executor: executor,
+          verbalizer: verbalizer,
+          detectedLang: detectedLang,
+          logger: logger,
+          emit: emit,
+        );
+        if (pendingResponse != null) {
+          return pendingResponse;
         }
       }
 
@@ -307,31 +256,6 @@ class AgentRuntimeEngine {
       final workspace = await workspaceLoader.load(wsName);
       final userNotIntroduced =
           WorkspaceLoader.isUserNameMissing(workspace.soul);
-      // Tool list comes from the ToolRouter registry (system source of truth),
-      // NOT from user-editable SKILLS.md template.
-      final toolSelection = ToolCatalog.select(
-        userMessage: request.userMessage,
-        pendingAction: pending,
-        isWorkflowAutoExecute: isWorkflowAutoExecute,
-      );
-      // Analyzer only needs name + description to classify intent.
-      // Planner/selector/review need the full schema (risk, args, confirmation).
-      var analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
-        toolSelection.toolNames,
-      );
-      var availableTools = toolRouter.buildToolDescriptions(
-        toolSelection.toolNames,
-      );
-      if (availableTools.isEmpty) {
-        analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
-        availableTools = toolRouter.buildAllToolDescriptions();
-      }
-      logger.logStateChange(
-        AgentRuntimeState.analyzing,
-        'Tool context: ${toolSelection.reason} '
-        '(${availableTools.length} tools, confidence ${toolSelection.confidence.toStringAsFixed(2)})',
-      );
-      emit(logger.events.last);
 
       // Build recent messages for context (latest 20, chronological order).
       final sourceMessages = request.recentMessages;
@@ -342,17 +266,71 @@ class AgentRuntimeEngine {
           .map((m) => {'role': m.role, 'content': m.content})
           .toList();
 
-      // If previous turn asked for missing info, merge this reply with the
-      // original request before analysis. This prevents short follow-up answers
-      // from being treated as standalone requests.
-      final pendingClarification = _pendingClarifications[request.agentId];
-      final effectiveUserMessage =
-          pendingClarification != null && !pendingClarification.isExpired
-          ? pendingClarification.mergedWith(request.userMessage)
-          : request.userMessage;
+      var pendingClarification = _pendingClarifications[request.agentId];
       if (pendingClarification != null && pendingClarification.isExpired) {
         _pendingClarifications.remove(request.agentId);
+        pendingClarification = null;
       }
+
+      // Build active-task context for the analyzer when an unresolved ledger
+      // exists for this scope. The analyzer uses it to set task_relation so
+      // the engine can decide between continuation, revision, or new task.
+      //
+      // This runs even while a pending confirmation exists. Pending does NOT
+      // imply continuation: a user may send a completely new task instead of
+      // confirming/rejecting the previous one.
+      final activeLedger = await ledgerDb.findActive(
+        agentId: request.agentId,
+        source: _ledgerSourceFor(request.source),
+      );
+      String activeTaskContext = '';
+      if (activeLedger != null) {
+        activeTaskContext = activeLedger.describeForUser();
+      } else if (pending != null) {
+        activeTaskContext =
+            'pending confirmation: ${pending.debugDescriptor}; '
+            'summary: ${pending.userFacingSummary}';
+      } else if (pendingClarification != null) {
+        activeTaskContext =
+            'pending clarification for: ${pendingClarification.originalMessage} '
+            '(questions: ${pendingClarification.questions.join('; ')})';
+      }
+
+      // If a prior clarify is active, probe the raw user message first so a
+      // fresh task can escape the old clarify. Only after relation is known do
+      // we merge the answer with the original request.
+      final mergedUserMessage = pendingClarification != null
+          ? pendingClarification.mergedWith(request.userMessage)
+          : request.userMessage;
+      var effectiveUserMessage = activeTaskContext.isNotEmpty
+          ? request.userMessage
+          : mergedUserMessage;
+
+      // Tool list comes from the ToolRouter registry (system source of truth),
+      // NOT from user-editable SKILLS.md template. While an old task is active
+      // use the broad catalog for the analyzer, because the current message may
+      // be a new task in any domain.
+      var toolSelection = ToolCatalog.select(
+        userMessage: request.userMessage,
+        pendingAction: pending,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+      );
+      var analyzerTools = activeTaskContext.isNotEmpty
+          ? toolRouter.buildAllAnalyzerToolDescriptions()
+          : toolRouter.buildAnalyzerToolDescriptions(toolSelection.toolNames);
+      var availableTools = activeTaskContext.isNotEmpty
+          ? toolRouter.buildAllToolDescriptions()
+          : toolRouter.buildToolDescriptions(toolSelection.toolNames);
+      if (availableTools.isEmpty) {
+        analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
+        availableTools = toolRouter.buildAllToolDescriptions();
+      }
+      logger.logStateChange(
+        AgentRuntimeState.analyzing,
+        'Tool context: ${activeTaskContext.isNotEmpty ? 'active-task relation probe' : toolSelection.reason} '
+        '(${availableTools.length} tools, confidence ${toolSelection.confidence.toStringAsFixed(2)})',
+      );
+      emit(logger.events.last);
 
       // 2. Analyze.
       var state = AgentRuntimeState.analyzing;
@@ -364,26 +342,7 @@ class AgentRuntimeEngine {
         task: effectiveUserMessage,
       );
 
-      // Build active-task context for the analyzer when an unresolved ledger
-      // exists for this scope. The analyzer uses it to set task_relation so
-      // the engine can decide between continuation, revision, or new task.
-      String activeTaskContext = '';
-      TaskLedger? activeLedger;
-      if (pending == null) {
-        // Only ask for relation classification when we are NOT mid-confirmation.
-        // A pending action already implies continuation.
-        activeLedger = await ledgerDb.findActive(
-          agentId: request.agentId,
-          source: request.source == RequestSource.workflow
-              ? LedgerSource.workflow
-              : LedgerSource.chat,
-        );
-        if (activeLedger != null) {
-          activeTaskContext = activeLedger.describeForUser();
-        }
-      }
-
-      final analysis = await planner.analyze(
+      var analysis = await planner.analyze(
         userMessage: effectiveUserMessage,
         workspace: workspace,
         availableTools: analyzerTools,
@@ -397,6 +356,7 @@ class AgentRuntimeEngine {
       emit(logger.events.last);
 
       if (analysis == null) {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         return _fail('Failed to analyze request.', logger);
       }
 
@@ -406,14 +366,127 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
       }
 
+      // Relation gate: active ledger/pending/clarify state must not lock the
+      // next user message. If the analyzer says the raw message is unrelated,
+      // abort the old scope and continue with this request as a new task.
+      var relation = (analysis['task_relation'] as String? ?? 'none').trim();
+      if (activeTaskContext.isNotEmpty) {
+        if (relation == 'none' &&
+            pendingDecision != ConfirmationDecision.confirmed &&
+            pendingDecision != ConfirmationDecision.rejected &&
+            pendingDecision != ConfirmationDecision.previewOnly &&
+            analysis['requires_tools'] == true) {
+          relation = 'new_task';
+        }
+        if (relation == 'new_task') {
+          final previousGoal = activeLedger?.mainGoal ??
+              pending?.userFacingSummary ??
+              pendingClarification?.originalMessage ??
+              'the previous task';
+          await _finishTaskScopeForRequest(request, LedgerStatus.aborted);
+          pending = null;
+          pendingDecision = ConfirmationDecision.none;
+          pendingClarification = null;
+          effectiveUserMessage = request.userMessage;
+
+          toolSelection = ToolCatalog.select(
+            userMessage: request.userMessage,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+          );
+          analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+            toolSelection.toolNames,
+          );
+          availableTools = toolRouter.buildToolDescriptions(
+            toolSelection.toolNames,
+          );
+          if (availableTools.isEmpty) {
+            analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
+            availableTools = toolRouter.buildAllToolDescriptions();
+          }
+
+          final headsUp = await verbalizer.taskAborted(
+            previousMainGoal: previousGoal,
+            language: detectedLang,
+          );
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Active task scope archived (aborted) due to '
+            'new_task classification. Heads-up surfaced.',
+          );
+          emit(logger.events.last);
+          logger.logNarrative('relation', headsUp);
+          emit(logger.events.last);
+        } else if (pendingClarification != null &&
+            effectiveUserMessage != mergedUserMessage) {
+          effectiveUserMessage = mergedUserMessage;
+          analysis = await planner.analyze(
+            userMessage: effectiveUserMessage,
+            workspace: workspace,
+            availableTools: analyzerTools,
+            logger: logger,
+            recentMessages: recentMsgs,
+            pendingAction: pending,
+            recentToolMemory: _memory.formatForPrompt(request.agentId),
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            activeTaskContext: activeTaskContext,
+          );
+          emit(logger.events.last);
+          if (analysis == null) {
+            await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+            return _fail('Failed to analyze clarified request.', logger);
+          }
+        }
+      }
+
+      if (pending != null &&
+          pendingDecision != ConfirmationDecision.confirmed &&
+          pendingDecision != ConfirmationDecision.rejected &&
+          pendingDecision != ConfirmationDecision.previewOnly &&
+          relation != 'new_task') {
+        final pendingLang = pending.languageCode;
+        final coveredByTier1 =
+            pendingLang == 'id' || pendingLang == 'en' ||
+            detectedLang.code == 'id' || detectedLang.code == 'en';
+        if (!coveredByTier1 || pendingDecision == ConfirmationDecision.unclear) {
+          final classifier = ConfirmationClassifier(
+            client: client,
+            config: llmConfig,
+          );
+          pendingDecision = await classifier.classify(
+            userMessage: request.userMessage,
+            pendingSummary: pending.userFacingSummary,
+            languageCode: pendingLang,
+          );
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Pending action LLM decision after relation gate: '
+            '${pendingDecision.name}',
+          );
+          emit(logger.events.last);
+          final pendingResponse = await _handlePendingDecision(
+            request: request,
+            pending: pending,
+            decision: pendingDecision,
+            executor: executor,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            logger: logger,
+            emit: emit,
+          );
+          if (pendingResponse != null) {
+            return pendingResponse;
+          }
+        }
+      }
+
       // Conflict-clarify: when an active ledger exists and the new message
       // is classified as a brand-new unrelated task, ask the user to confirm
       // whether to abandon the in-flight task before continuing. Revision
       // and continuation simply proceed — they edit/answer the same goal.
-      if (activeLedger != null) {
-        final relation =
+      if (activeLedger != null && relation == '__legacy_disabled__') {
+        final legacyRelation =
             (analysis['task_relation'] as String? ?? 'none').trim();
-        if (relation == 'new_task') {
+        if (legacyRelation == 'new_task') {
           // Soft-archive the old ledger as aborted to free the scope, then
           // surface a friendly heads-up so the user knows their previous task
           // was set aside. The runtime continues with the new request.
@@ -645,9 +718,10 @@ class AgentRuntimeEngine {
         );
         emit(logger.events.last);
 
-        if (plan == null) {
-          return _fail('Failed to create execution plan.', logger);
-        }
+      if (plan == null) {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        return _fail('Failed to create execution plan.', logger);
+      }
 
         final planNarrative = (plan['narrative'] ?? '').toString();
         if (planNarrative.isNotEmpty) {
@@ -687,6 +761,7 @@ class AgentRuntimeEngine {
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
+      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
       return _fail('Runtime error: $e', logger);
     }
   }
@@ -751,6 +826,82 @@ class AgentRuntimeEngine {
     );
   }
 
+  Future<AgentRuntimeResponse?> _handlePendingDecision({
+    required AgentRuntimeRequest request,
+    required PendingAction pending,
+    required ConfirmationDecision decision,
+    required Executor executor,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage detectedLang,
+    required RuntimeLogger logger,
+    required void Function(RuntimeEvent) emit,
+  }) async {
+    switch (decision) {
+      case ConfirmationDecision.confirmed:
+        _pendingActions.remove(request.agentId);
+        return _executePendingTool(
+          request: request,
+          pending: pending,
+          executor: executor,
+          verbalizer: verbalizer,
+          detectedLang: detectedLang,
+          logger: logger,
+          emit: emit,
+        );
+
+      case ConfirmationDecision.rejected:
+        await _finishTaskScopeForRequest(request, LedgerStatus.aborted);
+        logger.logStateChange(
+          AgentRuntimeState.done,
+          'User rejected pending action',
+        );
+        emit(logger.events.last);
+        final cancelMsg = await verbalizer.cancel(
+          tool: ToolCallRequest(
+            name: pending.toolName,
+            args: pending.toolArgs,
+            risk: 'sensitive',
+            requiresConfirmation: true,
+          ),
+          language: detectedLang,
+        );
+        return AgentRuntimeResponse(
+          finalMessage: cancelMsg,
+          success: true,
+          state: AgentRuntimeState.done,
+          events: logger.events,
+        );
+
+      case ConfirmationDecision.previewOnly:
+        logger.logStateChange(
+          AgentRuntimeState.done,
+          'User requested preview only',
+        );
+        emit(logger.events.last);
+        final previewMsg = pending.userFacingPreview.isNotEmpty
+            ? pending.userFacingPreview
+            : await verbalizer.preview(
+                tool: ToolCallRequest(
+                  name: pending.toolName,
+                  args: pending.toolArgs,
+                  risk: 'sensitive',
+                  requiresConfirmation: true,
+                ),
+                language: detectedLang,
+              );
+        return AgentRuntimeResponse(
+          finalMessage: previewMsg,
+          success: true,
+          state: AgentRuntimeState.done,
+          events: logger.events,
+        );
+
+      case ConfirmationDecision.unclear:
+      case ConfirmationDecision.none:
+        return null;
+    }
+  }
+
   /// Execute a pending tool (after confirmation).
   Future<AgentRuntimeResponse> _executePendingTool({
     required AgentRuntimeRequest request,
@@ -792,6 +943,7 @@ class AgentRuntimeEngine {
 
       final permissionFinal = _permissionDeniedResponseFor(result);
       if (permissionFinal != null) {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
         await workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -1000,6 +1152,7 @@ class AgentRuntimeEngine {
 
       final reviewMessage = review?['final_response'] as String?;
       if (reviewMessage != null && reviewMessage.isNotEmpty) {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(reviewMessage);
         return AgentRuntimeResponse(
           finalMessage: reviewMessage,
@@ -1013,6 +1166,7 @@ class AgentRuntimeEngine {
         reason: result.error ?? 'tool failed',
         language: detectedLang,
       );
+      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
       logger.logFinalResponse(fallbackMsg);
       return AgentRuntimeResponse(
         finalMessage: fallbackMsg,
@@ -1022,6 +1176,7 @@ class AgentRuntimeEngine {
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
+      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
       return _fail('Runtime error: $e', logger);
     }
   }
@@ -1075,6 +1230,7 @@ class AgentRuntimeEngine {
       emit(logger.events.last);
 
       if (selection == null) {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         return _fail('Tool selection failed.', logger);
       }
 
@@ -1133,6 +1289,7 @@ class AgentRuntimeEngine {
       }
 
       if (status == 'failed') {
+        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         return _fail(
           selection['error'] as String? ?? 'Runtime failed.',
           logger,
@@ -1142,6 +1299,7 @@ class AgentRuntimeEngine {
       if (status == 'tool_required') {
         final toolJson = selection['tool'] as Map<String, dynamic>?;
         if (toolJson == null) {
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail('Tool selection returned no tool data.', logger);
         }
 
@@ -1171,6 +1329,7 @@ class AgentRuntimeEngine {
             reason: 'agent looped on ${toolRequest.name} after retry',
             language: detectedLang,
           );
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(abortMsg);
           return AgentRuntimeResponse(
             finalMessage: abortMsg,
@@ -1183,6 +1342,7 @@ class AgentRuntimeEngine {
         final validationError = toolRouter.validate(toolRequest);
         if (validationError != null) {
           logger.logError(validationError);
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail(validationError, logger);
         }
 
@@ -1213,6 +1373,7 @@ class AgentRuntimeEngine {
           final finalResponse =
               _permissionDeniedResponseFor(permissionDenied) ??
               (permissionDenied.error ?? 'Permission denied.');
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
@@ -1373,6 +1534,7 @@ class AgentRuntimeEngine {
 
         final permissionFinal = _permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(permissionFinal);
           await workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -1490,6 +1652,7 @@ class AgentRuntimeEngine {
         }
 
         if (review == null) {
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail('Review phase failed.', logger);
         }
 
@@ -1561,6 +1724,7 @@ class AgentRuntimeEngine {
         }
 
         if (reviewStatus == 'failed') {
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail(
             review['error'] as String? ?? 'Unrecoverable error.',
             logger,
@@ -1588,6 +1752,7 @@ class AgentRuntimeEngine {
       }
     }
 
+    await _finishTaskScopeForRequest(request, LedgerStatus.failed);
     return _fail(
       'Maximum runtime steps ($adaptiveLimit) reached without completion.',
       logger,
@@ -1787,18 +1952,51 @@ class AgentRuntimeEngine {
     );
   }
 
+  LedgerSource _ledgerSourceFor(RequestSource source) =>
+      source == RequestSource.workflow
+          ? LedgerSource.workflow
+          : LedgerSource.chat;
+
+  Future<void> _finishTaskScopeForRequest(
+    AgentRuntimeRequest request,
+    LedgerStatus terminal,
+  ) {
+    return _finishTaskScope(
+      agentId: request.agentId,
+      source: request.source,
+      terminal: terminal,
+    );
+  }
+
+  Future<void> _finishTaskScope({
+    required String agentId,
+    required RequestSource source,
+    required LedgerStatus terminal,
+  }) async {
+    _pendingActions.remove(agentId);
+    _pendingClarifications.remove(agentId);
+
+    final active = await ledgerDb.findActive(
+      agentId: agentId,
+      source: _ledgerSourceFor(source),
+    );
+    if (active == null) return;
+    if (terminal == LedgerStatus.failed) {
+      await ledgerDb.delete(active.id);
+    } else {
+      await ledgerDb.archive(active.id, terminal);
+    }
+  }
+
   /// Archive a ledger as completed when the goal tree finishes successfully.
   /// No-op when no ledger exists for the (agentId, source) scope.
   Future<void> _archiveLedgerForRequest(
     AgentRuntimeRequest request,
     LedgerStatus terminal,
   ) async {
-    final source = request.source == RequestSource.workflow
-        ? LedgerSource.workflow
-        : LedgerSource.chat;
     final active = await ledgerDb.findActive(
       agentId: request.agentId,
-      source: source,
+      source: _ledgerSourceFor(request.source),
     );
     if (active == null) return;
     if (terminal == LedgerStatus.failed) {
