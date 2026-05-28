@@ -112,15 +112,24 @@ GOAL TREE:
 - For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
 - Status defaults to "pending".
 
+BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type):
+- When the user uses a bulk quantifier (English: all/every/each/any; Indonesian: semua/setiap/seluruh/tiap/segala; wildcard: *) on an existing entity collection (agents, workflows, providers, modules, notes, etc.), DO NOT try to invent or enumerate the entity names yourself.
+- Emit ONE seed target with operation set to the user's verb (delete/update/toggle/...), entity_type set to the entity collection, entity_label = "all", and selector = {"scope": "all"}.
+- Emit ONE matching subgoal whose label describes the bulk action (e.g. "update all workflows to agent X"). Put SHARED slots (the target agent, the new value, etc.) in required_slots so they apply to every fanned-out child.
+- The runtime will deterministically expand this seed into one concrete subgoal+target per matching entity from the live snapshot. You do not need to do it yourself.
+- This rule is INDEPENDENT of how many entities exist. Even if the snapshot only has one workflow today, still emit the bulk shape; the expander handles N=0,1,many uniformly.
+- Bulk selectors NEVER apply to create. If the user says "create all X" treat it as ambiguous and clarify the count or list.
+
 TARGET GRAPH:
 - Also emit `targets`: one machine-readable target per subgoal when the action acts on a concrete entity.
 - operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
+- For BULK SELECTOR targets (per the protocol above), leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. The runtime will fan it out from snapshot.
 - Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
 - If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
 - URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
-- If a target is selected by a semantic bulk selector, enumerate each matched entity as its own target after checking the snapshot.
+- If a target is selected by a semantic bulk selector, follow the BULK SELECTOR PROTOCOL above instead of pre-enumerating.
 - Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
 
   static const reflectResponseFormat =
@@ -246,7 +255,18 @@ Multi-target enumeration rule (CRITICAL):
 - Do NOT collapse multi-target requests into a single goal. Example: "create 3 agents Coder, Writer, Researcher" → 3 subgoal_seeds.
 - A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent Coder").
 - If the request is single-target, return a single-element subgoal_seeds array.
-- subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).''';
+- subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).
+
+Bulk-selector rule (applies to ANY entity type — agents, workflows, providers, modules, notes, files):
+- The words "all / every / each / any" (English) and "semua / setiap / seluruh / tiap / segala" (Indonesian), or "*" as a wildcard, are BULK SELECTORS. They mean "every existing entity of this type that the user can see".
+- A bulk selector ALWAYS produces a multi-target intent even though the user did not type out the names. Examples:
+  * "hapus semua workflow"          → multi-target delete on workflows
+  * "set semua workflow ke agen A"  → multi-target update on workflows (shared slot: target agent = A)
+  * "matikan semua agen kecuali X"  → multi-target toggle on agents minus X
+  * "delete every note"             → multi-target delete on notes
+- For bulk requests, set requires_tools=true and emit a SINGLE subgoal_seed describing the bulk intent (e.g. "update all workflows assigned-agent"). The runtime fans this out to one subgoal per matching entity from the live snapshot — do NOT try to enumerate names yourself if you do not know them.
+- Set bulk_selector=true at the top level when the request matches this pattern, otherwise omit it.
+- Bulk selectors NEVER apply to create operations. "create all X" is ambiguous — set requires_tools=false and ask for the count or list.''';
 
   static const analyzeExamples =
       '''Examples that require tools (intent shown in English; user phrasing may be in any language):
@@ -284,6 +304,7 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "risk": "safe/sensitive/dangerous",
   "missing_info": ["clarifying question 1", "clarifying question 2"],
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
+  "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
   "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Aku coba paham nih, kamu mau hapus 3 agen sekaligus.' / 'Got it \u2014 you want to open WhatsApp.')"
 }

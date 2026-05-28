@@ -181,36 +181,47 @@ class TargetResolver {
     required AgentRuntimeRequest request,
     required DetectedLanguage language,
   }) {
+    // STEP 0: Generic bulk-selector expansion.
+    //
+    // When the reflector emits a target like {entity_type:workflow,
+    // entity_label:"all"} or any subgoal whose target uses a bulk quantifier,
+    // fan it out to one concrete target per matching snapshot entity BEFORE
+    // normal resolution. Applies to every snapshot-backed entity type and
+    // every non-create operation. This is what guarantees a request like
+    // "set semua workflow ke agen X" decomposes into N subgoals instead of
+    // collapsing into a single ambiguous step.
+    final expanded = _expandBulkSelectors(reflection, snapshot);
+
     final resolved = _resolveTargets(
-      reflection: reflection,
+      reflection: expanded,
       snapshot: snapshot,
       request: request,
     );
     if (resolved.isEmpty) {
       return TargetResolutionResult(
-        reflection: reflection,
+        reflection: expanded,
         graph: TargetResolutionGraph(
           targets: const [],
-          originalImpactCount: reflection.impacts.length,
-          filteredImpactCount: reflection.impacts.length,
+          originalImpactCount: expanded.impacts.length,
+          filteredImpactCount: expanded.impacts.length,
         ),
       );
     }
 
     final filteredSubgoals = _filterSubgoals(
-      reflection.goalTree.subgoals,
+      expanded.goalTree.subgoals,
       resolved,
     );
-    final filteredImpacts = _filterImpacts(reflection.impacts, resolved);
+    final filteredImpacts = _filterImpacts(expanded.impacts, resolved);
     final graph = TargetResolutionGraph(
       targets: resolved,
-      originalImpactCount: reflection.impacts.length,
+      originalImpactCount: expanded.impacts.length,
       filteredImpactCount: filteredImpacts.length,
     );
 
-    var strategy = reflection.strategy;
-    var clarifyQuestions = reflection.clarifyQuestions;
-    var blockReason = reflection.blockReason;
+    var strategy = expanded.strategy;
+    var clarifyQuestions = expanded.clarifyQuestions;
+    var blockReason = expanded.blockReason;
     final hasMissingSlots = filteredSubgoals.any(
       (s) => s.missingSlots.isNotEmpty,
     );
@@ -234,8 +245,8 @@ class TargetResolver {
     }
 
     final goalTree = GoalTree(
-      mainGoal: reflection.goalTree.mainGoal,
-      completionCriteria: reflection.goalTree.completionCriteria,
+      mainGoal: expanded.goalTree.mainGoal,
+      completionCriteria: expanded.goalTree.completionCriteria,
       subgoals: filteredSubgoals,
     );
 
@@ -259,15 +270,230 @@ class TargetResolver {
         clarifyQuestions: clarifyQuestions,
         blockReason: blockReason,
         reasoning: [
-          reflection.reasoning,
+          expanded.reasoning,
           if (graph.hasSkipped)
             'Runtime skipped ineligible targets before impact handling.',
           if (graph.filteredImpacts)
             'Runtime removed impacts that were not linked to eligible targets.',
         ].where((s) => s.trim().isNotEmpty).join(' '),
-        narrative: reflection.narrative,
-        degraded: reflection.degraded,
+        narrative: expanded.narrative,
+        degraded: expanded.degraded,
       ),
+    );
+  }
+
+  // ─── Bulk selector expansion ───────────────────────────────────────────────
+
+  /// Quantifier vocabulary that signals "all entities of this type". Used to
+  /// fan out bulk requests deterministically from the snapshot.
+  ///
+  /// Kept generic across languages and entity types. Adding a new language
+  /// only requires extending this set; the rest of the pipeline picks it up
+  /// for free.
+  static const Set<String> _bulkKeywords = {
+    // English
+    'all', 'every', 'each', 'any', 'everyone',
+    // Indonesian
+    'semua', 'setiap', 'seluruh', 'tiap', 'segala',
+    // Wildcard
+    '*',
+  };
+
+  /// True when the label is exactly a bulk quantifier or contains one as a
+  /// standalone token (e.g. "all workflows" → all is a token; "semua agen" →
+  /// semua is a token). Multi-word phrases like "masing-masing" are also
+  /// matched as substrings to keep the rule forgiving.
+  static bool _isBulkLabel(String label) {
+    final n = _normalize(label);
+    if (n.isEmpty) return false;
+    if (_bulkKeywords.contains(n)) return true;
+    final tokens = n
+        .split(RegExp(r'[^a-z0-9*\u00C0-\u024F]+'))
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    for (final kw in _bulkKeywords) {
+      if (tokens.contains(kw)) return true;
+    }
+    // Hyphenated forms like "masing-masing" or "each-of-them".
+    final hyphenated = n.replaceAll('-', ' ');
+    final hyphenTokens = hyphenated
+        .split(RegExp(r'\s+'))
+        .where((t) => t.isNotEmpty)
+        .toSet();
+    for (final kw in _bulkKeywords) {
+      if (hyphenTokens.contains(kw)) return true;
+    }
+    return false;
+  }
+
+  /// True when the selector map declares bulk scope explicitly. Common shapes
+  /// the reflector might emit:
+  /// - {"scope": "all"}
+  /// - {"all": true}
+  /// - {"filter": "*"}
+  /// - {"match": "all"}
+  static bool _isBulkSelector(Map<String, dynamic> selector) {
+    if (selector.isEmpty) return false;
+    final scope = selector['scope']?.toString().toLowerCase() ?? '';
+    if (scope == 'all' || scope == '*' || scope == 'every') return true;
+    final all = selector['all'];
+    if (all == true) return true;
+    final filter = selector['filter']?.toString().toLowerCase() ?? '';
+    if (filter == '*' || filter == 'all' || filter == 'every') return true;
+    final match = selector['match']?.toString().toLowerCase() ?? '';
+    if (match == 'all' || match == 'every') return true;
+    return false;
+  }
+
+  /// Operations that may target an existing entity collection in bulk. Create
+  /// is intentionally absent — `create all X` is never a valid bulk op and is
+  /// treated as ambiguous so the LLM/reflector can clarify.
+  static const Set<String> _bulkEligibleOperations = {
+    'delete',
+    'update',
+    'rename',
+    'toggle',
+    'read',
+    'list',
+  };
+
+  /// Walk the reflector output and replace any bulk-marked target with one
+  /// concrete target per matching snapshot entity. Subgoals are forked in
+  /// place so the goal tree carries the full plan downstream.
+  static ReflectionOutput _expandBulkSelectors(
+    ReflectionOutput reflection,
+    EcosystemSnapshot snapshot,
+  ) {
+    final seedTargets = reflection.targets.isNotEmpty
+        ? reflection.targets
+        : _targetsFromGoalTree(reflection.goalTree, snapshot);
+    if (seedTargets.isEmpty) return reflection;
+
+    final expandedTargets = <ReflectionTarget>[];
+    final replacementsBySubgoalId = <String, List<Subgoal>>{};
+    var didExpand = false;
+
+    for (var i = 0; i < seedTargets.length; i++) {
+      final seed = seedTargets[i];
+      final expansion = _maybeExpandBulk(
+        seed: seed,
+        tree: reflection.goalTree,
+        snapshot: snapshot,
+        index: i,
+      );
+      if (expansion == null) {
+        expandedTargets.add(seed);
+        continue;
+      }
+      didExpand = true;
+      expandedTargets.addAll(expansion.targets);
+      replacementsBySubgoalId[expansion.originSubgoalId] = expansion.subgoals;
+    }
+
+    if (!didExpand) return reflection;
+
+    // Rebuild subgoal list. Replace each origin in place, append synthetic
+    // ones (those with no matching origin subgoal) at the end.
+    final newSubgoals = <Subgoal>[];
+    for (final subgoal in reflection.goalTree.subgoals) {
+      final replacement = replacementsBySubgoalId.remove(subgoal.id);
+      if (replacement != null) {
+        newSubgoals.addAll(replacement);
+      } else {
+        newSubgoals.add(subgoal);
+      }
+    }
+    for (final synthetic in replacementsBySubgoalId.values) {
+      newSubgoals.addAll(synthetic);
+    }
+
+    final newTree = GoalTree(
+      mainGoal: reflection.goalTree.mainGoal,
+      completionCriteria: reflection.goalTree.completionCriteria,
+      subgoals: newSubgoals,
+    );
+
+    return ReflectionOutput(
+      strategy: reflection.strategy,
+      goalTree: newTree,
+      targets: expandedTargets,
+      impacts: reflection.impacts,
+      clarifyQuestions: reflection.clarifyQuestions,
+      blockReason: reflection.blockReason,
+      reasoning: [
+        reflection.reasoning,
+        'Runtime fanned out bulk selector targets from snapshot.',
+      ].where((s) => s.trim().isNotEmpty).join(' '),
+      narrative: reflection.narrative,
+      degraded: reflection.degraded,
+    );
+  }
+
+  static _BulkExpansion? _maybeExpandBulk({
+    required ReflectionTarget seed,
+    required GoalTree tree,
+    required EcosystemSnapshot snapshot,
+    required int index,
+  }) {
+    final entityType = _normalize(seed.entityType);
+    if (!_isSnapshotBackedEntity(entityType)) return null;
+
+    final operation = _normalize(seed.operation);
+    if (!_bulkEligibleOperations.contains(operation)) return null;
+
+    // Already concrete (snapshot id known) — nothing to expand.
+    if (seed.entityId.trim().isNotEmpty) return null;
+
+    final isBulk =
+        _isBulkLabel(seed.entityLabel) || _isBulkSelector(seed.selector);
+    if (!isBulk) return null;
+
+    final entities = _entities(snapshot, entityType);
+    if (entities.isEmpty) return null;
+
+    final originId = seed.subgoalId.isEmpty
+        ? '__bulk_$index'
+        : seed.subgoalId;
+    Subgoal? origin;
+    for (final s in tree.subgoals) {
+      if (s.id == originId) {
+        origin = s;
+        break;
+      }
+    }
+
+    final targets = <ReflectionTarget>[];
+    final subgoals = <Subgoal>[];
+    for (var k = 0; k < entities.length; k++) {
+      final entity = entities[k];
+      final id = '${originId}_t${k + 1}';
+      targets.add(
+        ReflectionTarget(
+          subgoalId: id,
+          operation: seed.operation,
+          entityType: seed.entityType,
+          entityId: entity.id,
+          entityLabel: entity.label,
+          selector: seed.selector,
+        ),
+      );
+      final fallbackLabel = '${seed.operation} $entityType ${entity.label}';
+      subgoals.add(
+        Subgoal(
+          id: id,
+          label: origin != null
+              ? '${origin.label} → ${entity.label}'
+              : fallbackLabel,
+          requiredSlots: origin?.requiredSlots ?? const {},
+          missingSlots: origin?.missingSlots ?? const [],
+        ),
+      );
+    }
+
+    return _BulkExpansion(
+      originSubgoalId: originId,
+      targets: targets,
+      subgoals: subgoals,
     );
   }
 
@@ -919,4 +1145,16 @@ class _EntityMatch {
   final String entityType;
   final String id;
   final String label;
+}
+
+class _BulkExpansion {
+  const _BulkExpansion({
+    required this.originSubgoalId,
+    required this.targets,
+    required this.subgoals,
+  });
+
+  final String originSubgoalId;
+  final List<ReflectionTarget> targets;
+  final List<Subgoal> subgoals;
 }

@@ -571,4 +571,245 @@ void main() {
       expect(result.reflection.strategy, ReflectionStrategy.directExecute);
     });
   });
+
+  group('TargetResolver bulk selector expansion', () {
+    test('fans out "all" workflow update into one subgoal per workflow', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'set all workflows to Mars',
+          subgoals: [
+            Subgoal(
+              id: 'sg_bulk',
+              label: 'update all workflows assigned-agent',
+              requiredSlots: const {'agentId': 'mars'},
+            ),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_bulk',
+            operation: 'update',
+            entityType: 'workflow',
+            entityLabel: 'all',
+            selector: {'scope': 'all'},
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: 'set semua workflow ke Mars'),
+        language: language,
+      );
+
+      // Two workflows in snapshot → two concrete targets, two subgoals.
+      expect(result.graph.eligibleTargets.length, 2);
+      expect(
+        result.graph.eligibleTargets.map((t) => t.entityId).toList(),
+        containsAll(['wf_mina', 'wf_a']),
+      );
+      expect(result.reflection.goalTree.subgoals.length, 2);
+      // Shared slot is forwarded to every fanned-out subgoal.
+      expect(
+        result.reflection.goalTree.subgoals.first.requiredSlots['agentId'],
+        'mars',
+      );
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
+    test('Indonesian quantifier "semua" triggers expansion via label', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'hapus semua workflow',
+          subgoals: [Subgoal(id: 'sg_bulk', label: 'hapus semua workflow')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_bulk',
+            operation: 'delete',
+            entityType: 'workflow',
+            entityLabel: 'semua workflow',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: 'hapus semua workflow'),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.length, 2);
+      expect(
+        result.graph.eligibleTargets.map((t) => t.operation).toSet(),
+        {'delete'},
+      );
+    });
+
+    test('"delete every agent" expands and still skips current active agent',
+        () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'delete every agent',
+          subgoals: [Subgoal(id: 'sg_bulk', label: 'delete every agent')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_bulk',
+            operation: 'delete',
+            entityType: 'agent',
+            entityLabel: 'every',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      // 3 agents, but Mina is current active → skipped.
+      expect(result.graph.eligibleTargets.length, 2);
+      expect(result.graph.skippedTargets.length, 1);
+      expect(result.graph.skippedTargets.single.entityId, 'mina');
+    });
+
+    test('selector.scope=all expands even when label is generic', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'list providers',
+          subgoals: [Subgoal(id: 'sg_bulk', label: 'list providers')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_bulk',
+            operation: 'list',
+            entityType: 'provider',
+            entityLabel: 'providers',
+            selector: {'scope': 'all'},
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: 'list semua provider'),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.length, 2);
+      expect(
+        result.graph.eligibleTargets.map((t) => t.entityType).toSet(),
+        {'provider'},
+      );
+    });
+
+    test('does NOT expand when entity already concrete (id provided)', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'delete workflow wf_a',
+          subgoals: [Subgoal(id: 'sg', label: 'delete Daily A')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg',
+            operation: 'delete',
+            entityType: 'workflow',
+            entityId: 'wf_a',
+            entityLabel: 'all',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      // Already concrete → no expansion.
+      expect(result.graph.eligibleTargets.length, 1);
+      expect(result.graph.eligibleTargets.single.entityId, 'wf_a');
+    });
+
+    test('does NOT expand bulk on create operations', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'create all agents',
+          subgoals: [Subgoal(id: 'sg', label: 'create all agents')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg',
+            operation: 'create',
+            entityType: 'agent',
+            entityLabel: 'all',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      // Create is not bulk-eligible — leaves the seed alone, normal resolution
+      // then either blocks (target not found) or stays single.
+      expect(result.graph.eligibleTargets.length + result.graph.blockingTargets.length, 1);
+    });
+
+    test('expansion is a no-op when snapshot has zero entities of that type',
+        () {
+      final emptyWorkflows = EcosystemSnapshot(
+        builtAt: DateTime(2026, 1, 1),
+        agents: const [
+          EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'X'),
+        ],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+      );
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'hapus semua workflow',
+          subgoals: [Subgoal(id: 'sg', label: 'hapus semua workflow')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg',
+            operation: 'delete',
+            entityType: 'workflow',
+            entityLabel: 'all',
+            selector: {'scope': 'all'},
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: emptyWorkflows,
+        request: request(),
+        language: language,
+      );
+
+      // No snapshot entities → no expansion → original target falls through to
+      // normal resolution which marks it as missing/blocking.
+      expect(result.graph.eligibleTargets, isEmpty);
+    });
+  });
 }

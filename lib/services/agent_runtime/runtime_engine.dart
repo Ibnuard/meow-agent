@@ -672,11 +672,27 @@ class AgentRuntimeEngine {
       // skip the planner LLM call and synthesize a 1-step plan locally.
       // The selectTool phase will still pick the exact tool + args.
       //
-      // CRITICAL: never take the fast path when analyzer enumerated multiple
-      // subgoal_seeds. A 1-step synthetic plan would short-circuit the loop
-      // before sg2/sg3 ever ran (the "buat 3 agen → 1 agen" bug).
+      // CRITICAL: never take the fast path when:
+      // 1. The analyzer enumerated multiple subgoal_seeds (explicit "create
+      //    3 agents X, Y, Z" pattern), OR
+      // 2. The reflector — including the deterministic bulk expander —
+      //    produced a goal tree or target list with more than one entry
+      //    (e.g. "delete all workflows" was fanned out from snapshot).
+      //
+      // A 1-step synthetic plan would short-circuit the loop before the
+      // remaining subgoals ever ran (the "buat 3 agen → 1 agen" bug, and
+      // the "set semua workflow → 1 update" bug).
       final seeds = analysis['subgoal_seeds'];
-      final hasMultiTarget = seeds is List && seeds.length > 1;
+      final hasMultiSeed = seeds is List && seeds.length > 1;
+      final analyzerBulk = analysis['bulk_selector'] == true;
+      final reflectorMultiSubgoal =
+          reflection != null && reflection.goalTree.subgoals.length > 1;
+      final reflectorMultiTarget =
+          reflection != null && reflection.targets.length > 1;
+      final hasMultiTarget = hasMultiSeed ||
+          analyzerBulk ||
+          reflectorMultiSubgoal ||
+          reflectorMultiTarget;
       final canSkipPlanner =
           pending == null &&
           !isWorkflowAutoExecute &&
