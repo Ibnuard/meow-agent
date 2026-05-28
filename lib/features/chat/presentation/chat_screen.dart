@@ -1251,7 +1251,19 @@ class _Bubble extends StatelessWidget {
     }
     final displayContent = rawContent
         .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
         .trim();
+
+    // Skip rendering ghost bubbles that have nothing visible to show.
+    // These can exist in the DB from before the cancel-guard fix, where
+    // engine.run() resolved with an empty finalMessage post-cancellation.
+    final hasNothingToShow = displayContent.isEmpty &&
+        (quoteText == null || quoteText.isEmpty) &&
+        msg.actions.isEmpty &&
+        !isConfirmation;
+    if (hasNothingToShow) {
+      return const SizedBox.shrink();
+    }
 
     final bubble = Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1917,67 +1929,100 @@ class _ChatInputState extends State<_ChatInput> {
         if (widget.replyTo != null)
           Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: extras.card,
               borderRadius: BorderRadius.circular(10),
-              border: Border(
-                left: BorderSide(color: cs.primary, width: 3),
-                top: BorderSide(color: extras.subtleBorder),
-                right: BorderSide(color: extras.subtleBorder),
-                bottom: BorderSide(color: extras.subtleBorder),
-              ),
+              border: Border.all(color: extras.subtleBorder),
             ),
-            child: Row(
-              children: [
-                Icon(Icons.reply_rounded, size: 16, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        widget.replyTo!.role == 'user' ? 'You' : 'Agent',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: cs.primary,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Left accent strip (drawn as a sibling so the rounded
+                    // corners stay intact — non-uniform Border widths break
+                    // when combined with borderRadius).
+                    Container(width: 3, color: cs.primary),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.replyTo!.content
-                            .replaceAll(
-                              RegExp(
-                                r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
-                                dotAll: true,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.reply_rounded,
+                              size: 16,
+                              color: cs.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    widget.replyTo!.role == 'user'
+                                        ? 'You'
+                                        : 'Agent',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: cs.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    widget.replyTo!.content
+                                        .replaceAll(
+                                          RegExp(
+                                            r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
+                                            dotAll: true,
+                                          ),
+                                          '',
+                                        )
+                                        .replaceAll(
+                                          '\n\n[[CONFIRMATION_REQUIRED]]',
+                                          '',
+                                        )
+                                        .replaceAll(
+                                          '[[CONFIRMATION_REQUIRED]]',
+                                          '',
+                                        )
+                                        .trim(),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface.withValues(alpha: 0.85),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              '',
-                            )
-                            .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                            .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
-                            .trim(),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurfaceVariant,
-                          height: 1.3,
+                            ),
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: widget.onCancelReply,
+                              borderRadius: BorderRadius.circular(20),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 18,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                GestureDetector(
-                  onTap: widget.onCancelReply,
-                  child: Icon(
-                    Icons.close_rounded,
-                    size: 18,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         // File preview chip.
