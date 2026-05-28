@@ -7,6 +7,7 @@ import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../chat/data/chat_history_service.dart';
+import '../../chat/data/unread_service.dart';
 import '../../providers/data/provider_repository.dart';
 import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
@@ -655,6 +656,8 @@ class WorkflowRunner {
         agentId,
         ChatMessage(role: 'assistant', content: message),
       );
+      // Bump unread badge unless the user is currently viewing that chat.
+      await UnreadService.instance.increment(agentId);
     } catch (_) {
       // Best-effort.
     }

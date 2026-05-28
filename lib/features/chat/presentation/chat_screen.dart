@@ -26,6 +26,7 @@ import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
 import '../data/chat_runtime_manager.dart';
+import '../data/unread_service.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -75,6 +76,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _loadHistory(_activeAgentId);
     _scroll.addListener(_onScroll);
 
+    // Mark this agent's chat as in-foreground so the unread counter clears
+    // and incoming messages don't bump the badge while user is reading.
+    UnreadService.instance.setActive(_activeAgentId);
+
     // Subscribe once after first frame so ref is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -107,6 +112,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
     _scroll.removeListener(_onScroll);
     _input.dispose();
@@ -867,6 +873,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _switchAgent(String agentId) {
     if (agentId == _activeAgentId) return;
+    UnreadService.instance.clearActive(_activeAgentId);
+    UnreadService.instance.setActive(agentId);
     _loadHistory(agentId);
     setState(() => _activeAgentId = agentId);
   }
@@ -2138,7 +2146,7 @@ class _SlashCommand {
 }
 
 /// Right-side drawer showing all agents for seamless switching.
-class _AgentDrawer extends StatelessWidget {
+class _AgentDrawer extends ConsumerWidget {
   const _AgentDrawer({
     required this.agents,
     required this.currentAgentId,
@@ -2152,9 +2160,10 @@ class _AgentDrawer extends StatelessWidget {
   final AppStrings s;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
     final extras = context.extras;
+    final unread = ref.watch(unreadServiceProvider);
 
     return Drawer(
       backgroundColor: cs.surface,
@@ -2296,6 +2305,11 @@ class _AgentDrawer extends StatelessWidget {
                                         ),
                                       ),
                                     ),
+                                    if (!isActive &&
+                                        unread.countFor(agent.id) > 0)
+                                       _DrawerUnreadChip(
+                                        count: unread.countFor(agent.id),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -2306,6 +2320,43 @@ class _AgentDrawer extends StatelessWidget {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact red chip showing unread count for an agent in the drawer list.
+class _DrawerUnreadChip extends StatelessWidget {
+  const _DrawerUnreadChip({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+    return Container(
+      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444),
+        borderRadius: BorderRadius.circular(11),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFEF4444).withValues(alpha: 0.4),
+            blurRadius: 6,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            height: 1.0,
+          ),
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/chat/data/chat_history_service.dart';
+import '../../features/chat/data/unread_service.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -2140,6 +2141,10 @@ class ToolRouter {
         targetAgentId,
         ChatMessage(role: 'assistant', content: content),
       );
+
+      // Bump unread badge unless the user is currently viewing that chat
+      // (UnreadService internally skips active agents).
+      await UnreadService.instance.increment(targetAgentId);
 
       return ToolExecutionResult(
         success: true,

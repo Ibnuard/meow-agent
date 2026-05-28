@@ -11,6 +11,7 @@ import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import 'chat_history_service.dart';
+import 'unread_service.dart';
 
 /// Per-agent runtime state. Survives ChatScreen disposal so navigating away
 /// does not cancel in-flight work; results are persisted regardless of UI.
@@ -195,6 +196,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         actions: response.actions,
       );
       await history.addMessage(agentId, replyMsg);
+      await UnreadService.instance.increment(agentId);
 
       _set(agentId, sessionFor(agentId).copyWith(
         isRunning: false,
@@ -214,6 +216,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         agentId,
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
+      await UnreadService.instance.increment(agentId);
       _set(agentId, sessionFor(agentId).copyWith(
         isRunning: false,
         debugMessages: [],
@@ -297,6 +300,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           actions: response.actions,
         ),
       );
+      await UnreadService.instance.increment(agentId);
 
       _set(agentId, sessionFor(agentId).copyWith(
         isRunning: false,
@@ -312,6 +316,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         agentId,
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
+      await UnreadService.instance.increment(agentId);
       _set(agentId, sessionFor(agentId).copyWith(
         isRunning: false,
         debugMessages: [],

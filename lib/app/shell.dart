@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/chat/data/chat_runtime_manager.dart';
+import '../features/chat/data/unread_service.dart';
 import '../features/settings/data/app_language_provider.dart';
 import 'router.dart';
 import 'theme.dart';
@@ -142,6 +143,7 @@ class AppShell extends ConsumerWidget {
                       size: featuredSize,
                       onTap: () => context.go(AppRoutes.defaultChat),
                       hasActivity: _hasAnyActiveSession(ref),
+                      unreadCount: ref.watch(unreadServiceProvider).total,
                     ),
                   ),
                 ),
@@ -309,11 +311,13 @@ class _FeaturedChatButton extends StatelessWidget {
     required this.size,
     required this.onTap,
     this.hasActivity = false,
+    this.unreadCount = 0,
   });
 
   final double size;
   final VoidCallback onTap;
   final bool hasActivity;
+  final int unreadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -387,13 +391,62 @@ class _FeaturedChatButton extends StatelessWidget {
             ),
           ),
         ),
-          if (hasActivity)
+          // Unread takes priority over the activity pulse — it's more
+          // actionable for the user.
+          if (unreadCount > 0)
+            Positioned(
+              top: -4,
+              right: -4,
+              child: _UnreadBadge(count: unreadCount),
+            )
+          else if (hasActivity)
             Positioned(
               top: -2,
               right: -2,
               child: _ActivityPulse(),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Red badge with unread count. Shows "99+" beyond 99 to keep width sane.
+class _UnreadBadge extends StatelessWidget {
+  const _UnreadBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+    return Container(
+      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEF4444),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.9),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFEF4444).withValues(alpha: 0.55),
+            blurRadius: 8,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            height: 1.0,
+          ),
+        ),
       ),
     );
   }
