@@ -740,13 +740,24 @@ class AgentRuntimeEngine {
           : _buildGoalTree(
               plan: plan,
               analysis: analysis,
-              userMessage: request.userMessage,
+              userMessage: effectiveUserMessage,
             );
       logger.logLlmDecision('plan.goal_tree', goalTree.toJson());
 
+      final loopRequest = effectiveUserMessage == request.userMessage
+          ? request
+          : AgentRuntimeRequest(
+              agentId: request.agentId,
+              agentName: request.agentName,
+              userMessage: effectiveUserMessage,
+              recentMessages: request.recentMessages,
+              metadata: request.metadata,
+              source: request.source,
+            );
+
       // 4. Execute loop.
       return _executeLoop(
-        request: request,
+        request: loopRequest,
         plan: plan,
         goalTree: goalTree,
         executor: executor,
@@ -1262,6 +1273,23 @@ class AgentRuntimeEngine {
 
         final finalResponse =
             selection['final_response'] as String? ?? 'Task completed.';
+        final verificationBlocker = await _blockIfCompletionUnverified(
+          request: request,
+          plan: plan,
+          goalTree: goalTree,
+          previousResults: previousResults,
+          currentStep: currentStep,
+          availableTools: availableTools,
+          memorySnapshot: memorySnapshot,
+          detectedLang: detectedLang,
+          autoApproveSensitive: autoApproveSensitive,
+          isWorkflowAutoExecute: isWorkflowAutoExecute,
+          logger: logger,
+          lastToolName: previousResults.isEmpty
+              ? null
+              : previousResults.last['tool'] as String?,
+        );
+        if (verificationBlocker != null) return verificationBlocker;
 
         logger.logFinalResponse(finalResponse);
         await workspaceLoader.updateHeartbeat(
@@ -1565,6 +1593,21 @@ class AgentRuntimeEngine {
         if (result.success &&
             _isLastPlannedStep(plan, currentStep) &&
             treeAllowsShortCircuit) {
+          final verificationBlocker = await _blockIfCompletionUnverified(
+            request: request,
+            plan: plan,
+            goalTree: goalTree,
+            previousResults: previousResults,
+            currentStep: currentStep,
+            availableTools: availableTools,
+            memorySnapshot: memorySnapshot,
+            detectedLang: detectedLang,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            logger: logger,
+            lastToolName: toolRequest.name,
+          );
+          if (verificationBlocker != null) return verificationBlocker;
           final localFinal = await _finalForCompletedTree(
             goalTree: goalTree,
             fallbackTool: toolRequest,
@@ -1615,6 +1658,12 @@ class AgentRuntimeEngine {
         );
         emit(logger.events.last);
 
+        var reviewStatus = review?['status'] as String? ?? '';
+        if (!result.success &&
+            (reviewStatus == 'done' || reviewStatus == 'continue')) {
+          reviewStatus = 'ask_user';
+        }
+
         if (review != null) {
           final reviewNarrative = (review['narrative'] ?? '').toString();
           if (reviewNarrative.isNotEmpty) {
@@ -1629,9 +1678,15 @@ class AgentRuntimeEngine {
           // multi-target fix.
           final update = review['subgoal_update'] as Map<String, dynamic>?;
           if (update != null) {
+            var status = SubgoalStatusX.fromLabel(update['status'] as String?);
+            if (!result.success && status == SubgoalStatus.done) {
+              status = reviewStatus == 'failed'
+                  ? SubgoalStatus.failed
+                  : SubgoalStatus.inProgress;
+            }
             final ok = goalTree.applyStatusUpdate(
               subgoalId: (update['id'] ?? '').toString(),
-              status: SubgoalStatusX.fromLabel(update['status'] as String?),
+              status: status,
               resultRef: update['result_ref'] as String?,
               notes: update['notes'] as String?,
             );
@@ -1648,6 +1703,9 @@ class AgentRuntimeEngine {
             // active subgoal done so progress is monotonic.
             final active = goalTree.nextActionable;
             if (active != null) active.status = SubgoalStatus.done;
+          } else {
+            final active = goalTree.nextActionable;
+            if (active != null) active.status = SubgoalStatus.inProgress;
           }
         }
 
@@ -1655,8 +1713,6 @@ class AgentRuntimeEngine {
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
           return _fail('Review phase failed.', logger);
         }
-
-        final reviewStatus = review['status'] as String? ?? '';
 
         if (reviewStatus == 'done') {
           // Same gate as the selector branch: the tree must agree.
@@ -1678,6 +1734,21 @@ class AgentRuntimeEngine {
 
           final finalResponse =
               review['final_response'] as String? ?? 'Task completed.';
+          final verificationBlocker = await _blockIfCompletionUnverified(
+            request: request,
+            plan: plan,
+            goalTree: goalTree,
+            previousResults: previousResults,
+            currentStep: currentStep,
+            availableTools: availableTools,
+            memorySnapshot: memorySnapshot,
+            detectedLang: detectedLang,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            logger: logger,
+            lastToolName: toolRequest.name,
+          );
+          if (verificationBlocker != null) return verificationBlocker;
           // For multi-subgoal tasks, override the reviewer's per-tool reply
           // with a holistic recap covering every completed subgoal.
           final completedFinal = goalTree.isNotEmpty &&
@@ -1715,8 +1786,23 @@ class AgentRuntimeEngine {
         }
 
         if (reviewStatus == 'ask_user') {
+          final question = review['question'] as String? ??
+              _fallbackQuestionForToolFailure(result, detectedLang);
+          await _parkTaskForUserInput(
+            request: request,
+            plan: plan,
+            goalTree: goalTree,
+            previousResults: previousResults,
+            currentStep: currentStep,
+            availableTools: availableTools,
+            memorySnapshot: memorySnapshot,
+            detectedLang: detectedLang,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            questions: [question],
+          );
           return AgentRuntimeResponse(
-            finalMessage: review['question'] as String? ?? 'Need more info.',
+            finalMessage: question,
             success: true,
             state: AgentRuntimeState.askingUser,
             events: logger.events,
@@ -1908,6 +1994,207 @@ class AgentRuntimeEngine {
       pendingToolArgs: pendingTool?.args,
     );
     return ledgerDb.upsert(ledger);
+  }
+
+  Future<void> _parkTaskForUserInput({
+    required AgentRuntimeRequest request,
+    required Map<String, dynamic> plan,
+    required GoalTree goalTree,
+    required List<Map<String, dynamic>> previousResults,
+    required int currentStep,
+    required List<String> availableTools,
+    required String memorySnapshot,
+    required DetectedLanguage detectedLang,
+    required bool autoApproveSensitive,
+    required bool isWorkflowAutoExecute,
+    required List<String> questions,
+  }) async {
+    final cleanQuestions = questions
+        .map((q) => q.trim())
+        .where((q) => q.isNotEmpty)
+        .toList(growable: false);
+    if (cleanQuestions.isEmpty) return;
+
+    _pendingClarifications[request.agentId] = PendingClarification(
+      originalMessage: request.userMessage,
+      questions: cleanQuestions,
+      createdAt: DateTime.now(),
+    );
+
+    if (goalTree.isNotEmpty && !goalTree.isComplete) {
+      await _persistLedgerAtGate(
+        request: request,
+        plan: plan,
+        goalTree: goalTree,
+        previousResults: previousResults,
+        currentStep: currentStep,
+        availableTools: availableTools,
+        memorySnapshot: memorySnapshot,
+        detectedLang: detectedLang,
+        autoApproveSensitive: autoApproveSensitive,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+      );
+    }
+  }
+
+  String _fallbackQuestionForToolFailure(
+    ToolExecutionResult result,
+    DetectedLanguage language,
+  ) {
+    final providers = result.data?['providers'] as List?;
+    if (providers != null && providers.isNotEmpty) {
+      final names = providers
+          .whereType<Map>()
+          .map((p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString())
+          .where((p) => p.trim().isNotEmpty)
+          .join(', ');
+      if (language.code == 'id') {
+        return names.isEmpty
+            ? 'Provider mana yang mau dipakai?'
+            : 'Provider mana yang mau dipakai? Pilihan yang tersedia: $names.';
+      }
+      return names.isEmpty
+          ? 'Which provider should I use?'
+          : 'Which provider should I use? Available options: $names.';
+    }
+
+    final reason = result.error ?? 'I need one more detail before continuing.';
+    if (language.code == 'id') {
+      return 'Aku butuh satu detail lagi sebelum lanjut: $reason';
+    }
+    return 'I need one more detail before continuing: $reason';
+  }
+
+  Future<AgentRuntimeResponse?> _blockIfCompletionUnverified({
+    required AgentRuntimeRequest request,
+    required Map<String, dynamic> plan,
+    required GoalTree goalTree,
+    required List<Map<String, dynamic>> previousResults,
+    required int currentStep,
+    required List<String> availableTools,
+    required String memorySnapshot,
+    required DetectedLanguage detectedLang,
+    required bool autoApproveSensitive,
+    required bool isWorkflowAutoExecute,
+    required RuntimeLogger logger,
+    String? lastToolName,
+  }) async {
+    final verification = _verifyAgentCreateCompletion(
+      goalTree: goalTree,
+      previousResults: previousResults,
+      lastToolName: lastToolName,
+      language: detectedLang,
+    );
+    if (verification == null || verification.ok) return null;
+
+    for (final subgoal in goalTree.subgoals) {
+      final expected = _expectedAgentNameForSubgoal(subgoal);
+      if (expected != null &&
+          verification.missingNames
+              .any((name) => name.toLowerCase() == expected.toLowerCase())) {
+        subgoal.status = SubgoalStatus.inProgress;
+        subgoal.notes = 'Verification failed: agent not found after execution.';
+      }
+    }
+
+    await _parkTaskForUserInput(
+      request: request,
+      plan: plan,
+      goalTree: goalTree,
+      previousResults: previousResults,
+      currentStep: currentStep,
+      availableTools: availableTools,
+      memorySnapshot: memorySnapshot,
+      detectedLang: detectedLang,
+      autoApproveSensitive: autoApproveSensitive,
+      isWorkflowAutoExecute: isWorkflowAutoExecute,
+      questions: [verification.question],
+    );
+    logger.logFinalResponse(verification.message);
+    return AgentRuntimeResponse(
+      finalMessage: verification.message,
+      success: false,
+      state: AgentRuntimeState.askingUser,
+      events: logger.events,
+    );
+  }
+
+  _CompletionVerification? _verifyAgentCreateCompletion({
+    required GoalTree goalTree,
+    required List<Map<String, dynamic>> previousResults,
+    required DetectedLanguage language,
+    String? lastToolName,
+  }) {
+    final touchedAgentCreate = lastToolName == 'system.agents.create' ||
+        previousResults.any((r) => r['tool'] == 'system.agents.create');
+    if (!touchedAgentCreate || goalTree.isEmpty) return null;
+
+    final loadAgents = agentLoader;
+    if (loadAgents == null) return null;
+    final existing = loadAgents()
+        .map((a) => a.name.trim().toLowerCase())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    if (existing.isEmpty) return null;
+
+    final expected = goalTree.subgoals
+        .map(_expectedAgentNameForSubgoal)
+        .whereType<String>()
+        .where((name) => name.trim().isNotEmpty)
+        .toSet();
+    if (expected.isEmpty) return null;
+
+    final missing = expected
+        .where((name) => !existing.contains(name.toLowerCase()))
+        .toList(growable: false);
+    if (missing.isEmpty) {
+      return const _CompletionVerification(ok: true);
+    }
+
+    final missingText = missing.join(', ');
+    if (language.code == 'id') {
+      return _CompletionVerification(
+        ok: false,
+        missingNames: missing,
+        message:
+            'Aku cek ulang daftar agen: $missingText belum ada, jadi task ini belum aku anggap selesai. Mau aku lanjut buat yang belum terbentuk?',
+        question: 'Lanjut buat agen yang belum terbentuk: $missingText?',
+      );
+    }
+    return _CompletionVerification(
+      ok: false,
+      missingNames: missing,
+      message:
+          'I checked the agent list again: $missingText is still missing, so I am not marking this task complete. Should I continue creating the missing agent?',
+      question: 'Continue creating the missing agent: $missingText?',
+    );
+  }
+
+  String? _expectedAgentNameForSubgoal(Subgoal subgoal) {
+    for (final key in const [
+      'name',
+      'agentName',
+      'agent_name',
+      'targetName',
+      'target_name',
+    ]) {
+      final value = subgoal.requiredSlots[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return value.trim();
+      }
+    }
+
+    final quoted = RegExp(r'["“”]([^"“”]+)["“”]')
+        .firstMatch(subgoal.label)
+        ?.group(1)
+        ?.trim();
+    if (quoted != null && quoted.isNotEmpty) return quoted;
+
+    final match = RegExp(
+      r'\b(?:agent|agen)\s+([A-Za-z0-9_-]{2,})\b',
+      caseSensitive: false,
+    ).firstMatch(subgoal.label);
+    return match?.group(1)?.trim();
   }
 
   /// Auto-resume a [PendingAction] from a persisted ledger when the in-memory
@@ -2202,6 +2489,20 @@ class AgentRuntimeEngine {
         : 'I cannot $actionLabel because the $module module is not active. Enable that module in Modules first, then try again.';
   }
 
+}
+
+class _CompletionVerification {
+  const _CompletionVerification({
+    required this.ok,
+    this.missingNames = const [],
+    this.message = '',
+    this.question = '',
+  });
+
+  final bool ok;
+  final List<String> missingNames;
+  final String message;
+  final String question;
 }
 
 /// Riverpod provider for the runtime engine.
