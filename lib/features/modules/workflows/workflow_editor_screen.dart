@@ -42,7 +42,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   bool _sendToChat = false;
   bool _allowSensitive = false;
   WorkflowPriority _priority = WorkflowPriority.normal;
-  int _timeoutSeconds = 60;
+  int _timeoutSeconds = 300;
   List<WorkflowStep> _steps = [];
   Map<String, String> _variables = {};
   String? _templateId;
@@ -75,7 +75,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _sendToChat = wf.sendToChat;
     _allowSensitive = wf.allowSensitive;
     _priority = wf.priority;
-    _timeoutSeconds = wf.timeoutSeconds;
+    _timeoutSeconds = _snapTimeoutToOption(wf.timeoutSeconds);
     _steps = List.from(wf.steps);
     _variables = Map.from(wf.variables);
     _templateId = wf.templateId;
@@ -100,7 +100,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _steps = List.from(tpl.defaultSteps);
     _variables = Map.from(tpl.defaultVariables);
     _priority = tpl.defaultPriority;
-    _timeoutSeconds = tpl.defaultTimeoutSeconds;
+    _timeoutSeconds = _snapTimeoutToOption(tpl.defaultTimeoutSeconds);
   }
 
   @override
@@ -163,6 +163,21 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
     final notif = NotifConfig(style: _notifStyle, showResult: true);
 
+    // Normalize per-step timeouts to the workflow-level value so the UI's
+    // timeout control is the single source of truth. The runner reads
+    // step.timeoutSeconds for multi-step workflows; without this sync, an
+    // editor change to the workflow-level timeout would have no effect on
+    // existing steps that were created with stale defaults (e.g. 60s).
+    final normalizedSteps = _steps
+        .map((s) => WorkflowStep(
+              id: s.id,
+              prompt: s.prompt,
+              condition: s.condition,
+              onFailure: s.onFailure,
+              timeoutSeconds: _timeoutSeconds,
+            ))
+        .toList();
+
     if (_isEdit) {
       final updated = widget.workflow!.copyWith(
         agentId: _selectedAgentId,
@@ -174,7 +189,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         allowSensitive: _allowSensitive,
         priority: _priority,
         timeoutSeconds: _timeoutSeconds,
-        steps: _steps,
+        steps: normalizedSteps,
         variables: _variables,
         templateId: _templateId,
       );
@@ -194,7 +209,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         enabled: true,
         priority: _priority,
         timeoutSeconds: _timeoutSeconds,
-        steps: _steps,
+        steps: normalizedSteps,
         variables: _variables,
         templateId: _templateId,
         createdAt: DateTime.now(),
@@ -242,10 +257,23 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         WorkflowStep(
           id: 'step_${_steps.length + 1}',
           prompt: '',
-          timeoutSeconds: 60,
+          timeoutSeconds: _timeoutSeconds,
         ),
       );
     });
+  }
+
+  /// Snap any loaded timeout to the nearest valid chip option so the UI
+  /// always has a selected state. Falls back to 300s (5m) for stored values
+  /// below the smallest option.
+  static int _snapTimeoutToOption(int stored) {
+    const options = [180, 300, 600, 900];
+    if (options.contains(stored)) return stored;
+    // Pick the smallest option >= stored, else default to 5m.
+    for (final opt in options) {
+      if (opt >= stored) return opt;
+    }
+    return 300;
   }
 
   void _removeStep(int index) {
@@ -408,12 +436,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               _buildPrioritySelector(cs, isId),
               const SizedBox(height: 20),
 
-              if (_steps.isEmpty) ...[
-                _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
-                const SizedBox(height: 8),
-                _buildTimeoutSelector(cs, isId),
-                const SizedBox(height: 20),
-              ],
+              _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
+              const SizedBox(height: 8),
+              _buildTimeoutSelector(cs, isId),
+              const SizedBox(height: 20),
 
               _buildToggle(
                 isId ? 'Kirim hasil ke chat' : 'Send result to chat',
@@ -1062,8 +1088,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   Widget _buildTimeoutSelector(ColorScheme cs, bool isId) {
-    final options = [30, 60, 120, 180, 300, 600];
-    final labels = ['30s', '1m', '2m', '3m', '5m', '10m'];
+    final options = [180, 300, 600, 900];
+    final labels = ['3m', '5m', '10m', '15m'];
     return Wrap(
       spacing: 8,
       runSpacing: 8,

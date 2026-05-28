@@ -106,7 +106,7 @@ class WorkflowTools {
                 (a) => a.name == s['onFailure'],
                 orElse: () => StepFailureAction.stop,
               ),
-              timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
+              timeoutSeconds: s['timeoutSeconds'] as int? ?? 300,
             ),
           );
         }
@@ -168,7 +168,7 @@ class WorkflowTools {
       sendToChat: sendToChat,
       enabled: true,
       priority: priority,
-      timeoutSeconds: args['timeout_seconds'] as int? ?? 60,
+      timeoutSeconds: args['timeout_seconds'] as int? ?? 300,
       steps: steps,
       variables: variables,
       templateId: args['template_id'] as String?,
@@ -449,7 +449,7 @@ class WorkflowTools {
                 (a) => a.name == s['onFailure'],
                 orElse: () => StepFailureAction.stop,
               ),
-              timeoutSeconds: s['timeoutSeconds'] as int? ?? 60,
+              timeoutSeconds: s['timeoutSeconds'] as int? ?? 300,
             ),
           );
         }

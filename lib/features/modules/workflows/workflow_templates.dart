@@ -15,7 +15,7 @@ class WorkflowTemplate {
     this.defaultSteps = const [],
     this.defaultVariables = const {},
     this.defaultPriority = WorkflowPriority.normal,
-    this.defaultTimeoutSeconds = 60,
+    this.defaultTimeoutSeconds = 300,
   });
 
   final String id;
@@ -87,13 +87,13 @@ class WorkflowTemplateRegistry {
         WorkflowStep(
           id: 'generate_prompt',
           prompt: 'Buat prompt refleksi jurnal yang unik untuk hari ini.',
-          timeoutSeconds: 120,
+          timeoutSeconds: 300,
         ),
         WorkflowStep(
           id: 'save_note',
           prompt: 'Simpan prompt berikut sebagai note baru dengan judul "Jurnal {{date}}": {{prev}}',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 120,
+          timeoutSeconds: 300,
         ),
       ],
     ),
@@ -204,19 +204,19 @@ class WorkflowTemplateRegistry {
         WorkflowStep(
           id: 'gather_device',
           prompt: 'Kumpulkan informasi device: baterai, storage, dan koneksi.',
-          timeoutSeconds: 120,
+          timeoutSeconds: 300,
         ),
         WorkflowStep(
           id: 'gather_calendar',
           prompt: 'Ambil jadwal kalender untuk hari ini dan besok.',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 120,
+          timeoutSeconds: 300,
         ),
         WorkflowStep(
           id: 'compile_report',
           prompt: 'Kompilasi informasi berikut menjadi laporan ringkas dan simpan sebagai note:\n\nDevice: {{step_gather_device_result}}\nKalender: {{step_gather_calendar_result}}',
           condition: "prev.isNotEmpty",
-          timeoutSeconds: 180,
+          timeoutSeconds: 300,
         ),
       ],
       defaultTrigger: TriggerConfig(
@@ -225,7 +225,7 @@ class WorkflowTemplateRegistry {
         minute: 0,
         daysOfWeek: [5], // Friday only
       ),
-      defaultTimeoutSeconds: 120,
+      defaultTimeoutSeconds: 300,
     ),
 
     // ─── Health ───────────────────────────────────────────────────────────────

@@ -24,9 +24,11 @@ class WorkflowRunner {
   Timer? _timer;
   final Set<String> _runningWorkflows = {};
 
-  /// Minimum timeout per step in seconds. Prevents legacy workflows stored
-  /// with old defaults (15s/30s) from timing out prematurely.
-  static const _minStepTimeoutSeconds = 120;
+  /// Minimum timeout per step in seconds. Any workflow — new or legacy —
+  /// will be raised to this floor at runtime. Complex thinking models often
+  /// need 2-5 minutes per step; a 5-minute floor prevents premature timeouts
+  /// without requiring a database migration of stored values.
+  static const _minStepTimeoutSeconds = 300;
 
   /// Enforce minimum floor on step timeout.
   static int _effectiveTimeout(int stored) =>
