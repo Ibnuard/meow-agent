@@ -14,58 +14,57 @@ void main() {
     confidence: 1,
   );
 
-  AgentRuntimeRequest request({String agentId = 'mina'}) =>
-      AgentRuntimeRequest(
-        agentId: agentId,
-        agentName: 'Mina',
-        userMessage: 'hapus semua agent non planet',
-      );
+  AgentRuntimeRequest request({
+    String agentId = 'mina',
+    String agentName = 'Mina',
+    String userMessage = 'hapus semua agent non planet',
+  }) => AgentRuntimeRequest(
+    agentId: agentId,
+    agentName: agentName,
+    userMessage: userMessage,
+  );
 
   EcosystemSnapshot snapshot() => EcosystemSnapshot(
-        builtAt: DateTime(2026, 1, 1),
-        agents: const [
-          EcosystemAgent(
-            id: 'mina',
-            name: 'Mina',
-            providerNickname: 'SUMOPOD',
-            usedByWorkflows: ['Daily Mina'],
-          ),
-          EcosystemAgent(
-            id: 'agent_a',
-            name: 'Agent A',
-            providerNickname: 'SUMOPOD',
-            usedByWorkflows: ['Daily A'],
-          ),
-          EcosystemAgent(
-            id: 'mars',
-            name: 'Mars',
-            providerNickname: 'SUMOPOD',
-          ),
-        ],
-        workflows: const [
-          EcosystemWorkflow(
-            id: 'wf_mina',
-            title: 'Daily Mina',
-            agentId: 'mina',
-            agentName: 'Mina',
-            triggerSummary: 'daily',
-            enabled: true,
-          ),
-          EcosystemWorkflow(
-            id: 'wf_a',
-            title: 'Daily A',
-            agentId: 'agent_a',
-            agentName: 'Agent A',
-            triggerSummary: 'daily',
-            enabled: true,
-          ),
-        ],
-        providers: const [
-          EcosystemProvider(id: 'p1', nickname: 'SUMOPOD'),
-          EcosystemProvider(id: 'p2', nickname: '9ROUTER'),
-        ],
-        modules: const [],
-      );
+    builtAt: DateTime(2026, 1, 1),
+    agents: const [
+      EcosystemAgent(
+        id: 'mina',
+        name: 'Mina',
+        providerNickname: 'SUMOPOD',
+        usedByWorkflows: ['Daily Mina'],
+      ),
+      EcosystemAgent(
+        id: 'agent_a',
+        name: 'Agent A',
+        providerNickname: 'SUMOPOD',
+        usedByWorkflows: ['Daily A'],
+      ),
+      EcosystemAgent(id: 'mars', name: 'Mars', providerNickname: 'SUMOPOD'),
+    ],
+    workflows: const [
+      EcosystemWorkflow(
+        id: 'wf_mina',
+        title: 'Daily Mina',
+        agentId: 'mina',
+        agentName: 'Mina',
+        triggerSummary: 'daily',
+        enabled: true,
+      ),
+      EcosystemWorkflow(
+        id: 'wf_a',
+        title: 'Daily A',
+        agentId: 'agent_a',
+        agentName: 'Agent A',
+        triggerSummary: 'daily',
+        enabled: true,
+      ),
+    ],
+    providers: const [
+      EcosystemProvider(id: 'p1', nickname: 'SUMOPOD'),
+      EcosystemProvider(id: 'p2', nickname: '9ROUTER'),
+    ],
+    modules: const [],
+  );
 
   group('TargetResolver', () {
     test('skips current active agent before impact filtering', () {
@@ -136,9 +135,7 @@ void main() {
         strategy: ReflectionStrategy.clarify,
         goalTree: GoalTree(
           mainGoal: 'create agents',
-          subgoals: [
-            Subgoal(id: 'sg_bumi', label: 'create Bumi'),
-          ],
+          subgoals: [Subgoal(id: 'sg_bumi', label: 'create Bumi')],
         ),
         targets: const [
           ReflectionTarget(
@@ -178,9 +175,7 @@ void main() {
         strategy: ReflectionStrategy.directExecute,
         goalTree: GoalTree(
           mainGoal: 'delete Mina',
-          subgoals: [
-            Subgoal(id: 'sg_mina', label: 'delete Mina'),
-          ],
+          subgoals: [Subgoal(id: 'sg_mina', label: 'delete Mina')],
         ),
         targets: const [
           ReflectionTarget(
@@ -210,9 +205,7 @@ void main() {
         strategy: ReflectionStrategy.directExecute,
         goalTree: GoalTree(
           mainGoal: 'delete Ghost',
-          subgoals: [
-            Subgoal(id: 'sg_ghost', label: 'delete Ghost'),
-          ],
+          subgoals: [Subgoal(id: 'sg_ghost', label: 'delete Ghost')],
         ),
         targets: const [
           ReflectionTarget(
@@ -236,15 +229,57 @@ void main() {
       expect(result.graph.blockingTargets.single.reason, 'target_not_found');
     });
 
-    test('does not block workspace file paths that are not in ecosystem snapshot',
-        () {
+    test('clarifies with ambiguous status for partial existing agent name', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mina profile',
+          subgoals: [Subgoal(id: 'sg_mina', label: 'read Mina')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_mina',
+            operation: 'read',
+            entityType: 'agent',
+            entityLabel: 'Mina',
+          ),
+        ],
+      );
+      final snap = EcosystemSnapshot(
+        builtAt: DateTime(2026, 1, 1),
+        agents: const [
+          EcosystemAgent(
+            id: 'mina_chan',
+            name: 'Mina Chan',
+            providerNickname: 'SUMOPOD',
+          ),
+        ],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snap,
+        request: request(userMessage: 'apa personality agent mina?'),
+        language: language,
+      );
+
+      expect(result.reflection.strategy, ReflectionStrategy.clarify);
+      expect(
+        result.graph.blockingTargets.single.status,
+        ResolvedTargetStatus.ambiguous,
+      );
+      expect(result.graph.blockingTargets.single.entityId, 'mina_chan');
+    });
+
+    test('does not block exact peer workspace file paths', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,
         goalTree: GoalTree(
           mainGoal: 'read Mars personality',
-          subgoals: [
-            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
-          ],
+          subgoals: [Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md')],
         ),
         targets: const [
           ReflectionTarget(
@@ -259,7 +294,7 @@ void main() {
       final result = TargetResolver.resolveReflection(
         reflection: reflection,
         snapshot: snapshot(),
-        request: request(),
+        request: request(userMessage: 'apa personality agent Mars?'),
         language: language,
       );
 
@@ -269,14 +304,107 @@ void main() {
       expect(result.reflection.clarifyQuestions, isEmpty);
     });
 
+    test('peer agent path with partial name asks for target confirmation', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mina personality',
+          subgoals: [Subgoal(id: 'sg_file', label: 'read Agents/Mina/SOUL.md')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_file',
+            operation: 'read',
+            entityType: 'file',
+            entityLabel: 'Agents/Mina/SOUL.md',
+          ),
+        ],
+      );
+      final snap = EcosystemSnapshot(
+        builtAt: DateTime(2026, 1, 1),
+        agents: const [
+          EcosystemAgent(
+            id: 'mina_chan',
+            name: 'Mina Chan',
+            providerNickname: 'SUMOPOD',
+          ),
+        ],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snap,
+        request: request(userMessage: 'apa personality agent mina?'),
+        language: language,
+      );
+
+      expect(result.reflection.strategy, ReflectionStrategy.clarify);
+      expect(
+        result.graph.blockingTargets.single.status,
+        ResolvedTargetStatus.ambiguous,
+      );
+      expect(
+        result.graph.blockingTargets.single.reason,
+        'agent_path_target_needs_confirmation',
+      );
+    });
+
+    test('peer agent path is allowed after exact agent name is provided', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mina Chan personality',
+          subgoals: [
+            Subgoal(id: 'sg_file', label: 'read Agents/Mina_Chan/SOUL.md'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_file',
+            operation: 'read',
+            entityType: 'file',
+            entityLabel: 'Agents/Mina_Chan/SOUL.md',
+          ),
+        ],
+      );
+      final snap = EcosystemSnapshot(
+        builtAt: DateTime(2026, 1, 1),
+        agents: const [
+          EcosystemAgent(
+            id: 'mina_chan',
+            name: 'Mina Chan',
+            providerNickname: 'SUMOPOD',
+          ),
+        ],
+        workflows: const [],
+        providers: const [],
+        modules: const [],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snap,
+        request: request(userMessage: 'apa personality agent Mina Chan?'),
+        language: language,
+      );
+
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+      expect(
+        result.graph.eligibleTargets.single.entityLabel,
+        'Agents/Mina_Chan/SOUL.md',
+      );
+      expect(result.graph.blockingTargets, isEmpty);
+    });
+
     test('path-like target overrides wrong LLM entity type', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,
         goalTree: GoalTree(
           mainGoal: 'read Mars personality',
-          subgoals: [
-            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
-          ],
+          subgoals: [Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md')],
         ),
         targets: const [
           ReflectionTarget(
@@ -303,7 +431,7 @@ void main() {
       final result = TargetResolver.resolveReflection(
         reflection: reflection,
         snapshot: snapshot(),
-        request: request(),
+        request: request(userMessage: 'apa personality agent Mars?'),
         language: language,
       );
 
@@ -313,40 +441,41 @@ void main() {
       expect(result.reflection.strategy, ReflectionStrategy.directExecute);
     });
 
-    test('goal tree fallback treats path text as file, not mentioned agent', () {
-      final reflection = ReflectionOutput(
-        strategy: ReflectionStrategy.directExecute,
-        goalTree: GoalTree(
-          mainGoal: 'read Mars personality',
-          subgoals: [
-            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
-          ],
-        ),
-      );
+    test(
+      'goal tree fallback treats path text as file, not mentioned agent',
+      () {
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'read Mars personality',
+            subgoals: [
+              Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
+            ],
+          ),
+        );
 
-      final result = TargetResolver.resolveReflection(
-        reflection: reflection,
-        snapshot: snapshot(),
-        request: request(),
-        language: language,
-      );
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot(),
+          request: request(userMessage: 'apa personality agent Mars?'),
+          language: language,
+        );
 
-      expect(result.graph.eligibleTargets.single.entityType, 'file');
-      expect(
-        result.graph.eligibleTargets.single.entityLabel,
-        'Agents/Mars/SOUL.md',
-      );
-      expect(result.graph.blockingTargets, isEmpty);
-    });
+        expect(result.graph.eligibleTargets.single.entityType, 'file');
+        expect(
+          result.graph.eligibleTargets.single.entityLabel,
+          'Agents/Mars/SOUL.md',
+        );
+        expect(result.graph.blockingTargets, isEmpty);
+      },
+    );
 
     test('read-only snapshot targets do not surface mutation impacts', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.clarify,
         goalTree: GoalTree(
           mainGoal: 'read Mars info',
-          subgoals: [
-            Subgoal(id: 'sg_mars', label: 'read Mars'),
-          ],
+          subgoals: [Subgoal(id: 'sg_mars', label: 'read Mars')],
         ),
         targets: const [
           ReflectionTarget(
@@ -418,9 +547,7 @@ void main() {
         strategy: ReflectionStrategy.directExecute,
         goalTree: GoalTree(
           mainGoal: 'open url',
-          subgoals: [
-            Subgoal(id: 'sg_url', label: 'open https://example.com'),
-          ],
+          subgoals: [Subgoal(id: 'sg_url', label: 'open https://example.com')],
         ),
         targets: const [
           ReflectionTarget(

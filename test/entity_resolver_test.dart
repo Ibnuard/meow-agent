@@ -27,44 +27,79 @@ void main() {
     });
 
     test('completely different strings have large distance', () {
-      expect(EntityResolver.levenshtein('writer', 'tornado'),
-          greaterThanOrEqualTo(5));
+      expect(
+        EntityResolver.levenshtein('writer', 'tornado'),
+        greaterThanOrEqualTo(5),
+      );
     });
   });
 
   group('EntityResolver.resolve', () {
     test('exact match wins regardless of case/whitespace', () {
-      final m = EntityResolver.resolve(
-        '  Writer ',
-        const ['Coder', 'Writer', 'Researcher'],
-      );
+      final m = EntityResolver.resolve('  Writer ', const [
+        'Coder',
+        'Writer',
+        'Researcher',
+      ]);
       expect(m.kind, EntityMatchKind.exact);
       expect(m.matched, 'Writer');
     });
 
     test('1-char typo is near-match', () {
-      final m = EntityResolver.resolve(
-        'Wrtier',
-        const ['Coder', 'Writer', 'Researcher'],
-      );
+      final m = EntityResolver.resolve('Wrtier', const [
+        'Coder',
+        'Writer',
+        'Researcher',
+      ]);
       expect(m.kind, EntityMatchKind.near);
       expect(m.matched, 'Writer');
     });
 
     test('2-char typo is still near-match', () {
-      final m = EntityResolver.resolve(
-        'Writter',
-        const ['Coder', 'Writer', 'Researcher'],
-      );
+      final m = EntityResolver.resolve('Writter', const [
+        'Coder',
+        'Writer',
+        'Researcher',
+      ]);
       expect(m.kind, EntityMatchKind.near);
       expect(m.matched, 'Writer');
     });
 
+    test('unique partial agent name asks for confirmation as near-match', () {
+      final m = EntityResolver.resolve('Mina', const [
+        'Mina Chan',
+        'Mars',
+        'Programmer',
+      ]);
+      expect(m.kind, EntityMatchKind.near);
+      expect(m.matched, 'Mina Chan');
+    });
+
+    test('ambiguous partial name returns suggestions instead of matching', () {
+      final m = EntityResolver.resolve('Mina', const [
+        'Mina Chan',
+        'Mina Writer',
+        'Mars',
+      ]);
+      expect(m.kind, EntityMatchKind.none);
+      expect(m.suggestions, ['Mina Chan', 'Mina Writer']);
+    });
+
+    test('workspace-safe separators normalize like spaces', () {
+      final m = EntityResolver.resolve('Mina_Chan', const [
+        'Mina Chan',
+        'Mars',
+      ]);
+      expect(m.kind, EntityMatchKind.exact);
+      expect(m.matched, 'Mina Chan');
+    });
+
     test('large distance returns none with suggestions', () {
-      final m = EntityResolver.resolve(
-        'Tornado',
-        const ['Coder', 'Writer', 'Researcher'],
-      );
+      final m = EntityResolver.resolve('Tornado', const [
+        'Coder',
+        'Writer',
+        'Researcher',
+      ]);
       expect(m.kind, EntityMatchKind.none);
       expect(m.suggestions, isNotEmpty);
       expect(m.suggestions.length, lessThanOrEqualTo(3));
@@ -81,16 +116,15 @@ void main() {
       expect(m.kind, EntityMatchKind.none);
     });
 
-    test('case-insensitive exact match takes priority over closer near-match',
-        () {
-      // "WRITER" should exact-match "writer" rather than near-match "Writer".
-      final m = EntityResolver.resolve(
-        'WRITER',
-        const ['writer', 'Writter'],
-      );
-      expect(m.kind, EntityMatchKind.exact);
-      expect(m.matched, 'writer');
-    });
+    test(
+      'case-insensitive exact match takes priority over closer near-match',
+      () {
+        // "WRITER" should exact-match "writer" rather than near-match "Writer".
+        final m = EntityResolver.resolve('WRITER', const ['writer', 'Writter']);
+        expect(m.kind, EntityMatchKind.exact);
+        expect(m.matched, 'writer');
+      },
+    );
   });
 
   group('EntityMatch convenience accessors', () {

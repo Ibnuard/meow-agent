@@ -3,23 +3,19 @@ import 'goal_tree.dart';
 import 'language_detector.dart';
 import 'reflector.dart';
 import 'runtime_models.dart';
+import 'snapshot_target_resolver.dart';
+import 'target_reference_utils.dart';
 
-enum ResolvedTargetStatus {
-  eligible,
-  skipped,
-  missing,
-  ambiguous,
-  ineligible,
-}
+enum ResolvedTargetStatus { eligible, skipped, missing, ambiguous, ineligible }
 
 extension ResolvedTargetStatusX on ResolvedTargetStatus {
   String get label => switch (this) {
-        ResolvedTargetStatus.eligible => 'eligible',
-        ResolvedTargetStatus.skipped => 'skipped',
-        ResolvedTargetStatus.missing => 'missing',
-        ResolvedTargetStatus.ambiguous => 'ambiguous',
-        ResolvedTargetStatus.ineligible => 'ineligible',
-      };
+    ResolvedTargetStatus.eligible => 'eligible',
+    ResolvedTargetStatus.skipped => 'skipped',
+    ResolvedTargetStatus.missing => 'missing',
+    ResolvedTargetStatus.ambiguous => 'ambiguous',
+    ResolvedTargetStatus.ineligible => 'ineligible',
+  };
 
   static ResolvedTargetStatus fromLabel(String? raw) {
     switch (raw) {
@@ -94,30 +90,28 @@ class ResolvedTarget {
   }
 
   Map<String, dynamic> toJson() => {
-        'key': key,
-        'subgoal_id': subgoalId,
-        'operation': operation,
-        'entity_type': entityType,
-        if (entityId.isNotEmpty) 'entity_id': entityId,
-        if (entityLabel.isNotEmpty) 'entity_label': entityLabel,
-        'status': status.label,
-        if (reason.isNotEmpty) 'reason': reason,
-        if (selector.isNotEmpty) 'selector': selector,
-      };
+    'key': key,
+    'subgoal_id': subgoalId,
+    'operation': operation,
+    'entity_type': entityType,
+    if (entityId.isNotEmpty) 'entity_id': entityId,
+    if (entityLabel.isNotEmpty) 'entity_label': entityLabel,
+    'status': status.label,
+    if (reason.isNotEmpty) 'reason': reason,
+    if (selector.isNotEmpty) 'selector': selector,
+  };
 
   factory ResolvedTarget.fromJson(Map<String, dynamic> json) => ResolvedTarget(
-        key: (json['key'] ?? '').toString(),
-        subgoalId: (json['subgoal_id'] ?? '').toString(),
-        operation: (json['operation'] ?? '').toString(),
-        entityType: (json['entity_type'] ?? '').toString(),
-        entityId: (json['entity_id'] ?? '').toString(),
-        entityLabel: (json['entity_label'] ?? '').toString(),
-        status:
-            ResolvedTargetStatusX.fromLabel(json['status'] as String?),
-        reason: (json['reason'] ?? '').toString(),
-        selector:
-            (json['selector'] as Map?)?.cast<String, dynamic>() ?? const {},
-      );
+    key: (json['key'] ?? '').toString(),
+    subgoalId: (json['subgoal_id'] ?? '').toString(),
+    operation: (json['operation'] ?? '').toString(),
+    entityType: (json['entity_type'] ?? '').toString(),
+    entityId: (json['entity_id'] ?? '').toString(),
+    entityLabel: (json['entity_label'] ?? '').toString(),
+    status: ResolvedTargetStatusX.fromLabel(json['status'] as String?),
+    reason: (json['reason'] ?? '').toString(),
+    selector: (json['selector'] as Map?)?.cast<String, dynamic>() ?? const {},
+  );
 }
 
 class TargetResolutionGraph {
@@ -148,10 +142,10 @@ class TargetResolutionGraph {
       targets.where((t) => t.isBlocking).toList(growable: false);
 
   Map<String, dynamic> toJson() => {
-        'targets': targets.map((t) => t.toJson()).toList(),
-        'original_impact_count': originalImpactCount,
-        'filtered_impact_count': filteredImpactCount,
-      };
+    'targets': targets.map((t) => t.toJson()).toList(),
+    'original_impact_count': originalImpactCount,
+    'filtered_impact_count': filteredImpactCount,
+  };
 
   factory TargetResolutionGraph.fromJson(Map<String, dynamic> json) {
     final rawTargets = json['targets'] as List?;
@@ -159,9 +153,9 @@ class TargetResolutionGraph {
       targets: rawTargets == null
           ? const []
           : rawTargets
-              .whereType<Map>()
-              .map((m) => ResolvedTarget.fromJson(m.cast<String, dynamic>()))
-              .toList(growable: false),
+                .whereType<Map>()
+                .map((m) => ResolvedTarget.fromJson(m.cast<String, dynamic>()))
+                .toList(growable: false),
       originalImpactCount:
           (json['original_impact_count'] as num?)?.toInt() ?? 0,
       filteredImpactCount:
@@ -171,10 +165,7 @@ class TargetResolutionGraph {
 }
 
 class TargetResolutionResult {
-  const TargetResolutionResult({
-    required this.reflection,
-    required this.graph,
-  });
+  const TargetResolutionResult({required this.reflection, required this.graph});
 
   final ReflectionOutput reflection;
   final TargetResolutionGraph graph;
@@ -219,14 +210,13 @@ class TargetResolver {
     var strategy = reflection.strategy;
     var clarifyQuestions = reflection.clarifyQuestions;
     var blockReason = reflection.blockReason;
-    final hasMissingSlots =
-        filteredSubgoals.any((s) => s.missingSlots.isNotEmpty);
+    final hasMissingSlots = filteredSubgoals.any(
+      (s) => s.missingSlots.isNotEmpty,
+    );
 
     if (graph.hasBlocking) {
       strategy = ReflectionStrategy.clarify;
-      clarifyQuestions = [
-        _clarifyForBlocking(graph.blockingTargets, language),
-      ];
+      clarifyQuestions = [_clarifyForBlocking(graph.blockingTargets, language)];
       blockReason = '';
     } else if (!graph.hasEligible && graph.hasSkipped) {
       strategy = ReflectionStrategy.block;
@@ -311,12 +301,35 @@ class TargetResolver {
         selector: seed.selector,
       );
 
+      resolved = _resolvePeerAgentPathTarget(
+        resolved: resolved,
+        snapshot: snapshot,
+        request: request,
+      );
+
       if (_requiresSnapshotTarget(entityType, operation) &&
           resolved.entityId.isEmpty) {
-        resolved = resolved.copyWith(
-          status: ResolvedTargetStatus.missing,
-          reason: 'target_not_found',
+        final nearMatch = SnapshotTargetResolver.resolve(
+          snapshot: snapshot,
+          entityType: entityType,
+          entityLabel: seed.entityLabel.isNotEmpty
+              ? seed.entityLabel
+              : resolved.entityLabel,
         );
+        resolved = !nearMatch.isAmbiguous
+            ? resolved.copyWith(
+                status: ResolvedTargetStatus.missing,
+                reason: 'target_not_found',
+              )
+            : resolved.copyWith(
+                entityId: nearMatch.id,
+                status: ResolvedTargetStatus.ambiguous,
+                reason: 'target_needs_confirmation',
+                selector: {
+                  ...resolved.selector,
+                  'suggestions': nearMatch.suggestions,
+                },
+              );
       }
 
       if (current != null &&
@@ -332,6 +345,77 @@ class TargetResolver {
       out.add(resolved);
     }
     return out;
+  }
+
+  static ResolvedTarget _resolvePeerAgentPathTarget({
+    required ResolvedTarget resolved,
+    required EcosystemSnapshot snapshot,
+    required AgentRuntimeRequest request,
+  }) {
+    if (resolved.entityType != 'file' || snapshot.agents.isEmpty) {
+      return resolved;
+    }
+    final peerPath = TargetReferenceUtils.parsePeerAgentPath(
+      resolved.entityLabel,
+    );
+    if (peerPath == null) return resolved;
+
+    final typedName = TargetReferenceUtils.displayNameFromWorkspaceSegment(
+      peerPath.agentSegment,
+    );
+    final match = SnapshotTargetResolver.resolve(
+      snapshot: snapshot,
+      entityType: 'agent',
+      entityLabel: typedName,
+    );
+    final selector = {
+      ...resolved.selector,
+      'path': peerPath.originalPath,
+      'agent_segment': peerPath.agentSegment,
+      if (match.suggestions.isNotEmpty) 'suggestions': match.suggestions,
+    };
+
+    if (match.isExact) {
+      final userNamedExactAgent =
+          TargetReferenceUtils.messageMentionsExactAgent(
+            request.userMessage,
+            match.label,
+          );
+      if (!userNamedExactAgent) {
+        return resolved.copyWith(
+          entityId: match.id,
+          entityLabel: match.label,
+          status: ResolvedTargetStatus.ambiguous,
+          reason: 'agent_path_target_needs_confirmation',
+          selector: selector,
+        );
+      }
+      return resolved.copyWith(
+        entityId: match.id,
+        entityLabel: TargetReferenceUtils.canonicalPeerAgentPath(
+          peerPath,
+          match.label,
+        ),
+        selector: selector,
+      );
+    }
+
+    if (match.isAmbiguous) {
+      return resolved.copyWith(
+        entityId: match.id,
+        entityLabel: typedName,
+        status: ResolvedTargetStatus.ambiguous,
+        reason: 'agent_path_target_needs_confirmation',
+        selector: selector,
+      );
+    }
+
+    return resolved.copyWith(
+      entityLabel: typedName,
+      status: ResolvedTargetStatus.missing,
+      reason: 'agent_path_target_not_found',
+      selector: selector,
+    );
   }
 
   static List<ReflectionTarget> _targetsFromGoalTree(
@@ -388,35 +472,41 @@ class TargetResolver {
             ? _inferReadOnlyOperation(subgoal.label)
             : operation;
         entityType = 'file';
-        out.add(ReflectionTarget(
-          subgoalId: subgoal.id,
-          operation: operation.isEmpty ? 'read' : operation,
-          entityType: entityType,
-          entityId: '',
-          entityLabel: pathLike,
-        ));
+        out.add(
+          ReflectionTarget(
+            subgoalId: subgoal.id,
+            operation: operation.isEmpty ? 'read' : operation,
+            entityType: entityType,
+            entityId: '',
+            entityLabel: pathLike,
+          ),
+        );
         continue;
       }
 
       final matches = _entityMentionsForSubgoal(subgoal, snapshot);
       if (matches.isEmpty && (operation.isNotEmpty || entityType.isNotEmpty)) {
-        out.add(ReflectionTarget(
-          subgoalId: subgoal.id,
-          operation: operation,
-          entityType: entityType,
-          entityId: entityId,
-          entityLabel: label,
-        ));
+        out.add(
+          ReflectionTarget(
+            subgoalId: subgoal.id,
+            operation: operation,
+            entityType: entityType,
+            entityId: entityId,
+            entityLabel: label,
+          ),
+        );
         continue;
       }
       for (final match in matches) {
-        out.add(ReflectionTarget(
-          subgoalId: subgoal.id,
-          operation: operation,
-          entityType: entityType.isNotEmpty ? entityType : match.entityType,
-          entityId: entityId.isNotEmpty ? entityId : match.id,
-          entityLabel: label.isNotEmpty ? label : match.label,
-        ));
+        out.add(
+          ReflectionTarget(
+            subgoalId: subgoal.id,
+            operation: operation,
+            entityType: entityType.isNotEmpty ? entityType : match.entityType,
+            entityId: entityId.isNotEmpty ? entityId : match.id,
+            entityLabel: label.isNotEmpty ? label : match.label,
+          ),
+        );
       }
     }
     return out;
@@ -532,7 +622,11 @@ class TargetResolver {
         return candidate;
       }
     }
-    return _EntityMatch(entityType: entityType, id: entityId, label: entityLabel);
+    return _EntityMatch(
+      entityType: entityType,
+      id: entityId,
+      label: entityLabel,
+    );
   }
 
   static List<_EntityMatch> _entityMentionsForSubgoal(
@@ -563,11 +657,7 @@ class TargetResolver {
       case 'agent':
         return [
           for (final agent in snapshot.agents)
-            _EntityMatch(
-              entityType: 'agent',
-              id: agent.id,
-              label: agent.name,
-            ),
+            _EntityMatch(entityType: 'agent', id: agent.id, label: agent.name),
         ];
       case 'workflow':
         return [
@@ -590,11 +680,7 @@ class TargetResolver {
       case 'module':
         return [
           for (final module in snapshot.modules)
-            _EntityMatch(
-              entityType: 'module',
-              id: module.id,
-              label: module.id,
-            ),
+            _EntityMatch(entityType: 'module', id: module.id, label: module.id),
         ];
       default:
         return const [];

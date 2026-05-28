@@ -9,7 +9,6 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
-import 'entity_resolver.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
@@ -21,7 +20,9 @@ import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
+import 'snapshot_target_resolver.dart';
 import 'target_resolution.dart';
+import 'target_reference_utils.dart';
 import 'task_ledger.dart';
 import 'tool_catalog.dart';
 import 'tool_permission_policy.dart';
@@ -106,11 +107,11 @@ class AgentRuntimeEngine {
   /// Build a [DetectedLanguage] for the engine's fallback code.
   /// Used when the engine has no real user message (e.g. executeConfirmed).
   DetectedLanguage _fallbackLanguage() => DetectedLanguage(
-        code: languageCode,
-        label: LanguageDetector.labelForCode(languageCode),
-        script: 'Latin',
-        confidence: 0.4,
-      );
+    code: languageCode,
+    label: LanguageDetector.labelForCode(languageCode),
+    script: 'Latin',
+    confidence: 0.4,
+  );
 
   /// Get pending action for an agent.
   PendingAction? getPendingAction(String agentId) => _pendingActions[agentId];
@@ -255,8 +256,9 @@ class AgentRuntimeEngine {
       }
 
       final workspace = await workspaceLoader.load(wsName);
-      final userNotIntroduced =
-          WorkspaceLoader.isUserNameMissing(workspace.soul);
+      final userNotIntroduced = WorkspaceLoader.isUserNameMissing(
+        workspace.soul,
+      );
 
       // Build recent messages for context (latest 20, chronological order).
       final sourceMessages = request.recentMessages;
@@ -380,7 +382,8 @@ class AgentRuntimeEngine {
           relation = 'new_task';
         }
         if (relation == 'new_task') {
-          final previousGoal = activeLedger?.mainGoal ??
+          final previousGoal =
+              activeLedger?.mainGoal ??
               pending?.userFacingSummary ??
               pendingClarification?.originalMessage ??
               'the previous task';
@@ -446,9 +449,12 @@ class AgentRuntimeEngine {
           relation != 'new_task') {
         final pendingLang = pending.languageCode;
         final coveredByTier1 =
-            pendingLang == 'id' || pendingLang == 'en' ||
-            detectedLang.code == 'id' || detectedLang.code == 'en';
-        if (!coveredByTier1 || pendingDecision == ConfirmationDecision.unclear) {
+            pendingLang == 'id' ||
+            pendingLang == 'en' ||
+            detectedLang.code == 'id' ||
+            detectedLang.code == 'en';
+        if (!coveredByTier1 ||
+            pendingDecision == ConfirmationDecision.unclear) {
           final classifier = ConfirmationClassifier(
             client: client,
             config: llmConfig,
@@ -485,8 +491,8 @@ class AgentRuntimeEngine {
       // whether to abandon the in-flight task before continuing. Revision
       // and continuation simply proceed — they edit/answer the same goal.
       if (activeLedger != null && relation == '__legacy_disabled__') {
-        final legacyRelation =
-            (analysis['task_relation'] as String? ?? 'none').trim();
+        final legacyRelation = (analysis['task_relation'] as String? ?? 'none')
+            .trim();
         if (legacyRelation == 'new_task') {
           // Soft-archive the old ledger as aborted to free the scope, then
           // surface a friendly heads-up so the user knows their previous task
@@ -643,11 +649,18 @@ class AgentRuntimeEngine {
         // System rules are always enforced; SOUL.md is identity context only.
         final identityBlock =
             'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
-        final baseSystem = '${_directResponseRulesFor(
-              languageLabel: detectedLang.label,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              userNotIntroduced: userNotIntroduced,
-            )}\n\n$identityBlock';
+        final recentToolMemory = _memory.formatForPrompt(request.agentId);
+        final toolMemoryBlock = recentToolMemory.isEmpty
+            ? ''
+            : '\n\nRECENT TOOL RESULTS (source of truth):\n'
+                  '$recentToolMemory\n\n'
+                  'Use successful retrieval results (read/list/search/status) '
+                  'to answer follow-up questions. Never treat failed tool '
+                  'results or prior progress/narrative messages as evidence. '
+                  'If the relevant result failed or is missing, say you cannot '
+                  'verify it yet and ask for the exact target or next step.';
+        final baseSystem =
+            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$identityBlock$toolMemoryBlock';
         final systemContent = pending != null
             ? '$baseSystem\n\n'
                   'PENDING ACTION (user was asked to confirm):\n'
@@ -735,10 +748,10 @@ class AgentRuntimeEngine {
         );
         emit(logger.events.last);
 
-      if (plan == null) {
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-        return _fail('Failed to create execution plan.', logger);
-      }
+        if (plan == null) {
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          return _fail('Failed to create execution plan.', logger);
+        }
 
         final planNarrative = (plan['narrative'] ?? '').toString();
         if (planNarrative.isNotEmpty) {
@@ -1025,9 +1038,11 @@ class AgentRuntimeEngine {
             error: result.error,
           );
 
-          final plan = (resume['plan'] as Map?)?.cast<String, dynamic>() ??
+          final plan =
+              (resume['plan'] as Map?)?.cast<String, dynamic>() ??
               {'steps': []};
-          final previousResults = (resume['previous_results'] as List?)
+          final previousResults =
+              (resume['previous_results'] as List?)
                   ?.whereType<Map>()
                   .map((m) => m.cast<String, dynamic>())
                   .toList() ??
@@ -1038,12 +1053,12 @@ class AgentRuntimeEngine {
             'result': result.data,
             'confirmed': true,
           });
-          final availableTools = (resume['available_tools'] as List?)
+          final availableTools =
+              (resume['available_tools'] as List?)
                   ?.map((e) => e.toString())
                   .toList() ??
               const <String>[];
-          final memorySnapshot =
-              (resume['memory_snapshot'] as String?) ?? '';
+          final memorySnapshot = (resume['memory_snapshot'] as String?) ?? '';
           final autoApproveSensitive =
               resume['auto_approve_sensitive'] as bool? ?? false;
           final isWorkflowAutoExecute =
@@ -1078,11 +1093,12 @@ class AgentRuntimeEngine {
             );
             if (verificationBlocker != null) return verificationBlocker;
 
-            final successMsg = _shouldAnswerFromToolResult(
-              toolName: pending.toolName,
-              userMessage: userMessage,
-              result: result,
-            )
+            final successMsg =
+                _shouldAnswerFromToolResult(
+                  toolName: pending.toolName,
+                  userMessage: userMessage,
+                  result: result,
+                )
                 ? await verbalizer.answerFromToolResult(
                     userMessage: userMessage,
                     tool: toolRequest,
@@ -1145,11 +1161,12 @@ class AgentRuntimeEngine {
         }
 
         // Legacy / single-target path: just announce success and finish.
-        final successMsg = _shouldAnswerFromToolResult(
-          toolName: pending.toolName,
-          userMessage: request.userMessage,
-          result: result,
-        )
+        final successMsg =
+            _shouldAnswerFromToolResult(
+              toolName: pending.toolName,
+              userMessage: request.userMessage,
+              result: result,
+            )
             ? await verbalizer.answerFromToolResult(
                 userMessage: request.userMessage,
                 tool: toolRequest,
@@ -1266,9 +1283,7 @@ class AgentRuntimeEngine {
     List<Map<String, dynamic>>? initialPreviousResults,
     int initialStep = 1,
   }) async {
-    final previousResults = <Map<String, dynamic>>[
-      ...?initialPreviousResults,
-    ];
+    final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
     var currentStep = initialStep;
     var retryCount = 0;
     var rePlanned = false;
@@ -1278,8 +1293,10 @@ class AgentRuntimeEngine {
     // for safety. Multi-target tasks need more headroom than the legacy 5.
     final adaptiveLimit = goalTree.isEmpty
         ? maxSteps
-        : (maxSteps + goalTree.subgoals.length * 2)
-            .clamp(maxSteps, maxSteps * 3);
+        : (maxSteps + goalTree.subgoals.length * 2).clamp(
+            maxSteps,
+            maxSteps * 3,
+          );
 
     for (var i = 0; i < adaptiveLimit; i++) {
       var state = AgentRuntimeState.selectingTool;
@@ -1312,9 +1329,18 @@ class AgentRuntimeEngine {
       final status = selection['status'] as String? ?? '';
 
       if (status == 'done') {
+        final finalResponse =
+            selection['final_response'] as String? ?? 'Task completed.';
         // Reviewer/selector wants to wrap up. Honor it only when the goal
         // tree agrees — otherwise it would short-circuit a multi-target task
         // (the original "buat 3 agen → 1 agen" bug).
+        if (goalTree.isNotEmpty && !goalTree.isComplete) {
+          final active = goalTree.nextActionable;
+          if (active != null && _isAnswerOnlySubgoal(active)) {
+            active.status = SubgoalStatus.done;
+            active.notes = 'answered_user';
+          }
+        }
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           logger.logError(
             'Selector tried to finish early but goal tree is incomplete '
@@ -1329,8 +1355,6 @@ class AgentRuntimeEngine {
           continue;
         }
 
-        final finalResponse =
-            selection['final_response'] as String? ?? 'Task completed.';
         final verificationBlocker = await _blockIfCompletionUnverified(
           request: request,
           plan: plan,
@@ -1478,6 +1502,7 @@ class AgentRuntimeEngine {
           definition: definition,
           verbalizer: verbalizer,
           language: detectedLang,
+          userMessage: request.userMessage,
         );
         if (preflight != null) {
           logger.logFinalResponse(preflight);
@@ -1492,8 +1517,9 @@ class AgentRuntimeEngine {
         // Check confirmation requirement from REGISTRY, then escalate when
         // the file op targets a peer agent's workspace. Workflow auto-execute
         // bypasses both: the user already approved at workflow creation time.
-        final crossWs = await toolRouter
-            .requiresCrossWorkspaceConfirmation(toolRequest);
+        final crossWs = await toolRouter.requiresCrossWorkspaceConfirmation(
+          toolRequest,
+        );
         final mustConfirm =
             (definition.requiresConfirmation || crossWs) &&
             !autoApproveSensitive;
@@ -1552,7 +1578,7 @@ class AgentRuntimeEngine {
               ledgerIdForPending = ledger.id;
             }
             resumeContext = {
-              'ledger_id': ?ledgerIdForPending,
+              'ledger_id': ledgerIdForPending,
               'plan': plan,
               'goal_tree': goalTree.toJson(),
               'previous_results': previousResults,
@@ -1646,8 +1672,7 @@ class AgentRuntimeEngine {
         // straight to verbalizer.success here was the "buat 3 agen → 1 agen"
         // bug — we'd return after the first successful tool while sg2/sg3
         // were still pending.
-        final treeAllowsShortCircuit =
-            goalTree.isEmpty || goalTree.isComplete;
+        final treeAllowsShortCircuit = goalTree.isEmpty || goalTree.isComplete;
         if (result.success &&
             _isLastPlannedStep(plan, currentStep) &&
             treeAllowsShortCircuit) {
@@ -1666,11 +1691,12 @@ class AgentRuntimeEngine {
             lastToolName: toolRequest.name,
           );
           if (verificationBlocker != null) return verificationBlocker;
-          final localFinal = _shouldAnswerFromToolResult(
-            toolName: toolRequest.name,
-            userMessage: request.userMessage,
-            result: result,
-          )
+          final localFinal =
+              _shouldAnswerFromToolResult(
+                toolName: toolRequest.name,
+                userMessage: request.userMessage,
+                result: result,
+              )
               ? await verbalizer.answerFromToolResult(
                   userMessage: request.userMessage,
                   tool: toolRequest,
@@ -1796,18 +1822,20 @@ class AgentRuntimeEngine {
               'step': currentStep,
               'tool': toolRequest.name,
               'result': result.data,
-              'note': 'Reviewer status=done overridden because subgoals remain.',
+              'note':
+                  'Reviewer status=done overridden because subgoals remain.',
             });
             currentStep++;
             retryCount = 0;
             continue;
           }
 
-          final finalResponse = _shouldAnswerFromToolResult(
-            toolName: toolRequest.name,
-            userMessage: request.userMessage,
-            result: result,
-          )
+          final finalResponse =
+              _shouldAnswerFromToolResult(
+                toolName: toolRequest.name,
+                userMessage: request.userMessage,
+                result: result,
+              )
               ? await verbalizer.answerFromToolResult(
                   userMessage: request.userMessage,
                   tool: toolRequest,
@@ -1832,12 +1860,15 @@ class AgentRuntimeEngine {
           if (verificationBlocker != null) return verificationBlocker;
           // For multi-subgoal tasks, override the reviewer's per-tool reply
           // with a holistic recap covering every completed subgoal.
-          final completedFinal = goalTree.isNotEmpty &&
+          final completedFinal =
+              goalTree.isNotEmpty &&
                   goalTree.subgoals
-                          .where((s) =>
-                              s.status == SubgoalStatus.done ||
-                              s.status == SubgoalStatus.failed ||
-                              s.status == SubgoalStatus.skipped)
+                          .where(
+                            (s) =>
+                                s.status == SubgoalStatus.done ||
+                                s.status == SubgoalStatus.failed ||
+                                s.status == SubgoalStatus.skipped,
+                          )
                           .length >
                       1
               ? await _finalForCompletedTree(
@@ -1869,8 +1900,13 @@ class AgentRuntimeEngine {
         }
 
         if (reviewStatus == 'ask_user') {
-          final question = review['question'] as String? ??
-              await _fallbackQuestionForToolFailure(result, detectedLang, verbalizer);
+          final question =
+              review['question'] as String? ??
+              await _fallbackQuestionForToolFailure(
+                result,
+                detectedLang,
+                verbalizer,
+              );
           await _parkTaskForUserInput(
             request: request,
             plan: plan,
@@ -1935,7 +1971,8 @@ class AgentRuntimeEngine {
     required Map<String, dynamic> analysis,
     required String userMessage,
   }) {
-    final mainGoal = (plan['main_goal'] as String?) ??
+    final mainGoal =
+        (plan['main_goal'] as String?) ??
         (analysis['goal'] as String?) ??
         userMessage;
 
@@ -1959,19 +1996,13 @@ class AgentRuntimeEngine {
         mainGoal: mainGoal,
         subgoals: [
           for (var i = 0; i < seeds.length; i++)
-            Subgoal(
-              id: 'sg${i + 1}',
-              label: seeds[i].toString(),
-            ),
+            Subgoal(id: 'sg${i + 1}', label: seeds[i].toString()),
         ],
       );
     }
 
     // Single-subgoal fallback so the rest of the loop has consistent shape.
-    return GoalTree.singleSubgoal(
-      mainGoal: mainGoal,
-      subgoalLabel: mainGoal,
-    );
+    return GoalTree.singleSubgoal(mainGoal: mainGoal, subgoalLabel: mainGoal);
   }
 
   /// Build the ecosystem snapshot for the current turn.
@@ -2052,14 +2083,15 @@ class AgentRuntimeEngine {
       existing.plan = plan;
       existing.targetGraph =
           (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-              existing.targetGraph;
+          existing.targetGraph;
       existing.pendingToolName = pendingTool?.name;
       existing.pendingToolArgs = pendingTool?.args;
       return ledgerDb.upsert(existing);
     }
 
     final ledger = TaskLedger(
-      id: 'lg_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+      id:
+          'lg_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
           '_${request.agentId.hashCode.toUnsigned(16).toRadixString(16)}',
       agentId: request.agentId,
       source: source,
@@ -2072,7 +2104,7 @@ class AgentRuntimeEngine {
       previousResults: List.of(previousResults),
       targetGraph:
           (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-              const {},
+          const {},
       currentStep: currentStep,
       availableTools: availableTools,
       memorySnapshot: memorySnapshot,
@@ -2137,7 +2169,9 @@ class AgentRuntimeEngine {
     if (providers != null && providers.isNotEmpty) {
       final names = providers
           .whereType<Map>()
-          .map((p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString())
+          .map(
+            (p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString(),
+          )
           .where((p) => p.trim().isNotEmpty)
           .join(', ');
       return await verbalizer.providerDisambiguation(
@@ -2154,7 +2188,9 @@ class AgentRuntimeEngine {
     String? availableNames;
     String? triedName;
 
-    if (data != null && data['available'] is List && (data['available'] as List).isNotEmpty) {
+    if (data != null &&
+        data['available'] is List &&
+        (data['available'] as List).isNotEmpty) {
       final available = data['available'] as List;
       availableNames = available
           .whereType<Map>()
@@ -2162,7 +2198,9 @@ class AgentRuntimeEngine {
           .where((n) => n.trim().isNotEmpty)
           .join(', ');
       final tried = data['tried'];
-      triedName = tried is Map ? (tried['name'] ?? tried['id'] ?? '')?.toString() : null;
+      triedName = tried is Map
+          ? (tried['name'] ?? tried['id'] ?? '')?.toString()
+          : null;
     }
 
     return await verbalizer.fallbackQuestion(
@@ -2199,8 +2237,9 @@ class AgentRuntimeEngine {
     for (final subgoal in goalTree.subgoals) {
       final expected = _expectedAgentNameForSubgoal(subgoal);
       if (expected != null &&
-          verification.missingNames
-              .any((name) => name.toLowerCase() == expected.toLowerCase())) {
+          verification.missingNames.any(
+            (name) => name.toLowerCase() == expected.toLowerCase(),
+          )) {
         subgoal.status = SubgoalStatus.inProgress;
         subgoal.notes = 'Verification failed: agent registry state mismatch.';
       }
@@ -2235,9 +2274,11 @@ class AgentRuntimeEngine {
     required DetectedLanguage language,
     String? lastToolName,
   }) {
-    final touchedAgentCreate = lastToolName == 'system.agents.create' ||
+    final touchedAgentCreate =
+        lastToolName == 'system.agents.create' ||
         previousResults.any((r) => r['tool'] == 'system.agents.create');
-    final touchedAgentDelete = lastToolName == 'system.agents.delete' ||
+    final touchedAgentDelete =
+        lastToolName == 'system.agents.delete' ||
         previousResults.any((r) => r['tool'] == 'system.agents.delete');
     if ((!touchedAgentCreate && !touchedAgentDelete) || goalTree.isEmpty) {
       return null;
@@ -2253,26 +2294,31 @@ class AgentRuntimeEngine {
 
     final targetGraph =
         (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-            const {};
-    final graphTargets = (targetGraph['targets'] as List?)
+        const {};
+    final graphTargets =
+        (targetGraph['targets'] as List?)
             ?.whereType<Map>()
             .map((m) => m.cast<String, dynamic>())
             .toList() ??
         const <Map<String, dynamic>>[];
 
     final expectedCreates = graphTargets
-        .where((target) =>
-            target['entity_type'] == 'agent' &&
-            target['operation'] == 'create' &&
-            target['status'] != 'skipped')
+        .where(
+          (target) =>
+              target['entity_type'] == 'agent' &&
+              target['operation'] == 'create' &&
+              target['status'] != 'skipped',
+        )
         .map((target) => (target['entity_label'] ?? '').toString().trim())
         .where((name) => name.isNotEmpty)
         .toSet();
     final expectedDeletes = graphTargets
-        .where((target) =>
-            target['entity_type'] == 'agent' &&
-            target['operation'] == 'delete' &&
-            target['status'] == 'eligible')
+        .where(
+          (target) =>
+              target['entity_type'] == 'agent' &&
+              target['operation'] == 'delete' &&
+              target['status'] == 'eligible',
+        )
         .map((target) => (target['entity_label'] ?? '').toString().trim())
         .where((name) => name.isNotEmpty)
         .toSet();
@@ -2340,10 +2386,9 @@ class AgentRuntimeEngine {
       }
     }
 
-    final quoted = RegExp(r'["“”]([^"“”]+)["“”]')
-        .firstMatch(subgoal.label)
-        ?.group(1)
-        ?.trim();
+    final quoted = RegExp(
+      r'["“”]([^"“”]+)["“”]',
+    ).firstMatch(subgoal.label)?.group(1)?.trim();
     if (quoted != null && quoted.isNotEmpty) return quoted;
 
     final match = RegExp(
@@ -2397,8 +2442,8 @@ class AgentRuntimeEngine {
 
   LedgerSource _ledgerSourceFor(RequestSource source) =>
       source == RequestSource.workflow
-          ? LedgerSource.workflow
-          : LedgerSource.chat;
+      ? LedgerSource.workflow
+      : LedgerSource.chat;
 
   Future<void> _finishTaskScopeForRequest(
     AgentRuntimeRequest request,
@@ -2465,28 +2510,35 @@ class AgentRuntimeEngine {
     Map<String, dynamic>? targetGraph,
   }) {
     final completed = goalTree.subgoals
-        .where((s) =>
-            s.status == SubgoalStatus.done ||
-            s.status == SubgoalStatus.failed ||
-            s.status == SubgoalStatus.skipped)
+        .where(
+          (s) =>
+              s.status == SubgoalStatus.done ||
+              s.status == SubgoalStatus.failed ||
+              s.status == SubgoalStatus.skipped,
+        )
         .toList();
-    final skippedTargets = (targetGraph?['targets'] as List?)
+    final skippedTargets =
+        (targetGraph?['targets'] as List?)
             ?.whereType<Map>()
             .map((m) => m.cast<String, dynamic>())
             .where((target) => target['status'] == 'skipped')
-            .map((target) => <String, dynamic>{
-                  'label': target['entity_label'] ?? target['key'] ?? 'target',
-                  'status': 'skipped',
-                  'notes': target['reason'] ?? 'skipped by runtime policy',
-                })
+            .map(
+              (target) => <String, dynamic>{
+                'label': target['entity_label'] ?? target['key'] ?? 'target',
+                'status': 'skipped',
+                'notes': target['reason'] ?? 'skipped by runtime policy',
+              },
+            )
             .toList() ??
         const <Map<String, dynamic>>[];
     final completedRows = [
-      ...completed.map((s) => <String, dynamic>{
-            'label': s.label,
-            'status': s.status.label,
-            if (s.notes != null && s.notes!.isNotEmpty) 'notes': s.notes,
-          }),
+      ...completed.map(
+        (s) => <String, dynamic>{
+          'label': s.label,
+          'status': s.status.label,
+          if (s.notes != null && s.notes!.isNotEmpty) 'notes': s.notes,
+        },
+      ),
       ...skippedTargets,
     ];
 
@@ -2508,9 +2560,8 @@ class AgentRuntimeEngine {
   /// Pre-flight deterministic check that catches typos / non-existent targets
   /// before the confirmation gate fires.
   ///
-  /// Inspects the tool's args for fields that look like an entity reference
-  /// (`name`, `agentName`, `workflowId`, etc.) and runs them through the
-  /// ecosystem snapshot via [EntityResolver]. Returns:
+  /// Inspects ToolDefinition runtime metadata and validates snapshot-backed
+  /// targets through [SnapshotTargetResolver]. Returns:
   /// - null when the target resolves cleanly (or the tool is not entity-bound)
   /// - a localized clarify/block message otherwise
   ///
@@ -2521,90 +2572,188 @@ class AgentRuntimeEngine {
     required ToolDefinition definition,
     required ToolVerbalizer verbalizer,
     required DetectedLanguage language,
+    required String userMessage,
   }) async {
-    // Only check existing-target operations. Heuristic on tool name suffix
-    // catches the common cases (delete/update/rename/toggle/get).
-    final name = tool.name.toLowerCase();
-    final isExistingTargetOp = name.contains('.delete') ||
-        name.contains('.update') ||
-        name.contains('.rename') ||
-        name.contains('.toggle') ||
-        name.endsWith('.read') ||
-        name.endsWith('.get');
-    if (!isExistingTargetOp) return null;
+    final operation = _operationForTool(definition, tool.name);
+    final entityType = _entityTypeForTool(definition, tool.name);
+    if (!_requiresExistingTargetPreflight(operation) && entityType != 'file') {
+      return null;
+    }
 
     final snapshot = await _buildSnapshot();
     if (snapshot.isEmpty) return null;
 
-    final candidates = _candidatesForTool(name, snapshot);
-    if (candidates.isEmpty) return null;
+    final embeddedReferenceCheck = await _preflightEmbeddedSnapshotReferences(
+      tool: tool,
+      definition: definition,
+      snapshot: snapshot,
+      verbalizer: verbalizer,
+      language: language,
+      userMessage: userMessage,
+    );
+    if (embeddedReferenceCheck != null) return embeddedReferenceCheck;
 
-    // Distinguish NAME-like args (suitable for fuzzy match against the
-    // candidates list) from ID-like args (opaque hashes). Fuzzy-matching an
-    // ID against names is nonsense and produced false-positive 'not found'
-    // errors when the LLM only passed `id` for a still-existing entity.
-    const nameKeys = ['name', 'agentName', 'workflowName', 'title', 'label'];
-    const idKeys = ['id', 'agentId', 'workflowId'];
+    if (!_requiresExistingTargetPreflight(operation)) return null;
+    if (!SnapshotTargetResolver.isSnapshotBacked(entityType)) return null;
 
-    String? userTyped;
-    for (final k in nameKeys) {
-      final v = tool.args[k];
-      if (v is String && v.trim().isNotEmpty) {
-        userTyped = v.trim();
-        break;
-      }
-    }
+    final labelSelector = _labelSelectorValue(tool, definition, entityType);
+    if (labelSelector == null) return null;
 
-    // No name-like arg: bail out and let the tool handler validate the id
-    // directly. If the id is stale the handler will surface a structured
-    // error and the reviewer can replan.
-    if (userTyped == null) {
-      // Sanity: if every id arg is also empty, we have nothing to validate
-      // and the handler will simply fail with 'required field missing'.
-      final hasAnyId = idKeys.any((k) {
-        final v = tool.args[k];
-        return v is String && v.trim().isNotEmpty;
-      });
-      if (!hasAnyId) return null;
-      return null;
-    }
-
-    final match = EntityResolver.resolve(userTyped, candidates);
+    final match = SnapshotTargetResolver.resolve(
+      snapshot: snapshot,
+      entityType: entityType,
+      entityLabel: labelSelector.value,
+    );
     if (match.isExact) return null;
 
-    final entityType = _entityTypeForTool(name);
     return verbalizer.clarifyTarget(
       entityType: entityType,
-      userTyped: userTyped,
-      suggestion: match.isNear ? match.matched : null,
+      userTyped: labelSelector.value,
+      suggestion: match.isAmbiguous ? match.label : null,
       available: match.suggestions,
       language: language,
     );
   }
 
-  /// Maps a tool name to the snapshot section it operates on.
-  List<String> _candidatesForTool(String toolName, EcosystemSnapshot snapshot) {
-    if (toolName.startsWith('system.agents.')) {
-      return [for (final a in snapshot.agents) a.name];
+  Future<String?> _preflightEmbeddedSnapshotReferences({
+    required ToolCallRequest tool,
+    required ToolDefinition definition,
+    required EcosystemSnapshot snapshot,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage language,
+    required String userMessage,
+  }) async {
+    final entityType = _entityTypeForTool(definition, tool.name);
+    if (entityType != 'file' || snapshot.agents.isEmpty) return null;
+
+    for (final key in _selectorKeysFor(definition, entityType)) {
+      final raw = tool.args[key];
+      if (raw is! String || raw.trim().isEmpty) continue;
+      final peerPath = TargetReferenceUtils.parsePeerAgentPath(raw);
+      if (peerPath == null) continue;
+
+      final typedName = TargetReferenceUtils.displayNameFromWorkspaceSegment(
+        peerPath.agentSegment,
+      );
+      final candidates = SnapshotTargetResolver.candidates(
+        snapshot,
+        'agent',
+      ).map((candidate) => candidate.label).toList();
+      final match = SnapshotTargetResolver.resolve(
+        snapshot: snapshot,
+        entityType: 'agent',
+        entityLabel: typedName,
+      );
+
+      if (match.isExact) {
+        final userNamedExactAgent =
+            TargetReferenceUtils.messageMentionsExactAgent(
+              userMessage,
+              match.label,
+            );
+        if (!userNamedExactAgent) {
+          return verbalizer.clarifyTarget(
+            entityType: 'agent',
+            userTyped: typedName,
+            suggestion: match.label,
+            available: candidates,
+            language: language,
+          );
+        }
+        tool.args[key] = TargetReferenceUtils.canonicalPeerAgentPath(
+          peerPath,
+          match.label,
+        );
+        continue;
+      }
+
+      return verbalizer.clarifyTarget(
+        entityType: 'agent',
+        userTyped: typedName,
+        suggestion: match.isAmbiguous ? match.label : null,
+        available: match.suggestions.isNotEmpty
+            ? match.suggestions
+            : candidates,
+        language: language,
+      );
     }
-    if (toolName.startsWith('workflow.')) {
-      return [for (final w in snapshot.workflows) w.title];
-    }
-    if (toolName.startsWith('system.providers.')) {
-      return [for (final p in snapshot.providers) p.nickname];
-    }
-    if (toolName.startsWith('system.modules.')) {
-      return [for (final m in snapshot.modules) m.id];
-    }
-    return const [];
+
+    return null;
   }
 
-  String _entityTypeForTool(String toolName) {
+  bool _requiresExistingTargetPreflight(String operation) {
+    switch (operation) {
+      case 'delete':
+      case 'update':
+      case 'rename':
+      case 'toggle':
+      case 'read':
+      case 'get':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  String _operationForTool(ToolDefinition definition, String toolName) {
+    if (definition.operation.isNotEmpty) return definition.operation;
+    final name = toolName.toLowerCase();
+    if (name.contains('.delete')) return 'delete';
+    if (name.contains('.update')) return 'update';
+    if (name.contains('.rename')) return 'rename';
+    if (name.contains('.toggle')) return 'toggle';
+    if (name.endsWith('.read')) return 'read';
+    if (name.endsWith('.get')) return 'get';
+    if (name.endsWith('.list')) return 'list';
+    if (name.contains('.create')) return 'create';
+    return '';
+  }
+
+  String _entityTypeForTool(ToolDefinition definition, String toolName) {
+    if (definition.targetEntity.isNotEmpty) return definition.targetEntity;
     if (toolName.startsWith('system.agents.')) return 'agent';
     if (toolName.startsWith('workflow.')) return 'workflow';
     if (toolName.startsWith('system.providers.')) return 'provider';
     if (toolName.startsWith('system.modules.')) return 'module';
-    return 'item';
+    return '';
+  }
+
+  _SelectorValue? _labelSelectorValue(
+    ToolCallRequest tool,
+    ToolDefinition definition,
+    String entityType,
+  ) {
+    for (final key in _selectorKeysFor(definition, entityType)) {
+      if (_isIdSelectorKey(key)) continue;
+      final value = tool.args[key];
+      if (value is String && value.trim().isNotEmpty) {
+        return _SelectorValue(value.trim());
+      }
+    }
+    return null;
+  }
+
+  List<String> _selectorKeysFor(ToolDefinition definition, String entityType) {
+    if (definition.selectorArgs.isNotEmpty) return definition.selectorArgs;
+    switch (entityType) {
+      case 'agent':
+        return const ['name', 'agentName', 'label', 'target'];
+      case 'workflow':
+        return const ['title', 'workflowName', 'label', 'target', 'id'];
+      case 'provider':
+        return const ['nickname', 'provider', 'providerName', 'label', 'id'];
+      case 'module':
+        return const ['id', 'module', 'moduleId', 'label'];
+      case 'file':
+        return const ['path', 'from', 'to'];
+      default:
+        return const ['name', 'title', 'label', 'target'];
+    }
+  }
+
+  bool _isIdSelectorKey(String key) {
+    final lower = key.toLowerCase();
+    return lower == 'id' || lower.endsWith('id') || lower.endsWith('_id');
   }
 
   AgentRuntimeResponse _fail(String message, RuntimeLogger logger) {
@@ -2664,6 +2813,37 @@ class AgentRuntimeEngine {
     return false;
   }
 
+  bool _isAnswerOnlySubgoal(Subgoal subgoal) {
+    final op = _subgoalSlot(subgoal, const [
+      '_operation',
+      'operation',
+      'action',
+      'kind',
+    ]).toLowerCase();
+    if (const {
+      'respond',
+      'answer',
+      'final_response',
+      'synthesize',
+      'summarize_for_user',
+    }.contains(op)) {
+      return true;
+    }
+
+    final tool = _subgoalSlot(subgoal, const ['tool', 'tool_name']);
+    return tool.toLowerCase() == 'none';
+  }
+
+  String _subgoalSlot(Subgoal subgoal, List<String> keys) {
+    for (final key in keys) {
+      final value = subgoal.requiredSlots[key];
+      if (value == null) continue;
+      final text = value.toString().trim();
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
   String? _permissionDeniedResponseFor(ToolExecutionResult result) {
     final data = result.data;
     if (data == null ||
@@ -2699,7 +2879,12 @@ class AgentRuntimeEngine {
         ? 'Saya belum bisa $actionLabel karena modul $module belum aktif. Aktifkan dulu modul itu di halaman Modules, lalu coba lagi.'
         : 'I cannot $actionLabel because the $module module is not active. Enable that module in Modules first, then try again.';
   }
+}
 
+class _SelectorValue {
+  const _SelectorValue(this.value);
+
+  final String value;
 }
 
 class _CompletionVerification {

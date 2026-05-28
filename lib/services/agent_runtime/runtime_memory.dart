@@ -20,14 +20,16 @@ class RuntimeMemory {
     String? error,
   }) {
     final list = _byAgent.putIfAbsent(agentId, () => []);
-    list.add(ToolMemoryEntry(
-      toolName: toolName,
-      args: args,
-      data: data,
-      success: success,
-      error: error,
-      at: DateTime.now(),
-    ));
+    list.add(
+      ToolMemoryEntry(
+        toolName: toolName,
+        args: args,
+        data: data,
+        success: success,
+        error: error,
+        at: DateTime.now(),
+      ),
+    );
     if (list.length > maxEntries) {
       list.removeRange(0, list.length - maxEntries);
     }
@@ -47,11 +49,13 @@ class RuntimeMemory {
     final buf = StringBuffer();
     for (var i = 0; i < entries.length; i++) {
       final e = entries[i];
-      buf.writeln('[${i + 1}] ${e.toolName} '
-          '(${e.success ? 'success' : 'failed'}) '
-          'args=${_compact(e.args)} '
-          'result=${_compact(e.data)}'
-          '${e.error != null ? ' error="${e.error}"' : ''}');
+      buf.writeln(
+        '[${i + 1}] ${e.toolName} '
+        '(${e.success ? 'success' : 'failed'}) '
+        'args=${_compact(e.args)} '
+        'result=${_compact(e.data)}'
+        '${e.error != null ? ' error="${e.error}"' : ''}',
+      );
     }
     return buf.toString().trim();
   }
@@ -59,7 +63,7 @@ class RuntimeMemory {
   static String _compact(Object? value) {
     if (value == null) return 'null';
     final s = value.toString();
-    if (s.length > 400) return '${s.substring(0, 400)}…';
+    if (s.length > 1200) return '${s.substring(0, 1200)}...';
     return s;
   }
 }

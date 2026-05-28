@@ -107,6 +107,8 @@ OUTPUT LANGUAGE:
 
 GOAL TREE:
 - Always produce goal_tree with subgoals. Multi-target = one subgoal per target.
+- If the user asks a question that requires fetched data, split it into evidence + answer outcomes (for example: validate/read the source, then answer the user's question from that result). A retrieval tool succeeding is not the final answer by itself.
+- For the answer-only outcome, set required_slots {"_operation":"respond"} so the runtime knows no extra tool is needed.
 - For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
 - Status defaults to "pending".
 
@@ -116,6 +118,7 @@ TARGET GRAPH:
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
 - Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
+- If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
 - URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
 - If a target is selected by a semantic bulk selector, enumerate each matched entity as its own target after checking the snapshot.
 - Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
@@ -173,8 +176,6 @@ Rules:
 - narrative MUST be present, in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or other internal jargon. Speak as if thinking out loud to the user.
 - Never include backticks or markdown fences.''';
 
-
-
   // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
 
   /// Base system prompt for the legacy chat path.
@@ -220,6 +221,7 @@ World model (files.* tools):
 - Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update for SOUL.md User Identity.
 - Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
 - Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "where is your workspace?"
+- Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
@@ -246,7 +248,8 @@ Multi-target enumeration rule (CRITICAL):
 - If the request is single-target, return a single-element subgoal_seeds array.
 - subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).''';
 
-  static const analyzeExamples = '''Examples that require tools (intent shown in English; user phrasing may be in any language):
+  static const analyzeExamples =
+      '''Examples that require tools (intent shown in English; user phrasing may be in any language):
 - "open whatsapp" → app.resolve("whatsapp") then app.open(packageName)
 - "open youtube" → app.resolve("youtube") then app.open(packageName)
 - "open google.com" → intent.open_url
@@ -322,6 +325,9 @@ Rules:
 
 Rules:
 - One subgoal per user-visible outcome. Multi-target requests (e.g. "buat 3 agen X, Y, Z") MUST emit one subgoal per target.
+- For existing-entity work, include a validation/list/resolve subgoal before acting when the user gave a partial name, nickname, typo, or ambiguous target. Do not construct a peer workspace path from an unvalidated agent nickname.
+- For information requests that need a tool, include both the retrieval/validation outcome and the final answer outcome. The task is not complete until the user receives the answer based on retrieved data.
+- For the final answer outcome, set required_slots {"_operation":"respond"} (or {"tool":"none"}) and leave missing_slots empty.
 - ids must be short, stable, unique within the tree (e.g. sg1, sg2, sg_create_X).
 - required_slots is what the subgoal needs to be executable. Leave empty when not applicable.
 - missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
@@ -366,6 +372,7 @@ If you need more info from the user:
 }
 
 CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
+- If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';

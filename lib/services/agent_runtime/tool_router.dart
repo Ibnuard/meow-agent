@@ -349,6 +349,10 @@ class ToolRouter {
             'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
         'content': 'string (optional, file content)',
       },
+      operation: 'create',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
+      postconditions: {'file_present': 'path'},
     ),
     'files.read': const ToolDefinition(
       name: 'files.read',
@@ -360,6 +364,9 @@ class ToolRouter {
         'path':
             'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
       },
+      operation: 'read',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
     ),
     'files.write': const ToolDefinition(
       name: 'files.write',
@@ -373,6 +380,10 @@ class ToolRouter {
         'content': 'string (required)',
         'append': 'bool (optional, default false)',
       },
+      operation: 'update',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
+      postconditions: {'file_present': 'path'},
     ),
     'files.delete': const ToolDefinition(
       name: 'files.delete',
@@ -384,6 +395,10 @@ class ToolRouter {
         'path':
             'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
       },
+      operation: 'delete',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
+      postconditions: {'file_absent': 'path'},
     ),
     'files.list': const ToolDefinition(
       name: 'files.list',
@@ -395,6 +410,9 @@ class ToolRouter {
         'path':
             'string (optional; empty = own root, "Agents/<Name>" for a peer)',
       },
+      operation: 'list',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
     ),
     'files.move': const ToolDefinition(
       name: 'files.move',
@@ -406,6 +424,9 @@ class ToolRouter {
         'from': 'string (required, relative or "Agents/<Name>/...")',
         'to': 'string (required, relative or "Agents/<Name>/...")',
       },
+      operation: 'rename',
+      targetEntity: 'file',
+      selectorArgs: ['from', 'to'],
     ),
     'files.mkdir': const ToolDefinition(
       name: 'files.mkdir',
@@ -417,6 +438,10 @@ class ToolRouter {
         'path':
             'string (required, relative to own workspace OR "Agents/<Name>/..." for a peer)',
       },
+      operation: 'create',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
+      postconditions: {'directory_present': 'path'},
     ),
 
     // ─── Calendar Module ───────────────────────────────────────────────────────

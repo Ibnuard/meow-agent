@@ -4,9 +4,11 @@
 /// catches typos like "treaearcher" before the user taps confirm and the
 /// tool fails with "agent not found".
 ///
-/// Two-stage match:
+/// Three-stage match:
 /// 1. Exact (case-insensitive, trimmed). Returns [EntityMatch.exact].
-/// 2. Near-match via Levenshtein distance. Returns [EntityMatch.near] for
+/// 2. Unique alias / partial-token match. Returns [EntityMatch.near] so the
+///    caller asks for confirmation instead of silently resolving it.
+/// 3. Near-match via Levenshtein distance. Returns [EntityMatch.near] for
 ///    distances ≤ [nearMatchThreshold].
 ///
 /// The reflector is the primary path for catching typos via the prompt rule.
@@ -30,18 +32,12 @@ class EntityResolver {
   static EntityMatch resolve(String needle, Iterable<String> candidates) {
     final normalizedNeedle = _normalize(needle);
     if (normalizedNeedle.isEmpty) {
-      return EntityMatch._(
-        kind: EntityMatchKind.none,
-        suggestions: const [],
-      );
+      return EntityMatch._(kind: EntityMatchKind.none, suggestions: const []);
     }
 
     final list = candidates.toList(growable: false);
     if (list.isEmpty) {
-      return EntityMatch._(
-        kind: EntityMatchKind.none,
-        suggestions: const [],
-      );
+      return EntityMatch._(kind: EntityMatchKind.none, suggestions: const []);
     }
 
     // 1. Exact match.
@@ -55,11 +51,33 @@ class EntityResolver {
       }
     }
 
-    // 2. Sort by distance.
-    final scored = list
-        .map((c) => _Scored(c, levenshtein(normalizedNeedle, _normalize(c))))
-        .toList()
-      ..sort((a, b) => a.distance.compareTo(b.distance));
+    // 2. Unique partial-token / alias match. This covers user shorthands like
+    // "Mina" for an existing "Mina Chan" without executing silently.
+    final aliasMatches = list
+        .where((c) => _isAliasCandidate(normalizedNeedle, _normalize(c)))
+        .toList(growable: false);
+    if (aliasMatches.length == 1) {
+      return EntityMatch._(
+        kind: EntityMatchKind.near,
+        matched: aliasMatches.single,
+        suggestions: aliasMatches,
+      );
+    }
+    if (aliasMatches.length > 1) {
+      return EntityMatch._(
+        kind: EntityMatchKind.none,
+        suggestions: aliasMatches.take(3).toList(),
+      );
+    }
+
+    // 3. Sort by distance.
+    final scored =
+        list
+            .map(
+              (c) => _Scored(c, levenshtein(normalizedNeedle, _normalize(c))),
+            )
+            .toList()
+          ..sort((a, b) => a.distance.compareTo(b.distance));
 
     final best = scored.first;
     if (best.distance <= nearMatchThreshold) {
@@ -106,7 +124,20 @@ class EntityResolver {
     return prev[n];
   }
 
-  static String _normalize(String s) => s.trim().toLowerCase();
+  static String _normalize(String s) => s
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[_-]+'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  static bool _isAliasCandidate(String needle, String candidate) {
+    if (needle.length < 3 || candidate.length <= needle.length) {
+      return false;
+    }
+    final words = candidate.split(' ').where((w) => w.isNotEmpty).toList();
+    if (words.contains(needle)) return true;
+    return candidate.startsWith('$needle ') || candidate.contains(' $needle ');
+  }
 }
 
 class _Scored {
