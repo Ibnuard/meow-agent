@@ -156,7 +156,37 @@ Future<ToolExecutionResult> _executeMyNewTool(Map<String, dynamic> args) async {
 }
 ```
 
-### Step 4: Update `workspace_loader.dart` → `_defaultSkillsBlock`
+### Step 4: Register di `tool_catalog.dart` → `groups`
+
+> [!CAUTION]
+> **CRITICAL — Sering kelewat!** `ToolCatalog.groups` adalah **shortlist filter** yang dipakai analyzer untuk hemat token. Tool yang ada di `_registry` tapi TIDAK ada di `ToolCatalog.groups` akan **silent-dropped** saat shortlist phase. Akibatnya agent jujur bilang "saya tidak punya kemampuan X" padahal tool-nya ada — capability boundary jalan benar, tapi catalog-nya outdated.
+
+Tambah tool name ke group yang sesuai di `lib/services/agent_runtime/tool_catalog.dart`:
+
+```dart
+static const Map<String, Set<String>> groups = {
+  // ...
+  'notes': {
+    'notes.create',
+    'notes.read',
+    'namespace.tool_name',  // ← tambah di sini
+  },
+  // ...
+};
+```
+
+Kalau tool punya namespace baru (misal `chat.send`), bikin group baru:
+
+```dart
+'chat': {
+  'chat.send',
+  'namespace.tool_name',
+},
+```
+
+Juga tambahkan keyword detector kalau perlu di `_<group>Words` set agar shortlist bisa pick up dari user message.
+
+### Step 5: Update `workspace_loader.dart` → `_defaultSkillsBlock`
 
 Tambah entry di section yang sesuai:
 
@@ -166,7 +196,7 @@ Tambah entry di section yang sesuai:
 
 > **PENTING:** String ini yang dibaca oleh `ContextBuilder.buildToolDescriptions()` dan dikirim ke LLM sebagai available tools. Format HARUS `- tool.name: description`.
 
-### Step 5: (Jika `requiresConfirmation: true`) Update `_humanizeConfirmation()`
+### Step 6: (Jika `requiresConfirmation: true`) Update `_humanizeConfirmation()`
 
 ```dart
 case 'namespace.tool_name':
@@ -431,6 +461,8 @@ UI shows confirmation card (Confirm / Reject buttons)
 - [ ] `tool_router.dart` → tambah `ToolDefinition` di `_registry`
 - [ ] `tool_router.dart` → tambah case di `_dispatch()`
 - [ ] `tool_router.dart` → implement `_executeXxx()` method
+- [ ] **`tool_catalog.dart` → tambah tool name ke `groups`** ⚠️ critical, kalau lewat tool tidak akan terlihat oleh LLM analyzer
+- [ ] `tool_catalog.dart` → (kalau perlu) tambah keyword di `_<group>Words` agar shortlist bisa match user phrasing
 - [ ] `workspace_loader.dart` → update `_defaultSkillsBlock` string
 - [ ] (Jika sensitive) `tool_router.dart` → update `_humanizeConfirmation()`
 - [ ] (Jika perlu native) Flutter service class + Kotlin plugin method
@@ -450,6 +482,7 @@ UI shows confirmation card (Confirm / Reject buttons)
 - [ ] (Jika native) Kotlin plugin class + register di `MainActivity.kt`
 - [ ] (Jika native) Tambah permissions di `AndroidManifest.xml` jika perlu
 - [ ] Register tools di `tool_router.dart` (ikuti checklist tool di atas)
+- [ ] **Sync `tool_catalog.dart` → `groups` + `_<group>Words`** ⚠️ wajib agar tool baru terlihat LLM
 - [ ] Update `_defaultSkillsBlock` di `workspace_loader.dart`
 - [ ] **Tests** → tulis unit test (lihat section Testing di bawah)
 

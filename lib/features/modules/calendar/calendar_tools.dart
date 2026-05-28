@@ -370,4 +370,261 @@ class CalendarTools {
       );
     }
   }
+
+  // ─── calendar.upcoming ───────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeUpcoming(
+    Map<String, dynamic> args,
+  ) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.upcoming',
+        error: 'Calendar module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final days = (args['days'] as num?)?.toInt().clamp(1, 90) ?? 7;
+      final now = DateTime.now();
+      final until = now.add(Duration(days: days));
+      final events =
+          await _repo.listEvents(from: now, to: until, limit: 200);
+      // Group by date for readability.
+      final byDate = <String, List<Map<String, dynamic>>>{};
+      for (final e in events) {
+        final key = e.startTime.toIso8601String().split('T').first;
+        byDate.putIfAbsent(key, () => []).add({
+          'id': e.id,
+          'title': e.title,
+          'startTime': e.startTime.toIso8601String(),
+          'endTime': e.endTime.toIso8601String(),
+          'allDay': e.allDay,
+        });
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'calendar.upcoming',
+        data: {
+          'days': days,
+          'count': events.length,
+          'byDate': byDate,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.upcoming',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── calendar.conflicts ──────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeConflicts(
+    Map<String, dynamic> args,
+  ) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.conflicts',
+        error: 'Calendar module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final startStr = args['startTime'] as String? ?? '';
+      final start = DateTime.tryParse(startStr);
+      if (start == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'calendar.conflicts',
+          error: 'startTime is required (ISO8601).',
+        );
+      }
+      final durationMinutes =
+          (args['durationMinutes'] as num?)?.toInt() ?? 60;
+      final end = start.add(Duration(minutes: durationMinutes));
+      final overlapping = await _repo.listEvents(from: start, to: end);
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'calendar.conflicts',
+        data: {
+          'startTime': start.toIso8601String(),
+          'endTime': end.toIso8601String(),
+          'hasConflict': overlapping.isNotEmpty,
+          'count': overlapping.length,
+          'conflicts': overlapping
+              .map((e) => {
+                    'id': e.id,
+                    'title': e.title,
+                    'startTime': e.startTime.toIso8601String(),
+                    'endTime': e.endTime.toIso8601String(),
+                  })
+              .toList(),
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.conflicts',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── calendar.free_slot ──────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeFreeSlot(
+    Map<String, dynamic> args,
+  ) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.free_slot',
+        error: 'Calendar module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final durationMinutes =
+          (args['durationMinutes'] as num?)?.toInt() ?? 60;
+      final withinDays =
+          (args['withinDays'] as num?)?.toInt().clamp(1, 30) ?? 7;
+      final dayStartHour =
+          (args['dayStartHour'] as num?)?.toInt().clamp(0, 23) ?? 9;
+      final dayEndHour =
+          (args['dayEndHour'] as num?)?.toInt().clamp(1, 24) ?? 17;
+      final maxResults =
+          (args['maxResults'] as num?)?.toInt().clamp(1, 20) ?? 5;
+      final now = DateTime.now();
+      final until = now.add(Duration(days: withinDays));
+      final events =
+          await _repo.listEvents(from: now, to: until, limit: 500);
+      final slots = <Map<String, dynamic>>[];
+      DateTime cursor = now;
+      // Walk forward day-by-day inside working hours.
+      while (cursor.isBefore(until) && slots.length < maxResults) {
+        final dayStart = DateTime(
+          cursor.year,
+          cursor.month,
+          cursor.day,
+          dayStartHour,
+        );
+        final dayEnd = DateTime(
+          cursor.year,
+          cursor.month,
+          cursor.day,
+          dayEndHour,
+        );
+        var slotStart = cursor.isAfter(dayStart) ? cursor : dayStart;
+        // Round up to next 15 min mark.
+        final mod = slotStart.minute % 15;
+        if (mod != 0) {
+          slotStart = slotStart.add(Duration(minutes: 15 - mod));
+        }
+        // Events for the day, sorted.
+        final todayEvents = events
+            .where((e) =>
+                e.startTime.isBefore(dayEnd) && e.endTime.isAfter(dayStart))
+            .toList()
+          ..sort((a, b) => a.startTime.compareTo(b.startTime));
+        for (final event in todayEvents) {
+          if (slots.length >= maxResults) break;
+          final gap = event.startTime.difference(slotStart);
+          if (gap.inMinutes >= durationMinutes) {
+            slots.add({
+              'startTime': slotStart.toIso8601String(),
+              'endTime': slotStart
+                  .add(Duration(minutes: durationMinutes))
+                  .toIso8601String(),
+              'durationMinutes': durationMinutes,
+            });
+          }
+          if (event.endTime.isAfter(slotStart)) {
+            slotStart = event.endTime;
+          }
+        }
+        // Trailing free time at end of day.
+        if (slots.length < maxResults &&
+            dayEnd.difference(slotStart).inMinutes >= durationMinutes) {
+          slots.add({
+            'startTime': slotStart.toIso8601String(),
+            'endTime': slotStart
+                .add(Duration(minutes: durationMinutes))
+                .toIso8601String(),
+            'durationMinutes': durationMinutes,
+          });
+        }
+        cursor = DateTime(cursor.year, cursor.month, cursor.day + 1);
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'calendar.free_slot',
+        data: {
+          'durationMinutes': durationMinutes,
+          'workingHours': '$dayStartHour:00–$dayEndHour:00',
+          'count': slots.length,
+          'slots': slots,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.free_slot',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── calendar.link_note ──────────────────────────────────────────────────
+
+  /// Associates a note with an event by adding a `note:<id>` tag.
+  /// No new schema needed — we reuse the existing event tags column.
+  Future<ToolExecutionResult> executeLinkNote(
+    Map<String, dynamic> args,
+  ) async {
+    if (!await _isAllowed('allow_update')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.link_note',
+        error: 'Calendar module is disabled or update not allowed.',
+      );
+    }
+    try {
+      final eventId = (args['eventId'] as String? ?? '').trim();
+      final noteId = (args['noteId'] as String? ?? '').trim();
+      if (eventId.isEmpty || noteId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'calendar.link_note',
+          error: 'eventId and noteId are required.',
+        );
+      }
+      final event = await _repo.getEvent(eventId);
+      if (event == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'calendar.link_note',
+          error: 'Event not found: $eventId',
+        );
+      }
+      final tag = 'note:$noteId';
+      final newTags = {...event.tags, tag}.toList();
+      await _repo.updateEvent(eventId, tags: newTags);
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'calendar.link_note',
+        data: {
+          'eventId': eventId,
+          'noteId': noteId,
+          'linkedTags': newTags,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'calendar.link_note',
+        error: e.toString(),
+      );
+    }
+  }
 }

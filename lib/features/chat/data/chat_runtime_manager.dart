@@ -11,6 +11,7 @@ import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import 'chat_history_service.dart';
+import 'chat_runtime_log_service.dart';
 import 'unread_service.dart';
 
 /// Per-agent runtime state. Survives ChatScreen disposal so navigating away
@@ -57,8 +58,9 @@ class ChatRuntimeSession {
           ? null
           : (pendingToolArgs ?? this.pendingToolArgs),
       lastReplyAt: lastReplyAt ?? this.lastReplyAt,
-      narrativeMessage:
-          clearNarrative ? null : (narrativeMessage ?? this.narrativeMessage),
+      narrativeMessage: clearNarrative
+          ? null
+          : (narrativeMessage ?? this.narrativeMessage),
     );
   }
 }
@@ -68,14 +70,17 @@ class ChatRuntimeManager extends ChangeNotifier {
   ChatRuntimeManager({
     required this.engine,
     required this.history,
+    required this.runtimeLog,
     required this.ref,
   });
 
   final AgentRuntimeEngine engine;
   final ChatHistoryService history;
+  final ChatRuntimeLogService runtimeLog;
   final Ref ref;
 
   final Map<String, ChatRuntimeSession> _sessions = {};
+  final Map<String, Future<void>> _runtimeLogWrites = {};
 
   /// Agents whose current in-flight send was cancelled by the user.
   /// Used to suppress trailing events and empty responses that arrive
@@ -94,11 +99,46 @@ class ChatRuntimeManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _queueRuntimeLog(String agentId, Future<void> Function() write) {
+    final previous = _runtimeLogWrites[agentId] ?? Future<void>.value();
+    final next = previous
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Runtime log write failed: $error');
+        })
+        .then((_) => write())
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Runtime log write failed: $error');
+        });
+    _runtimeLogWrites[agentId] = next;
+  }
+
+  Future<void> _flushRuntimeLog(String agentId) async {
+    final pending = _runtimeLogWrites[agentId];
+    if (pending == null) return;
+    await pending;
+    if (identical(_runtimeLogWrites[agentId], pending)) {
+      _runtimeLogWrites.remove(agentId);
+    }
+  }
+
+  Future<void> _startRuntimeLog({
+    required String agentId,
+    required String userMessage,
+  }) async {
+    await _flushRuntimeLog(agentId);
+    try {
+      await runtimeLog.startRun(agentId: agentId, userMessage: userMessage);
+    } catch (e) {
+      debugPrint('Runtime log start failed: $e');
+    }
+  }
+
   Future<ProviderConfig?> _resolveProvider(String agentId) async {
     final agents = ref.read(agentListProvider);
     final providers = ref.read(providerListProvider).value ?? [];
-    final agent = agents.where((a) => a.id == agentId).firstOrNull
-        ?? (agents.isNotEmpty ? agents.first : null);
+    final agent =
+        agents.where((a) => a.id == agentId).firstOrNull ??
+        (agents.isNotEmpty ? agents.first : null);
     if (agent == null) return null;
     return providers.where((p) => p.id == agent.providerId).firstOrNull;
   }
@@ -120,21 +160,28 @@ class ChatRuntimeManager extends ChangeNotifier {
     // Reset cancellation flag from any previous send.
     _cancelledSends.remove(agentId);
 
-    _set(agentId, sessionFor(agentId).copyWith(
-      isRunning: true,
-      debugMessages: [],
-      clearPending: true,
-      narrativeMessage: NarrativeNarrator.narrate(
-        'understanding',
-        _languageForUserMessage(userMessage),
+    _set(
+      agentId,
+      sessionFor(agentId).copyWith(
+        isRunning: true,
+        debugMessages: [],
+        clearPending: true,
+        narrativeMessage: NarrativeNarrator.narrate(
+          'understanding',
+          _languageForUserMessage(userMessage),
+        ),
       ),
-    ));
+    );
 
     final debugMode = ref.read(llmDebugModeProvider);
+    if (debugMode) {
+      await _startRuntimeLog(agentId: agentId, userMessage: userMessage);
+    }
 
     final agents = ref.read(agentListProvider);
-    final agent = agents.where((a) => a.id == agentId).firstOrNull
-        ?? (agents.isNotEmpty ? agents.first : null);
+    final agent =
+        agents.where((a) => a.id == agentId).firstOrNull ??
+        (agents.isNotEmpty ? agents.first : null);
     final agentName = agent?.name ?? '';
 
     try {
@@ -164,30 +211,43 @@ class ChatRuntimeManager extends ChangeNotifier {
           }
 
           if (debugMode) {
+            _queueRuntimeLog(
+              agentId,
+              () => runtimeLog.appendEvent(agentId: agentId, event: event),
+            );
             final s = sessionFor(agentId);
-            _set(agentId, s.copyWith(
-              debugMessages: [
-                ...s.debugMessages,
-                ChatMessage(
-                  role: 'assistant',
-                  content: '⚙️ ${event.message}',
-                ),
-              ],
-            ));
+            _set(
+              agentId,
+              s.copyWith(
+                debugMessages: [
+                  ...s.debugMessages,
+                  ChatMessage(
+                    role: 'assistant',
+                    content: '⚙️ ${event.message}',
+                  ),
+                ],
+              ),
+            );
           }
         },
       );
+
+      if (debugMode) {
+        await _flushRuntimeLog(agentId);
+      }
 
       // If cancelled during the run, the cancel message has already been
       // posted by cancelActive() and isRunning has been cleared. Don't
       // overwrite that with the empty/aborted response from engine.run().
       if (_cancelledSends.contains(agentId)) {
+        if (debugMode) {
+          await _flushRuntimeLog(agentId);
+        }
         _cancelledSends.remove(agentId);
         return;
       }
 
-      final isConfirm =
-          response.state == AgentRuntimeState.waitingConfirmation;
+      final isConfirm = response.state == AgentRuntimeState.waitingConfirmation;
       final replyMsg = ChatMessage(
         role: 'assistant',
         content: isConfirm
@@ -198,31 +258,52 @@ class ChatRuntimeManager extends ChangeNotifier {
       await history.addMessage(agentId, replyMsg);
       await UnreadService.instance.increment(agentId);
 
-      _set(agentId, sessionFor(agentId).copyWith(
-        isRunning: false,
-        debugMessages: [],
-        pendingTool: response.pendingTool,
-        pendingToolArgs: response.pendingToolArgs,
-        lastReplyAt: DateTime.now(),
-        clearNarrative: true,
-      ));
+      _set(
+        agentId,
+        sessionFor(agentId).copyWith(
+          isRunning: false,
+          debugMessages: [],
+          pendingTool: response.pendingTool,
+          pendingToolArgs: response.pendingToolArgs,
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
     } catch (e) {
       // Don't post an error if the user explicitly cancelled.
       if (_cancelledSends.contains(agentId)) {
+        if (debugMode) {
+          await _flushRuntimeLog(agentId);
+        }
         _cancelledSends.remove(agentId);
         return;
+      }
+      if (debugMode) {
+        _queueRuntimeLog(
+          agentId,
+          () => runtimeLog.appendRawEvent(
+            agentId: agentId,
+            type: 'error',
+            message: 'Chat runtime failed',
+            data: {'error': e.toString()},
+          ),
+        );
+        await _flushRuntimeLog(agentId);
       }
       await history.addMessage(
         agentId,
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
       await UnreadService.instance.increment(agentId);
-      _set(agentId, sessionFor(agentId).copyWith(
-        isRunning: false,
-        debugMessages: [],
-        lastReplyAt: DateTime.now(),
-        clearNarrative: true,
-      ));
+      _set(
+        agentId,
+        sessionFor(agentId).copyWith(
+          isRunning: false,
+          debugMessages: [],
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
     }
   }
 
@@ -235,21 +316,36 @@ class ChatRuntimeManager extends ChangeNotifier {
     final provider = await _resolveProvider(agentId);
     if (provider == null) return;
 
-    _set(agentId, s.copyWith(
-      isRunning: true,
-      debugMessages: [],
-      clearPending: true,
-      narrativeMessage: NarrativeNarrator.narrate(
-        'executing',
-        engine.languageCode,
+    _set(
+      agentId,
+      s.copyWith(
+        isRunning: true,
+        debugMessages: [],
+        clearPending: true,
+        narrativeMessage: NarrativeNarrator.narrate(
+          'executing',
+          engine.languageCode,
+        ),
       ),
-    ));
+    );
 
     final debugMode = ref.read(llmDebugModeProvider);
+    if (debugMode) {
+      _queueRuntimeLog(
+        agentId,
+        () => runtimeLog.appendRawEvent(
+          agentId: agentId,
+          type: 'confirmation',
+          message: 'User confirmed pending tool: $tool',
+          data: {'tool': tool, 'args': s.pendingToolArgs ?? {}},
+        ),
+      );
+    }
 
     final agents = ref.read(agentListProvider);
-    final agent = agents.where((a) => a.id == agentId).firstOrNull
-        ?? (agents.isNotEmpty ? agents.first : null);
+    final agent =
+        agents.where((a) => a.id == agentId).firstOrNull ??
+        (agents.isNotEmpty ? agents.first : null);
     final agentName = agent?.name ?? '';
 
     try {
@@ -270,19 +366,30 @@ class ChatRuntimeManager extends ChangeNotifier {
             _set(agentId, cur.copyWith(narrativeMessage: llmNarrative));
           }
           if (debugMode) {
+            _queueRuntimeLog(
+              agentId,
+              () => runtimeLog.appendEvent(agentId: agentId, event: event),
+            );
             final cur = sessionFor(agentId);
-            _set(agentId, cur.copyWith(
-              debugMessages: [
-                ...cur.debugMessages,
-                ChatMessage(
-                  role: 'assistant',
-                  content: '⚙️ ${event.message}',
-                ),
-              ],
-            ));
+            _set(
+              agentId,
+              cur.copyWith(
+                debugMessages: [
+                  ...cur.debugMessages,
+                  ChatMessage(
+                    role: 'assistant',
+                    content: '⚙️ ${event.message}',
+                  ),
+                ],
+              ),
+            );
           }
         },
       );
+
+      if (debugMode) {
+        await _flushRuntimeLog(agentId);
+      }
 
       // Wrap with confirmation marker when the runtime is asking for ANOTHER
       // confirmation (e.g. multi-step task: gate #1 done, gate #2 awaiting).
@@ -302,27 +409,45 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       await UnreadService.instance.increment(agentId);
 
-      _set(agentId, sessionFor(agentId).copyWith(
-        isRunning: false,
-        debugMessages: [],
-        // Store the next pending action so the Confirm tap finds the tool.
-        pendingTool: response.pendingTool,
-        pendingToolArgs: response.pendingToolArgs,
-        lastReplyAt: DateTime.now(),
-        clearNarrative: true,
-      ));
+      _set(
+        agentId,
+        sessionFor(agentId).copyWith(
+          isRunning: false,
+          debugMessages: [],
+          // Store the next pending action so the Confirm tap finds the tool.
+          pendingTool: response.pendingTool,
+          pendingToolArgs: response.pendingToolArgs,
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
     } catch (e) {
+      if (debugMode) {
+        _queueRuntimeLog(
+          agentId,
+          () => runtimeLog.appendRawEvent(
+            agentId: agentId,
+            type: 'error',
+            message: 'Confirmed runtime failed',
+            data: {'error': e.toString()},
+          ),
+        );
+        await _flushRuntimeLog(agentId);
+      }
       await history.addMessage(
         agentId,
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
       await UnreadService.instance.increment(agentId);
-      _set(agentId, sessionFor(agentId).copyWith(
-        isRunning: false,
-        debugMessages: [],
-        lastReplyAt: DateTime.now(),
-        clearNarrative: true,
-      ));
+      _set(
+        agentId,
+        sessionFor(agentId).copyWith(
+          isRunning: false,
+          debugMessages: [],
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
     }
   }
 
@@ -332,19 +457,35 @@ class ChatRuntimeManager extends ChangeNotifier {
     // the rejection message stays consistent with the prompt the user saw.
     final pending = engine.getPendingAction(agentId);
     final lang = pending?.languageCode ?? 'en';
+    final debugMode = ref.read(llmDebugModeProvider);
+    if (debugMode) {
+      _queueRuntimeLog(
+        agentId,
+        () => runtimeLog.appendRawEvent(
+          agentId: agentId,
+          type: 'confirmation',
+          message: 'User rejected pending tool',
+          data: {if (pending != null) 'tool': pending.toolName},
+        ),
+      );
+      await _flushRuntimeLog(agentId);
+    }
     await engine.abortActiveTask(agentId);
     final rejectMsg = I18nFallback.get('cancel', lang);
     await history.addMessage(
       agentId,
       ChatMessage(role: 'assistant', content: rejectMsg),
     );
-    _set(agentId, sessionFor(agentId).copyWith(
-      isRunning: false,
-      debugMessages: [],
-      clearPending: true,
-      lastReplyAt: DateTime.now(),
-      clearNarrative: true,
-    ));
+    _set(
+      agentId,
+      sessionFor(agentId).copyWith(
+        isRunning: false,
+        debugMessages: [],
+        clearPending: true,
+        lastReplyAt: DateTime.now(),
+        clearNarrative: true,
+      ),
+    );
   }
 
   /// Cancel an in-flight runtime task (user pressed stop button).
@@ -352,18 +493,33 @@ class ChatRuntimeManager extends ChangeNotifier {
     final s = sessionFor(agentId);
     if (!s.isRunning) return;
     _cancelledSends.add(agentId);
+    final debugMode = ref.read(llmDebugModeProvider);
+    if (debugMode) {
+      _queueRuntimeLog(
+        agentId,
+        () => runtimeLog.appendRawEvent(
+          agentId: agentId,
+          type: 'cancelled',
+          message: 'User cancelled the active runtime task',
+        ),
+      );
+      await _flushRuntimeLog(agentId);
+    }
     await engine.abortActiveTask(agentId);
     await history.addMessage(
       agentId,
       ChatMessage(role: 'assistant', content: '⏹️ Proses dibatalkan.'),
     );
-    _set(agentId, s.copyWith(
-      isRunning: false,
-      debugMessages: [],
-      clearPending: true,
-      lastReplyAt: DateTime.now(),
-      clearNarrative: true,
-    ));
+    _set(
+      agentId,
+      s.copyWith(
+        isRunning: false,
+        debugMessages: [],
+        clearPending: true,
+        lastReplyAt: DateTime.now(),
+        clearNarrative: true,
+      ),
+    );
   }
 
   /// Extract LLM-supplied narrative payload from a [RuntimeEvent].
@@ -387,12 +543,13 @@ class ChatRuntimeManager extends ChangeNotifier {
   }
 }
 
-final chatRuntimeManagerProvider = ChangeNotifierProvider<ChatRuntimeManager>(
-  (ref) {
-    return ChatRuntimeManager(
-      engine: ref.watch(agentRuntimeEngineProvider),
-      history: ref.watch(chatHistoryServiceProvider),
-      ref: ref,
-    );
-  },
-);
+final chatRuntimeManagerProvider = ChangeNotifierProvider<ChatRuntimeManager>((
+  ref,
+) {
+  return ChatRuntimeManager(
+    engine: ref.watch(agentRuntimeEngineProvider),
+    history: ref.watch(chatHistoryServiceProvider),
+    runtimeLog: ref.watch(chatRuntimeLogServiceProvider),
+    ref: ref,
+  );
+});

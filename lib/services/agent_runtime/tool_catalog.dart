@@ -57,6 +57,7 @@ class ToolCatalog {
       'notification.classify',
       'notification.reply_suggestion',
       'notification.open_app',
+      'notification.create_local',
     },
     'notes': {
       'notes.create',
@@ -66,6 +67,11 @@ class ToolCatalog {
       'notes.update',
       'notes.delete',
       'notes.export',
+      'notes.pin',
+      'notes.unpin',
+      'notes.archive',
+      'notes.unarchive',
+      'notes.append',
     },
     'files': {
       'files.create',
@@ -75,6 +81,11 @@ class ToolCatalog {
       'files.list',
       'files.move',
       'files.mkdir',
+      'files.copy',
+      'files.append',
+      'files.metadata',
+      'files.search',
+      'files.tree',
     },
     'calendar': {
       'calendar.create',
@@ -83,6 +94,10 @@ class ToolCatalog {
       'calendar.read',
       'calendar.update',
       'calendar.delete',
+      'calendar.upcoming',
+      'calendar.conflicts',
+      'calendar.free_slot',
+      'calendar.link_note',
     },
     'workflow': {
       'workflow.create',
@@ -103,9 +118,16 @@ class ToolCatalog {
       'system.agents.list',
       'system.agents.create',
       'system.agents.delete',
+      'system.agents.update',
       'system.providers.list',
       'system.modules.list',
+      'system.modules.toggle',
       'system.tools.list',
+      'system.export_all',
+      'system.import',
+    },
+    'chat': {
+      'chat.send',
     },
   };
 

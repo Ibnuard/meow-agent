@@ -2048,6 +2048,37 @@ class AgentRuntimeEngine {
           reviewStatus = 'ask_user';
         }
 
+        // Empty-result loop guard.
+        //
+        // If the tool succeeded but returned zero matches AND the reviewer
+        // wants to continue/retry the same kind of lookup, force-finalize.
+        // This prevents the LLM from re-calling search/list/read tools with
+        // slightly different args hoping for a different answer when the
+        // honest answer is "no results".
+        if (result.success &&
+            _isEffectivelyEmpty(result.data) &&
+            (reviewStatus == 'continue' || reviewStatus == 'retry')) {
+          final priorEmpties = previousResults.where((p) {
+            final tool = p['tool'] as String?;
+            final data = p['result'];
+            return tool == toolRequest.name &&
+                data is Map<String, dynamic> &&
+                _isEffectivelyEmpty(data);
+          }).length;
+          if (priorEmpties >= 1 || _isReadOnlyLookup(toolRequest.name)) {
+            logger.logStateChange(
+              state,
+              'Empty-result loop guard: forcing done (tool=${toolRequest.name})',
+            );
+            reviewStatus = 'done';
+            // Inject a synthesized final_response so downstream synthesis path
+            // doesn't fall back to "Maximum runtime steps reached".
+            review?['status'] = 'done';
+            review?['final_response'] ??=
+                _emptyResultMessage(detectedLang.code, toolRequest.name);
+          }
+        }
+
         if (review != null) {
           final reviewNarrative = (review['narrative'] ?? '').toString();
           if (reviewNarrative.isNotEmpty) {
@@ -3156,6 +3187,83 @@ class AgentRuntimeEngine {
     }
     return 'Sorry, I don\'t have the capability to do that. '
         'No tool is available for this request.';
+  }
+
+  /// True when a tool's data payload represents an empty / zero-match outcome.
+  ///
+  /// Recognises common shapes used across the codebase:
+  /// - `{count: 0}`
+  /// - empty values under any of: results, items, events, notes, files,
+  ///   matches, apps, recent, list, data, slots
+  static bool _isEffectivelyEmpty(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return true;
+    final count = data['count'];
+    if (count is num && count == 0) return true;
+    const listKeys = [
+      'results',
+      'items',
+      'events',
+      'notes',
+      'files',
+      'matches',
+      'apps',
+      'recent',
+      'list',
+      'data',
+      'slots',
+      'conflicts',
+      'tree',
+    ];
+    var sawList = false;
+    for (final k in listKeys) {
+      final v = data[k];
+      if (v is List) {
+        sawList = true;
+        if (v.isNotEmpty) return false;
+      } else if (v is Map) {
+        sawList = true;
+        if (v.isNotEmpty) return false;
+      }
+    }
+    return sawList;
+  }
+
+  /// True when the tool is a read-only lookup. For these tools, an empty
+  /// result IS the answer — there's no point retrying with different args.
+  static bool _isReadOnlyLookup(String toolName) {
+    return toolName.endsWith('.search') ||
+        toolName.endsWith('.list') ||
+        toolName.endsWith('.list_recent') ||
+        toolName.endsWith('.read') ||
+        toolName.endsWith('.read_recent') ||
+        toolName.endsWith('.tree') ||
+        toolName.endsWith('.metadata') ||
+        toolName.endsWith('.upcoming') ||
+        toolName.endsWith('.today') ||
+        toolName.endsWith('.conflicts') ||
+        toolName.endsWith('.free_slot') ||
+        toolName.endsWith('.status') ||
+        toolName.endsWith('.summary') ||
+        toolName.endsWith('.classify') ||
+        toolName.endsWith('.summarize');
+  }
+
+  /// Localized "no results" reply when the empty-result loop guard fires.
+  String _emptyResultMessage(String langCode, String toolName) {
+    final code = langCode.toLowerCase();
+    final isFiles = toolName.startsWith('files.');
+    final isNotes = toolName.startsWith('notes.');
+    final isCal = toolName.startsWith('calendar.');
+    if (code == 'id' || code.startsWith('id_')) {
+      if (isFiles) return 'Tidak ada file yang cocok dengan kriteria itu.';
+      if (isNotes) return 'Tidak ada catatan yang cocok dengan kriteria itu.';
+      if (isCal) return 'Tidak ada acara yang cocok dengan kriteria itu.';
+      return 'Tidak ada hasil yang cocok.';
+    }
+    if (isFiles) return 'No files match that criteria.';
+    if (isNotes) return 'No notes match that criteria.';
+    if (isCal) return 'No events match that criteria.';
+    return 'No results match.';
   }
 
   bool _isLastPlannedStep(Map<String, dynamic> plan, int currentStep) {

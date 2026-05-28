@@ -6,6 +6,35 @@ This document defines the visual identity, layout rules, spacing system, interac
 
 All coding/design agents working on this project MUST follow this document to maintain a consistent experience across the entire application.
 
+---
+
+## Scope & Cross-References
+
+AGENTS.md governs **design, UX, and visual identity**. It does NOT cover code architecture.
+
+For ANY code-level work — adding tools, adding modules, modifying the agent runtime, native Android code, prompt engineering, testing — you MUST read and follow:
+
+> **[SKILLS.md](./SKILLS.md)** — the canonical codebase guide for Meow Agent.
+
+SKILLS.md contains:
+
+* Architecture overview (lib/, services/, features/, native/)
+* Agentic runtime loop (Planner → Executor → ToolRouter)
+* **Step-by-step tool registration** (registry, dispatch, **tool_catalog sync**, skills block, humanize)
+* Step-by-step module creation (model, service, repository, gating)
+* LLM client patterns (OpenAI-compatible, JSON repair, prompt phases)
+* Native MethodChannel patterns (Kotlin ↔ Flutter)
+* Confirmation flow (PendingAction, ConfirmationChecker)
+* Permission-on-toggle rules (in-app vs settings redirect)
+* Quick-reference checklists for new tools and new modules
+* Testing requirements (unit + real-device verification)
+
+> [!CAUTION]
+> If you add a new tool but skip the `tool_catalog.dart` sync step in SKILLS.md, the LLM analyzer will silent-drop your tool from the shortlist and the agent will hallucinate "I don't have that capability" — even though the tool is registered and executable. **Always run through the SKILLS.md checklist.**
+
+---
+
+
 Meow Agent is NOT:
 
 * a developer dashboard

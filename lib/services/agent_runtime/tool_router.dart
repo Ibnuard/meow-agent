@@ -11,6 +11,7 @@ import '../../features/modules/calendar/calendar_tools.dart';
 import '../../features/modules/files/files_tools.dart';
 import '../../features/modules/notes/notes_tools.dart';
 import '../../features/modules/workflows/workflow_tools.dart';
+import '../../features/modules/notification_intelligence/agent_notification_service.dart';
 import '../../features/modules/notification_intelligence/notification_repository.dart';
 import '../../features/modules/notification_intelligence/notification_service.dart';
 import '../../features/providers/data/provider_repository.dart';
@@ -271,6 +272,18 @@ class ToolRouter {
         'notificationId': 'string (required, id from notification.read_recent)',
       },
     ),
+    'notification.create_local': const ToolDefinition(
+      name: 'notification.create_local',
+      description:
+          'Push a local Android notification from the agent to the user. Use for reminders, digests, alerts, or anything that should reach the user even if the app is backgrounded. Style controls importance: silent (low), normal (default), alarm (high + vibration). NOT for chat replies — use chat.send for that.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'title': 'string (required)',
+        'body': 'string (required, supports plain text)',
+        'style': 'string (optional: silent | normal | alarm. default normal)',
+      },
+    ),
 
     // ── Notes ────────────────────────────────────────────────────────────
     'notes.create': const ToolDefinition(
@@ -361,6 +374,63 @@ class ToolRouter {
         'agentName': 'string (required)',
         'noteIds': 'list<string> (optional, empty = all)',
       },
+    ),
+    'notes.pin': const ToolDefinition(
+      name: 'notes.pin',
+      description:
+          'Pin a note so it stays at the top of the list. Reversible via notes.unpin.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'noteId': 'string (required)'},
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+    ),
+    'notes.unpin': const ToolDefinition(
+      name: 'notes.unpin',
+      description: 'Remove pinned status from a note.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'noteId': 'string (required)'},
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+    ),
+    'notes.archive': const ToolDefinition(
+      name: 'notes.archive',
+      description:
+          'Archive a note (hidden from main list but kept). Use when user wants to declutter without deleting. Reversible via notes.unarchive.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'noteId': 'string (required)'},
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+    ),
+    'notes.unarchive': const ToolDefinition(
+      name: 'notes.unarchive',
+      description: 'Restore an archived note back to the main list.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {'noteId': 'string (required)'},
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
+    ),
+    'notes.append': const ToolDefinition(
+      name: 'notes.append',
+      description:
+          'Append content to an existing note (additive, non-destructive). Useful for daily journals, running logs, accumulating ideas.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'noteId': 'string (required)',
+        'content': 'string (required, markdown body to append)',
+        'separator': 'string (optional, default = double newline)',
+      },
+      operation: 'update',
+      targetEntity: 'note',
+      selectorArgs: ['noteId'],
     ),
 
     // ─── Files Module ──────────────────────────────────────────────────────────
@@ -494,6 +564,69 @@ class ToolRouter {
         expectedDataKeys: ['path'],
       ),
     ),
+    'files.copy': const ToolDefinition(
+      name: 'files.copy',
+      description:
+          'Copy a file or directory within the workspace. Source remains intact.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'from': 'string (required, source path)',
+        'to': 'string (required, destination path)',
+      },
+      operation: 'create',
+      targetEntity: 'file',
+      selectorArgs: ['to'],
+    ),
+    'files.append': const ToolDefinition(
+      name: 'files.append',
+      description:
+          'Append content to an existing file (additive, non-destructive). Auto-creates the file with the appended content if it does not exist. Inserts a newline before content if file does not end with one.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'path': 'string (required)',
+        'content': 'string (required, text to append)',
+      },
+      operation: 'update',
+      targetEntity: 'file',
+      selectorArgs: ['path'],
+    ),
+    'files.metadata': const ToolDefinition(
+      name: 'files.metadata',
+      description:
+          'Get file metadata: size, modified time, mime type, line count for small text files. Read-only, no content returned.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'path': 'string (required)'},
+    ),
+    'files.search': const ToolDefinition(
+      name: 'files.search',
+      description:
+          'Search files by name pattern (glob: * and ?) and/or content keyword inside the agent workspace. Returns paths with content snippets. OMIT "root" to search the current agent\'s own workspace (this is what users normally mean). Only set "root" when user explicitly references a peer agent (e.g. "Agents/<Name>").',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'query': 'string (optional, content keyword; case-insensitive)',
+        'namePattern':
+            'string (optional, glob filename pattern e.g. *.md or report-*.txt)',
+        'root':
+            'string (optional, OMIT for own workspace. Only use "Agents/<Name>" for peer agents)',
+        'maxResults': 'int (optional, 1-200, default 50)',
+      },
+    ),
+    'files.tree': const ToolDefinition(
+      name: 'files.tree',
+      description:
+          'Render a workspace directory as ASCII tree (1-8 depth). Useful for giving the user/LLM a structural overview without listing every file. OMIT "root" to render the current agent\'s own workspace (this is what users normally mean by "struktur folder agen ini" / "workspace structure"). Only set "root" when user explicitly references a peer agent (e.g. "Agents/<Name>"). Do NOT pass absolute paths from system.self output.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'root':
+            'string (optional, OMIT for own workspace. Only use "Agents/<Name>" for peer agents)',
+        'maxDepth': 'int (optional, 1-8, default 3)',
+      },
+    ),
 
     // ─── Calendar Module ───────────────────────────────────────────────────────
     'calendar.create': const ToolDefinition(
@@ -581,6 +714,55 @@ class ToolRouter {
         entityType: 'calendar_event',
         expectedDataKeys: ['deleted'],
       ),
+    ),
+    'calendar.upcoming': const ToolDefinition(
+      name: 'calendar.upcoming',
+      description:
+          'Agenda view: list upcoming events grouped by date for the next N days. Default 7 days.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'days': 'int (optional, 1-90, default 7)',
+      },
+    ),
+    'calendar.conflicts': const ToolDefinition(
+      name: 'calendar.conflicts',
+      description:
+          'Check whether a proposed time slot overlaps with existing events. Returns list of conflicting events.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'startTime': 'string (required, ISO8601)',
+        'durationMinutes': 'int (optional, default 60)',
+      },
+    ),
+    'calendar.free_slot': const ToolDefinition(
+      name: 'calendar.free_slot',
+      description:
+          'Find available time slots of given duration within working hours. Use when user asks "cari waktu kosong" or "when am I free".',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'durationMinutes': 'int (optional, default 60)',
+        'withinDays': 'int (optional, 1-30, default 7)',
+        'dayStartHour': 'int (optional, 0-23, default 9)',
+        'dayEndHour': 'int (optional, 1-24, default 17)',
+        'maxResults': 'int (optional, 1-20, default 5)',
+      },
+    ),
+    'calendar.link_note': const ToolDefinition(
+      name: 'calendar.link_note',
+      description:
+          'Associate a note with a calendar event (meeting notes pattern). Stored as note:<id> tag on the event.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'eventId': 'string (required)',
+        'noteId': 'string (required)',
+      },
+      operation: 'update',
+      targetEntity: 'calendar_event',
+      selectorArgs: ['eventId'],
     ),
 
     // ─── Workflow Module ─────────────────────────────────────────────────────────────
@@ -872,6 +1054,61 @@ class ToolRouter {
       risk: 'safe',
       requiresConfirmation: false,
     ),
+    'system.modules.toggle': const ToolDefinition(
+      name: 'system.modules.toggle',
+      description:
+          'Enable/disable an installed module or one of its setting toggles. Pass settingKey to flip a per-feature switch (e.g. allow_create on notes). Without settingKey, toggles the module-level enabled flag.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'moduleId': 'string (required, e.g. notes/files/calendar)',
+        'settingKey':
+            'string (optional, specific permission key from module settings)',
+        'enabled':
+            'bool (optional, explicit target state; if omitted, toggles current)',
+      },
+      operation: 'update',
+      targetEntity: 'module',
+      selectorArgs: ['moduleId', 'settingKey'],
+    ),
+    'system.agents.update': const ToolDefinition(
+      name: 'system.agents.update',
+      description:
+          'Update an existing agent: rename, swap provider, change icon/color, or change context length. Pass id (preferred) or name to identify, then any combination of newName/providerId/maxContextLength/iconKey/colorKey.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: true,
+      inputSchema: {
+        'id': 'string (preferred, agent id)',
+        'name': 'string (fallback, agent name)',
+        'newName': 'string (optional)',
+        'providerId':
+            'string (optional, provider id or nickname for re-binding)',
+        'maxContextLength': 'int (optional)',
+        'iconKey': 'string (optional)',
+        'colorKey': 'string (optional)',
+      },
+      operation: 'update',
+      targetEntity: 'agent',
+      selectorArgs: ['id', 'name'],
+    ),
+    'system.export_all': const ToolDefinition(
+      name: 'system.export_all',
+      description:
+          'Export a JSON snapshot of agents, providers (no API keys), and module settings. The result is returned in tool data; runtime caller can write it to a file via files.write for backup.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    'system.import': const ToolDefinition(
+      name: 'system.import',
+      description:
+          'Restore from a snapshot produced by system.export_all. Mode "merge" adds missing entries (default). Mode "replace" wipes existing agents (except current) and modules first. Provider API keys are NOT in snapshots and must be re-entered manually.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {
+        'snapshot': 'object (required, JSON output from system.export_all)',
+        'mode': 'string (optional: merge | replace. default merge)',
+      },
+    ),
 
     // ── Chat ─────────────────────────────────────────────────────────────
     'chat.send': const ToolDefinition(
@@ -1108,6 +1345,8 @@ class ToolRouter {
         return _executeNotificationReplySuggestion(request.args);
       case 'notification.open_app':
         return _executeNotificationOpenApp(request.args);
+      case 'notification.create_local':
+        return _executeNotificationCreateLocal(request.args);
       case 'notes.create':
         return _notesTools().executeCreate(request.args);
       case 'notes.list_recent':
@@ -1122,6 +1361,16 @@ class ToolRouter {
         return _notesTools().executeDelete(request.args);
       case 'notes.export':
         return _notesTools().executeExport(request.args);
+      case 'notes.pin':
+        return _notesTools().executeSetPinned(request.args, pinned: true);
+      case 'notes.unpin':
+        return _notesTools().executeSetPinned(request.args, pinned: false);
+      case 'notes.archive':
+        return _notesTools().executeSetArchived(request.args, archived: true);
+      case 'notes.unarchive':
+        return _notesTools().executeSetArchived(request.args, archived: false);
+      case 'notes.append':
+        return _notesTools().executeAppend(request.args);
       case 'files.create':
         return _filesTools().executeCreate(request.args);
       case 'files.read':
@@ -1136,6 +1385,16 @@ class ToolRouter {
         return _filesTools().executeMove(request.args);
       case 'files.mkdir':
         return _filesTools().executeMkdir(request.args);
+      case 'files.copy':
+        return _filesTools().executeCopy(request.args);
+      case 'files.append':
+        return _filesTools().executeAppend(request.args);
+      case 'files.metadata':
+        return _filesTools().executeMetadata(request.args);
+      case 'files.search':
+        return _filesTools().executeSearch(request.args);
+      case 'files.tree':
+        return _filesTools().executeTree(request.args);
       case 'calendar.create':
         return _calendarTools().executeCreate(request.args);
       case 'calendar.today':
@@ -1148,6 +1407,14 @@ class ToolRouter {
         return _calendarTools().executeUpdate(request.args);
       case 'calendar.delete':
         return _calendarTools().executeDelete(request.args);
+      case 'calendar.upcoming':
+        return _calendarTools().executeUpcoming(request.args);
+      case 'calendar.conflicts':
+        return _calendarTools().executeConflicts(request.args);
+      case 'calendar.free_slot':
+        return _calendarTools().executeFreeSlot(request.args);
+      case 'calendar.link_note':
+        return _calendarTools().executeLinkNote(request.args);
       case 'workflow.create':
         return _workflowTools().create(
           agentId: agentId.isNotEmpty ? agentId : agentName,
@@ -1195,6 +1462,14 @@ class ToolRouter {
         return _systemTools().executeModulesList();
       case 'system.tools.list':
         return _systemTools().executeToolsList();
+      case 'system.modules.toggle':
+        return _systemTools().executeModulesToggle(request.args);
+      case 'system.agents.update':
+        return _systemTools().executeAgentsUpdate(request.args);
+      case 'system.export_all':
+        return _systemTools().executeExportAll();
+      case 'system.import':
+        return _systemTools().executeImport(request.args);
       case 'chat.send':
         return _executeChatSend(request.args);
       default:
@@ -2159,6 +2434,48 @@ class ToolRouter {
       return ToolExecutionResult(
         success: false,
         toolName: 'chat.send',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeNotificationCreateLocal(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final title = (args['title'] ?? '').toString().trim();
+      final body = (args['body'] ?? '').toString().trim();
+      if (title.isEmpty || body.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notification.create_local',
+          error: 'title and body are required.',
+        );
+      }
+      final styleRaw = (args['style'] ?? 'normal').toString().toLowerCase();
+      final style = (styleRaw == 'silent' ||
+              styleRaw == 'normal' ||
+              styleRaw == 'alarm')
+          ? styleRaw
+          : 'normal';
+      final id = await AgentNotificationService.showNow(
+        title: title,
+        body: body,
+        style: style,
+      );
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notification.create_local',
+        data: {
+          'notificationId': id,
+          'title': title,
+          'style': style,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.create_local',
         error: e.toString(),
       );
     }

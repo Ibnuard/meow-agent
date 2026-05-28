@@ -247,6 +247,129 @@ class NotesTools {
     }
   }
 
+  /// Toggle pinned state on a note. Used by notes.pin and notes.unpin.
+  Future<ToolExecutionResult> executeSetPinned(
+    Map<String, dynamic> args, {
+    required bool pinned,
+  }) async {
+    final toolName = pinned ? 'notes.pin' : 'notes.unpin';
+    if (!await _isAllowed('allow_create')) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: toolName,
+        error: 'Notes module is disabled or write not allowed.',
+      );
+    }
+    try {
+      final noteId = (args['noteId'] as String? ?? '').trim();
+      if (noteId.isEmpty) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: toolName,
+          error: 'noteId is required.',
+        );
+      }
+      final updated = await _repo.updateNote(noteId, pinned: pinned);
+      return ToolExecutionResult(
+        success: true,
+        toolName: toolName,
+        data: {'noteId': updated.id, 'pinned': updated.pinned},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: toolName,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Toggle archived state on a note.
+  Future<ToolExecutionResult> executeSetArchived(
+    Map<String, dynamic> args, {
+    required bool archived,
+  }) async {
+    final toolName = archived ? 'notes.archive' : 'notes.unarchive';
+    if (!await _isAllowed('allow_create')) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: toolName,
+        error: 'Notes module is disabled or write not allowed.',
+      );
+    }
+    try {
+      final noteId = (args['noteId'] as String? ?? '').trim();
+      if (noteId.isEmpty) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: toolName,
+          error: 'noteId is required.',
+        );
+      }
+      final updated = await _repo.updateNote(noteId, archived: archived);
+      return ToolExecutionResult(
+        success: true,
+        toolName: toolName,
+        data: {'noteId': updated.id, 'archived': updated.archived},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: toolName,
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Append content to an existing note (with newline separator).
+  /// Useful for daily journals, running logs.
+  Future<ToolExecutionResult> executeAppend(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_create')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'notes.append',
+        error: 'Notes module is disabled or write not allowed.',
+      );
+    }
+    try {
+      final noteId = (args['noteId'] as String? ?? '').trim();
+      final content = (args['content'] as String? ?? '');
+      if (noteId.isEmpty || content.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notes.append',
+          error: 'noteId and content are required.',
+        );
+      }
+      final existing = await _repo.getNote(noteId);
+      if (existing == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notes.append',
+          error: 'Note not found: $noteId',
+        );
+      }
+      final separator = (args['separator'] as String?) ?? '\n\n';
+      final newContent = existing.content + separator + content;
+      final updated =
+          await _repo.updateNote(noteId, content: newContent);
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'notes.append',
+        data: {
+          'noteId': updated.id,
+          'totalLength': updated.content.length,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notes.append',
+        error: e.toString(),
+      );
+    }
+  }
+
   Future<ToolExecutionResult> executeDelete(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_create')) {
       return const ToolExecutionResult(

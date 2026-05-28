@@ -528,6 +528,466 @@ class FilesTools {
       );
     }
   }
+
+  // ─── files.copy ────────────────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeCopy(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_organize')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'files.copy',
+        error: 'Files module is disabled or organize not allowed.',
+      );
+    }
+    try {
+      final from = (args['from'] as String? ?? '').trim();
+      final to = (args['to'] as String? ?? '').trim();
+      if (from.isEmpty || to.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.copy',
+          error: 'Both "from" and "to" paths are required.',
+        );
+      }
+      final resolvedFrom = await _resolveSafePath(from);
+      final resolvedTo = await _resolveSafePath(to);
+      if (resolvedFrom == null || resolvedTo == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.copy',
+          error: 'Invalid path: cannot escape workspace.',
+        );
+      }
+      final source = File(resolvedFrom);
+      if (await source.exists()) {
+        await File(resolvedTo).parent.create(recursive: true);
+        await source.copy(resolvedTo);
+      } else {
+        final dir = Directory(resolvedFrom);
+        if (!await dir.exists()) {
+          return ToolExecutionResult(
+            success: false,
+            toolName: 'files.copy',
+            error: 'Source not found: $from',
+          );
+        }
+        await _copyDirectory(dir, Directory(resolvedTo));
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'files.copy',
+        data: {'copied': true, 'from': from, 'to': to},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'files.copy',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<void> _copyDirectory(Directory source, Directory target) async {
+    await target.create(recursive: true);
+    await for (final entity in source.list(recursive: false)) {
+      final name = entity.path.split(Platform.pathSeparator).last;
+      if (entity is Directory) {
+        await _copyDirectory(entity, Directory('${target.path}/$name'));
+      } else if (entity is File) {
+        await entity.copy('${target.path}/$name');
+      }
+    }
+  }
+
+  // ─── files.append ──────────────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeAppend(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_write')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'files.append',
+        error: 'Files module is disabled or write not allowed.',
+      );
+    }
+    try {
+      final path = (args['path'] as String? ?? '').trim();
+      final content = args['content'] as String? ?? '';
+      if (path.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.append',
+          error: 'path is required.',
+        );
+      }
+      final resolved = await _resolveSafePath(path);
+      if (resolved == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.append',
+          error: 'Invalid path: cannot escape workspace.',
+        );
+      }
+      final file = File(resolved);
+      await file.parent.create(recursive: true);
+      // Add a trailing newline if file exists and doesn't end with one.
+      if (await file.exists()) {
+        final existing = await file.readAsString();
+        if (existing.isNotEmpty && !existing.endsWith('\n')) {
+          await file.writeAsString('\n', mode: FileMode.append);
+        }
+      }
+      await file.writeAsString(content, mode: FileMode.append);
+      final stat = await file.stat();
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'files.append',
+        data: {'path': path, 'size': stat.size},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'files.append',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── files.metadata ────────────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeMetadata(
+    Map<String, dynamic> args,
+  ) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'files.metadata',
+        error: 'Files module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final path = (args['path'] as String? ?? '').trim();
+      if (path.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.metadata',
+          error: 'path is required.',
+        );
+      }
+      final resolved = await _resolveSafePath(path);
+      if (resolved == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.metadata',
+          error: 'Invalid path.',
+        );
+      }
+      final entityType = await FileSystemEntity.type(resolved);
+      if (entityType == FileSystemEntityType.notFound) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'files.metadata',
+          error: 'Not found: $path',
+        );
+      }
+      final stat = await FileStat.stat(resolved);
+      final isDir = entityType == FileSystemEntityType.directory;
+      final ext = path.contains('.')
+          ? path.split('.').last.toLowerCase()
+          : '';
+      String? mime;
+      int? lineCount;
+      if (!isDir) {
+        mime = _mimeFor(ext);
+        // Cheap line count for small text files only.
+        if (stat.size < 256 * 1024 && _isTextual(ext)) {
+          try {
+            final content = await File(resolved).readAsString();
+            lineCount = '\n'.allMatches(content).length + 1;
+          } catch (_) {
+            // Binary or encoding mismatch — leave null.
+          }
+        }
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'files.metadata',
+        data: {
+          'path': path,
+          'type': isDir ? 'directory' : 'file',
+          'size': stat.size,
+          'modified': stat.modified.toIso8601String(),
+          'created': stat.changed.toIso8601String(),
+          if (ext.isNotEmpty) 'extension': ext,
+          'mime': ?mime,
+          'lineCount': ?lineCount,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'files.metadata',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── files.search ──────────────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeSearch(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'files.search',
+        error: 'Files module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final query = (args['query'] as String? ?? '').trim();
+      final namePattern = (args['namePattern'] as String? ?? '').trim();
+      if (query.isEmpty && namePattern.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.search',
+          error: 'Either query or namePattern is required.',
+        );
+      }
+      final rawRoot = (args['root'] as String? ?? '').trim();
+      final maxResults =
+          (args['maxResults'] as num?)?.toInt().clamp(1, 200) ?? 50;
+      final wantsOwnWorkspace =
+          rawRoot.isEmpty || _isOwnWorkspaceShortcut(rawRoot);
+      String? resolvedRoot;
+      String? fallbackNote;
+      if (wantsOwnWorkspace) {
+        resolvedRoot =
+            (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+      } else {
+        resolvedRoot = await _resolveSafePath(rawRoot);
+        if (resolvedRoot == null || !await Directory(resolvedRoot).exists()) {
+          // Read-only fallback to own workspace so the search still produces
+          // useful output when the LLM passes a stale or absolute path.
+          resolvedRoot =
+              (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+          fallbackNote =
+              'Path "$rawRoot" not found inside MeowAgent root; searched current agent workspace instead.';
+        }
+      }
+      final dir = Directory(resolvedRoot);
+      if (!await dir.exists()) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'files.search',
+          error: 'Workspace directory does not exist: $resolvedRoot',
+        );
+      }
+      // Compile glob → regex.
+      final nameRe = namePattern.isEmpty
+          ? null
+          : RegExp(
+              '^${RegExp.escape(namePattern).replaceAll(r'\*', '.*').replaceAll(r'\?', '.')}\$',
+              caseSensitive: false,
+            );
+      final results = <Map<String, dynamic>>[];
+      final lowerQuery = query.toLowerCase();
+      await for (final entity
+          in dir.list(recursive: true, followLinks: false)) {
+        if (results.length >= maxResults) break;
+        if (entity is! File) continue;
+        final name = entity.path.split(Platform.pathSeparator).last;
+        if (nameRe != null && !nameRe.hasMatch(name)) continue;
+        var matched = query.isEmpty;
+        String? snippet;
+        if (query.isNotEmpty) {
+          final stat = await entity.stat();
+          if (stat.size > 1024 * 1024) continue; // Skip large files.
+          try {
+            final content = await entity.readAsString();
+            final lower = content.toLowerCase();
+            final idx = lower.indexOf(lowerQuery);
+            if (idx >= 0) {
+              matched = true;
+              final start = (idx - 30).clamp(0, content.length);
+              final end = (idx + query.length + 30).clamp(0, content.length);
+              snippet = content.substring(start, end).replaceAll('\n', ' ');
+            }
+          } catch (_) {
+            // Binary file — skip.
+            continue;
+          }
+        }
+        if (!matched) continue;
+        final wsRoot = (await WorkspacePaths.getMeowRoot()).path;
+        final relPath = entity.path.startsWith(wsRoot)
+            ? entity.path.substring(wsRoot.length + 1)
+            : entity.path;
+        results.add({
+          'path': relPath.replaceAll(Platform.pathSeparator, '/'),
+          'name': name,
+          'snippet': ?snippet,
+        });
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'files.search',
+        data: {
+          'count': results.length,
+          'results': results,
+          'truncated': results.length >= maxResults,
+          'note': ?fallbackNote,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'files.search',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── files.tree ────────────────────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeTree(Map<String, dynamic> args) async {
+    if (!await _isAllowed('allow_read')) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'files.tree',
+        error: 'Files module is disabled or read not allowed.',
+      );
+    }
+    try {
+      final rawRoot = (args['root'] as String? ?? '').trim();
+      final maxDepth = (args['maxDepth'] as num?)?.toInt().clamp(1, 8) ?? 3;
+      final wantsOwnWorkspace =
+          rawRoot.isEmpty || _isOwnWorkspaceShortcut(rawRoot);
+      String? resolvedRoot;
+      String? fallbackNote;
+      String displayedRoot = rawRoot.isEmpty ? '.' : rawRoot;
+      if (wantsOwnWorkspace) {
+        resolvedRoot =
+            (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+        displayedRoot = '.';
+      } else {
+        resolvedRoot = await _resolveSafePath(rawRoot);
+        if (resolvedRoot == null || !await Directory(resolvedRoot).exists()) {
+          // Read-only graceful fallback: agent likely passed an absolute or
+          // misformatted path from system.self / earlier tool output.
+          // Show the agent's own workspace so the user gets useful context
+          // instead of a hard failure.
+          resolvedRoot =
+              (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+          fallbackNote =
+              'Path "$rawRoot" not found inside MeowAgent root; falling back to current agent workspace.';
+          displayedRoot = '.';
+        }
+      }
+      final dir = Directory(resolvedRoot);
+      if (!await dir.exists()) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'files.tree',
+          error: 'Workspace directory does not exist: $resolvedRoot',
+        );
+      }
+      final buf = StringBuffer()..writeln(displayedRoot);
+      await _writeTree(dir, buf, '', maxDepth, 0);
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'files.tree',
+        data: {
+          'tree': buf.toString().trimRight(),
+          'root': displayedRoot,
+          'note': ?fallbackNote,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'files.tree',
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// True when caller's `root` is a common shortcut meaning "own workspace".
+  /// LLMs sometimes pass these instead of leaving root empty.
+  bool _isOwnWorkspaceShortcut(String root) {
+    final r = root.toLowerCase().replaceAll('\\', '/');
+    return r == '.' ||
+        r == './' ||
+        r == '/' ||
+        r == 'workspace' ||
+        r == 'workspace/' ||
+        r == 'current' ||
+        r == 'agen ini' ||
+        r == 'agent ini' ||
+        r == 'this agent' ||
+        r == 'own' ||
+        r == 'self';
+  }
+
+
+  Future<void> _writeTree(
+    Directory dir,
+    StringBuffer buf,
+    String prefix,
+    int maxDepth,
+    int depth,
+  ) async {
+    if (depth >= maxDepth) return;
+    final entries = await dir.list().toList();
+    entries.sort((a, b) {
+      final aIsDir = a is Directory;
+      final bIsDir = b is Directory;
+      if (aIsDir != bIsDir) return aIsDir ? -1 : 1;
+      return a.path.compareTo(b.path);
+    });
+    for (var i = 0; i < entries.length; i++) {
+      final isLast = i == entries.length - 1;
+      final entity = entries[i];
+      final name = entity.path.split(Platform.pathSeparator).last;
+      final connector = isLast ? '└── ' : '├── ';
+      final suffix = entity is Directory ? '/' : '';
+      buf.writeln('$prefix$connector$name$suffix');
+      if (entity is Directory) {
+        final newPrefix = prefix + (isLast ? '    ' : '│   ');
+        await _writeTree(entity, buf, newPrefix, maxDepth, depth + 1);
+      }
+    }
+  }
+
+  // ─── helpers ───────────────────────────────────────────────────────────────
+
+  static const Set<String> _textualExt = {
+    'md', 'txt', 'json', 'yaml', 'yml', 'csv', 'tsv', 'log',
+    'dart', 'js', 'ts', 'py', 'java', 'kt', 'rb', 'go', 'rs',
+    'html', 'css', 'xml', 'sh', 'bat', 'env', 'ini', 'toml', 'conf',
+  };
+
+  bool _isTextual(String ext) => _textualExt.contains(ext);
+
+  String? _mimeFor(String ext) {
+    return switch (ext) {
+      'md' || 'markdown' => 'text/markdown',
+      'txt' || 'log' => 'text/plain',
+      'json' => 'application/json',
+      'yaml' || 'yml' => 'text/yaml',
+      'csv' => 'text/csv',
+      'html' || 'htm' => 'text/html',
+      'css' => 'text/css',
+      'js' => 'text/javascript',
+      'ts' => 'text/typescript',
+      'png' => 'image/png',
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'gif' => 'image/gif',
+      'webp' => 'image/webp',
+      'pdf' => 'application/pdf',
+      'zip' => 'application/zip',
+      'mp3' => 'audio/mpeg',
+      'mp4' => 'video/mp4',
+      _ => null,
+    };
+  }
 }
 
 /// Internal: resolved-path bundle so file ops can report cross-workspace

@@ -416,7 +416,14 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - If the successful tool only retrieved information (read/list/search/status), answer the user's actual question using the tool result. Do NOT say only that the file/list/status was opened or read.
 - For read-file results, synthesize the relevant content into a direct answer unless the user explicitly asked for raw file contents.
 - If failed, explain what went wrong in plain language and suggest a next step.
-- If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.''';
+- If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
+
+CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
+- A tool that ran SUCCESSFULLY but returned zero matches (e.g. count: 0, empty list, no rows) IS the answer. It is NOT a failure. Return status="done" and tell the user the answer is "none / not found / nothing matches" in their language.
+- Do NOT loop searching with slightly different keywords or args hoping for a different result. The user can refine the query themselves if they want.
+- Do NOT switch to another tool unless a DIFFERENT tool is genuinely more likely to find what was missed (e.g. switching from notes.search to files.search when the user mentioned a file path). When in doubt, return done with the empty result.
+- Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
+- Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.''';
 
   /// Backward-compat stub. Prefer reviewRulesFor(language).
   static const reviewRules = '''CRITICAL RULES for final_response:

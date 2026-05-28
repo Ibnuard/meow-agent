@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -23,8 +24,10 @@ import '../../modules/workflows/workflow_list_screen.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/app_language_provider.dart';
+import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
+import '../data/chat_runtime_log_service.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
 
@@ -187,7 +190,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               width: 40,
               height: 4,
               decoration: BoxDecoration(
-                color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                color: Theme.of(
+                  ctx,
+                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -234,13 +239,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final clean = _cleanContent(msg.content);
     if (clean.isEmpty) {
       final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isId
-            ? 'Tidak bisa membalas pesan kosong.'
-            : 'Cannot reply to an empty message.'),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isId
+                ? 'Tidak bisa membalas pesan kosong.'
+                : 'Cannot reply to an empty message.',
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
     setState(() => _replyTo = msg);
@@ -558,16 +567,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         }
         return;
       case '/help':
-        response =
-            'Available commands:\n'
-            '• /clear — Clear chat history & context\n'
-            '• /help — Show this list\n'
-            '• /status — Show agent & context info\n'
-            '• /context — Show token/context breakdown\n'
-            '• /reset — Reset context only\n'
-            '• /model — Show current model info\n'
-            '• /compact — Compact context window\n'
-            '• /cron — Show scheduled tasks';
+        response = _buildCommandHelp(ref.read(llmDebugModeProvider));
       case '/reset':
         // Reset context only — keep chat visible but AI forgets prior context.
         response = '✓ Context reset. AI will treat next message as fresh.';
@@ -601,6 +601,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             '📋 Scheduled Tasks (HEARTBEAT.md):\n'
             'No active cron jobs configured.\n'
             'Edit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
+      case '/log':
+        response = await _buildRuntimeLogReport();
+      case '/clearlog':
+        response = await _clearRuntimeLog();
       default:
         response = 'Unknown command: $cmd\nType /help for available commands.';
     }
@@ -609,6 +613,149 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() => _messages.add(botMsg));
     if (shouldPersist) _persistMessage(botMsg);
     _scrollToEnd();
+  }
+
+  String _buildCommandHelp(bool debugMode) {
+    final buffer = StringBuffer()
+      ..writeln('Available commands:')
+      ..writeln('- /clear - Clear chat history & context')
+      ..writeln('- /help - Show this list')
+      ..writeln('- /status - Show agent & context info')
+      ..writeln('- /context - Show token/context breakdown')
+      ..writeln('- /reset - Reset context only')
+      ..writeln('- /model - Show current model info')
+      ..writeln('- /compact - Compact context window')
+      ..write('- /cron - Show scheduled tasks');
+    if (debugMode) {
+      buffer
+        ..writeln()
+        ..writeln('- /log - Show the last runtime debug log')
+        ..write('- /clearlog - Clear the last runtime debug log');
+    }
+    return buffer.toString();
+  }
+
+  Future<String> _buildRuntimeLogReport() async {
+    if (!ref.read(llmDebugModeProvider)) {
+      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /log.';
+    }
+
+    final events = await ref
+        .read(chatRuntimeLogServiceProvider)
+        .loadLast(_activeAgentId);
+    if (events.isEmpty) {
+      return 'No runtime log recorded for the last command.';
+    }
+
+    String? userMessage;
+    final stepEvents = <ChatRuntimeLogEvent>[];
+    for (final event in events) {
+      if (event.isUserRequest) {
+        userMessage = event.data?['message']?.toString();
+      } else {
+        stepEvents.add(event);
+      }
+    }
+
+    final buffer = StringBuffer('Runtime log (last command)');
+    if (userMessage != null && userMessage.trim().isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('Command: ${_truncateLogText(userMessage, 220)}');
+    }
+
+    if (stepEvents.isEmpty) {
+      buffer
+        ..writeln()
+        ..write('No runtime steps have been recorded yet.');
+      return buffer.toString();
+    }
+
+    for (var i = 0; i < stepEvents.length; i++) {
+      final event = stepEvents[i];
+      buffer
+        ..writeln()
+        ..write('${i + 1}. ${_formatRuntimeLogLine(event)}');
+      final details = _formatRuntimeLogDetails(event);
+      if (details.isNotEmpty) {
+        buffer
+          ..writeln()
+          ..write('   $details');
+      }
+    }
+
+    return buffer.toString();
+  }
+
+  Future<String> _clearRuntimeLog() async {
+    if (!ref.read(llmDebugModeProvider)) {
+      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /clearlog.';
+    }
+
+    await ref.read(chatRuntimeLogServiceProvider).clear(_activeAgentId);
+    return 'Runtime debug log cleared.';
+  }
+
+  String _formatRuntimeLogLine(ChatRuntimeLogEvent event) {
+    final label = switch (event.type) {
+      'state_change' => event.data?['state']?.toString() ?? 'state',
+      'llm_decision' => 'llm',
+      'tool_call' => 'tool call',
+      'tool_result' => 'tool result',
+      'narrative' => 'narrative',
+      'error' => 'error',
+      'confirmation' => 'confirmation',
+      'cancelled' => 'cancelled',
+      _ => event.type,
+    };
+    return '[$label] ${_truncateLogText(event.message, 260)}';
+  }
+
+  String _formatRuntimeLogDetails(ChatRuntimeLogEvent event) {
+    final data = event.data;
+    if (data == null || data.isEmpty) return '';
+
+    switch (event.type) {
+      case 'state_change':
+        return '';
+      case 'tool_call':
+        return _compactLogJson({
+          'tool': data['name'],
+          'args': data['args'],
+          'risk': data['risk'],
+        });
+      case 'tool_result':
+        final details = <String, dynamic>{
+          'tool': data['tool'],
+          'success': data['success'],
+        };
+        if (data['error'] != null) {
+          details['error'] = data['error'];
+        }
+        if (data['data'] != null) {
+          details['data'] = data['data'];
+        }
+        return _compactLogJson(details);
+      case 'error':
+        return _truncateLogText(data['error']?.toString() ?? '', 700);
+      default:
+        return _compactLogJson(data);
+    }
+  }
+
+  String _compactLogJson(Object? value, {int maxChars = 700}) {
+    if (value == null) return '';
+    try {
+      return _truncateLogText(jsonEncode(value), maxChars);
+    } catch (_) {
+      return _truncateLogText(value.toString(), maxChars);
+    }
+  }
+
+  String _truncateLogText(String text, int maxChars) {
+    final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (compact.length <= maxChars) return compact;
+    return '${compact.substring(0, maxChars)}...';
   }
 
   Future<String> _buildContextReport() async {
@@ -648,8 +795,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       maxContextLength: maxCtx,
     );
 
-    final isId =
-        resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     final pct = usage.percentage.toStringAsFixed(1);
     final compactNote = usage.needsCompact
         ? (isId
@@ -987,6 +1133,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cs = context.cs;
     final agents = ref.watch(agentListProvider);
     final providers = ref.watch(providerListProvider).value ?? [];
+    final debugMode = ref.watch(llmDebugModeProvider);
 
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -1178,8 +1325,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                               msgIndex,
                                             ),
                                         onActionTap: _handleResultAction,
-                                        onLongPress: () =>
-                                            _showMessageActions(_messages[msgIndex]),
+                                        onLongPress: () => _showMessageActions(
+                                          _messages[msgIndex],
+                                        ),
                                       ),
                                     );
                                   }
@@ -1197,8 +1345,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                       ?.sessionFor(_activeAgentId)
                                       .narrativeMessage;
                                   final hasNarrative =
-                                      _sending && (narrative?.isNotEmpty == true);
-                                  final narrativeIdx = debugIdx - debugBubbles.length;
+                                      _sending &&
+                                      (narrative?.isNotEmpty == true);
+                                  final narrativeIdx =
+                                      debugIdx - debugBubbles.length;
                                   if (hasNarrative && narrativeIdx == 0) {
                                     return _NarrativeBubble(text: narrative!);
                                   }
@@ -1210,6 +1360,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       _ChatInput(
                         controller: _input,
                         sending: _sending,
+                        debugMode: debugMode,
                         onSend: _send,
                         onStop: _stop,
                         replyTo: _replyTo,
@@ -1265,7 +1416,8 @@ class _Bubble extends StatelessWidget {
     // Skip rendering ghost bubbles that have nothing visible to show.
     // These can exist in the DB from before the cancel-guard fix, where
     // engine.run() resolved with an empty finalMessage post-cancellation.
-    final hasNothingToShow = displayContent.isEmpty &&
+    final hasNothingToShow =
+        displayContent.isEmpty &&
         (quoteText == null || quoteText.isEmpty) &&
         msg.actions.isEmpty &&
         !isConfirmation;
@@ -1329,9 +1481,7 @@ class _Bubble extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: isUser
-                          ? Colors.white70
-                          : cs.onSurfaceVariant,
+                      color: isUser ? Colors.white70 : cs.onSurfaceVariant,
                       height: 1.3,
                     ),
                   ),
@@ -1342,11 +1492,7 @@ class _Bubble extends StatelessWidget {
           if (isUser)
             Text(
               displayContent,
-              style: TextStyle(
-                color: cs.onPrimary,
-                fontSize: 14,
-                height: 1.4,
-              ),
+              style: TextStyle(color: cs.onPrimary, fontSize: 14, height: 1.4),
             )
           else
             MarkdownBody(
@@ -1359,10 +1505,7 @@ class _Bubble extends StatelessWidget {
                   color: cs.onSurface,
                   fontWeight: FontWeight.w700,
                 ),
-                em: TextStyle(
-                  color: cs.onSurface,
-                  fontStyle: FontStyle.italic,
-                ),
+                em: TextStyle(color: cs.onSurface, fontStyle: FontStyle.italic),
                 code: TextStyle(
                   color: cs.primary,
                   backgroundColor: cs.primary.withValues(alpha: 0.08),
@@ -1422,10 +1565,7 @@ class _Bubble extends StatelessWidget {
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: onLongPress != null
-          ? GestureDetector(
-              onLongPress: onLongPress,
-              child: bubble,
-            )
+          ? GestureDetector(onLongPress: onLongPress, child: bubble)
           : bubble,
     );
   }
@@ -1577,10 +1717,7 @@ class _NarrativeBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                _emojiFor(text),
-                style: const TextStyle(fontSize: 13),
-              ),
+              Text(_emojiFor(text), style: const TextStyle(fontSize: 13)),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -1611,16 +1748,22 @@ class _NarrativeBubble extends StatelessWidget {
     if (t.contains('plan') || t.contains('rencana') || t.contains('langkah')) {
       return '🧭';
     }
-    if (t.contains('write') || t.contains('compos') || t.contains('jawaban') ||
+    if (t.contains('write') ||
+        t.contains('compos') ||
+        t.contains('jawaban') ||
         t.contains('reply')) {
       return '✍️';
     }
-    if (t.contains('try') || t.contains('coba') || t.contains('different') ||
+    if (t.contains('try') ||
+        t.contains('coba') ||
+        t.contains('different') ||
         t.contains('lain')) {
       return '🔁';
     }
-    if (t.contains('execut') || t.contains('mengerjakan') ||
-        t.contains('working') || t.contains('progress')) {
+    if (t.contains('execut') ||
+        t.contains('mengerjakan') ||
+        t.contains('working') ||
+        t.contains('progress')) {
       return '⚙️';
     }
     if (t.contains('ask') || t.contains('quest') || t.contains('pertanyaan')) {
@@ -1756,6 +1899,7 @@ class _ChatInput extends StatefulWidget {
   const _ChatInput({
     required this.controller,
     required this.sending,
+    required this.debugMode,
     required this.onSend,
     required this.onStop,
     required this.s,
@@ -1765,6 +1909,7 @@ class _ChatInput extends StatefulWidget {
 
   final TextEditingController controller;
   final bool sending;
+  final bool debugMode;
   final VoidCallback onSend;
   final VoidCallback onStop;
   final AppStrings s;
@@ -1776,7 +1921,7 @@ class _ChatInput extends StatefulWidget {
 }
 
 class _ChatInputState extends State<_ChatInput> {
-  static const _commands = [
+  static const _baseCommands = [
     _SlashCommand('/clear', 'Clear chat history & context'),
     _SlashCommand('/help', 'Show available commands'),
     _SlashCommand('/status', 'Show agent & context info'),
@@ -1786,6 +1931,14 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/compact', 'Compact context window'),
     _SlashCommand('/cron', 'Show scheduled tasks'),
   ];
+  static const _debugCommands = [
+    _SlashCommand('/log', 'Show last runtime debug log'),
+    _SlashCommand('/clearlog', 'Clear last runtime debug log'),
+  ];
+
+  List<_SlashCommand> get _commands => widget.debugMode
+      ? const [..._baseCommands, ..._debugCommands]
+      : _baseCommands;
 
   List<_SlashCommand> _filtered = [];
   bool _showSuggestions = false;
@@ -2004,7 +2157,9 @@ class _ChatInputState extends State<_ChatInput> {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: cs.onSurface.withValues(alpha: 0.85),
+                                      color: cs.onSurface.withValues(
+                                        alpha: 0.85,
+                                      ),
                                       height: 1.3,
                                     ),
                                   ),
@@ -2115,9 +2270,7 @@ class _ChatInputState extends State<_ChatInput> {
               ),
               const SizedBox(width: 6),
               Material(
-                color: widget.sending
-                    ? Colors.red.shade400
-                    : cs.primary,
+                color: widget.sending ? Colors.red.shade400 : cs.primary,
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
@@ -2126,7 +2279,11 @@ class _ChatInputState extends State<_ChatInput> {
                     width: 48,
                     height: 48,
                     child: widget.sending
-                        ? const Icon(Icons.stop_rounded, color: Colors.white, size: 24)
+                        ? const Icon(
+                            Icons.stop_rounded,
+                            color: Colors.white,
+                            size: 24,
+                          )
                         : Icon(Icons.send_rounded, color: cs.onPrimary),
                   ),
                 ),
@@ -2307,7 +2464,7 @@ class _AgentDrawer extends ConsumerWidget {
                                     ),
                                     if (!isActive &&
                                         unread.countFor(agent.id) > 0)
-                                       _DrawerUnreadChip(
+                                      _DrawerUnreadChip(
                                         count: unread.countFor(agent.id),
                                       ),
                                   ],

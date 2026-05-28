@@ -954,4 +954,318 @@ This file stores persistent memory and context that carries across sessions.
 ## Bookmarks
 
 ''';
+
+  // ─── system.modules.toggle ──────────────────────────────────────────────
+
+  /// Enable/disable an installed module or one of its setting toggles.
+  /// When [settingKey] is omitted, toggles the module-level enabled flag.
+  Future<ToolExecutionResult> executeModulesToggle(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final moduleId = (args['moduleId'] as String? ?? '').trim();
+      if (moduleId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.modules.toggle',
+          error: 'moduleId is required.',
+        );
+      }
+      final installed = await moduleRepository.getInstalled();
+      final mod = installed.where((m) => m.id == moduleId).firstOrNull;
+      if (mod == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'system.modules.toggle',
+          error: 'Module not installed: $moduleId',
+        );
+      }
+      final settingKey = (args['settingKey'] as String? ?? '').trim();
+      final enabledArg = args['enabled'];
+      if (settingKey.isEmpty) {
+        // Toggle module-level enabled.
+        final newEnabled =
+            enabledArg is bool ? enabledArg : !mod.enabled;
+        await moduleRepository.update(mod.copyWith(enabled: newEnabled));
+        return ToolExecutionResult(
+          success: true,
+          toolName: 'system.modules.toggle',
+          data: {
+            'moduleId': moduleId,
+            'enabled': newEnabled,
+            'level': 'module',
+          },
+        );
+      }
+      // Toggle individual setting.
+      if (!mod.settings.containsKey(settingKey)) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'system.modules.toggle',
+          error:
+              'Setting "$settingKey" not found on module $moduleId. Available: ${mod.settings.keys.join(", ")}',
+        );
+      }
+      final current = mod.settings[settingKey] ?? false;
+      final newValue = enabledArg is bool ? enabledArg : !current;
+      final newSettings = {...mod.settings, settingKey: newValue};
+      await moduleRepository.update(mod.copyWith(settings: newSettings));
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'system.modules.toggle',
+        data: {
+          'moduleId': moduleId,
+          'settingKey': settingKey,
+          'enabled': newValue,
+          'level': 'setting',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.modules.toggle',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── system.agents.update ───────────────────────────────────────────────
+
+  Future<ToolExecutionResult> executeAgentsUpdate(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final repo = agentRepository;
+      final save = saveAgent;
+      if (repo == null && save == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.agents.update',
+          error: 'Agent repository is not available.',
+        );
+      }
+      final agents = _loadAgents();
+      final id = (args['id'] as String? ?? args['agentId'] as String? ?? '')
+          .trim();
+      final lookupName = (args['name'] as String? ?? '').trim();
+      final target = _findAgent(agents, id: id, name: lookupName);
+      if (target == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'system.agents.update',
+          error:
+              'Agent not found by id="$id" or name="$lookupName".',
+          data: {
+            'available':
+                agents.map((a) => {'id': a.id, 'name': a.name}).toList(),
+          },
+        );
+      }
+
+      final newName = (args['newName'] as String? ?? '').trim();
+      final newProviderRaw =
+          (args['providerId'] as String? ?? '').trim();
+      final newMaxContext = (args['maxContextLength'] as num?)?.toInt();
+      final newIcon = args['iconKey'] as String?;
+      final newColor = args['colorKey'] as String?;
+
+      String? finalProviderId;
+      if (newProviderRaw.isNotEmpty) {
+        final providers = await _loadProviders();
+        final found = providers
+            .where((p) =>
+                p.id == newProviderRaw ||
+                p.nickname.toLowerCase() ==
+                    newProviderRaw.toLowerCase())
+            .firstOrNull;
+        if (found == null) {
+          return ToolExecutionResult(
+            success: false,
+            toolName: 'system.agents.update',
+            error: 'Provider not found: $newProviderRaw',
+          );
+        }
+        finalProviderId = found.id;
+      }
+
+      final updated = target.copyWith(
+        name: newName.isEmpty ? null : newName,
+        providerId: finalProviderId,
+        maxContextLength:
+            newMaxContext?.clamp(512, 1000000).toInt(),
+        iconKey: newIcon,
+        colorKey: newColor,
+      );
+
+      if (save != null) {
+        await save(updated);
+      } else {
+        await repo!.save(updated);
+      }
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'system.agents.update',
+        data: {
+          'agent': updated.toJson(),
+          'changedFields': [
+            if (newName.isNotEmpty) 'name',
+            if (finalProviderId != null) 'providerId',
+            if (newMaxContext != null) 'maxContextLength',
+            if (newIcon != null) 'iconKey',
+            if (newColor != null) 'colorKey',
+          ],
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.agents.update',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── system.export_all ──────────────────────────────────────────────────
+
+  /// Returns a JSON-serializable snapshot of agents, providers (no secrets),
+  /// and module settings. The runtime caller can write this to a file.
+  Future<ToolExecutionResult> executeExportAll() async {
+    try {
+      final agents = _loadAgents();
+      final providers = await _loadProviders();
+      final modules = await moduleRepository.getInstalled();
+      final snapshot = {
+        'version': 1,
+        'exportedAt': DateTime.now().toIso8601String(),
+        'agents': agents.map((a) => a.toJson()).toList(),
+        'providers': providers.map((p) => p.toPublicJson()).toList(),
+        'modules': modules.map((m) => m.toJson()).toList(),
+      };
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'system.export_all',
+        data: {
+          'snapshot': snapshot,
+          'counts': {
+            'agents': agents.length,
+            'providers': providers.length,
+            'modules': modules.length,
+          },
+          'note':
+              'Provider API keys are NOT included. Re-enter them after import.',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.export_all',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── system.import ──────────────────────────────────────────────────────
+
+  /// Restore from a snapshot produced by [executeExportAll]. Modes:
+  /// - merge (default): adds missing agents and modules; existing entries are
+  ///   left alone.
+  /// - replace: clears existing agents/modules first.
+  Future<ToolExecutionResult> executeImport(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final snapshot = args['snapshot'];
+      if (snapshot is! Map) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.import',
+          error: 'snapshot is required and must be an object.',
+        );
+      }
+      final mode = ((args['mode'] as String?) ?? 'merge').toLowerCase();
+      if (mode != 'merge' && mode != 'replace') {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.import',
+          error: 'mode must be "merge" or "replace".',
+        );
+      }
+
+      final stats = <String, int>{
+        'agentsAdded': 0,
+        'modulesUpdated': 0,
+        'modulesAdded': 0,
+      };
+
+      // Agents.
+      final repo = agentRepository;
+      final save = saveAgent;
+      if ((repo != null || save != null) && snapshot['agents'] is List) {
+        final existing = _loadAgents();
+        final existingNames =
+            existing.map((a) => a.name.toLowerCase()).toSet();
+        if (mode == 'replace') {
+          for (final a in existing) {
+            if (a.id == agentId) continue; // Cannot delete self.
+            if (deleteAgent != null) {
+              await deleteAgent!(a.id);
+            } else {
+              await repo!.delete(a.id);
+            }
+          }
+          existingNames.clear();
+        }
+        for (final raw in (snapshot['agents'] as List)) {
+          if (raw is! Map) continue;
+          final m = Map<String, dynamic>.from(raw);
+          final agent = AgentModel.fromJson(m);
+          if (mode == 'merge' &&
+              existingNames.contains(agent.name.toLowerCase())) {
+            continue;
+          }
+          if (save != null) {
+            await save(agent);
+          } else {
+            await repo!.save(agent);
+          }
+          stats['agentsAdded'] = (stats['agentsAdded'] ?? 0) + 1;
+        }
+      }
+
+      // Modules.
+      if (snapshot['modules'] is List) {
+        final existingModules = await moduleRepository.getInstalled();
+        final existingIds = existingModules.map((m) => m.id).toSet();
+        for (final raw in (snapshot['modules'] as List)) {
+          if (raw is! Map) continue;
+          final m = ModuleModel.fromJson(Map<String, dynamic>.from(raw));
+          if (existingIds.contains(m.id)) {
+            await moduleRepository.update(m);
+            stats['modulesUpdated'] =
+                (stats['modulesUpdated'] ?? 0) + 1;
+          } else {
+            await moduleRepository.install(m);
+            stats['modulesAdded'] = (stats['modulesAdded'] ?? 0) + 1;
+          }
+        }
+      }
+
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'system.import',
+        data: {
+          'mode': mode,
+          'stats': stats,
+          'note':
+              'Providers must be re-added manually because API keys are not in snapshots.',
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.import',
+        error: e.toString(),
+      );
+    }
+  }
 }
