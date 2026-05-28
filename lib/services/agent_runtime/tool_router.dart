@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
+import '../../features/chat/data/chat_history_service.dart';
 import '../../features/modules/device_context/device_context_repository.dart';
 import '../../features/modules/device_context/device_context_service.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -870,6 +871,20 @@ class ToolRouter {
       risk: 'safe',
       requiresConfirmation: false,
     ),
+
+    // ── Chat ─────────────────────────────────────────────────────────────
+    'chat.send': const ToolDefinition(
+      name: 'chat.send',
+      description:
+          'Send a message from the agent into a chat UI as an assistant message. Use when user explicitly asks to "kirim ke chat", "send to chat", or to deliver a markdown-formatted result (summary, digest, report) as a chat bubble rather than just a notification. Content supports full markdown.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'content': 'string (required, markdown body of the message)',
+        'agentId':
+            'string (optional, target agent id; defaults to the current agent)',
+      },
+    ),
   };
 
   /// Get all registered tool names.
@@ -1179,6 +1194,8 @@ class ToolRouter {
         return _systemTools().executeModulesList();
       case 'system.tools.list':
         return _systemTools().executeToolsList();
+      case 'chat.send':
+        return _executeChatSend(request.args);
       default:
         return ToolExecutionResult(
           success: false,
@@ -2084,6 +2101,59 @@ class ToolRouter {
       return ToolExecutionResult(
         success: false,
         toolName: 'notification.open_app',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _executeChatSend(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final content = (args['content'] ?? '').toString().trim();
+      if (content.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'chat.send',
+          error: 'Missing required field: content.',
+        );
+      }
+
+      // Resolve target agent. Falls back to the current router agent so the
+      // common case ("send this summary to my chat") works without the LLM
+      // having to look up an id first.
+      final rawTarget = (args['agentId'] ?? '').toString().trim();
+      final targetAgentId = rawTarget.isNotEmpty
+          ? rawTarget
+          : (agentId.isNotEmpty ? agentId : agentName);
+
+      if (targetAgentId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'chat.send',
+          error: 'No target agent resolved for chat.send.',
+        );
+      }
+
+      final service = ChatHistoryService();
+      final messageId = await service.addMessage(
+        targetAgentId,
+        ChatMessage(role: 'assistant', content: content),
+      );
+
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'chat.send',
+        data: {
+          'agentId': targetAgentId,
+          'messageId': messageId,
+          'length': content.length,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'chat.send',
         error: e.toString(),
       );
     }
