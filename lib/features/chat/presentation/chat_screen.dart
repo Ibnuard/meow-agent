@@ -548,6 +548,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final cmd = text.split(' ').first.toLowerCase();
     _input.clear();
 
+    // Show the slash command itself in the chat history so the user can see
+    // what they ran (and scroll back to it later). For /clear we deliberately
+    // skip persistence because the next step wipes the agent's history.
+    final userMsg = ChatMessage(role: 'user', content: text);
+    setState(() => _messages.add(userMsg));
+    if (cmd != '/clear') {
+      _persistMessage(userMsg);
+    }
+    _scrollToEnd();
+
     String response;
     bool shouldPersist = true;
 
