@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,6 +17,10 @@ import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import 'shell.dart';
+
+/// Global navigator key for pushing routes from outside the widget tree
+/// (e.g., notification tap handlers).
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class AppRoutes {
   static const home = '/';
@@ -43,6 +48,7 @@ class AppRoutes {
 
 final goRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.home,
     routes: [
       // Standalone routes (no bottom bar).

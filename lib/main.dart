@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,7 +11,9 @@ import 'core/storage/local_storage_service.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
+import 'features/modules/workflows/workflow_log_detail_screen.dart';
 import 'features/modules/workflows/workflow_notification_service.dart';
+import 'features/modules/workflows/workflow_repository.dart';
 import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
 import 'services/workspace/workspace_migration_service.dart';
@@ -88,7 +91,9 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
   /// Initialize workflow notification service and reschedule active workflows.
   Future<void> _initWorkflowServices() async {
     try {
-      await WorkflowNotificationService.initialize();
+      await WorkflowNotificationService.initialize(
+        onTap: _handleNotificationTap,
+      );
       await WorkflowScheduler.initialize();
       await WorkflowScheduler.rescheduleAll();
       // Start the in-app workflow runner with dynamic scheduling.
@@ -98,6 +103,29 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     } catch (_) {
       // Non-fatal.
     }
+  }
+
+  /// Handle notification tap — navigate to workflow log detail.
+  void _handleNotificationTap(NotificationResponse response) async {
+    final payload = response.payload;
+    if (payload == null || !payload.startsWith('workflow:')) return;
+
+    final workflowId = payload.replaceFirst('workflow:', '');
+    if (workflowId.isEmpty) return;
+
+    // Load the latest execution for this workflow.
+    final repo = WorkflowRepository();
+    final execution = await repo.getLatestForWorkflow(workflowId);
+    if (execution == null) return;
+
+    // Navigate using the global navigator key.
+    final nav = rootNavigatorKey.currentState;
+    if (nav == null) return;
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => WorkflowLogDetailScreen(execution: execution),
+      ),
+    );
   }
 
   @override

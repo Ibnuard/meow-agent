@@ -182,6 +182,20 @@ class WorkflowRepository {
     return rows.map(_db.executionFromRow).toList();
   }
 
+  /// Get the most recent execution for a specific workflow.
+  Future<WorkflowExecution?> getLatestForWorkflow(String workflowId) async {
+    final db = await _db.database;
+    final rows = await db.query(
+      'execution_history',
+      where: 'workflow_id = ?',
+      whereArgs: [workflowId],
+      orderBy: 'executed_at DESC',
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _db.executionFromRow(rows.first);
+  }
+
   /// Clear history for a specific workflow.
   Future<void> clearHistory(String workflowId) async {
     final db = await _db.database;
