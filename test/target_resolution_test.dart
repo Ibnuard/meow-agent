@@ -235,5 +235,213 @@ void main() {
       expect(result.reflection.clarifyQuestions.single, contains('Ghost'));
       expect(result.graph.blockingTargets.single.reason, 'target_not_found');
     });
+
+    test('does not block workspace file paths that are not in ecosystem snapshot',
+        () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mars personality',
+          subgoals: [
+            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_file',
+            operation: 'read',
+            entityType: 'file',
+            entityLabel: 'Agents/Mars/SOUL.md',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+      expect(result.graph.eligibleTargets.single.entityType, 'file');
+      expect(result.graph.blockingTargets, isEmpty);
+      expect(result.reflection.clarifyQuestions, isEmpty);
+    });
+
+    test('path-like target overrides wrong LLM entity type', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mars personality',
+          subgoals: [
+            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_file',
+            operation: 'read',
+            entityType: 'agent',
+            entityId: 'mars',
+            entityLabel: 'Agents/Mars/SOUL.md',
+          ),
+        ],
+        impacts: const [
+          ReflectionImpact(
+            entityType: 'workflow',
+            entityId: 'wf_mars',
+            entityLabel: 'Daily Mars',
+            relation: 'uses Mars',
+            severity: 'high',
+            autoResolvable: false,
+            sourceTargetId: 'sg_file',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.single.entityType, 'file');
+      expect(result.graph.eligibleTargets.single.operation, 'read');
+      expect(result.reflection.impacts, isEmpty);
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
+    test('goal tree fallback treats path text as file, not mentioned agent', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Mars personality',
+          subgoals: [
+            Subgoal(id: 'sg_file', label: 'read Agents/Mars/SOUL.md'),
+          ],
+        ),
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.single.entityType, 'file');
+      expect(
+        result.graph.eligibleTargets.single.entityLabel,
+        'Agents/Mars/SOUL.md',
+      );
+      expect(result.graph.blockingTargets, isEmpty);
+    });
+
+    test('read-only snapshot targets do not surface mutation impacts', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.clarify,
+        goalTree: GoalTree(
+          mainGoal: 'read Mars info',
+          subgoals: [
+            Subgoal(id: 'sg_mars', label: 'read Mars'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_mars',
+            operation: 'read',
+            entityType: 'agent',
+            entityId: 'mars',
+            entityLabel: 'Mars',
+          ),
+        ],
+        impacts: const [
+          ReflectionImpact(
+            entityType: 'workflow',
+            entityId: 'wf_mars',
+            entityLabel: 'Daily Mars',
+            relation: 'uses Mars',
+            severity: 'high',
+            autoResolvable: false,
+            sourceTargetId: 'sg_mars',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.single.entityType, 'agent');
+      expect(result.reflection.impacts, isEmpty);
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
+    test('non-snapshot note target is left for note tools to validate', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'delete note',
+          subgoals: [
+            Subgoal(id: 'sg_note', label: 'delete note meeting kemarin'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_note',
+            operation: 'delete',
+            entityType: 'note',
+            entityLabel: 'meeting kemarin',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.single.entityType, 'note');
+      expect(result.graph.blockingTargets, isEmpty);
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
+    test('url-like target overrides wrong LLM entity type', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'open url',
+          subgoals: [
+            Subgoal(id: 'sg_url', label: 'open https://example.com'),
+          ],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_url',
+            operation: 'open',
+            entityType: 'agent',
+            entityLabel: 'https://example.com',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      expect(result.graph.eligibleTargets.single.entityType, 'url');
+      expect(result.graph.blockingTargets, isEmpty);
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
   });
 }

@@ -86,17 +86,19 @@ SLOT EXTRACTION RULES (apply to every tool, not just agents):
 - A slot is "filled" only when the user gave it explicitly OR there is a sensible non-creative default the tool itself documents (e.g. notification.style defaults to "normal").
 
 EXISTENCE & TYPO RULES (CRITICAL — prevents post-confirmation "target not found" errors):
-- For any operation that targets an EXISTING entity (delete, update, rename, toggle, reassign), the target name in the user's request MUST exactly match an entity in the ecosystem snapshot before execution.
+- For operations that target an EXISTING snapshot-backed entity (agents, workflows, providers, modules), the target name in the user's request MUST exactly match an entity in the ecosystem snapshot before execution.
 - If no exact match exists, do NOT pick the closest one silently. Instead:
   * If a near-match is plausible (e.g. minor typo, 1-2 character difference like "treaearcher" vs "researcher"), strategy=clarify and ask: did you mean <suggested>?
   * If no plausible near-match exists, strategy=block and list the available targets so the user can choose.
 - Treat case-insensitive equality as exact match. Trim whitespace before comparing.
-- This rule applies to ALL existing-target operations across all entity types: agents, workflows, providers, modules, notes, files, calendar events. Generic — not per-tool.
+- File paths (e.g. Agents/Mars/SOUL.md), notes, calendar items, and app/package targets are NOT ecosystem snapshot entities. Do not block them just because they are absent from the ecosystem snapshot; let the appropriate tool validate path/id/package existence.
+- If a target string looks like a workspace path, URL, Android package, note id, notification id, or calendar id, preserve it as that domain target. Do not reinterpret it as an agent/provider/workflow just because it contains a known entity name.
 - Never assume a typo means the user wanted to CREATE a new entity. Creation is only when the user explicitly asks to create.
 
 ECOSYSTEM AWARENESS:
 - Use the snapshot to detect cross-references. Example: deleting an agent that is referenced by a workflow — emit auto_resolve with a reassign step OR clarify if no substitute exists.
 - Renaming or deleting providers, modules, or workflows must surface the same impact analysis.
+- Read-only operations (read, list, get, open, search) must NOT emit destructive/update impacts. Reading an agent profile or file does not affect workflows.
 - Severity: high if delete/destructive on referenced entity, medium if rename/edit on referenced entity, low otherwise.
 
 OUTPUT LANGUAGE:
@@ -113,6 +115,8 @@ TARGET GRAPH:
 - operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
+- Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
+- URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
 - If a target is selected by a semantic bulk selector, enumerate each matched entity as its own target after checking the snapshot.
 - Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
 
@@ -379,6 +383,8 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - Speak as a helpful assistant who just did the task naturally.
 - Be concise (1–2 short sentences).
 - If success, confirm what was done in human terms (e.g. "Sudah saya buatkan catatan tentang AI.").
+- If the successful tool only retrieved information (read/list/search/status), answer the user's actual question using the tool result. Do NOT say only that the file/list/status was opened or read.
+- For read-file results, synthesize the relevant content into a direct answer unless the user explicitly asked for raw file contents.
 - If failed, explain what went wrong in plain language and suggest a next step.
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.''';
 

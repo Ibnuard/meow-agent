@@ -132,6 +132,63 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     );
   }
 
+  /// Answer the user's request using data returned by a retrieval/read tool.
+  ///
+  /// This is deliberately different from [success]: the task is not "the tool
+  /// ran", it is "use the retrieved information to answer the user".
+  Future<String> answerFromToolResult({
+    required String userMessage,
+    required ToolCallRequest tool,
+    required ToolExecutionResult result,
+    required DetectedLanguage language,
+  }) async {
+    final cacheKey = _key(
+      'answer_from_tool_result',
+      tool.name,
+      tool.args,
+      language.code,
+      extra: {
+        'user_message': userMessage,
+        'success': result.success,
+        'data': _answerData(result.data),
+      },
+    );
+    final cached = _turnCache[cacheKey];
+    if (cached != null) return cached;
+
+    final prompt = '''You answer the user's request using ONLY the tool result data.
+
+User request:
+$userMessage
+
+Tool action:
+${tool.name}
+
+Tool arguments:
+${jsonEncode(tool.args)}
+
+Tool result data:
+${jsonEncode(_answerData(result.data))}
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- Answer the user's actual question, not merely that the tool succeeded.
+- Never expose internal tool names or raw IDs.
+- If the data is a file/content blob, extract the relevant answer and summarize it naturally.
+- If the data does not contain enough information, say what is missing briefly.
+- Keep it concise but useful. No markdown unless the user clearly asked for structured output.
+
+Reply with the answer only. No JSON, no quotes.''';
+
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.answer_from_tool_result',
+      languageCode: language.code,
+      fallbackPhase: 'success',
+      cacheKey: cacheKey,
+    );
+  }
+
   /// Message shown when the user rejects a pending action.
   Future<String> cancel({
     required ToolCallRequest tool,
@@ -499,6 +556,23 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     });
     return out;
   }
+
+  /// Keep enough content for answer synthesis while still avoiding huge prompts.
+  static Map<String, dynamic>? _answerData(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final out = <String, dynamic>{};
+    data.forEach((k, v) {
+      if (v is String && v.length > 6000) {
+        out[k] = '${v.substring(0, 6000)}\n...[truncated]';
+      } else if (v is List && v.length > 20) {
+        out[k] = [...v.take(20), '...(+${v.length - 20} more)'];
+      } else {
+        out[k] = v;
+      }
+    });
+    return out;
+  }
+
   /// Deterministic provider disambiguation prompt.
   ///
   /// Used by the engine fallback when `system.agents.create` returned a

@@ -1078,15 +1078,26 @@ class AgentRuntimeEngine {
             );
             if (verificationBlocker != null) return verificationBlocker;
 
-            final successMsg = await _finalForCompletedTree(
-              goalTree: goalTree,
-              fallbackTool: toolRequest,
-              fallbackResult: result,
-              verbalizer: verbalizer,
-              language: detectedLang,
-              targetGraph:
-                  (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
-            );
+            final successMsg = _shouldAnswerFromToolResult(
+              toolName: pending.toolName,
+              userMessage: userMessage,
+              result: result,
+            )
+                ? await verbalizer.answerFromToolResult(
+                    userMessage: userMessage,
+                    tool: toolRequest,
+                    result: result,
+                    language: detectedLang,
+                  )
+                : await _finalForCompletedTree(
+                    goalTree: goalTree,
+                    fallbackTool: toolRequest,
+                    fallbackResult: result,
+                    verbalizer: verbalizer,
+                    language: detectedLang,
+                    targetGraph: (plan['runtime_target_graph'] as Map?)
+                        ?.cast<String, dynamic>(),
+                  );
             logger.logFinalResponse(successMsg);
             await workspaceLoader.updateHeartbeat(
               request.agentName.isNotEmpty
@@ -1134,11 +1145,22 @@ class AgentRuntimeEngine {
         }
 
         // Legacy / single-target path: just announce success and finish.
-        final successMsg = await verbalizer.success(
-          tool: toolRequest,
+        final successMsg = _shouldAnswerFromToolResult(
+          toolName: pending.toolName,
+          userMessage: request.userMessage,
           result: result,
-          language: detectedLang,
-        );
+        )
+            ? await verbalizer.answerFromToolResult(
+                userMessage: request.userMessage,
+                tool: toolRequest,
+                result: result,
+                language: detectedLang,
+              )
+            : await verbalizer.success(
+                tool: toolRequest,
+                result: result,
+                language: detectedLang,
+              );
         logger.logFinalResponse(successMsg);
         await workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -1644,15 +1666,26 @@ class AgentRuntimeEngine {
             lastToolName: toolRequest.name,
           );
           if (verificationBlocker != null) return verificationBlocker;
-          final localFinal = await _finalForCompletedTree(
-            goalTree: goalTree,
-            fallbackTool: toolRequest,
-            fallbackResult: result,
-            verbalizer: verbalizer,
-            language: detectedLang,
-            targetGraph:
-                (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
-          );
+          final localFinal = _shouldAnswerFromToolResult(
+            toolName: toolRequest.name,
+            userMessage: request.userMessage,
+            result: result,
+          )
+              ? await verbalizer.answerFromToolResult(
+                  userMessage: request.userMessage,
+                  tool: toolRequest,
+                  result: result,
+                  language: detectedLang,
+                )
+              : await _finalForCompletedTree(
+                  goalTree: goalTree,
+                  fallbackTool: toolRequest,
+                  fallbackResult: result,
+                  verbalizer: verbalizer,
+                  language: detectedLang,
+                  targetGraph: (plan['runtime_target_graph'] as Map?)
+                      ?.cast<String, dynamic>(),
+                );
           logger.logFinalResponse(localFinal);
           await workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -1770,8 +1803,18 @@ class AgentRuntimeEngine {
             continue;
           }
 
-          final finalResponse =
-              review['final_response'] as String? ?? 'Task completed.';
+          final finalResponse = _shouldAnswerFromToolResult(
+            toolName: toolRequest.name,
+            userMessage: request.userMessage,
+            result: result,
+          )
+              ? await verbalizer.answerFromToolResult(
+                  userMessage: request.userMessage,
+                  tool: toolRequest,
+                  result: result,
+                  language: detectedLang,
+                )
+              : review['final_response'] as String? ?? 'Task completed.';
           final verificationBlocker = await _blockIfCompletionUnverified(
             request: request,
             plan: plan,
@@ -2578,6 +2621,47 @@ class AgentRuntimeEngine {
     final steps = plan['steps'];
     if (steps is! List || steps.isEmpty) return true;
     return currentStep >= steps.length;
+  }
+
+  bool _shouldAnswerFromToolResult({
+    required String toolName,
+    required String userMessage,
+    required ToolExecutionResult result,
+  }) {
+    if (!result.success || result.data == null || result.data!.isEmpty) {
+      return false;
+    }
+    if (userMessage.trim().isEmpty) return false;
+    return _isRetrievalTool(toolName);
+  }
+
+  bool _isRetrievalTool(String toolName) {
+    final name = toolName.toLowerCase();
+    if (name.endsWith('.read') ||
+        name.endsWith('.list') ||
+        name.endsWith('.search') ||
+        name.endsWith('.summarize') ||
+        name.endsWith('.classify') ||
+        name.endsWith('.status') ||
+        name.endsWith('.today') ||
+        name.endsWith('.self')) {
+      return true;
+    }
+    if (name == 'system.self' ||
+        name == 'app.list_installed' ||
+        name == 'notification.read_recent' ||
+        name == 'system.agents.list' ||
+        name == 'system.providers.list' ||
+        name == 'system.modules.list' ||
+        name == 'system.tools.list') {
+      return true;
+    }
+    if (name.startsWith('device.') &&
+        !name.endsWith('.set') &&
+        !name.contains('reconnect')) {
+      return true;
+    }
+    return false;
   }
 
   String? _permissionDeniedResponseFor(ToolExecutionResult result) {

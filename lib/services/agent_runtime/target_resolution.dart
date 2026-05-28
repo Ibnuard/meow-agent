@@ -293,8 +293,8 @@ class TargetResolver {
     final out = <ResolvedTarget>[];
     for (var i = 0; i < seedTargets.length; i++) {
       final seed = seedTargets[i];
-      final operation = _normalize(seed.operation);
-      final entityType = _normalize(seed.entityType);
+      final entityType = _entityTypeForSeed(seed);
+      final operation = _operationForSeed(seed, entityType);
       final match = _matchEntity(
         entityType: entityType,
         entityId: seed.entityId,
@@ -311,7 +311,8 @@ class TargetResolver {
         selector: seed.selector,
       );
 
-      if (_requiresExistingTarget(operation) && resolved.entityId.isEmpty) {
+      if (_requiresSnapshotTarget(entityType, operation) &&
+          resolved.entityId.isEmpty) {
         resolved = resolved.copyWith(
           status: ResolvedTargetStatus.missing,
           reason: 'target_not_found',
@@ -339,12 +340,12 @@ class TargetResolver {
   ) {
     final out = <ReflectionTarget>[];
     for (final subgoal in goalTree.subgoals) {
-      final operation = _slotString(subgoal, const [
+      var operation = _slotString(subgoal, const [
         '_operation',
         'operation',
         'action',
       ]);
-      final entityType = _slotString(subgoal, const [
+      var entityType = _slotString(subgoal, const [
         '_entity_type',
         'entity_type',
         'entityType',
@@ -370,7 +371,33 @@ class TargetResolver {
         'target',
         'targetName',
         'target_name',
+        'path',
+        'file',
+        'url',
+        'package',
       ]);
+      final pathLike = _pathLikeValue([
+        subgoal.label,
+        entityId,
+        label,
+        for (final value in subgoal.requiredSlots.values)
+          value?.toString() ?? '',
+      ]);
+      if (pathLike != null) {
+        operation = operation.isEmpty
+            ? _inferReadOnlyOperation(subgoal.label)
+            : operation;
+        entityType = 'file';
+        out.add(ReflectionTarget(
+          subgoalId: subgoal.id,
+          operation: operation.isEmpty ? 'read' : operation,
+          entityType: entityType,
+          entityId: '',
+          entityLabel: pathLike,
+        ));
+        continue;
+      }
+
       final matches = _entityMentionsForSubgoal(subgoal, snapshot);
       if (matches.isEmpty && (operation.isNotEmpty || entityType.isNotEmpty)) {
         out.add(ReflectionTarget(
@@ -419,7 +446,9 @@ class TargetResolver {
     List<ReflectionImpact> impacts,
     List<ResolvedTarget> targets,
   ) {
-    final eligible = targets.where((t) => t.isEligible).toList(growable: false);
+    final eligible = targets
+        .where((t) => t.isEligible && !_isReadOnlyOperation(t.operation))
+        .toList(growable: false);
     if (impacts.isEmpty || eligible.isEmpty) return const [];
 
     final targetByKey = {
@@ -442,7 +471,10 @@ class TargetResolver {
     List<ResolvedTarget> eligible,
   ) {
     if (impact.sourceTargetId.isNotEmpty) {
-      return targetByKey[impact.sourceTargetId]?.isEligible ?? false;
+      final target = targetByKey[impact.sourceTargetId];
+      return target != null &&
+          target.isEligible &&
+          !_isReadOnlyOperation(target.operation);
     }
 
     final impactId = _normalize(impact.entityId);
@@ -569,7 +601,8 @@ class TargetResolver {
     }
   }
 
-  static bool _requiresExistingTarget(String operation) {
+  static bool _requiresSnapshotTarget(String entityType, String operation) {
+    if (!_isSnapshotBackedEntity(entityType)) return false;
     switch (operation) {
       case 'delete':
       case 'update':
@@ -577,6 +610,59 @@ class TargetResolver {
       case 'toggle':
       case 'read':
       case 'get':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  static String _entityTypeForSeed(ReflectionTarget seed) {
+    final evidence = [
+      seed.entityId,
+      seed.entityLabel,
+      for (final value in seed.selector.values) value?.toString() ?? '',
+    ];
+    if (_urlLikeValue(evidence) != null) return 'url';
+    if (_pathLikeValue(evidence) != null) return 'file';
+    if (_packageLikeValue(evidence) != null) return 'app';
+    final raw = _normalize(seed.entityType);
+    if (raw == 'file_path' || raw == 'path') return 'file';
+    if (raw == 'package' || raw == 'app_package') return 'app';
+    return raw;
+  }
+
+  static String _operationForSeed(ReflectionTarget seed, String entityType) {
+    final raw = _normalize(seed.operation);
+    if (raw.isNotEmpty) return raw;
+    if (entityType == 'file' || entityType == 'url' || entityType == 'app') {
+      return _inferReadOnlyOperation(seed.entityLabel);
+    }
+    return 'unknown';
+  }
+
+  static bool _isReadOnlyOperation(String operation) {
+    switch (_normalize(operation)) {
+      case 'read':
+      case 'get':
+      case 'list':
+      case 'open':
+      case 'search':
+      case 'resolve':
+      case 'summarize':
+      case 'classify':
+      case 'preview':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  static bool _isSnapshotBackedEntity(String entityType) {
+    switch (entityType) {
+      case 'agent':
+      case 'workflow':
+      case 'provider':
+      case 'module':
         return true;
       default:
         return false;
@@ -599,6 +685,84 @@ class TargetResolver {
   }
 
   static String _normalize(String value) => value.trim().toLowerCase();
+
+  static String _inferReadOnlyOperation(String text) {
+    final normalized = _normalize(text);
+    if (normalized.contains('search') || normalized.contains('cari')) {
+      return 'search';
+    }
+    if (normalized.contains('open') || normalized.contains('buka')) {
+      return 'open';
+    }
+    if (normalized.contains('list') || normalized.contains('daftar')) {
+      return 'list';
+    }
+    return 'read';
+  }
+
+  static String? _urlLikeValue(Iterable<String> values) {
+    for (final value in values) {
+      final trimmed = value.trim();
+      final lower = trimmed.toLowerCase();
+      if (lower.startsWith('http://') ||
+          lower.startsWith('https://') ||
+          lower.startsWith('mailto:')) {
+        return trimmed;
+      }
+    }
+    return null;
+  }
+
+  static String? _pathLikeValue(Iterable<String> values) {
+    for (final value in values) {
+      final url = _urlLikeValue([value]);
+      if (url != null) continue;
+      final normalized = value.trim().replaceAll('\\', '/');
+      if (normalized.isEmpty) continue;
+      final tokens = normalized
+          .split(RegExp(r'[\s,;]+'))
+          .map((token) => _stripEdgeQuotes(token.trim()))
+          .where((token) => token.isNotEmpty);
+      for (final token in tokens) {
+        final lower = token.toLowerCase();
+        if (lower.startsWith('agents/') ||
+            lower.startsWith('notes/') ||
+            lower.startsWith('workflows/') ||
+            lower.startsWith('files/') ||
+            lower.contains('/') && _hasFileExtension(lower) ||
+            _hasFileExtension(lower)) {
+          return token;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String? _packageLikeValue(Iterable<String> values) {
+    final packagePattern = RegExp(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,}$');
+    for (final value in values) {
+      final trimmed = value.trim().toLowerCase();
+      if (packagePattern.hasMatch(trimmed)) return value.trim();
+    }
+    return null;
+  }
+
+  static bool _hasFileExtension(String value) {
+    return RegExp(
+      r'\.(md|txt|json|yaml|yml|csv|pdf|docx?|xlsx?|png|jpe?g|webp)$',
+      caseSensitive: false,
+    ).hasMatch(value);
+  }
+
+  static String _stripEdgeQuotes(String value) {
+    var out = value;
+    while (out.length >= 2 &&
+        ((out.startsWith('"') && out.endsWith('"')) ||
+            (out.startsWith("'") && out.endsWith("'")))) {
+      out = out.substring(1, out.length - 1).trim();
+    }
+    return out;
+  }
 
   static bool _containsName(String text, String name) {
     final normalizedText = _normalize(text);
