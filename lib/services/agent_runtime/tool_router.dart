@@ -591,6 +591,8 @@ class ToolRouter {
       inputSchema: {
         'title': 'string (required)',
         'prompt': 'string (required if steps not provided)',
+        'agentId':
+            'string (optional, defaults to caller agent; accepts agent UUID or display name to assign workflow to a specific agent)',
         'trigger':
             'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {threshold, keyword, package}}',
         'notification':
@@ -662,6 +664,8 @@ class ToolRouter {
       requiresConfirmation: false,
       inputSchema: {
         'id': 'string (required)',
+        'agentId':
+            'string (optional, accepts agent UUID or display name to re-assign the workflow to another agent)',
         'title': 'string (optional)',
         'prompt': 'string (optional)',
         'trigger': 'object (optional)',
@@ -1399,8 +1403,10 @@ class ToolRouter {
   CalendarTools _calendarTools() =>
       CalendarTools(moduleRepository: moduleRepository);
 
-  WorkflowTools _workflowTools() =>
-      WorkflowTools(moduleRepository: moduleRepository);
+  WorkflowTools _workflowTools() => WorkflowTools(
+    moduleRepository: moduleRepository,
+    agentRepository: agentRepository,
+  );
 
   SystemTools _systemTools() => SystemTools(
     agentId: agentId,

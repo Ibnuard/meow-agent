@@ -1,5 +1,6 @@
 import 'package:uuid/uuid.dart';
 
+import '../../../features/agents/data/agent_repository.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../data/module_repository.dart';
 import 'workflow_model.dart';
@@ -8,11 +9,15 @@ import 'workflow_templates.dart';
 
 /// Agent tools for workflow management.
 class WorkflowTools {
-  WorkflowTools({ModuleRepository? moduleRepository})
-    : _moduleRepository = moduleRepository ?? ModuleRepository();
+  WorkflowTools({
+    ModuleRepository? moduleRepository,
+    AgentRepository? agentRepository,
+  })  : _moduleRepository = moduleRepository ?? ModuleRepository(),
+        _agentRepository = agentRepository;
 
   final WorkflowRepository _repo = WorkflowRepository();
   final ModuleRepository _moduleRepository;
+  final AgentRepository? _agentRepository;
 
   /// Check if the workflows module is enabled and a specific setting is allowed.
   Future<bool> _isAllowed(String settingKey) async {
@@ -20,6 +25,37 @@ class WorkflowTools {
     final mod = modules.where((m) => m.id == 'workflows').firstOrNull;
     if (mod == null || !mod.enabled) return false;
     return mod.settings[settingKey] ?? true;
+  }
+
+  /// Resolve a free-form agent reference (UUID or display name) to a canonical
+  /// agent id. Returns null if no match was found and the repository is wired.
+  /// When the repository is missing (e.g. unit tests), the input is returned
+  /// as-is so legacy id-only flows keep working.
+  String? _resolveAgentId(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) return null;
+    final repo = _agentRepository;
+    if (repo == null) return value;
+    final agents = repo.loadAll();
+    if (agents.isEmpty) return null;
+    final byId = agents.where((a) => a.id == value).firstOrNull;
+    if (byId != null) return byId.id;
+    final lower = value.toLowerCase();
+    final byName =
+        agents.where((a) => a.name.toLowerCase() == lower).firstOrNull;
+    if (byName != null) return byName.id;
+    return null;
+  }
+
+  /// Read an agent reference from any of the common arg keys LLMs use.
+  String? _readAgentRef(Map<String, dynamic> args) {
+    final v = args['agentId'] ??
+        args['agent_id'] ??
+        args['agent'] ??
+        args['assignedTo'] ??
+        args['assigned_to'];
+    if (v is String) return v.trim();
+    return null;
   }
 
   /// Create a new workflow.
@@ -33,6 +69,22 @@ class WorkflowTools {
         toolName: 'workflow.create',
         error: 'Permission denied: workflow creation is disabled.',
       );
+    }
+
+    // Allow callers (LLM) to assign the workflow to a different agent by name
+    // or id. Falls back to the calling agent when no override is given.
+    final overrideRef = _readAgentRef(args);
+    String resolvedAgentId = agentId;
+    if (overrideRef != null && overrideRef.isNotEmpty) {
+      final resolved = _resolveAgentId(overrideRef);
+      if (resolved == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'workflow.create',
+          error: 'Agent not found: $overrideRef',
+        );
+      }
+      resolvedAgentId = resolved;
     }
 
     final title = args['title'] as String?;
@@ -108,7 +160,7 @@ class WorkflowTools {
 
     final workflow = WorkflowModel(
       id: 'wf_${const Uuid().v4().substring(0, 8)}',
-      agentId: agentId,
+      agentId: resolvedAgentId,
       title: title,
       prompt: prompt ?? '',
       trigger: trigger,
@@ -420,7 +472,24 @@ class WorkflowTools {
       );
     }
 
+    // Resolve optional agent re-assignment. Accepts agentId/agent/assignedTo
+    // as either a UUID or an agent display name; nulls preserve current.
+    String? newAgentId;
+    final agentRef = _readAgentRef(args);
+    if (agentRef != null && agentRef.isNotEmpty) {
+      final resolved = _resolveAgentId(agentRef);
+      if (resolved == null) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'workflow.update',
+          error: 'Agent not found: $agentRef',
+        );
+      }
+      newAgentId = resolved;
+    }
+
     final updated = existing.copyWith(
+      agentId: newAgentId,
       title: args['title'] as String? ?? existing.title,
       prompt: args['prompt'] as String? ?? existing.prompt,
       trigger: args['trigger'] != null
