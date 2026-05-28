@@ -1364,6 +1364,7 @@ class AgentRuntimeEngine {
     bool isWorkflowAutoExecute = false,
     List<Map<String, dynamic>>? initialPreviousResults,
     int initialStep = 1,
+    int nullSelectionRecoveryCount = 0,
   }) async {
     final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
     var currentStep = initialStep;
@@ -1408,6 +1409,20 @@ class AgentRuntimeEngine {
       emit(logger.events.last);
 
       if (selection == null) {
+        // Hard-fail if we've already attempted a null-selection recovery
+        // once. Otherwise we recurse forever in the
+        // "no tool found → rethink → no tool found" loop.
+        if (nullSelectionRecoveryCount >= 1) {
+          logger.logNarrative(
+            'recovery',
+            'Repeated null tool selection. Aborting to prevent infinite loop.',
+          );
+          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          return _fail(
+            _capabilityNotFoundMessage(detectedLang),
+            logger,
+          );
+        }
         final recoveryDecision = await _maybeRecover(
           recovery: recovery,
           rethink: rethink,
@@ -1432,11 +1447,13 @@ class AgentRuntimeEngine {
             rethink: rethink,
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
+            nullSelectionRecoveryCount: nullSelectionRecoveryCount + 1,
           );
         }
         await _finishTaskScopeForRequest(request, LedgerStatus.failed);
         return _fail(
-          recovery?.giveUpMessage(detectedLang) ?? 'Tool selection failed.',
+          recovery?.giveUpMessage(detectedLang) ??
+              _capabilityNotFoundMessage(detectedLang),
           logger,
         );
       }
@@ -3127,6 +3144,18 @@ class AgentRuntimeEngine {
       state: AgentRuntimeState.failed,
       events: logger.events,
     );
+  }
+
+  /// User-facing message when no tool exists for the requested action.
+  /// Used after the runtime exhausts recovery attempts on null tool selection.
+  String _capabilityNotFoundMessage(DetectedLanguage lang) {
+    final code = lang.code.toLowerCase();
+    if (code == 'id' || code.startsWith('id_')) {
+      return 'Maaf, aku belum punya kemampuan untuk melakukan itu. '
+          'Tidak ada tool yang sesuai untuk permintaan tersebut.';
+    }
+    return 'Sorry, I don\'t have the capability to do that. '
+        'No tool is available for this request.';
   }
 
   bool _isLastPlannedStep(Map<String, dynamic> plan, int currentStep) {
