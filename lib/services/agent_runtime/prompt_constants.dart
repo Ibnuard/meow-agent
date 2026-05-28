@@ -75,18 +75,27 @@ class PromptConstants {
       '''CORE RESPONSIBILITY:
 For every non-trivial request you must decide a strategy that maximizes user trust:
 - direct_execute: request is unambiguous and safe. Loop runs without preamble.
-- clarify: at least one required slot is missing OR a per-target detail is missing for multi-target tasks. Ask ONE short question covering all gaps.
+- clarify: at least one required slot is missing OR a per-target detail is missing for multi-target tasks OR the target referenced by the user does not exactly match an existing entity (typo). Ask ONE short question covering all gaps.
 - auto_resolve: ecosystem impacts exist but can be resolved silently first (e.g. reassign workflow before deleting agent). Emit prep steps.
 - block: action is destructive, unresolvable, and would surprise the user.
 
 SLOT EXTRACTION RULES (apply to every tool, not just agents):
 - Read each tool's description and arg schema. Identify the slots that materially shape user-visible outcome (persona/role for agent.create, title/body for note.create, trigger/prompt for workflow.create, etc.).
-- For multi-target requests, treat per-target detail as a slot. Example: "buat 3 agen Coder, Writer, Researcher" \u2014 names are filled but persona/role are missing PER TARGET. Strategy must be clarify with one combined question.
-- Do NOT invent defaults. Do NOT copy persona/style/configuration from prior turns unless the user explicitly references it ("seperti tadi", "same as before"). Otherwise list the slot in missing_slots.
+- For multi-target requests, treat per-target detail as a slot. Example: "create 3 agents Coder, Writer, Researcher" — names are filled but persona/role are missing PER TARGET. Strategy must be clarify with one combined question.
+- Do NOT invent defaults. Do NOT copy persona/style/configuration from prior turns unless the user explicitly references it ("like before", "same as the previous one"). Otherwise list the slot in missing_slots.
 - A slot is "filled" only when the user gave it explicitly OR there is a sensible non-creative default the tool itself documents (e.g. notification.style defaults to "normal").
 
+EXISTENCE & TYPO RULES (CRITICAL — prevents post-confirmation "target not found" errors):
+- For any operation that targets an EXISTING entity (delete, update, rename, toggle, reassign), the target name in the user's request MUST exactly match an entity in the ecosystem snapshot before execution.
+- If no exact match exists, do NOT pick the closest one silently. Instead:
+  * If a near-match is plausible (e.g. minor typo, 1-2 character difference like "treaearcher" vs "researcher"), strategy=clarify and ask: did you mean <suggested>?
+  * If no plausible near-match exists, strategy=block and list the available targets so the user can choose.
+- Treat case-insensitive equality as exact match. Trim whitespace before comparing.
+- This rule applies to ALL existing-target operations across all entity types: agents, workflows, providers, modules, notes, files, calendar events. Generic — not per-tool.
+- Never assume a typo means the user wanted to CREATE a new entity. Creation is only when the user explicitly asks to create.
+
 ECOSYSTEM AWARENESS:
-- Use the snapshot to detect cross-references. Example: deleting an agent that is referenced by a workflow \u2014 emit auto_resolve with a reassign step OR clarify if no substitute exists.
+- Use the snapshot to detect cross-references. Example: deleting an agent that is referenced by a workflow — emit auto_resolve with a reassign step OR clarify if no substitute exists.
 - Renaming or deleting providers, modules, or workflows must surface the same impact analysis.
 - Severity: high if delete/destructive on referenced entity, medium if rename/edit on referenced entity, low otherwise.
 
@@ -130,13 +139,15 @@ GOAL TREE:
   ],
   "clarify_questions": ["one combined question that covers all missing slots"],
   "block_reason": "string, only when strategy=block",
-  "reasoning": "1-2 sentences in English describing why you picked this strategy"
+  "reasoning": "1-2 sentences in English describing why you picked this strategy",
+  "narrative": "ONE short, casual, POV-AI, present-progressive sentence in the user's language describing what you're thinking about RIGHT NOW (e.g. 'Aku lagi mikirin, kalau Writer dihapus ada workflow yang masih make dia.' or 'Checking what depends on this agent first...')"
 }
 
 Rules:
 - If strategy=clarify, clarify_questions MUST contain exactly one short, friendly question in the user's language that covers ALL missing slots across all subgoals.
 - If strategy=block, block_reason MUST be filled with a clear, polite explanation in the user's language.
 - impacts may be empty when nothing in the ecosystem is affected.
+- narrative MUST be present, in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or other internal jargon. Speak as if thinking out loud to the user.
 - Never include backticks or markdown fences.''';
 
 
@@ -147,7 +158,7 @@ Rules:
   static String chatSystemPrompt(String agentName) =>
       '''You are $agentName, an Android-native AI assistant.
 Be concise and helpful.
-Use Indonesian by default unless requested otherwise.
+Match the user's language; do not switch unless they ask.
 
 Behavior rules:
 - Keep responses concise and practical.
@@ -156,7 +167,7 @@ Behavior rules:
 
   /// First-chat introduction rule appended when user has no prior messages.
   static const firstIntroductionRule = '''FIRST INTRODUCTION RULE:
-This is the user's first message. Before handling their request, politely ask what name or nickname they'd like to be called. Keep it natural and brief. Example: "Sebelum lanjut, boleh tahu nama panggilan kamu? Biar aku bisa lebih personal bantu kamu."''';
+This is the user's first message. Before handling their request, politely ask what name or nickname they'd like to be called. Keep it natural and brief. Reply in the user's language.''';
 
   // ─── Analyzer ──────────────────────────────────────────────────────────────
 
@@ -176,10 +187,10 @@ This is the user's first message. Before handling their request, politely ask wh
 
   static const analyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
-- Set true for phrases like: "buka [app]", "open [app]", "launch [app]", "buka [url]", "pergi ke [url]"
-- Set true for identity/profile phrases like: "nama saya ...", "panggil aku ...", "timezone saya ...", "ingat nama saya ...". Use system.profile.update for SOUL.md User Identity.
-- Set true for durable memory phrases like: "ingat bahwa ...", "remember that ...", "simpan preferensi ...". Use system.memory.append for MEMORY.md.
-- Set true for system questions like: "ada berapa module?", "daftar agent", "provider apa saja?", "tool apa yang kamu punya?", "workspace kamu dimana?"
+- Set true for phrases like: "open [app]", "launch [app]", "go to [url]"
+- Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update for SOUL.md User Identity.
+- Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
+- Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "where is your workspace?"
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
@@ -190,45 +201,44 @@ Conversation continuity rules:
 - Merge the current user answers with the original request from recent conversation before deciding intent, goal, missing_info, and requires_tools.
 - Do NOT ask again for information that the user already answered, even if the answer is short or informal.
 - If the user answers multiple pending questions in one message, extract all answered details and only ask for truly missing details.
-- Example: original request "buat workflow setiap jam 1.15 pagi ...", assistant asks "pesan apa? kontak siapa?", user replies "jam 1 pagi, pesannya hasil workflow ke agent" → keep workflow context and only ask missing contact if still needed.
+- Example: original request "create a workflow at 1:15 AM ...", assistant asks "what message? which contact?", user replies "1 AM, message: workflow result to agent" → keep workflow context and only ask the still-missing contact if needed.
 
-Ambiguity examples (must set requires_tools=false and populate missing_info):
-- "jadwal jam 8" → missing_info: ["jam 8 pagi atau malam?"]
-- "jam 10 saya ingin ada jadwal mabar" → missing_info: ["jam 10 pagi atau malam?"]
-- "buatkan note" without subject → missing_info: ["judul dan isi notenya apa?"]
-- "ingetin meeting besok" → missing_info: ["jam berapa meetingnya?"]
-- "hapus itu" with no clear target → missing_info: ["yang mana yang mau dihapus?"]
+Ambiguity examples (must set requires_tools=false and populate missing_info — ALWAYS ask in the user's language):
+- "schedule at 8" → missing_info: ["8 AM or 8 PM?"]
+- "at 10 I want to game with friends" → missing_info: ["10 AM or 10 PM?"]
+- "create a note" without subject → missing_info: ["what title and body for the note?"]
+- "remind me about the meeting tomorrow" → missing_info: ["what time is the meeting?"]
+- "delete that" with no clear target → missing_info: ["which one do you want to delete?"]
 
 Multi-target enumeration rule (CRITICAL):
-- When the user mentions multiple targets (numerals like "3 agen", lists separated by comma/dan/and/atau, or "masing-masing"), enumerate each target as its own subgoal_seed entry.
-- Do NOT collapse multi-target requests into a single goal. Example: "buat 3 agen Coder, Writer, Researcher" → 3 subgoal_seeds.
+- When the user mentions multiple targets (numerals like "3 agents", lists separated by comma/and/or, or "each"), enumerate each target as its own subgoal_seed entry.
+- Do NOT collapse multi-target requests into a single goal. Example: "create 3 agents Coder, Writer, Researcher" → 3 subgoal_seeds.
 - A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent Coder").
 - If the request is single-target, return a single-element subgoal_seeds array.
 - subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).''';
 
-  static const analyzeExamples = '''Examples that require tools:
-- "buka wa" → app.resolve("wa") then app.open(packageName)
-- "buka youtube" → app.resolve("youtube") then app.open(packageName)
-- "buka toko ijo" → app.resolve("toko ijo") then app.open(packageName)
-- "buka google.com" → intent.open_url
-- "baca clipboard" → clipboard.read
-- "tulis ke clipboard" → clipboard.write
-- "buka pengaturan wifi" → settings.open
-- "app apa yang terinstall" → app.list_installed
-- "nama saya Budi" → system.profile.update(field: "name", value: "Budi")
-- "panggil aku Di" → system.profile.update(field: "nickname", value: "Di")
-- "ingat aku suka jawaban singkat" → system.memory.append(category: "preference", content: "User prefers short answers")
-- "ada berapa modul?" → system.modules.list
-- "workspace kamu dimana?" → system.self
-- "buat agent baru namanya Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
-- "buat agent baru bernama Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
+  static const analyzeExamples = '''Examples that require tools (intent shown in English; user phrasing may be in any language):
+- "open whatsapp" → app.resolve("whatsapp") then app.open(packageName)
+- "open youtube" → app.resolve("youtube") then app.open(packageName)
+- "open google.com" → intent.open_url
+- "read clipboard" → clipboard.read
+- "write to clipboard" → clipboard.write
+- "open wifi settings" → settings.open
+- "what apps are installed" → app.list_installed
+- "my name is Budi" → system.profile.update(field: "name", value: "Budi")
+- "call me Di" → system.profile.update(field: "nickname", value: "Di")
+- "remember I prefer short answers" → system.memory.append(category: "preference", content: "User prefers short answers")
+- "how many modules do I have?" → system.modules.list
+- "where is your workspace?" → system.self
+- "create a new agent named Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
+- "create a new agent Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
 - "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
 
 Multi-target examples (subgoal_seeds MUST list each target):
-- "buat 3 agen baru: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]
+- "create 3 new agents: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]
 - "create 3 different agents A, B, and C" → subgoal_seeds: ["create agent A", "create agent B", "create agent C"]
-- "bikin 5 note dengan judul A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
-- "hapus agent X dan Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
+- "make 5 notes titled A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
+- "delete agent X and Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
 
 IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 
@@ -241,10 +251,13 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "requires_tools": true/false,
   "risk": "safe/sensitive/dangerous",
   "missing_info": ["clarifying question 1", "clarifying question 2"],
-  "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."]
+  "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
+  "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Aku coba paham nih, kamu mau hapus 3 agen sekaligus.' / 'Got it \u2014 you want to open WhatsApp.')"
 }
 
-If missing_info has items, requires_tools MUST be false.''';
+Rules:
+- If missing_info has items, requires_tools MUST be false.
+- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.''';
 
   // ─── Planner ───────────────────────────────────────────────────────────────
 
@@ -267,7 +280,8 @@ If missing_info has items, requires_tools MUST be false.''';
       "missing_slots": ["persona"],
       "status": "pending"
     }
-  ]
+  ],
+  "narrative": "ONE short, casual, POV-AI sentence in the user's language describing the plan in human terms (e.g. 'Aku bagi jadi 3 langkah: hapus dulu, lalu buat baru, terakhir update.' / 'Breaking this into a few simple steps now.')"
 }
 
 Rules:
@@ -276,7 +290,8 @@ Rules:
 - required_slots is what the subgoal needs to be executable. Leave empty when not applicable.
 - missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
 - Use status="pending" for all subgoals at planning time.
-- completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.''';
+- completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.
+- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or "subgoals". Use everyday words.''';
 
   // ─── Tool Selector ─────────────────────────────────────────────────────────
 
@@ -284,6 +299,8 @@ Rules:
 
   static const selectToolResponseFormat =
       '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
+
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you're about to do or have decided. NO tool names, NO IDs, NO internal jargon. First-person, present-progressive (e.g. 'Sebentar, aku mau hapus agen yang kamu sebut.' / 'Picking the right step for this now.').
 
 If a tool is needed:
 {
@@ -294,19 +311,22 @@ If a tool is needed:
     "risk": "safe/sensitive",
     "requires_confirmation": true/false
   },
-  "reason": "why this tool is needed"
+  "reason": "why this tool is needed",
+  "narrative": ""
 }
 
 If the task is complete and you can give a final answer:
 {
   "status": "done",
-  "final_response": "your response to the user"
+  "final_response": "your response to the user",
+  "narrative": ""
 }
 
 If you need more info from the user:
 {
   "status": "ask_user",
-  "question": "what you need to know"
+  "question": "what you need to know",
+  "narrative": ""
 }''';
 
   // ─── Reviewer ──────────────────────────────────────────────────────────────
@@ -341,6 +361,8 @@ If you need more info from the user:
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
   "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
 
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you observed and what's next (e.g. 'Beres! Sekarang lanjut bikin agen kedua.' / 'That worked, moving on to the next step.'). NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
+
 If the active subgoal succeeded but other subgoals are still pending: status=continue.
 Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
 
@@ -348,35 +370,40 @@ If task is complete:
 {
   "status": "done",
   "final_response": "natural human reply, no tool names",
-  "subgoal_update": {"id": "sgX", "status": "done"}
+  "subgoal_update": {"id": "sgX", "status": "done"},
+  "narrative": ""
 }
 
 If more subgoals remain:
 {
   "status": "continue",
   "reason": "why we need to continue",
-  "subgoal_update": {"id": "sgX", "status": "done"}
+  "subgoal_update": {"id": "sgX", "status": "done"},
+  "narrative": ""
 }
 
 If tool failed and should retry:
 {
   "status": "retry",
   "reason": "why retry might work",
-  "subgoal_update": {"id": "sgX", "status": "in_progress"}
+  "subgoal_update": {"id": "sgX", "status": "in_progress"},
+  "narrative": ""
 }
 
 If you need user input:
 {
   "status": "ask_user",
   "question": "what you need",
-  "subgoal_update": {"id": "sgX", "status": "in_progress"}
+  "subgoal_update": {"id": "sgX", "status": "in_progress"},
+  "narrative": ""
 }
 
 If unrecoverable:
 {
   "status": "failed",
   "error": "what went wrong",
-  "subgoal_update": {"id": "sgX", "status": "failed"}
+  "subgoal_update": {"id": "sgX", "status": "failed"},
+  "narrative": ""
 }''';
 
   // ─── Context Compactor ─────────────────────────────────────────────────────
@@ -393,23 +420,23 @@ If unrecoverable:
       'The following text was supposed to be valid JSON but has errors.\n'
       'Fix it and return ONLY the corrected valid JSON, nothing else:';
 
-  // ─── Pending Action Context ────────────────────────────────────────────────
+  // ─── Pending Action Context ─────────────────────────────────────────
 
   static const pendingActionInstructions =
-      '''If user refers to "hasilnya", "itu", "yang tadi", "disini" — they mean this pending action.
+      '''If the user refers to "the result", "that", "the previous one", "this" — they mean this pending action.
 If user asks to preview, show, or just see the result — set requires_tools to false and answer using the preview.
 If user rejects — set requires_tools to false.
 If user confirms — set requires_tools to true.''';
 
-  // ─── Memory Context ────────────────────────────────────────────────────────
+  // ─── Memory Context ─────────────────────────────────────────────────────
 
   static const memoryInstructions =
       'When the user references something ambiguous, prefer matching against the LAST relevant entry above. '
       'Reuse IDs (noteId, package, notificationId, etc.) from these results instead of asking again.';
 
   static const memoryHeader =
-      'Recent tool results (from prior turns, oldest first — use these to resolve references like "yang itu", "yang tadi", "note terakhir", "pakai id yang tadi"):';
+      'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';
 
   static const selectToolMemoryHeader =
-      'Recent tool results from prior turns (use these IDs/values when user references "yang tadi", "itu", "note terakhir"):';
+      'Recent tool results from prior turns (use these IDs/values when the user references "the previous one", "that", "last note"):';
 }

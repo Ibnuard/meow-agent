@@ -983,7 +983,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   16,
                                   12,
                                 ),
-                                // +1 loading indicator at top, +N debug bubbles, +1 thinking.
+                                // +1 loading, +N debug, +1 narrative (when present), +1 thinking.
                                 itemCount:
                                     (_loadingOlder ? 1 : 0) +
                                     _messages.length +
@@ -992,6 +992,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             .debugMessages
                                             .length ??
                                         0) +
+                                    ((_sending &&
+                                            (_manager
+                                                    ?.sessionFor(_activeAgentId)
+                                                    .narrativeMessage
+                                                    ?.isNotEmpty ==
+                                                true))
+                                        ? 1
+                                        : 0) +
                                     (_sending ? 1 : 0),
                                 itemBuilder: (context, i) {
                                   // Loading indicator at top.
@@ -1038,6 +1046,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                         msg: debugBubbles[debugIdx],
                                       ),
                                     );
+                                  }
+                                  // Narrative bubble — above the thinking dots,
+                                  // shown only while sending AND a narrative is set.
+                                  final narrative = _manager
+                                      ?.sessionFor(_activeAgentId)
+                                      .narrativeMessage;
+                                  final hasNarrative =
+                                      _sending && (narrative?.isNotEmpty == true);
+                                  final narrativeIdx = debugIdx - debugBubbles.length;
+                                  if (hasNarrative && narrativeIdx == 0) {
+                                    return _NarrativeBubble(text: narrative!);
                                   }
                                   // Thinking bubble at very bottom.
                                   return const _ThinkingBubble();
@@ -1284,6 +1303,98 @@ class _ResultActionButton extends ConsumerWidget {
       default:
         return Icons.arrow_forward_rounded;
     }
+  }
+}
+
+class _NarrativeBubble extends StatelessWidget {
+  const _NarrativeBubble({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final extras = context.extras;
+    final cs = context.cs;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 220),
+        switchInCurve: Curves.easeOut,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.08),
+              end: Offset.zero,
+            ).animate(anim),
+            child: child,
+          ),
+        ),
+        child: Container(
+          key: ValueKey<String>(text),
+          margin: const EdgeInsets.only(top: 4, bottom: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: extras.card.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: extras.subtleBorder.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                _emojiFor(text),
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontStyle: FontStyle.italic,
+                    color: cs.onSurfaceVariant,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Pick an ambient emoji that loosely matches the phase tone.
+  /// Pure cosmetic; no semantic dependency.
+  static String _emojiFor(String text) {
+    final t = text.toLowerCase();
+    if (t.contains('confirm') || t.contains('konfirmasi')) return '⏸️';
+    if (t.contains('check') || t.contains('cek') || t.contains('hasil')) {
+      return '🔍';
+    }
+    if (t.contains('plan') || t.contains('rencana') || t.contains('langkah')) {
+      return '🧭';
+    }
+    if (t.contains('write') || t.contains('compos') || t.contains('jawaban') ||
+        t.contains('reply')) {
+      return '✍️';
+    }
+    if (t.contains('try') || t.contains('coba') || t.contains('different') ||
+        t.contains('lain')) {
+      return '🔁';
+    }
+    if (t.contains('execut') || t.contains('mengerjakan') ||
+        t.contains('working') || t.contains('progress')) {
+      return '⚙️';
+    }
+    if (t.contains('ask') || t.contains('quest') || t.contains('pertanyaan')) {
+      return '💬';
+    }
+    return '✨';
   }
 }
 

@@ -112,6 +112,7 @@ class ReflectionOutput {
     this.clarifyQuestions = const [],
     this.blockReason = '',
     this.reasoning = '',
+    this.narrative = '',
     this.degraded = false,
   });
 
@@ -121,6 +122,11 @@ class ReflectionOutput {
   final List<String> clarifyQuestions;
   final String blockReason;
   final String reasoning;
+
+  /// LLM-generated POV-AI sentence in the user's language describing what
+  /// the agent is currently thinking. Surfaced as the ambient narrative
+  /// bubble. Empty when the model omitted it.
+  final String narrative;
 
   /// True when the reflector failed (parse / network) and we degraded to
   /// a directExecute fallback. Used for logging only.
@@ -137,6 +143,7 @@ class ReflectionOutput {
           'clarify_questions': clarifyQuestions,
         if (blockReason.isNotEmpty) 'block_reason': blockReason,
         if (reasoning.isNotEmpty) 'reasoning': reasoning,
+        if (narrative.isNotEmpty) 'narrative': narrative,
         if (degraded) 'degraded': true,
       };
 }
@@ -325,6 +332,7 @@ ${PromptConstants.reflectResponseFormat}''';
 
     final blockReason = (json['block_reason'] ?? '').toString();
     final reasoning = (json['reasoning'] ?? '').toString();
+    final narrative = (json['narrative'] ?? '').toString();
 
     return ReflectionOutput(
       strategy: strategy,
@@ -333,6 +341,7 @@ ${PromptConstants.reflectResponseFormat}''';
       clarifyQuestions: clarifyQuestions,
       blockReason: blockReason,
       reasoning: reasoning,
+      narrative: narrative,
     );
   }
 

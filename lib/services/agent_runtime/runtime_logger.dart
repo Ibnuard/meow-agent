@@ -60,5 +60,17 @@ class RuntimeLogger {
     ));
   }
 
+  /// LLM-supplied POV-AI narrative attached to a phase JSON.
+  /// Surfaced to the UI as the "what is the agent thinking right now" bubble.
+  /// [phase] is the phase that produced it (analyze, reflect, plan, ...).
+  void logNarrative(String phase, String narrative) {
+    if (narrative.trim().isEmpty) return;
+    _events.add(RuntimeEvent(
+      type: 'narrative',
+      message: narrative.trim(),
+      data: {'phase': phase},
+    ));
+  }
+
   void clear() => _events.clear();
 }

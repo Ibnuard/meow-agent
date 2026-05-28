@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/agent_runtime/i18n_fallback.dart';
+import '../../../services/agent_runtime/language_detector.dart';
+import '../../../services/agent_runtime/narrative_narrator.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../agents/data/agent_repository.dart';
@@ -20,6 +22,7 @@ class ChatRuntimeSession {
     this.pendingTool,
     this.pendingToolArgs,
     this.lastReplyAt,
+    this.narrativeMessage,
   });
 
   final String agentId;
@@ -29,13 +32,20 @@ class ChatRuntimeSession {
   final Map<String, dynamic>? pendingToolArgs;
   final DateTime? lastReplyAt;
 
+  /// Always-visible POV-AI narrative bubble shown above the thinking
+  /// indicator while [isRunning]. Updates as the runtime progresses through
+  /// phases; cleared (set to null) once the run terminates.
+  final String? narrativeMessage;
+
   ChatRuntimeSession copyWith({
     bool? isRunning,
     List<ChatMessage>? debugMessages,
     String? pendingTool,
     Map<String, dynamic>? pendingToolArgs,
     DateTime? lastReplyAt,
+    String? narrativeMessage,
     bool clearPending = false,
+    bool clearNarrative = false,
   }) {
     return ChatRuntimeSession(
       agentId: agentId,
@@ -46,6 +56,8 @@ class ChatRuntimeSession {
           ? null
           : (pendingToolArgs ?? this.pendingToolArgs),
       lastReplyAt: lastReplyAt ?? this.lastReplyAt,
+      narrativeMessage:
+          clearNarrative ? null : (narrativeMessage ?? this.narrativeMessage),
     );
   }
 }
@@ -103,6 +115,10 @@ class ChatRuntimeManager extends ChangeNotifier {
       isRunning: true,
       debugMessages: [],
       clearPending: true,
+      narrativeMessage: NarrativeNarrator.narrate(
+        'understanding',
+        _languageForUserMessage(userMessage),
+      ),
     ));
 
     final debugMode = ref.read(llmDebugModeProvider);
@@ -121,20 +137,31 @@ class ChatRuntimeManager extends ChangeNotifier {
           recentMessages: recentMessages,
         ),
         provider: provider,
-        onEvent: debugMode
-            ? (event) {
-                final s = sessionFor(agentId);
-                _set(agentId, s.copyWith(
-                  debugMessages: [
-                    ...s.debugMessages,
-                    ChatMessage(
-                      role: 'assistant',
-                      content: '⚙️ ${event.message}',
-                    ),
-                  ],
-                ));
-              }
-            : null,
+        onEvent: (event) {
+          // LLM-driven narrative bubble: ONLY update when an explicit
+          // narrative event arrives. State_change events no longer override
+          // — the last LLM narrative stays sticky across phases that don't
+          // emit one (executingTool, waitingConfirmation), so the bubble
+          // remains contextual rather than reverting to generic static text.
+          final llmNarrative = _narrativeFromEvent(event);
+          if (llmNarrative != null) {
+            final s = sessionFor(agentId);
+            _set(agentId, s.copyWith(narrativeMessage: llmNarrative));
+          }
+
+          if (debugMode) {
+            final s = sessionFor(agentId);
+            _set(agentId, s.copyWith(
+              debugMessages: [
+                ...s.debugMessages,
+                ChatMessage(
+                  role: 'assistant',
+                  content: '⚙️ ${event.message}',
+                ),
+              ],
+            ));
+          }
+        },
       );
 
       final isConfirm =
@@ -154,6 +181,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         pendingTool: response.pendingTool,
         pendingToolArgs: response.pendingToolArgs,
         lastReplyAt: DateTime.now(),
+        clearNarrative: true,
       ));
     } catch (e) {
       await history.addMessage(
@@ -164,6 +192,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         isRunning: false,
         debugMessages: [],
         lastReplyAt: DateTime.now(),
+        clearNarrative: true,
       ));
     }
   }
@@ -181,6 +210,10 @@ class ChatRuntimeManager extends ChangeNotifier {
       isRunning: true,
       debugMessages: [],
       clearPending: true,
+      narrativeMessage: NarrativeNarrator.narrate(
+        'executing',
+        engine.languageCode,
+      ),
     ));
 
     final debugMode = ref.read(llmDebugModeProvider);
@@ -201,20 +234,25 @@ class ChatRuntimeManager extends ChangeNotifier {
         provider: provider,
         toolName: tool,
         toolArgs: s.pendingToolArgs ?? {},
-        onEvent: debugMode
-            ? (event) {
-                final cur = sessionFor(agentId);
-                _set(agentId, cur.copyWith(
-                  debugMessages: [
-                    ...cur.debugMessages,
-                    ChatMessage(
-                      role: 'assistant',
-                      content: '⚙️ ${event.message}',
-                    ),
-                  ],
-                ));
-              }
-            : null,
+        onEvent: (event) {
+          final llmNarrative = _narrativeFromEvent(event);
+          if (llmNarrative != null) {
+            final cur = sessionFor(agentId);
+            _set(agentId, cur.copyWith(narrativeMessage: llmNarrative));
+          }
+          if (debugMode) {
+            final cur = sessionFor(agentId);
+            _set(agentId, cur.copyWith(
+              debugMessages: [
+                ...cur.debugMessages,
+                ChatMessage(
+                  role: 'assistant',
+                  content: '⚙️ ${event.message}',
+                ),
+              ],
+            ));
+          }
+        },
       );
 
       await history.addMessage(
@@ -230,6 +268,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         isRunning: false,
         debugMessages: [],
         lastReplyAt: DateTime.now(),
+        clearNarrative: true,
       ));
     } catch (e) {
       await history.addMessage(
@@ -240,6 +279,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         isRunning: false,
         debugMessages: [],
         lastReplyAt: DateTime.now(),
+        clearNarrative: true,
       ));
     }
   }
@@ -260,7 +300,28 @@ class ChatRuntimeManager extends ChangeNotifier {
       debugMessages: [],
       clearPending: true,
       lastReplyAt: DateTime.now(),
+      clearNarrative: true,
     ));
+  }
+
+  /// Extract LLM-supplied narrative payload from a [RuntimeEvent].
+  /// Returns null when the event is not a narrative event.
+  String? _narrativeFromEvent(RuntimeEvent event) {
+    if (event.type != 'narrative') return null;
+    final msg = event.message.trim();
+    return msg.isEmpty ? null : msg;
+  }
+
+  /// Detect the user's language for narrative localization.
+  /// Falls back to the engine-level languageCode if detection is uncertain.
+  String _languageForUserMessage(String message) {
+    if (message.trim().isEmpty) return engine.languageCode;
+    final detector = LanguageDetector();
+    final detected = detector.detect(
+      userMessage: message,
+      fallbackCode: engine.languageCode,
+    );
+    return detected.confidence >= 0.5 ? detected.code : engine.languageCode;
   }
 }
 

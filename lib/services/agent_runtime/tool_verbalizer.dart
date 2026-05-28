@@ -234,6 +234,132 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     );
   }
 
+  /// Final summary for a multi-subgoal task.
+  ///
+  /// Replaces the per-tool [success] call when more than one subgoal was
+  /// completed, so the user sees a holistic recap instead of "the last tool
+  /// finished" only. The model receives the full completed-subgoal list (with
+  /// status + short notes) and produces 1-3 short sentences in the user's
+  /// language.
+  ///
+  /// [completedSubgoals] entries should be `{label, status, notes?, resultRef?}`.
+  /// [mainGoal] is the user's overall goal (one sentence).
+  Future<String> taskSummary({
+    required String mainGoal,
+    required List<Map<String, dynamic>> completedSubgoals,
+    required DetectedLanguage language,
+  }) async {
+    final cacheKey = _key(
+      'task_summary',
+      'multi',
+      const {},
+      language.code,
+      extra: {
+        'main_goal': mainGoal,
+        'subgoals': completedSubgoals,
+      },
+    );
+    final cached = _turnCache[cacheKey];
+    if (cached != null) return cached;
+
+    final subgoalsBlock = completedSubgoals
+        .map((s) => '- [${s['status'] ?? 'done'}] ${s['label'] ?? ''}'
+            '${(s['notes'] ?? '').toString().isEmpty ? '' : ' (${s['notes']})'}')
+        .join('\n');
+
+    final prompt = '''You write ONE natural recap of a multi-step task that just finished.
+
+Overall goal: $mainGoal
+
+Subgoals completed:
+$subgoalsBlock
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- 1–3 short sentences. Cover EVERY subgoal in human terms — never single one out and ignore the rest.
+- Speak naturally as a helpful assistant who just finished the work. No bullet lists. No checkmarks.
+- Never expose internal tool names, IDs, or status codes (e.g. "system.agents.delete", "agent_xxx", "[done]").
+- If any subgoal was skipped or failed, briefly acknowledge that too.
+
+Reply with the message only. No JSON, no quotes, no markdown.''';
+
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.task_summary',
+      languageCode: language.code,
+      fallbackPhase: 'success',
+      cacheKey: cacheKey,
+    );
+  }
+
+  /// Pre-flight typo / missing-target message.
+  ///
+  /// Used when the deterministic [EntityResolver] catches a target name that
+  /// does not match any existing entity. Two flavors:
+  /// - `suggestion != null`: probable typo. Ask "did you mean X?".
+  /// - `suggestion == null`: no plausible match. Surface available options.
+  ///
+  /// Pure safety-net path; the reflector usually catches this earlier via
+  /// the EXISTENCE & TYPO RULES in its prompt.
+  Future<String> clarifyTarget({
+    required String entityType,
+    required String userTyped,
+    String? suggestion,
+    List<String> available = const [],
+    required DetectedLanguage language,
+  }) async {
+    final cacheKey = _key(
+      'clarify_target',
+      entityType,
+      const {},
+      language.code,
+      extra: {
+        'user_typed': userTyped,
+        'suggestion': suggestion ?? '',
+        'available': available,
+      },
+    );
+    final cached = _turnCache[cacheKey];
+    if (cached != null) return cached;
+
+    final availBlock = available.isEmpty
+        ? 'none'
+        : available.take(8).join(', ');
+
+    final prompt = suggestion != null
+        ? '''You write ONE short clarifying question because the user referenced a $entityType that does not exactly match anything that exists.
+
+User typed: "$userTyped"
+Closest existing $entityType: "$suggestion"
+All existing ${entityType}s: $availBlock
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- 1 short sentence. Politely ask if they meant the closest match, e.g. "Did you mean $suggestion?".
+- Do not expose internal IDs.
+
+Reply with the message only. No JSON, no quotes, no markdown.'''
+        : '''You write ONE short message because the user referenced a $entityType that does not exist.
+
+User typed: "$userTyped"
+All existing ${entityType}s: $availBlock
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- 1–2 short sentences. Tell the user the $entityType was not found, then list the available ones briefly so they can choose.
+- Friendly tone, never blaming the user.
+
+Reply with the message only. No JSON, no quotes, no markdown.''';
+
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.clarify_target',
+      languageCode: language.code,
+      fallbackPhase: 'preview',
+      cacheKey: cacheKey,
+    );
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Internals
   // ───────────────────────────────────────────────────────────────────────────

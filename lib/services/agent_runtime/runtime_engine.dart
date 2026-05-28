@@ -9,6 +9,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
+import 'entity_resolver.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
@@ -20,6 +21,7 @@ import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
+import 'task_ledger.dart';
 import 'tool_catalog.dart';
 import 'tool_permission_policy.dart';
 import 'tool_router.dart';
@@ -41,7 +43,8 @@ class AgentRuntimeEngine {
     required this.languageCode,
     this.snapshotBuilder,
     this.agentLoader,
-  });
+    TaskLedgerDatabase? ledgerDb,
+  }) : ledgerDb = ledgerDb ?? TaskLedgerDatabase();
 
   final WorkspaceLoader workspaceLoader;
   final ToolRouter toolRouter;
@@ -55,6 +58,11 @@ class AgentRuntimeEngine {
   /// Loader for the current agent registry. Optional — reflection still works
   /// without it but loses cross-reference detection.
   final List<AgentModel> Function()? agentLoader;
+
+  /// Persistent ledger store for multi-step tasks. Single-target work keeps
+  /// using [PendingAction] in-memory; multi-target work creates a ledger
+  /// row that survives app restarts and confirmation gates.
+  final TaskLedgerDatabase ledgerDb;
 
   /// Shared LLM client. Reused across all turns of this engine instance so
   /// the underlying Dio's connection pool can keep keep-alive sockets warm.
@@ -363,6 +371,12 @@ class AgentRuntimeEngine {
         return _fail('Failed to analyze request.', logger);
       }
 
+      final analyzeNarrative = (analysis['narrative'] ?? '').toString();
+      if (analyzeNarrative.isNotEmpty) {
+        logger.logNarrative('analyze', analyzeNarrative);
+        emit(logger.events.last);
+      }
+
       // If analyzer detected ambiguity, ask user before doing anything else.
       final missingInfo =
           (analysis['missing_info'] as List?)
@@ -420,6 +434,11 @@ class AgentRuntimeEngine {
         );
         logger.logLlmDecision('reflect', reflection.toJson());
         emit(logger.events.last);
+
+        if (reflection.narrative.isNotEmpty) {
+          logger.logNarrative('reflect', reflection.narrative);
+          emit(logger.events.last);
+        }
 
         // Strategy: clarify — ask the user one short combined question.
         if (reflection.strategy == ReflectionStrategy.clarify &&
@@ -568,6 +587,12 @@ class AgentRuntimeEngine {
 
         if (plan == null) {
           return _fail('Failed to create execution plan.', logger);
+        }
+
+        final planNarrative = (plan['narrative'] ?? '').toString();
+        if (planNarrative.isNotEmpty) {
+          logger.logNarrative('plan', planNarrative);
+          emit(logger.events.last);
         }
       }
 
@@ -757,12 +782,13 @@ class AgentRuntimeEngine {
             error: result.error,
           );
 
-          // If the tree is now complete, finish with the verbalized success
-          // message just like the legacy path.
+          // If the tree is now complete, finish with a holistic recap.
           if (goalTree.isComplete) {
-            final successMsg = await verbalizer.success(
-              tool: toolRequest,
-              result: result,
+            final successMsg = await _finalForCompletedTree(
+              goalTree: goalTree,
+              fallbackTool: toolRequest,
+              fallbackResult: result,
+              verbalizer: verbalizer,
               language: detectedLang,
             );
             logger.logFinalResponse(successMsg);
@@ -775,6 +801,7 @@ class AgentRuntimeEngine {
               lastTool: pending.toolName,
               lastResult: 'success',
             );
+            await _archiveLedgerForRequest(request, LedgerStatus.completed);
             return AgentRuntimeResponse(
               finalMessage: successMsg,
               success: true,
@@ -903,6 +930,14 @@ class AgentRuntimeEngine {
       );
       emit(logger.events.last);
 
+      if (review != null) {
+        final reviewNarrative = (review['narrative'] ?? '').toString();
+        if (reviewNarrative.isNotEmpty) {
+          logger.logNarrative('review', reviewNarrative);
+          emit(logger.events.last);
+        }
+      }
+
       final reviewMessage = review?['final_response'] as String?;
       if (reviewMessage != null && reviewMessage.isNotEmpty) {
         logger.logFinalResponse(reviewMessage);
@@ -981,6 +1016,12 @@ class AgentRuntimeEngine {
 
       if (selection == null) {
         return _fail('Tool selection failed.', logger);
+      }
+
+      final selectNarrative = (selection['narrative'] ?? '').toString();
+      if (selectNarrative.isNotEmpty) {
+        logger.logNarrative('select_tool', selectNarrative);
+        emit(logger.events.last);
       }
 
       final status = selection['status'] as String? ?? '';
@@ -1121,6 +1162,26 @@ class AgentRuntimeEngine {
           );
         }
 
+        // Pre-flight typo/existence check (deterministic backstop).
+        // The reflector prompt is the primary path, but small models still
+        // emit non-existent target names occasionally. Catching it here
+        // prevents the user from confirming an action that will fail.
+        final preflight = await _preflightTargetCheck(
+          tool: toolRequest,
+          definition: definition,
+          verbalizer: verbalizer,
+          language: detectedLang,
+        );
+        if (preflight != null) {
+          logger.logFinalResponse(preflight);
+          return AgentRuntimeResponse(
+            finalMessage: preflight,
+            success: true,
+            state: AgentRuntimeState.askingUser,
+            events: logger.events,
+          );
+        }
+
         // Check confirmation requirement from REGISTRY.
         // Skip the gate when the caller (e.g., a sensitive workflow) opted in.
         if (definition.requiresConfirmation && !autoApproveSensitive) {
@@ -1153,12 +1214,31 @@ class AgentRuntimeEngine {
           // The active subgoal is flipped to in_progress so the resumed run
           // knows to mark it done after the confirmed tool succeeds.
           Map<String, dynamic>? resumeContext;
+          String? ledgerIdForPending;
           if (goalTree.isNotEmpty && !goalTree.isComplete) {
             final active = goalTree.nextActionable;
             if (active != null) {
               active.status = SubgoalStatus.inProgress;
             }
+            // Multi-subgoal scope — persist a ledger so the task survives the
+            // confirmation gate (and an app restart).
+            if (goalTree.subgoals.length > 1) {
+              final ledger = await _persistLedgerAtGate(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+              );
+              ledgerIdForPending = ledger.id;
+            }
             resumeContext = {
+              'ledger_id': ?ledgerIdForPending,
               'plan': plan,
               'goal_tree': goalTree.toJson(),
               'previous_results': previousResults,
@@ -1256,9 +1336,11 @@ class AgentRuntimeEngine {
         if (result.success &&
             _isLastPlannedStep(plan, currentStep) &&
             treeAllowsShortCircuit) {
-          final localFinal = await verbalizer.success(
-            tool: toolRequest,
-            result: result,
+          final localFinal = await _finalForCompletedTree(
+            goalTree: goalTree,
+            fallbackTool: toolRequest,
+            fallbackResult: result,
+            verbalizer: verbalizer,
             language: detectedLang,
           );
           logger.logFinalResponse(localFinal);
@@ -1269,6 +1351,7 @@ class AgentRuntimeEngine {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
+          await _archiveLedgerForRequest(request, LedgerStatus.completed);
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -1302,6 +1385,14 @@ class AgentRuntimeEngine {
           goalTree: goalTree,
         );
         emit(logger.events.last);
+
+        if (review != null) {
+          final reviewNarrative = (review['narrative'] ?? '').toString();
+          if (reviewNarrative.isNotEmpty) {
+            logger.logNarrative('review', reviewNarrative);
+            emit(logger.events.last);
+          }
+        }
 
         if (review != null) {
           // Apply the reviewer's subgoal_update so the tree advances even when
@@ -1357,7 +1448,25 @@ class AgentRuntimeEngine {
 
           final finalResponse =
               review['final_response'] as String? ?? 'Task completed.';
-          logger.logFinalResponse(finalResponse);
+          // For multi-subgoal tasks, override the reviewer's per-tool reply
+          // with a holistic recap covering every completed subgoal.
+          final completedFinal = goalTree.isNotEmpty &&
+                  goalTree.subgoals
+                          .where((s) =>
+                              s.status == SubgoalStatus.done ||
+                              s.status == SubgoalStatus.failed ||
+                              s.status == SubgoalStatus.skipped)
+                          .length >
+                      1
+              ? await _finalForCompletedTree(
+                  goalTree: goalTree,
+                  fallbackTool: toolRequest,
+                  fallbackResult: result,
+                  verbalizer: verbalizer,
+                  language: detectedLang,
+                )
+              : finalResponse;
+          logger.logFinalResponse(completedFinal);
           await workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
             state: 'done',
@@ -1365,8 +1474,9 @@ class AgentRuntimeEngine {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
+          await _archiveLedgerForRequest(request, LedgerStatus.completed);
           return AgentRuntimeResponse(
-            finalMessage: finalResponse,
+            finalMessage: completedFinal,
             success: true,
             state: AgentRuntimeState.done,
             events: logger.events,
@@ -1502,6 +1612,219 @@ class AgentRuntimeEngine {
       if (def != null) out.add(def);
     }
     return out;
+  }
+
+  /// Persist the current loop state to a [TaskLedger] when the confirmation
+  /// gate fires for a multi-subgoal task. If an active ledger already exists
+  /// for the (agentId, source) scope it is updated in place; otherwise a
+  /// new ledger row is inserted.
+  ///
+  /// The ledger becomes the authoritative store for the task — `resumeContext`
+  /// only needs to carry a pointer (`ledger_id`) afterwards.
+  Future<TaskLedger> _persistLedgerAtGate({
+    required AgentRuntimeRequest request,
+    required Map<String, dynamic> plan,
+    required GoalTree goalTree,
+    required List<Map<String, dynamic>> previousResults,
+    required int currentStep,
+    required List<String> availableTools,
+    required String memorySnapshot,
+    required DetectedLanguage detectedLang,
+    required bool autoApproveSensitive,
+    required bool isWorkflowAutoExecute,
+  }) async {
+    final source = request.source == RequestSource.workflow
+        ? LedgerSource.workflow
+        : LedgerSource.chat;
+
+    final existing = await ledgerDb.findActive(
+      agentId: request.agentId,
+      source: source,
+    );
+
+    if (existing != null) {
+      // Update in place — the loop is mid-flight, just sync state.
+      existing.goalTree = goalTree;
+      existing.previousResults = List.of(previousResults);
+      existing.currentStep = currentStep;
+      return ledgerDb.upsert(existing);
+    }
+
+    final ledger = TaskLedger(
+      id: 'lg_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
+          '_${request.agentId.hashCode.toUnsigned(16).toRadixString(16)}',
+      agentId: request.agentId,
+      source: source,
+      sourceRef: source == LedgerSource.workflow ? request.userMessage : null,
+      mainGoal: goalTree.mainGoal,
+      languageCode: detectedLang.code,
+      originalUserMessage: request.userMessage,
+      goalTree: goalTree,
+      completionCriteria: goalTree.completionCriteria,
+      previousResults: List.of(previousResults),
+      currentStep: currentStep,
+      availableTools: availableTools,
+      memorySnapshot: memorySnapshot,
+      autoApproveSensitive: autoApproveSensitive,
+      isWorkflowAutoExecute: isWorkflowAutoExecute,
+    );
+    return ledgerDb.upsert(ledger);
+  }
+
+  /// Archive a ledger as completed when the goal tree finishes successfully.
+  /// No-op when no ledger exists for the (agentId, source) scope.
+  Future<void> _archiveLedgerForRequest(
+    AgentRuntimeRequest request,
+    LedgerStatus terminal,
+  ) async {
+    final source = request.source == RequestSource.workflow
+        ? LedgerSource.workflow
+        : LedgerSource.chat;
+    final active = await ledgerDb.findActive(
+      agentId: request.agentId,
+      source: source,
+    );
+    if (active == null) return;
+    if (terminal == LedgerStatus.failed) {
+      // Soft-delete failed ledgers so retry isn't polluted by stale state.
+      await ledgerDb.delete(active.id);
+    } else {
+      await ledgerDb.archive(active.id, terminal);
+    }
+  }
+
+  /// Build the final user-facing message when the goal tree completes.
+  ///
+  /// Multi-subgoal tasks get a holistic recap via [ToolVerbalizer.taskSummary]
+  /// covering EVERY completed subgoal, not just the last tool call. Single-
+  /// subgoal or empty trees fall back to the per-tool [ToolVerbalizer.success]
+  /// path so simple "open whatsapp" interactions stay tight.
+  Future<String> _finalForCompletedTree({
+    required GoalTree goalTree,
+    required ToolCallRequest fallbackTool,
+    required ToolExecutionResult fallbackResult,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage language,
+  }) {
+    final completed = goalTree.subgoals
+        .where((s) =>
+            s.status == SubgoalStatus.done ||
+            s.status == SubgoalStatus.failed ||
+            s.status == SubgoalStatus.skipped)
+        .toList();
+
+    if (goalTree.isNotEmpty && completed.length > 1) {
+      return verbalizer.taskSummary(
+        mainGoal: goalTree.mainGoal,
+        completedSubgoals: completed
+            .map((s) => <String, dynamic>{
+                  'label': s.label,
+                  'status': s.status.label,
+                  if (s.notes != null && s.notes!.isNotEmpty) 'notes': s.notes,
+                })
+            .toList(),
+        language: language,
+      );
+    }
+
+    return verbalizer.success(
+      tool: fallbackTool,
+      result: fallbackResult,
+      language: language,
+    );
+  }
+
+  /// Pre-flight deterministic check that catches typos / non-existent targets
+  /// before the confirmation gate fires.
+  ///
+  /// Inspects the tool's args for fields that look like an entity reference
+  /// (`name`, `agentName`, `workflowId`, etc.) and runs them through the
+  /// ecosystem snapshot via [EntityResolver]. Returns:
+  /// - null when the target resolves cleanly (or the tool is not entity-bound)
+  /// - a localized clarify/block message otherwise
+  ///
+  /// Generic across tools — driven by arg key heuristics + snapshot lookups,
+  /// no per-tool switch. Skipped silently when no snapshot is available.
+  Future<String?> _preflightTargetCheck({
+    required ToolCallRequest tool,
+    required ToolDefinition definition,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage language,
+  }) async {
+    // Only check existing-target operations. Heuristic on tool name suffix
+    // catches the common cases (delete/update/rename/toggle/get).
+    final name = tool.name.toLowerCase();
+    final isExistingTargetOp = name.contains('.delete') ||
+        name.contains('.update') ||
+        name.contains('.rename') ||
+        name.contains('.toggle') ||
+        name.endsWith('.read') ||
+        name.endsWith('.get');
+    if (!isExistingTargetOp) return null;
+
+    final snapshot = await _buildSnapshot();
+    if (snapshot.isEmpty) return null;
+
+    // Try the obvious arg keys first. Order matters — id > explicit name.
+    final candidates = _candidatesForTool(name, snapshot);
+    if (candidates.isEmpty) return null;
+
+    final argKeys = const [
+      'name',
+      'agentName',
+      'workflowName',
+      'title',
+      'label',
+      'id',
+      'agentId',
+      'workflowId',
+    ];
+    String? userTyped;
+    for (final k in argKeys) {
+      final v = tool.args[k];
+      if (v is String && v.trim().isNotEmpty) {
+        userTyped = v.trim();
+        break;
+      }
+    }
+    if (userTyped == null) return null;
+
+    final match = EntityResolver.resolve(userTyped, candidates);
+    if (match.isExact) return null;
+
+    final entityType = _entityTypeForTool(name);
+    return verbalizer.clarifyTarget(
+      entityType: entityType,
+      userTyped: userTyped,
+      suggestion: match.isNear ? match.matched : null,
+      available: match.suggestions,
+      language: language,
+    );
+  }
+
+  /// Maps a tool name to the snapshot section it operates on.
+  List<String> _candidatesForTool(String toolName, EcosystemSnapshot snapshot) {
+    if (toolName.startsWith('system.agents.')) {
+      return [for (final a in snapshot.agents) a.name];
+    }
+    if (toolName.startsWith('workflow.')) {
+      return [for (final w in snapshot.workflows) w.title];
+    }
+    if (toolName.startsWith('system.providers.')) {
+      return [for (final p in snapshot.providers) p.nickname];
+    }
+    if (toolName.startsWith('system.modules.')) {
+      return [for (final m in snapshot.modules) m.id];
+    }
+    return const [];
+  }
+
+  String _entityTypeForTool(String toolName) {
+    if (toolName.startsWith('system.agents.')) return 'agent';
+    if (toolName.startsWith('workflow.')) return 'workflow';
+    if (toolName.startsWith('system.providers.')) return 'provider';
+    if (toolName.startsWith('system.modules.')) return 'module';
+    return 'item';
   }
 
   AgentRuntimeResponse _fail(String message, RuntimeLogger logger) {
