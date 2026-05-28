@@ -94,5 +94,14 @@ Keep it concise.
     expect(router.getDefinition('system.memory.append'), isNotNull);
     expect(router.getDefinition('system.agents.create'), isNotNull);
     expect(router.getDefinition('system.modules.list'), isNotNull);
+
+    final createAgent = router.getDefinition('system.agents.create')!;
+    expect(createAgent.operation, 'create');
+    expect(createAgent.targetEntity, 'agent');
+    expect(createAgent.postconditions['agent_present'], 'name');
+
+    final deleteAgent = router.getDefinition('system.agents.delete')!;
+    expect(deleteAgent.operation, 'delete');
+    expect(deleteAgent.policies, contains('deny_current_agent'));
   });
 }

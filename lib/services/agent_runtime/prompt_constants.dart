@@ -106,7 +106,15 @@ OUTPUT LANGUAGE:
 GOAL TREE:
 - Always produce goal_tree with subgoals. Multi-target = one subgoal per target.
 - For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
-- Status defaults to "pending".''';
+- Status defaults to "pending".
+
+TARGET GRAPH:
+- Also emit `targets`: one machine-readable target per subgoal when the action acts on a concrete entity.
+- operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
+- entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
+- For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
+- If a target is selected by a semantic bulk selector, enumerate each matched entity as its own target after checking the snapshot.
+- Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
 
   static const reflectResponseFormat =
       '''Respond with ONLY valid JSON, no markdown, no explanation:
@@ -126,11 +134,22 @@ GOAL TREE:
       }
     ]
   },
+  "targets": [
+    {
+      "subgoal_id": "sg1",
+      "operation": "create | delete | update | rename | toggle | read | list | open | unknown",
+      "entity_type": "agent | workflow | provider | module | note | file | calendar_event | app | unknown",
+      "entity_id": "exact snapshot id when existing target is known",
+      "entity_label": "human-readable target name",
+      "selector": {"optional": "selector evidence"}
+    }
+  ],
   "impacts": [
     {
       "entity_type": "agent | workflow | provider | module",
       "entity_id": "...",
       "entity_label": "human-readable name",
+      "source_target_id": "subgoal/target id that causes this impact",
       "relation": "short description of why it's affected",
       "severity": "low | medium | high",
       "auto_resolvable": true,

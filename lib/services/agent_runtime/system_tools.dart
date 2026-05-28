@@ -694,6 +694,14 @@ class SystemTools {
           return provider;
         }
       }
+      return null;
+    }
+
+    final currentAgent = _findCurrentAgent(_loadAgents());
+    final currentProviderId = currentAgent?.providerId ?? '';
+    if (currentProviderId.isNotEmpty) {
+      final currentProvider = _findProviderById(providers, currentProviderId);
+      if (currentProvider != null) return currentProvider;
     }
 
     return providers.length == 1 ? providers.first : null;

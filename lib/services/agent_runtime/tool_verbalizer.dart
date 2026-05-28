@@ -499,4 +499,74 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     });
     return out;
   }
+  /// Deterministic provider disambiguation prompt.
+  ///
+  /// Used by the engine fallback when `system.agents.create` returned a
+  /// providers list. The verbalizer doesn't need to be smart here — just
+  /// natural and localized.
+  Future<String> providerDisambiguation({
+    required String availableProviders,
+    required DetectedLanguage language,
+  }) async {
+    final prompt = '''You write ONE short sentence asking the user to pick a provider.
+
+Available: ${availableProviders.isEmpty ? '(none listed)' : availableProviders}
+
+Rules:
+- Reply in ${language.label} (${language.code}). Match this language exactly.
+- Speak naturally as a helpful assistant.
+- 1 sentence. End with a clear question.
+- List the available options if any.''';
+
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.provider_disambiguation',
+      languageCode: language.code,
+      fallbackPhase: 'confirm',
+      cacheKey: 'provider_disambiguation|${language.code}|$availableProviders',
+    );
+  }
+
+  /// Context-aware fallback question when a tool fails and the reviewer LLM
+  /// didn't provide a `question` field.
+  ///
+  /// Delegates to the LLM so the output is naturally localized to the user's
+  /// detected language — no hardcoded bilingual branching.
+  Future<String> fallbackQuestion({
+    required String error,
+    String? availableNames,
+    String? triedName,
+    required DetectedLanguage language,
+  }) async {
+    final parts = <String>[
+      'You write ONE short natural question to help the user resolve a tool failure.',
+      '',
+      'Context:',
+      if (error.isNotEmpty) 'Error: $error',
+      if (triedName != null && triedName.isNotEmpty) 'The user tried: "$triedName"',
+      if (availableNames != null && availableNames.isNotEmpty) 'Available options: $availableNames',
+      '',
+      'Rules:',
+      '- Reply in ${language.label} (${language.code}). Match this language exactly.',
+      '- Speak naturally as a helpful assistant. Never expose internal tool names or IDs.',
+      '- 1–2 short sentences. End with a clear question.',
+      if (triedName != null && availableNames != null)
+        '- If options are available, ask the user to pick from them.',
+      if (error.contains('required') || error.contains('is required'))
+        '- The issue is a missing required field. Ask what it should be.',
+      if (error.contains('Refusing'))
+        '- The action is not allowed. Explain briefly and ask what else they want.',
+      '- If nothing else applies, ask them to clarify or try a different approach.',
+    ];
+
+    final prompt = parts.join('\n');
+    final promptHash = error.hashCode.toRadixString(16);
+    return _callOrFallback(
+      prompt: prompt,
+      phase: 'verbalize.fallback_question',
+      languageCode: language.code,
+      fallbackPhase: 'error',
+      cacheKey: 'fallback_q|${language.code}|$promptHash',
+    );
+  }
 }

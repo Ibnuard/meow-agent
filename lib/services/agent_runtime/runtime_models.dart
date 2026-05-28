@@ -186,6 +186,11 @@ class ToolDefinition {
     required this.risk,
     required this.requiresConfirmation,
     this.inputSchema = const {},
+    this.operation = '',
+    this.targetEntity = '',
+    this.selectorArgs = const [],
+    this.policies = const [],
+    this.postconditions = const {},
   });
 
   final String name;
@@ -193,6 +198,31 @@ class ToolDefinition {
   final String risk;
   final bool requiresConfirmation;
   final Map<String, String> inputSchema;
+  final String operation;
+  final String targetEntity;
+  final List<String> selectorArgs;
+  final List<String> policies;
+  final Map<String, String> postconditions;
+
+  bool get hasRuntimeMetadata =>
+      operation.isNotEmpty ||
+      targetEntity.isNotEmpty ||
+      selectorArgs.isNotEmpty ||
+      policies.isNotEmpty ||
+      postconditions.isNotEmpty;
+
+  String get runtimeMetadataSummary {
+    if (!hasRuntimeMetadata) return '';
+    final parts = [
+      if (operation.isNotEmpty) 'operation:$operation',
+      if (targetEntity.isNotEmpty) 'target:$targetEntity',
+      if (selectorArgs.isNotEmpty) 'selectors:${selectorArgs.join("|")}',
+      if (policies.isNotEmpty) 'policies:${policies.join("|")}',
+      if (postconditions.isNotEmpty)
+        'postconditions:${postconditions.entries.map((e) => '${e.key}=${e.value}').join("|")}',
+    ];
+    return parts.join(', ');
+  }
 }
 
 /// Agent workspace files loaded from storage.

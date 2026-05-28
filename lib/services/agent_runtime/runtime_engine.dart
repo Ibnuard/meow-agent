@@ -21,6 +21,7 @@ import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
+import 'target_resolution.dart';
 import 'task_ledger.dart';
 import 'tool_catalog.dart';
 import 'tool_permission_policy.dart';
@@ -544,6 +545,7 @@ class AgentRuntimeEngine {
       // (direct_execute / clarify / auto_resolve / block), and short-circuits
       // when the strategy demands user input or refusal.
       ReflectionOutput? reflection;
+      TargetResolutionGraph? targetGraph;
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
       final shouldReflect =
           analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
@@ -565,8 +567,23 @@ class AgentRuntimeEngine {
           logger: logger,
           recentMessages: recentMsgs,
         );
+        final targetResolution = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot,
+          request: request,
+          language: detectedLang,
+        );
+        reflection = targetResolution.reflection;
+        targetGraph = targetResolution.graph;
         logger.logLlmDecision('reflect', reflection.toJson());
         emit(logger.events.last);
+        if (targetResolution.graph.isNotEmpty) {
+          logger.logLlmDecision(
+            'target_resolution',
+            targetResolution.graph.toJson(),
+          );
+          emit(logger.events.last);
+        }
 
         if (reflection.narrative.isNotEmpty) {
           logger.logNarrative('reflect', reflection.narrative);
@@ -742,6 +759,9 @@ class AgentRuntimeEngine {
               analysis: analysis,
               userMessage: effectiveUserMessage,
             );
+      if (targetGraph != null && targetGraph.isNotEmpty) {
+        plan['runtime_target_graph'] = targetGraph.toJson();
+      }
       logger.logLlmDecision('plan.goal_tree', goalTree.toJson());
 
       final loopRequest = effectiveUserMessage == request.userMessage
@@ -1005,36 +1025,6 @@ class AgentRuntimeEngine {
             error: result.error,
           );
 
-          // If the tree is now complete, finish with a holistic recap.
-          if (goalTree.isComplete) {
-            final successMsg = await _finalForCompletedTree(
-              goalTree: goalTree,
-              fallbackTool: toolRequest,
-              fallbackResult: result,
-              verbalizer: verbalizer,
-              language: detectedLang,
-            );
-            logger.logFinalResponse(successMsg);
-            await workspaceLoader.updateHeartbeat(
-              request.agentName.isNotEmpty
-                  ? request.agentName
-                  : request.agentId,
-              state: 'done',
-              task: pending.toolName,
-              lastTool: pending.toolName,
-              lastResult: 'success',
-            );
-            await _archiveLedgerForRequest(request, LedgerStatus.completed);
-            return AgentRuntimeResponse(
-              finalMessage: successMsg,
-              success: true,
-              state: AgentRuntimeState.done,
-              events: logger.events,
-              actions: result.actions,
-            );
-          }
-
-          // Otherwise resume the execute loop where the gate fired.
           final plan = (resume['plan'] as Map?)?.cast<String, dynamic>() ??
               {'steps': []};
           final previousResults = (resume['previous_results'] as List?)
@@ -1062,8 +1052,6 @@ class AgentRuntimeEngine {
           final userMessage =
               (resume['user_message'] as String?) ?? request.userMessage;
 
-          // Reconstruct the request so memory + heartbeats keep the original
-          // task context intact during the resumed loop.
           final resumedRequest = AgentRuntimeRequest(
             agentId: request.agentId,
             agentName: request.agentName,
@@ -1072,6 +1060,54 @@ class AgentRuntimeEngine {
             source: request.source,
           );
 
+          // If the tree is now complete, finish with a holistic recap.
+          if (goalTree.isComplete) {
+            final verificationBlocker = await _blockIfCompletionUnverified(
+              request: resumedRequest,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLang: detectedLang,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              logger: logger,
+              lastToolName: pending.toolName,
+            );
+            if (verificationBlocker != null) return verificationBlocker;
+
+            final successMsg = await _finalForCompletedTree(
+              goalTree: goalTree,
+              fallbackTool: toolRequest,
+              fallbackResult: result,
+              verbalizer: verbalizer,
+              language: detectedLang,
+              targetGraph:
+                  (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
+            );
+            logger.logFinalResponse(successMsg);
+            await workspaceLoader.updateHeartbeat(
+              request.agentName.isNotEmpty
+                  ? request.agentName
+                  : request.agentId,
+              state: 'done',
+              task: pending.toolName,
+              lastTool: pending.toolName,
+              lastResult: 'success',
+            );
+            await _archiveLedgerForRequest(request, LedgerStatus.completed);
+            return AgentRuntimeResponse(
+              finalMessage: successMsg,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+              actions: result.actions,
+            );
+          }
+
+          // Otherwise resume the execute loop where the gate fired.
           logger.logStateChange(
             AgentRuntimeState.selectingTool,
             'Resuming execute loop after confirmation '
@@ -1614,6 +1650,8 @@ class AgentRuntimeEngine {
             fallbackResult: result,
             verbalizer: verbalizer,
             language: detectedLang,
+            targetGraph:
+                (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
           );
           logger.logFinalResponse(localFinal);
           await workspaceLoader.updateHeartbeat(
@@ -1765,6 +1803,8 @@ class AgentRuntimeEngine {
                   fallbackResult: result,
                   verbalizer: verbalizer,
                   language: detectedLang,
+                  targetGraph: (plan['runtime_target_graph'] as Map?)
+                      ?.cast<String, dynamic>(),
                 )
               : finalResponse;
           logger.logFinalResponse(completedFinal);
@@ -1787,7 +1827,7 @@ class AgentRuntimeEngine {
 
         if (reviewStatus == 'ask_user') {
           final question = review['question'] as String? ??
-              _fallbackQuestionForToolFailure(result, detectedLang);
+              await _fallbackQuestionForToolFailure(result, detectedLang, verbalizer);
           await _parkTaskForUserInput(
             request: request,
             plan: plan,
@@ -1967,6 +2007,9 @@ class AgentRuntimeEngine {
       existing.previousResults = List.of(previousResults);
       existing.currentStep = currentStep;
       existing.plan = plan;
+      existing.targetGraph =
+          (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
+              existing.targetGraph;
       existing.pendingToolName = pendingTool?.name;
       existing.pendingToolArgs = pendingTool?.args;
       return ledgerDb.upsert(existing);
@@ -1984,6 +2027,9 @@ class AgentRuntimeEngine {
       goalTree: goalTree,
       completionCriteria: goalTree.completionCriteria,
       previousResults: List.of(previousResults),
+      targetGraph:
+          (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
+              const {},
       currentStep: currentStep,
       availableTools: availableTools,
       memorySnapshot: memorySnapshot,
@@ -2037,10 +2083,13 @@ class AgentRuntimeEngine {
     }
   }
 
-  String _fallbackQuestionForToolFailure(
+  Future<String> _fallbackQuestionForToolFailure(
     ToolExecutionResult result,
     DetectedLanguage language,
-  ) {
+    ToolVerbalizer verbalizer,
+  ) async {
+    // 1. Provider disambiguation — deterministic, no LLM needed.
+    //    Structured data from system.agents.create.
     final providers = result.data?['providers'] as List?;
     if (providers != null && providers.isNotEmpty) {
       final names = providers
@@ -2048,21 +2097,37 @@ class AgentRuntimeEngine {
           .map((p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString())
           .where((p) => p.trim().isNotEmpty)
           .join(', ');
-      if (language.code == 'id') {
-        return names.isEmpty
-            ? 'Provider mana yang mau dipakai?'
-            : 'Provider mana yang mau dipakai? Pilihan yang tersedia: $names.';
-      }
-      return names.isEmpty
-          ? 'Which provider should I use?'
-          : 'Which provider should I use? Available options: $names.';
+      return await verbalizer.providerDisambiguation(
+        availableProviders: names,
+        language: language,
+      );
     }
 
-    final reason = result.error ?? 'I need one more detail before continuing.';
-    if (language.code == 'id') {
-      return 'Aku butuh satu detail lagi sebelum lanjut: $reason';
+    // 2. All other failures: let the verbalizer craft a natural question
+    //    in the user's detected language. Pass structured context so it
+    //    can be specific instead of generic.
+    final data = result.data;
+    final error = (result.error ?? '').trim();
+    String? availableNames;
+    String? triedName;
+
+    if (data != null && data['available'] is List && (data['available'] as List).isNotEmpty) {
+      final available = data['available'] as List;
+      availableNames = available
+          .whereType<Map>()
+          .map((m) => (m['name'] ?? '').toString())
+          .where((n) => n.trim().isNotEmpty)
+          .join(', ');
+      final tried = data['tried'];
+      triedName = tried is Map ? (tried['name'] ?? tried['id'] ?? '')?.toString() : null;
     }
-    return 'I need one more detail before continuing: $reason';
+
+    return await verbalizer.fallbackQuestion(
+      error: error,
+      availableNames: availableNames,
+      triedName: triedName,
+      language: language,
+    );
   }
 
   Future<AgentRuntimeResponse?> _blockIfCompletionUnverified({
@@ -2079,7 +2144,8 @@ class AgentRuntimeEngine {
     required RuntimeLogger logger,
     String? lastToolName,
   }) async {
-    final verification = _verifyAgentCreateCompletion(
+    final verification = _verifyAgentRegistryCompletion(
+      plan: plan,
       goalTree: goalTree,
       previousResults: previousResults,
       lastToolName: lastToolName,
@@ -2093,7 +2159,7 @@ class AgentRuntimeEngine {
           verification.missingNames
               .any((name) => name.toLowerCase() == expected.toLowerCase())) {
         subgoal.status = SubgoalStatus.inProgress;
-        subgoal.notes = 'Verification failed: agent not found after execution.';
+        subgoal.notes = 'Verification failed: agent registry state mismatch.';
       }
     }
 
@@ -2119,7 +2185,8 @@ class AgentRuntimeEngine {
     );
   }
 
-  _CompletionVerification? _verifyAgentCreateCompletion({
+  _CompletionVerification? _verifyAgentRegistryCompletion({
+    required Map<String, dynamic> plan,
     required GoalTree goalTree,
     required List<Map<String, dynamic>> previousResults,
     required DetectedLanguage language,
@@ -2127,7 +2194,11 @@ class AgentRuntimeEngine {
   }) {
     final touchedAgentCreate = lastToolName == 'system.agents.create' ||
         previousResults.any((r) => r['tool'] == 'system.agents.create');
-    if (!touchedAgentCreate || goalTree.isEmpty) return null;
+    final touchedAgentDelete = lastToolName == 'system.agents.delete' ||
+        previousResults.any((r) => r['tool'] == 'system.agents.delete');
+    if ((!touchedAgentCreate && !touchedAgentDelete) || goalTree.isEmpty) {
+      return null;
+    }
 
     final loadAgents = agentLoader;
     if (loadAgents == null) return null;
@@ -2137,36 +2208,78 @@ class AgentRuntimeEngine {
         .toSet();
     if (existing.isEmpty) return null;
 
-    final expected = goalTree.subgoals
+    final targetGraph =
+        (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
+            const {};
+    final graphTargets = (targetGraph['targets'] as List?)
+            ?.whereType<Map>()
+            .map((m) => m.cast<String, dynamic>())
+            .toList() ??
+        const <Map<String, dynamic>>[];
+
+    final expectedCreates = graphTargets
+        .where((target) =>
+            target['entity_type'] == 'agent' &&
+            target['operation'] == 'create' &&
+            target['status'] != 'skipped')
+        .map((target) => (target['entity_label'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    final expectedDeletes = graphTargets
+        .where((target) =>
+            target['entity_type'] == 'agent' &&
+            target['operation'] == 'delete' &&
+            target['status'] == 'eligible')
+        .map((target) => (target['entity_label'] ?? '').toString().trim())
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    final expectedFromTree = goalTree.subgoals
         .map(_expectedAgentNameForSubgoal)
         .whereType<String>()
         .where((name) => name.trim().isNotEmpty)
         .toSet();
-    if (expected.isEmpty) return null;
+    if (touchedAgentCreate && expectedCreates.isEmpty) {
+      expectedCreates.addAll(expectedFromTree);
+    }
+    if (expectedCreates.isEmpty && expectedDeletes.isEmpty) return null;
 
-    final missing = expected
+    final missingCreates = expectedCreates
         .where((name) => !existing.contains(name.toLowerCase()))
         .toList(growable: false);
-    if (missing.isEmpty) {
+    final stillPresentDeletes = expectedDeletes
+        .where((name) => existing.contains(name.toLowerCase()))
+        .toList(growable: false);
+    if (missingCreates.isEmpty && stillPresentDeletes.isEmpty) {
       return const _CompletionVerification(ok: true);
     }
 
-    final missingText = missing.join(', ');
+    final mismatchNames = [...missingCreates, ...stillPresentDeletes];
+    final missingText = missingCreates.join(', ');
+    final stillPresentText = stillPresentDeletes.join(', ');
     if (language.code == 'id') {
+      final detail = [
+        if (missingCreates.isNotEmpty) '$missingText belum ada',
+        if (stillPresentDeletes.isNotEmpty) '$stillPresentText masih ada',
+      ].join(', dan ');
       return _CompletionVerification(
         ok: false,
-        missingNames: missing,
+        missingNames: mismatchNames,
         message:
-            'Aku cek ulang daftar agen: $missingText belum ada, jadi task ini belum aku anggap selesai. Mau aku lanjut buat yang belum terbentuk?',
-        question: 'Lanjut buat agen yang belum terbentuk: $missingText?',
+            'Aku cek ulang daftar agen: $detail, jadi task ini belum aku anggap selesai. Mau aku lanjut bereskan bagian yang belum sesuai?',
+        question: 'Lanjut bereskan bagian yang belum sesuai: $detail?',
       );
     }
+    final detail = [
+      if (missingCreates.isNotEmpty) '$missingText is still missing',
+      if (stillPresentDeletes.isNotEmpty) '$stillPresentText is still present',
+    ].join(', and ');
     return _CompletionVerification(
       ok: false,
-      missingNames: missing,
+      missingNames: mismatchNames,
       message:
-          'I checked the agent list again: $missingText is still missing, so I am not marking this task complete. Should I continue creating the missing agent?',
-      question: 'Continue creating the missing agent: $missingText?',
+          'I checked the agent list again: $detail, so I am not marking this task complete. Should I continue fixing the unfinished part?',
+      question: 'Continue fixing the unfinished part: $detail?',
     );
   }
 
@@ -2306,6 +2419,7 @@ class AgentRuntimeEngine {
     required ToolExecutionResult fallbackResult,
     required ToolVerbalizer verbalizer,
     required DetectedLanguage language,
+    Map<String, dynamic>? targetGraph,
   }) {
     final completed = goalTree.subgoals
         .where((s) =>
@@ -2313,17 +2427,30 @@ class AgentRuntimeEngine {
             s.status == SubgoalStatus.failed ||
             s.status == SubgoalStatus.skipped)
         .toList();
+    final skippedTargets = (targetGraph?['targets'] as List?)
+            ?.whereType<Map>()
+            .map((m) => m.cast<String, dynamic>())
+            .where((target) => target['status'] == 'skipped')
+            .map((target) => <String, dynamic>{
+                  'label': target['entity_label'] ?? target['key'] ?? 'target',
+                  'status': 'skipped',
+                  'notes': target['reason'] ?? 'skipped by runtime policy',
+                })
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    final completedRows = [
+      ...completed.map((s) => <String, dynamic>{
+            'label': s.label,
+            'status': s.status.label,
+            if (s.notes != null && s.notes!.isNotEmpty) 'notes': s.notes,
+          }),
+      ...skippedTargets,
+    ];
 
-    if (goalTree.isNotEmpty && completed.length > 1) {
+    if (goalTree.isNotEmpty && completedRows.length > 1) {
       return verbalizer.taskSummary(
         mainGoal: goalTree.mainGoal,
-        completedSubgoals: completed
-            .map((s) => <String, dynamic>{
-                  'label': s.label,
-                  'status': s.status.label,
-                  if (s.notes != null && s.notes!.isNotEmpty) 'notes': s.notes,
-                })
-            .toList(),
+        completedSubgoals: completedRows,
         language: language,
       );
     }

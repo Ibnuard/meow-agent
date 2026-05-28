@@ -76,6 +76,7 @@ class TaskLedger {
     required this.goalTree,
     this.completionCriteria = const [],
     this.impacts = const [],
+    this.targetGraph = const {},
     this.previousResults = const [],
     this.currentStep = 1,
     this.availableTools = const [],
@@ -109,6 +110,7 @@ class TaskLedger {
   GoalTree goalTree;
   final List<String> completionCriteria;
   final List<Map<String, dynamic>> impacts;
+  Map<String, dynamic> targetGraph;
 
   /// Loop scratchpad. Append a record per executed step so the resumed loop
   /// has authoritative context after app restart.
@@ -147,6 +149,7 @@ class TaskLedger {
         'goal_tree': goalTree.toJson(),
         'completion_criteria': completionCriteria,
         'impacts': impacts,
+        if (targetGraph.isNotEmpty) 'target_graph': targetGraph,
         'previous_results': previousResults,
         'current_step': currentStep,
         'available_tools': availableTools,
@@ -183,6 +186,8 @@ class TaskLedger {
               .map((m) => m.cast<String, dynamic>())
               .toList() ??
           const [],
+      targetGraph: (json['target_graph'] as Map?)?.cast<String, dynamic>() ??
+          const {},
       previousResults: (json['previous_results'] as List?)
               ?.whereType<Map>()
               .map((m) => m.cast<String, dynamic>())
@@ -217,8 +222,10 @@ class TaskLedger {
   String describeForUser() {
     final remaining = goalTree.subgoals.where((s) => !s.isTerminal).length;
     final total = goalTree.subgoals.length;
+    final targetCount = (targetGraph['targets'] as List?)?.length ?? 0;
+    final targetText = targetCount == 0 ? '' : ', targets: $targetCount';
     return 'main goal: $mainGoal '
-        '(progress: ${total - remaining}/$total subgoals)';
+        '(progress: ${total - remaining}/$total subgoals$targetText)';
   }
 }
 

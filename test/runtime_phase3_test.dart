@@ -226,6 +226,27 @@ void main() {
     });
   });
 
+  group('ReflectionTarget JSON round-trip', () {
+    test('preserves machine-readable target fields', () {
+      const target = ReflectionTarget(
+        subgoalId: 'sg1',
+        operation: 'delete',
+        entityType: 'agent',
+        entityId: 'a1',
+        entityLabel: 'Coder',
+        selector: {'source': 'snapshot'},
+      );
+
+      final restored = ReflectionTarget.fromJson(target.toJson());
+      expect(restored.subgoalId, target.subgoalId);
+      expect(restored.operation, target.operation);
+      expect(restored.entityType, target.entityType);
+      expect(restored.entityId, target.entityId);
+      expect(restored.entityLabel, target.entityLabel);
+      expect(restored.selector['source'], 'snapshot');
+    });
+  });
+
   group('ReflectionOutput', () {
     test('toJson omits empty optional sections', () {
       final out = ReflectionOutput(

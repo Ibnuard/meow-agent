@@ -526,6 +526,8 @@ class ToolRouter {
       description: 'List all workflows for this agent.',
       risk: 'safe',
       requiresConfirmation: false,
+      operation: 'list',
+      targetEntity: 'workflow',
     ),
     'workflow.read': const ToolDefinition(
       name: 'workflow.read',
@@ -534,6 +536,9 @@ class ToolRouter {
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'id': 'string (required)'},
+      operation: 'read',
+      targetEntity: 'workflow',
+      selectorArgs: ['id'],
     ),
     'workflow.update': const ToolDefinition(
       name: 'workflow.update',
@@ -552,6 +557,10 @@ class ToolRouter {
         'steps': 'list<object> (optional)',
         'variables': 'object (optional)',
       },
+      operation: 'update',
+      targetEntity: 'workflow',
+      selectorArgs: ['id', 'title'],
+      postconditions: {'workflow_updated': 'id'},
     ),
     'workflow.delete': const ToolDefinition(
       name: 'workflow.delete',
@@ -559,6 +568,10 @@ class ToolRouter {
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {'id': 'string (required)'},
+      operation: 'delete',
+      targetEntity: 'workflow',
+      selectorArgs: ['id', 'title'],
+      postconditions: {'workflow_absent': 'id'},
     ),
     'workflow.toggle': const ToolDefinition(
       name: 'workflow.toggle',
@@ -566,6 +579,10 @@ class ToolRouter {
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {'id': 'string (required)', 'enabled': 'bool (required)'},
+      operation: 'toggle',
+      targetEntity: 'workflow',
+      selectorArgs: ['id', 'title'],
+      postconditions: {'workflow_enabled': 'enabled'},
     ),
 
     // ─── Core System ─────────────────────────────────────────────────────────
@@ -623,6 +640,8 @@ class ToolRouter {
       description: 'List all configured agents and their public provider info.',
       risk: 'safe',
       requiresConfirmation: false,
+      operation: 'list',
+      targetEntity: 'agent',
     ),
     'system.agents.create': const ToolDefinition(
       name: 'system.agents.create',
@@ -644,6 +663,10 @@ class ToolRouter {
         'communicationStyle':
             'string (optional, e.g. "concise, technical, code-first")',
       },
+      operation: 'create',
+      targetEntity: 'agent',
+      selectorArgs: ['name'],
+      postconditions: {'agent_present': 'name'},
     ),
     'system.agents.delete': const ToolDefinition(
       name: 'system.agents.delete',
@@ -657,6 +680,11 @@ class ToolRouter {
         'id':
             'string (optional fallback; only reliable when produced by a system.agents.list call in the SAME planning round)',
       },
+      operation: 'delete',
+      targetEntity: 'agent',
+      selectorArgs: ['id', 'agentId', 'name'],
+      policies: ['deny_current_agent'],
+      postconditions: {'agent_absent': 'name'},
     ),
     'system.providers.list': const ToolDefinition(
       name: 'system.providers.list',
@@ -664,6 +692,8 @@ class ToolRouter {
           'List configured LLM providers with public fields only. API keys are never returned.',
       risk: 'safe',
       requiresConfirmation: false,
+      operation: 'list',
+      targetEntity: 'provider',
     ),
     'system.modules.list': const ToolDefinition(
       name: 'system.modules.list',
@@ -671,6 +701,8 @@ class ToolRouter {
           'List available and installed modules, enabled state, and module setting toggles.',
       risk: 'safe',
       requiresConfirmation: false,
+      operation: 'list',
+      targetEntity: 'module',
     ),
     'system.tools.list': const ToolDefinition(
       name: 'system.tools.list',

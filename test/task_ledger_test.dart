@@ -51,6 +51,17 @@ void main() {
       original.previousResults = [
         {'step': 1, 'tool': 'system.agents.delete', 'result': null},
       ];
+      original.targetGraph = {
+        'targets': [
+          {
+            'key': 'sg1',
+            'entity_type': 'agent',
+            'entity_label': 'Agent A',
+            'operation': 'delete',
+            'status': 'eligible',
+          },
+        ],
+      };
       original.currentStep = 2;
 
       final restored = TaskLedger.fromJson(original.toJson());
@@ -61,6 +72,7 @@ void main() {
       expect(restored.languageCode, original.languageCode);
       expect(restored.goalTree.subgoals.length, 3);
       expect(restored.previousResults.length, 1);
+      expect((restored.targetGraph['targets'] as List).length, 1);
       expect(restored.currentStep, 2);
     });
 

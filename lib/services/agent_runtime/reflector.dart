@@ -65,6 +65,7 @@ class ReflectionImpact {
     required this.severity,
     required this.autoResolvable,
     this.resolutionHint = '',
+    this.sourceTargetId = '',
   });
 
   final String entityType;
@@ -74,6 +75,7 @@ class ReflectionImpact {
   final String severity; // low | medium | high
   final bool autoResolvable;
   final String resolutionHint;
+  final String sourceTargetId;
 
   Map<String, dynamic> toJson() => {
         'entity_type': entityType,
@@ -83,6 +85,7 @@ class ReflectionImpact {
         'severity': severity,
         'auto_resolvable': autoResolvable,
         'resolution_hint': resolutionHint,
+        if (sourceTargetId.isNotEmpty) 'source_target_id': sourceTargetId,
       };
 
   factory ReflectionImpact.fromJson(Map<String, dynamic> json) =>
@@ -94,6 +97,52 @@ class ReflectionImpact {
         severity: (json['severity'] ?? 'low').toString(),
         autoResolvable: json['auto_resolvable'] as bool? ?? false,
         resolutionHint: (json['resolution_hint'] ?? '').toString(),
+        sourceTargetId: (json['source_target_id'] ?? '').toString(),
+      );
+}
+
+/// One user-requested target discovered during reflection.
+///
+/// This is the machine-readable counterpart to a subgoal label. It lets the
+/// runtime apply deterministic policies and connect impact analysis to the
+/// actual target set instead of relying on narrative text.
+class ReflectionTarget {
+  const ReflectionTarget({
+    required this.subgoalId,
+    required this.operation,
+    required this.entityType,
+    this.entityId = '',
+    this.entityLabel = '',
+    this.selector = const {},
+  });
+
+  final String subgoalId;
+  final String operation;
+  final String entityType;
+  final String entityId;
+  final String entityLabel;
+  final Map<String, dynamic> selector;
+
+  Map<String, dynamic> toJson() => {
+        'subgoal_id': subgoalId,
+        'operation': operation,
+        'entity_type': entityType,
+        if (entityId.isNotEmpty) 'entity_id': entityId,
+        if (entityLabel.isNotEmpty) 'entity_label': entityLabel,
+        if (selector.isNotEmpty) 'selector': selector,
+      };
+
+  factory ReflectionTarget.fromJson(Map<String, dynamic> json) =>
+      ReflectionTarget(
+        subgoalId: (json['subgoal_id'] ?? json['subgoalId'] ?? '').toString(),
+        operation: (json['operation'] ?? '').toString(),
+        entityType: (json['entity_type'] ?? json['entityType'] ?? '')
+            .toString(),
+        entityId: (json['entity_id'] ?? json['entityId'] ?? '').toString(),
+        entityLabel:
+            (json['entity_label'] ?? json['entityLabel'] ?? '').toString(),
+        selector: (json['selector'] as Map?)?.cast<String, dynamic>() ??
+            const {},
       );
 }
 
@@ -108,6 +157,7 @@ class ReflectionOutput {
   ReflectionOutput({
     required this.strategy,
     required this.goalTree,
+    this.targets = const [],
     this.impacts = const [],
     this.clarifyQuestions = const [],
     this.blockReason = '',
@@ -118,6 +168,7 @@ class ReflectionOutput {
 
   final ReflectionStrategy strategy;
   final GoalTree goalTree;
+  final List<ReflectionTarget> targets;
   final List<ReflectionImpact> impacts;
   final List<String> clarifyQuestions;
   final String blockReason;
@@ -137,6 +188,8 @@ class ReflectionOutput {
   Map<String, dynamic> toJson() => {
         'strategy': strategy.label,
         'goal_tree': goalTree.toJson(),
+        if (targets.isNotEmpty)
+          'targets': targets.map((e) => e.toJson()).toList(),
         if (impacts.isNotEmpty)
           'impacts': impacts.map((e) => e.toJson()).toList(),
         if (clarifyQuestions.isNotEmpty)
@@ -325,6 +378,14 @@ ${PromptConstants.reflectResponseFormat}''';
             .map((m) => ReflectionImpact.fromJson(m.cast<String, dynamic>()))
             .toList(growable: false);
 
+    final targetsJson = json['targets'] as List?;
+    final targets = targetsJson == null
+        ? const <ReflectionTarget>[]
+        : targetsJson
+            .whereType<Map>()
+            .map((m) => ReflectionTarget.fromJson(m.cast<String, dynamic>()))
+            .toList(growable: false);
+
     final clarifyQuestionsJson = json['clarify_questions'] as List?;
     final clarifyQuestions = clarifyQuestionsJson == null
         ? const <String>[]
@@ -337,6 +398,7 @@ ${PromptConstants.reflectResponseFormat}''';
     return ReflectionOutput(
       strategy: strategy,
       goalTree: goalTree,
+      targets: targets,
       impacts: impacts,
       clarifyQuestions: clarifyQuestions,
       blockReason: blockReason,
