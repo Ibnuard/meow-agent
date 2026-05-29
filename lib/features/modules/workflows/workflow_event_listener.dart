@@ -59,13 +59,22 @@ class WorkflowEventListener {
           state == BatteryState.full;
 
       if (isCharging && !_wasCharging) {
-        _fireEvent(EventTriggerKind.chargingStart);
+        _fireEvent(
+          EventTriggerKind.chargingStart,
+          triggerVars: _batteryTriggerVars(),
+        );
       } else if (!isCharging && _wasCharging) {
-        _fireEvent(EventTriggerKind.chargingStop);
+        _fireEvent(
+          EventTriggerKind.chargingStop,
+          triggerVars: _batteryTriggerVars(),
+        );
       }
 
       if (state == BatteryState.full) {
-        _fireEvent(EventTriggerKind.batteryFull);
+        _fireEvent(
+          EventTriggerKind.batteryFull,
+          triggerVars: _batteryTriggerVars(levelOverride: 100),
+        );
       }
 
       _wasCharging = isCharging;
@@ -90,6 +99,7 @@ class WorkflowEventListener {
             final threshold = params?['threshold'] as int? ?? 20;
             return level <= threshold && _lastBatteryLevel > threshold;
           },
+          triggerVars: _batteryTriggerVars(levelOverride: level),
         );
       }
       _lastBatteryLevel = level;
@@ -202,7 +212,12 @@ class WorkflowEventListener {
       final targetPackage = wf.trigger.eventParams?['package'] as String? ?? '';
       if (targetPackage.isEmpty) continue;
       if (packageName.toLowerCase() == targetPackage.toLowerCase()) {
-        _triggerWorkflow(wf);
+        _triggerWorkflow(
+          wf,
+          triggerVars: {
+            'app_package': packageName,
+          },
+        );
       }
     }
   }
@@ -210,11 +225,14 @@ class WorkflowEventListener {
   // ─── Internal ───────────────────────────────────────────────────────────────
 
   /// Fire all workflows matching an event kind (no param check).
-  Future<void> _fireEvent(EventTriggerKind kind) async {
+  Future<void> _fireEvent(
+    EventTriggerKind kind, {
+    Map<String, String>? triggerVars,
+  }) async {
     final workflows = await _repo.listEventTriggered();
     for (final wf in workflows) {
       if (wf.trigger.eventKind == kind) {
-        _triggerWorkflow(wf);
+        _triggerWorkflow(wf, triggerVars: triggerVars);
       }
     }
   }
@@ -222,15 +240,22 @@ class WorkflowEventListener {
   /// Fire workflows matching an event kind with param validation.
   Future<void> _fireEventWithParams(
     EventTriggerKind kind,
-    bool Function(Map<String, dynamic>? params) paramCheck,
-  ) async {
+    bool Function(Map<String, dynamic>? params) paramCheck, {
+    Map<String, String>? triggerVars,
+  }) async {
     final workflows = await _repo.listEventTriggered();
     for (final wf in workflows) {
       if (wf.trigger.eventKind == kind &&
           paramCheck(wf.trigger.eventParams)) {
-        _triggerWorkflow(wf);
+        _triggerWorkflow(wf, triggerVars: triggerVars);
       }
     }
+  }
+
+  Map<String, String> _batteryTriggerVars({int? levelOverride}) {
+    final level = levelOverride ?? _lastBatteryLevel;
+    if (level < 0) return const {};
+    return {'battery_level': level.toString()};
   }
 
   /// Trigger a workflow with cooldown protection.

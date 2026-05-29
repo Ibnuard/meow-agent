@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -7,6 +8,7 @@ import '../../../app/widgets/widgets.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
+import 'workflow_builtin_vars.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_scheduler.dart';
@@ -44,7 +46,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   WorkflowPriority _priority = WorkflowPriority.normal;
   int _timeoutSeconds = 300;
   List<WorkflowStep> _steps = [];
-  Map<String, String> _variables = {};
   String? _templateId;
 
   @override
@@ -77,7 +78,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _priority = wf.priority;
     _timeoutSeconds = _snapTimeoutToOption(wf.timeoutSeconds);
     _steps = List.from(wf.steps);
-    _variables = Map.from(wf.variables);
     _templateId = wf.templateId;
   }
 
@@ -98,7 +98,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       _intervalMinutes = _snapIntervalToOption(t.intervalMinutes ?? 60);
     }
     _steps = List.from(tpl.defaultSteps);
-    _variables = Map.from(tpl.defaultVariables);
     _priority = tpl.defaultPriority;
     _timeoutSeconds = _snapTimeoutToOption(tpl.defaultTimeoutSeconds);
   }
@@ -190,7 +189,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         priority: _priority,
         timeoutSeconds: _timeoutSeconds,
         steps: normalizedSteps,
-        variables: _variables,
+        variables: const {}, // legacy field; built-ins handle everything now.
         templateId: _templateId,
       );
       await _repo.update(updated);
@@ -210,7 +209,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         priority: _priority,
         timeoutSeconds: _timeoutSeconds,
         steps: normalizedSteps,
-        variables: _variables,
+        variables: const {}, // legacy field; built-ins handle everything now.
         templateId: _templateId,
         createdAt: DateTime.now(),
       );
@@ -297,15 +296,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     setState(() => _steps[index] = updated);
   }
 
-  void _addVariable() async {
-    final result = await showDialog<MapEntry<String, String>>(
-      context: context,
-      builder: (ctx) => _VariableDialog(),
-    );
-    if (result != null) {
-      setState(() => _variables[result.key] = result.value);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -734,38 +724,29 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       final name = match.group(1);
       if (name != null && name.isNotEmpty) used.add(name);
     }
-    // Exclude reserved runtime vars (auto-injected by the runner).
-    used.removeAll([
-      'prev',
-      'step_index',
-      'date',
-      'notif',
-      'notif_title',
-      'notif_body',
-      'notif_app',
-      'notif_keyword',
-    ]);
+    // Exclude built-ins; whatever remains is likely a typo / unsupported var.
+    used.removeAll(kBuiltInVariableKeys);
     return used;
   }
 
   Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, bool isId) {
+    final langCode = isId ? 'id' : 'en';
     final usedVars = _detectUsedVariables();
-    final undefinedVars = usedVars
-        .where((v) => !_variables.containsKey(v))
-        .toList();
+    final visibleVars = _visibleBuiltIns();
+    final previewVars = visibleVars.take(6).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            _sectionLabel(isId ? 'Variabel' : 'Variables', cs),
+            _sectionLabel(isId ? 'Variabel Built-in' : 'Built-in Variables', cs),
             const Spacer(),
             TextButton.icon(
-              onPressed: _addVariable,
-              icon: const Icon(Icons.add_rounded, size: 14),
+              onPressed: () => _showBuiltInVariableSheet(cs, extras, langCode),
+              icon: const Icon(Icons.auto_awesome_rounded, size: 14),
               label: Text(
-                isId ? 'Tambah' : 'Add',
+                isId ? 'Lihat Semua' : 'View All',
                 style: const TextStyle(fontSize: 12),
               ),
             ),
@@ -774,217 +755,84 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         const SizedBox(height: 4),
         Text(
           isId
-              ? 'Tulis {{nama}} di prompt untuk menggunakan variabel.'
-              : 'Write {{name}} in prompts to use variables.',
+              ? 'Tap variabel untuk menyisipkan ke prompt. Nilainya otomatis diisi saat workflow berjalan.'
+              : 'Tap a variable to insert it. Values are filled automatically when the workflow runs.',
           style: TextStyle(
             fontSize: 11,
-            color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+            color: cs.onSurfaceVariant.withValues(alpha: 0.62),
           ),
         ),
-        // System variables info — shown for multi-step workflows AND for
-        // notification-keyword event triggers (so users know they can use
-        // {{notif}} etc.).
-        if (_steps.isNotEmpty ||
-            (_triggerType == TriggerType.event &&
-                _eventKind == EventTriggerKind.notificationKeyword)) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: cs.onSurface.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cs.onSurfaceVariant.withValues(alpha: 0.1)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.info_outline_rounded, size: 13, color: cs.onSurfaceVariant),
-                    const SizedBox(width: 6),
-                    Text(
-                      isId ? 'Variabel Sistem (otomatis):' : 'System Variables (auto):',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: cs.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                if (_steps.isNotEmpty) ...[
-                  _systemVarRow('{{prev}}',
-                      isId ? 'Hasil output dari langkah sebelumnya' : 'Output from the previous step',
-                      cs),
-                  const SizedBox(height: 3),
-                ],
-                _systemVarRow('{{date}}',
-                    isId ? 'Tanggal hari ini (YYYY-MM-DD)' : 'Today\'s date (YYYY-MM-DD)',
-                    cs),
-                if (_steps.isNotEmpty) ...[
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{step_index}}',
-                      isId ? 'Nomor urut langkah saat ini (0, 1, 2...)' : 'Current step index (0, 1, 2...)',
-                      cs),
-                ],
-                if (_triggerType == TriggerType.event &&
-                    _eventKind == EventTriggerKind.notificationKeyword) ...[
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{notif}}',
-                      isId ? 'Notifikasi pemicu (judul + isi)' : 'Triggering notification (title + body)',
-                      cs),
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{notif_title}}',
-                      isId ? 'Judul notifikasi' : 'Notification title',
-                      cs),
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{notif_body}}',
-                      isId ? 'Isi notifikasi' : 'Notification body',
-                      cs),
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{notif_app}}',
-                      isId ? 'Nama aplikasi pengirim' : 'Sender app name',
-                      cs),
-                  const SizedBox(height: 3),
-                  _systemVarRow('{{notif_keyword}}',
-                      isId ? 'Kata kunci yang cocok' : 'Matched keyword',
-                      cs),
-                ],
-              ],
-            ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: extras.card,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: extras.subtleBorder),
           ),
-        ],
-
-        if (undefinedVars.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.auto_awesome_rounded,
-                      size: 14,
-                      color: cs.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      isId ? 'Saran dari prompt:' : 'Detected in prompts:',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: cs.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: undefinedVars
-                      .map(
-                        (name) => GestureDetector(
-                          onTap: () => _addSuggestedVariable(name),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.primary.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: cs.primary.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.add_rounded,
-                                  size: 12,
-                                  color: cs.primary,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  name,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: cs.primary,
-                                    fontFamily: 'monospace',
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 7,
+                runSpacing: 7,
+                children: previewVars
+                    .map((v) => _builtInChip(v, cs, langCode))
+                    .toList(),
+              ),
+              if (visibleVars.length > previewVars.length) ...[
+                const SizedBox(height: 10),
+                InkWell(
+                  onTap: () => _showBuiltInVariableSheet(cs, extras, langCode),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Row(
+                      children: [
+                        Icon(Icons.expand_more_rounded,
+                            size: 16, color: cs.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          isId
+                              ? '+${visibleVars.length - previewVars.length} variabel lain'
+                              : '+${visibleVars.length - previewVars.length} more variables',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: cs.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      )
-                      .toList(),
+                      ],
+                    ),
+                  ),
                 ),
               ],
-            ),
+            ],
           ),
-        ],
-        if (_variables.isNotEmpty) ...[
+        ),
+        if (usedVars.isNotEmpty) ...[
           const SizedBox(height: 10),
-          ..._variables.entries.map(
-            (e) => Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: extras.card,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: extras.subtleBorder),
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    '{{${e.key}}}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.primary,
-                      fontFamily: 'monospace',
-                      fontWeight: FontWeight.w600,
-                    ),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: cs.error.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: cs.error.withValues(alpha: 0.22)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 15, color: cs.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    isId
+                        ? 'Variabel tidak dikenal: ${usedVars.map((v) => '{{$v}}').join(', ')}'
+                        : 'Unknown variables: ${usedVars.map((v) => '{{$v}}').join(', ')}',
+                    style: TextStyle(fontSize: 11, color: cs.error),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '= ${e.value.isEmpty ? (isId ? "(kosong)" : "(empty)") : e.value}',
-                      style: TextStyle(fontSize: 12, color: cs.onSurface),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.edit_outlined,
-                      size: 16,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    onPressed: () => _editVariable(e.key, e.value),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      Icons.close_rounded,
-                      size: 16,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    onPressed: () => setState(() => _variables.remove(e.key)),
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],
@@ -992,25 +840,216 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Future<void> _addSuggestedVariable(String name) async {
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) => _VariableValueDialog(name: name),
-    );
-    if (value != null) {
-      setState(() => _variables[name] = value);
-    }
+  List<BuiltInVariable> _visibleBuiltIns() {
+    return kWorkflowBuiltInVariables.where((v) {
+      switch (v.category) {
+        case BuiltInCategory.step:
+          return _steps.isNotEmpty;
+        case BuiltInCategory.triggerNotification:
+          return _triggerType == TriggerType.event &&
+              _eventKind == EventTriggerKind.notificationKeyword;
+        case BuiltInCategory.triggerAppOpen:
+          return _triggerType == TriggerType.event &&
+              _eventKind == EventTriggerKind.appOpened;
+        case BuiltInCategory.triggerBattery:
+          return _triggerType == TriggerType.event &&
+              (_eventKind == EventTriggerKind.batteryLow ||
+                  _eventKind == EventTriggerKind.batteryFull ||
+                  _eventKind == EventTriggerKind.chargingStart ||
+                  _eventKind == EventTriggerKind.chargingStop);
+        case BuiltInCategory.time:
+        case BuiltInCategory.identity:
+          return true;
+      }
+    }).toList();
   }
 
-  Future<void> _editVariable(String name, String currentValue) async {
-    final value = await showDialog<String>(
-      context: context,
-      builder: (ctx) =>
-          _VariableValueDialog(name: name, initialValue: currentValue),
+  Widget _builtInChip(BuiltInVariable variable, ColorScheme cs, String langCode) {
+    return InkWell(
+      onTap: () => _insertBuiltInVariable(variable.placeholder),
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.22)),
+        ),
+        child: Text(
+          variable.placeholder,
+          style: TextStyle(
+            fontSize: 11,
+            color: cs.primary,
+            fontFamily: 'monospace',
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
     );
-    if (value != null) {
-      setState(() => _variables[name] = value);
+  }
+
+  void _insertBuiltInVariable(String placeholder) {
+    final controller = _promptCtrl;
+    final selection = controller.selection;
+    if (!selection.isValid) {
+      Clipboard.setData(ClipboardData(text: placeholder));
+      return;
     }
+    final text = controller.text;
+    final start = selection.start.clamp(0, text.length);
+    final end = selection.end.clamp(0, text.length);
+    controller.text = text.replaceRange(start, end, placeholder);
+    final pos = start + placeholder.length;
+    controller.selection = TextSelection.collapsed(offset: pos);
+    setState(() {});
+  }
+
+  Future<void> _showBuiltInVariableSheet(
+    ColorScheme cs,
+    MeowExtras extras,
+    String langCode,
+  ) async {
+    final vars = _visibleBuiltIns();
+    final grouped = <BuiltInCategory, List<BuiltInVariable>>{};
+    for (final v in vars) {
+      grouped.putIfAbsent(v.category, () => []).add(v);
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.78,
+          ),
+          decoration: BoxDecoration(
+            color: extras.card,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: extras.subtleBorder),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.28),
+                blurRadius: 28,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                langCode == 'id' ? 'Variabel Built-in' : 'Built-in Variables',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                langCode == 'id'
+                    ? 'Tap untuk menyisipkan ke prompt utama.'
+                    : 'Tap to insert into the main prompt.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.72),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: grouped.entries.map((entry) {
+                    return Theme(
+                      data: Theme.of(ctx).copyWith(
+                        dividerColor: Colors.transparent,
+                      ),
+                      child: ExpansionTile(
+                        initiallyExpanded: true,
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 8),
+                        title: Text(
+                          entry.key.labelFor(langCode),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurface,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        children: entry.value
+                            .map((v) => _builtInSheetRow(v, cs, langCode))
+                            .toList(),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _builtInSheetRow(
+    BuiltInVariable variable,
+    ColorScheme cs,
+    String langCode,
+  ) {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).pop();
+        _insertBuiltInVariable(variable.placeholder);
+      },
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: cs.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+              ),
+              child: Text(
+                variable.placeholder,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: cs.primary,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                variable.descriptionFor(langCode),
+                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // ─── Trigger Builders ───────────────────────────────────────────────────────
@@ -1188,33 +1227,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       color: cs.onSurfaceVariant,
     ),
   );
-
-  Widget _systemVarRow(String varName, String desc, ColorScheme cs) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          varName,
-          style: TextStyle(
-            fontSize: 11,
-            color: cs.primary.withValues(alpha: 0.8),
-            fontFamily: 'monospace',
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            desc,
-            style: TextStyle(
-              fontSize: 11,
-              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   Widget _buildInput(
     TextEditingController ctrl,
@@ -1526,69 +1538,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 }
 
-/// Dialog for adding a new variable.
-class _VariableDialog extends StatefulWidget {
-  @override
-  State<_VariableDialog> createState() => _VariableDialogState();
-}
-
-class _VariableDialogState extends State<_VariableDialog> {
-  final _nameCtrl = TextEditingController();
-  final _valueCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _valueCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: const Text('Tambah Variabel'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _nameCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Nama',
-              hintText: 'mis: city',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _valueCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Nilai Default',
-              hintText: 'mis: Jakarta',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Batal'),
-        ),
-        TextButton(
-          onPressed: () {
-            final name = _nameCtrl.text.trim();
-            if (name.isNotEmpty) {
-              Navigator.pop(context, MapEntry(name, _valueCtrl.text.trim()));
-            }
-          },
-          child: const Text('Tambah'),
-        ),
-      ],
-    );
-  }
-}
-
 /// Humanized condition presets for step execution.
 class _ConditionPreset {
   const _ConditionPreset({required this.label, required this.value});
@@ -1649,67 +1598,3 @@ class _ConditionPreset {
   int get hashCode => value.hashCode;
 }
 
-/// Dialog for setting a variable value (used by suggestions and edit).
-class _VariableValueDialog extends StatefulWidget {
-  const _VariableValueDialog({required this.name, this.initialValue = ''});
-
-  final String name;
-  final String initialValue;
-
-  @override
-  State<_VariableValueDialog> createState() => _VariableValueDialogState();
-}
-
-class _VariableValueDialogState extends State<_VariableValueDialog> {
-  late final TextEditingController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = TextEditingController(text: widget.initialValue);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      title: Text('{{${widget.name}}}'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Nilai default untuk variabel ini',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _ctrl,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText: 'mis: Jakarta, urgent, dst',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: (v) => Navigator.pop(context, v.trim()),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Batal'),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context, _ctrl.text.trim()),
-          child: const Text('Simpan'),
-        ),
-      ],
-    );
-  }
-}

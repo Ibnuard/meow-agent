@@ -9,6 +9,7 @@ import '../../agents/data/agent_repository.dart';
 import '../../chat/data/chat_history_service.dart';
 import '../../chat/data/unread_service.dart';
 import '../../providers/data/provider_repository.dart';
+import 'workflow_builtin_vars.dart';
 import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_notification_service.dart';
@@ -261,13 +262,17 @@ class WorkflowRunner {
     int notifId,
     Map<String, String> triggerVars,
   ) async {
-    final now = DateTime.now();
-    final vars = Map<String, String>.from(wf.variables);
-    vars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    // Trigger-derived vars (e.g. {{notif}}) take precedence so the prompt
-    // sees the freshly-fired event, not the stored workflow defaults.
-    vars.addAll(triggerVars);
-    final resolvedPrompt = _resolveVariables(wf.prompt, vars, {});
+    // Build the full variable map: legacy custom vars (if any), then
+    // built-ins (time/identity/trigger). Built-ins win to avoid stale data.
+    final builtIns = await WorkflowBuiltInVars.resolve(
+      agentName: agent.name,
+      now: DateTime.now(),
+      triggerVars: triggerVars,
+    );
+    final vars = <String, String>{}
+      ..addAll(wf.variables) // legacy fallback
+      ..addAll(builtIns);
+    final resolvedPrompt = WorkflowBuiltInVars.substitute(wf.prompt, vars);
     final prompt = _wrapWithTriggerContext(resolvedPrompt, triggerVars);
 
     final response = await engine.run(
@@ -342,16 +347,25 @@ class WorkflowRunner {
     String previousResult = '';
     bool chainFailed = false;
 
-    // Runtime variables: start with workflow defaults, accumulate step results.
-    final runtimeVars = Map<String, String>.from(wf.variables);
-    final now = DateTime.now();
-    runtimeVars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    // Trigger vars (e.g. {{notif}}) override defaults so each step sees the
-    // event that fired the workflow.
-    runtimeVars.addAll(triggerVars);
+    // Build base built-in variable map once. Per-step we'll override {{prev}}
+    // and {{step_index}}.
+    final baseBuiltIns = await WorkflowBuiltInVars.resolve(
+      agentName: agent.name,
+      now: DateTime.now(),
+      triggerVars: triggerVars,
+    );
 
     for (int i = 0; i < wf.steps.length; i++) {
       final step = wf.steps[i];
+
+      // Build per-step var map: legacy custom vars + base built-ins +
+      // step-local extras. Order: built-ins win over legacy, step extras win
+      // over built-ins.
+      final runtimeVars = <String, String>{}
+        ..addAll(wf.variables) // legacy fallback
+        ..addAll(baseBuiltIns)
+        ..['prev'] = previousResult
+        ..['step_index'] = i.toString();
 
       // Evaluate condition.
       if (step.condition != null && step.condition!.isNotEmpty) {
@@ -370,10 +384,7 @@ class WorkflowRunner {
         }
       }
 
-      // Resolve variables in prompt.
-      runtimeVars['prev'] = previousResult;
-      runtimeVars['step_index'] = i.toString();
-      var rawPrompt = _resolveVariables(step.prompt, runtimeVars, {});
+      var rawPrompt = WorkflowBuiltInVars.substitute(step.prompt, runtimeVars);
       // Only the first step sees the raw trigger context. Later steps build
       // on {{prev}} which already contains digested context.
       if (i == 0) {
@@ -569,20 +580,6 @@ class WorkflowRunner {
         '$emoji Workflow **${wf.title}** ($overallStatus) — ${stepResults.length} steps completed.',
       );
     }
-  }
-
-  /// Resolve {{variable}} placeholders in a prompt string.
-  String _resolveVariables(
-    String prompt,
-    Map<String, String> variables,
-    Map<String, String> runtimeContext,
-  ) {
-    var resolved = prompt;
-    final allVars = {...variables, ...runtimeContext};
-    for (final entry in allVars.entries) {
-      resolved = resolved.replaceAll('{{${entry.key}}}', entry.value);
-    }
-    return resolved;
   }
 
   /// Prepend a `[TRIGGER CONTEXT]` block describing the notification that
