@@ -28,7 +28,7 @@ class WorkflowEditorScreen extends ConsumerStatefulWidget {
 class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   final _repo = WorkflowRepository();
   final _titleCtrl = TextEditingController();
-  final _promptCtrl = TextEditingController();
+  TextEditingController _promptCtrl = _VariableTextEditingController();
   final _keywordCtrl = TextEditingController();
 
   bool get _isEdit => widget.workflow != null;
@@ -70,7 +70,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       hour: wf.trigger.hour ?? 8,
       minute: wf.trigger.minute ?? 0,
     );
-    _selectedDays = List<int>.from(wf.trigger.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
+    _selectedDays = List<int>.from(
+      wf.trigger.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7],
+    );
     _intervalMinutes = _snapIntervalToOption(wf.trigger.intervalMinutes ?? 60);
     _notifStyle = wf.notification.style;
     _sendToChat = wf.sendToChat;
@@ -113,24 +115,40 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Future<void> _save() async {
     final isId = Localizations.localeOf(context).languageCode == 'id';
     if (_selectedAgentId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isId ? 'Judul workflow tidak boleh kosong.' : 'Workflow title is required.'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isId
+                ? 'Judul workflow tidak boleh kosong.'
+                : 'Workflow title is required.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
     if (_steps.isEmpty && _promptCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isId ? 'Prompt atau langkah tidak boleh kosong.' : 'Prompt or steps are required.'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isId
+                ? 'Prompt atau langkah tidak boleh kosong.'
+                : 'Prompt or steps are required.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
 
@@ -168,13 +186,15 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     // editor change to the workflow-level timeout would have no effect on
     // existing steps that were created with stale defaults (e.g. 60s).
     final normalizedSteps = _steps
-        .map((s) => WorkflowStep(
-              id: s.id,
-              prompt: s.prompt,
-              condition: s.condition,
-              onFailure: s.onFailure,
-              timeoutSeconds: _timeoutSeconds,
-            ))
+        .map(
+          (s) => WorkflowStep(
+            id: s.id,
+            prompt: s.prompt,
+            condition: s.condition,
+            onFailure: s.onFailure,
+            timeoutSeconds: _timeoutSeconds,
+          ),
+        )
         .toList();
 
     if (_isEdit) {
@@ -296,9 +316,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     setState(() => _steps[index] = updated);
   }
 
-
   @override
   Widget build(BuildContext context) {
+    _ensureVariablePromptController();
     final cs = context.cs;
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
@@ -377,7 +397,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               if (_steps.isEmpty) ...[
                 _sectionLabel('Prompt', cs),
                 const SizedBox(height: 8),
-                _buildInput(
+                _buildVariableAwareInput(
                   _promptCtrl,
                   isId
                       ? 'Apa yang harus agent lakukan...'
@@ -385,7 +405,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   cs,
                   extras,
                   maxLines: 4,
-                  onChanged: (_) => setState(() {}),
+                  isId: isId,
                 ),
                 const SizedBox(height: 12),
                 TextButton.icon(
@@ -740,7 +760,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       children: [
         Row(
           children: [
-            _sectionLabel(isId ? 'Variabel Built-in' : 'Built-in Variables', cs),
+            _sectionLabel(
+              isId ? 'Variabel Built-in' : 'Built-in Variables',
+              cs,
+            ),
             const Spacer(),
             TextButton.icon(
               onPressed: () => _showBuiltInVariableSheet(cs, extras, langCode),
@@ -789,8 +812,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Row(
                       children: [
-                        Icon(Icons.expand_more_rounded,
-                            size: 16, color: cs.primary),
+                        Icon(
+                          Icons.expand_more_rounded,
+                          size: 16,
+                          color: cs.primary,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           isId
@@ -864,7 +890,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     }).toList();
   }
 
-  Widget _builtInChip(BuiltInVariable variable, ColorScheme cs, String langCode) {
+  Widget _builtInChip(
+    BuiltInVariable variable,
+    ColorScheme cs,
+    String langCode,
+  ) {
     return InkWell(
       onTap: () => _insertBuiltInVariable(variable.placeholder),
       borderRadius: BorderRadius.circular(999),
@@ -977,9 +1007,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   shrinkWrap: true,
                   children: grouped.entries.map((entry) {
                     return Theme(
-                      data: Theme.of(ctx).copyWith(
-                        dividerColor: Colors.transparent,
-                      ),
+                      data: Theme.of(
+                        ctx,
+                      ).copyWith(dividerColor: Colors.transparent),
                       child: ExpansionTile(
                         initiallyExpanded: true,
                         tilePadding: EdgeInsets.zero,
@@ -1227,6 +1257,193 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       color: cs.onSurfaceVariant,
     ),
   );
+
+  void _ensureVariablePromptController() {
+    if (_promptCtrl is _VariableTextEditingController) return;
+    final old = _promptCtrl;
+    final migrated = _VariableTextEditingController()
+      ..text = old.text
+      ..selection = old.selection;
+    _promptCtrl = migrated;
+    old.dispose();
+  }
+
+  Widget _buildVariableAwareInput(
+    TextEditingController ctrl,
+    String hint,
+    ColorScheme cs,
+    MeowExtras extras, {
+    int maxLines = 1,
+    ValueChanged<String>? onChanged,
+    required bool isId,
+  }) {
+    final langCode = isId ? 'id' : 'en';
+
+    return StatefulBuilder(
+      builder: (context, localSetState) {
+        final trigger = _activeVariableTrigger(ctrl);
+        final suggestions = trigger == null
+            ? const <BuiltInVariable>[]
+            : _visibleBuiltIns()
+                  .where(
+                    (v) => v.key.toLowerCase().contains(
+                      trigger.query.toLowerCase(),
+                    ),
+                  )
+                  .take(6)
+                  .toList();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: ctrl,
+              maxLines: maxLines,
+              inputFormatters: const [_VariableTokenDeleteFormatter()],
+              onChanged: (value) {
+                onChanged?.call(value);
+                localSetState(() {});
+              },
+              style: TextStyle(fontSize: 14, color: cs.onSurface),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: TextStyle(
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+                ),
+                filled: true,
+                fillColor: extras.card,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: extras.subtleBorder),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: extras.subtleBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(color: cs.primary),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            if (trigger != null && suggestions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: extras.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isId ? 'Sisipkan variabel' : 'Insert variable',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 7,
+                      runSpacing: 7,
+                      children: suggestions.map((v) {
+                        return InkWell(
+                          onTap: () {
+                            _replaceVariableTrigger(ctrl, trigger, v.key);
+                            localSetState(() {});
+                          },
+                          borderRadius: BorderRadius.circular(999),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: cs.primary.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: cs.primary.withValues(alpha: 0.24),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  v.key,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: cs.primary,
+                                    fontFamily: 'monospace',
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  v.descriptionFor(langCode),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  _VariableTrigger? _activeVariableTrigger(TextEditingController ctrl) {
+    final selection = ctrl.selection;
+    if (!selection.isValid || !selection.isCollapsed) return null;
+    final cursor = selection.baseOffset;
+    if (cursor < 2 || cursor > ctrl.text.length) return null;
+    final before = ctrl.text.substring(0, cursor);
+    final open = before.lastIndexOf('{{');
+    if (open < 0) return null;
+    final closeAfterOpen = before.lastIndexOf('}}');
+    if (closeAfterOpen > open) return null;
+    final query = before.substring(open + 2);
+    // Stop suggestions if query spans whitespace/newline; user likely typed text.
+    if (RegExp(r'\s').hasMatch(query)) return null;
+    return _VariableTrigger(open, cursor, query);
+  }
+
+  void _replaceVariableTrigger(
+    TextEditingController ctrl,
+    _VariableTrigger trigger,
+    String key,
+  ) {
+    final replacement = '{{$key}}';
+    final text = ctrl.text;
+    final end = trigger.end.clamp(0, text.length);
+    ctrl.text = text.replaceRange(trigger.start, end, replacement);
+    final pos = trigger.start + replacement.length;
+    ctrl.selection = TextSelection.collapsed(offset: pos);
+  }
 
   Widget _buildInput(
     TextEditingController ctrl,
@@ -1598,3 +1815,106 @@ class _ConditionPreset {
   int get hashCode => value.hashCode;
 }
 
+class _VariableTrigger {
+  const _VariableTrigger(this.start, this.end, this.query);
+
+  final int start;
+  final int end;
+  final String query;
+}
+
+class _VariableTextEditingController extends TextEditingController {
+  static final _pattern = RegExp(r'\{\{([^{}\n]+)\}\}');
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final base = style ?? DefaultTextStyle.of(context).style;
+    final textValue = text;
+    final spans = <TextSpan>[];
+    var cursor = 0;
+
+    for (final match in _pattern.allMatches(textValue)) {
+      if (match.start > cursor) {
+        spans.add(TextSpan(text: textValue.substring(cursor, match.start)));
+      }
+      final key = match.group(1) ?? textValue.substring(match.start, match.end);
+      final hiddenBraceStyle = base.copyWith(
+        color: Colors.transparent,
+        fontSize: 0.01,
+        height: 0.01,
+      );
+      spans
+        ..add(TextSpan(text: '{{', style: hiddenBraceStyle))
+        ..add(
+          TextSpan(
+            text: key,
+            style: base.copyWith(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w800,
+              fontFamily: 'monospace',
+            ),
+          ),
+        )
+        ..add(TextSpan(text: '}}', style: hiddenBraceStyle));
+      cursor = match.end;
+    }
+
+    if (cursor < textValue.length) {
+      spans.add(TextSpan(text: textValue.substring(cursor)));
+    }
+
+    return TextSpan(style: base, children: spans);
+  }
+}
+
+/// Treats a complete `{{variable}}` placeholder like an atomic chip for
+/// deletion. The whole token is removed only when:
+/// - backspace is pressed right after it
+/// - cursor/selection is inside it
+class _VariableTokenDeleteFormatter extends TextInputFormatter {
+  const _VariableTokenDeleteFormatter();
+
+  static final _pattern = RegExp(r'\{\{[^{}\n]+\}\}');
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final oldText = oldValue.text;
+    final newText = newValue.text;
+    if (newText.length >= oldText.length) return newValue;
+
+    final oldSel = oldValue.selection;
+    if (!oldSel.isValid) return newValue;
+
+    for (final match in _pattern.allMatches(oldText)) {
+      final selectionInsideToken =
+          !oldSel.isCollapsed &&
+          oldSel.end > match.start &&
+          oldSel.start < match.end;
+      final cursorInsideToken =
+          oldSel.isCollapsed &&
+          oldSel.baseOffset > match.start &&
+          oldSel.baseOffset < match.end;
+      final backspaceAtRightEdge =
+          oldSel.isCollapsed && oldSel.baseOffset == match.end;
+      if (!selectionInsideToken &&
+          !cursorInsideToken &&
+          !backspaceAtRightEdge) {
+        continue;
+      }
+
+      final next = oldText.replaceRange(match.start, match.end, '');
+      return TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: match.start),
+      );
+    }
+    return newValue;
+  }
+}
