@@ -77,18 +77,18 @@ Simple requests should not pay the full cost of a complex agent loop.
 Examples that should usually be fast path:
 
 - "open whatsapp"
-- "cek baterai"
+- "check battery"
 - "list notes"
-- "apa isi clipboard?"
-- "buat note judul X isi Y"
-- "buka url ini"
+- "what is in my clipboard?"
+- "create a note titled X with body Y"
+- "open this URL"
 
 Examples that should use deliberative path:
 
-- "bikinin aku sebuah website"
-- "rapihin semua workflow yang error"
-- "buat agent baru, kasih tools, lalu test"
-- "update semua module yang targetnya X"
+- "build me a website"
+- "fix all broken workflows"
+- "create a new agent, give it tools, then test it"
+- "update every module that targets X"
 - destructive actions
 - multi-target actions
 - cross-agent work
@@ -139,6 +139,22 @@ Good prompt shape:
 - recovery prompt: choose a new strategy from classified failure data
 - response prompt: produce user-facing answer
 
+### 2.7 System Prompts Must Be Language-Neutral
+
+System prompts must not contain examples, special cases, or routing rules that only work for one natural language.
+
+Rules:
+
+- do not hardcode Indonesian-only examples in system prompts
+- do not hardcode English-only trigger phrases as the only supported path
+- do not make a tool or intent depend on a specific language phrase
+- use semantic intent, tool metadata, and slot schemas instead of phrase lists when possible
+- if a sample is necessary for prompt clarity, write the sample in English as the neutral reference language
+- keep user-facing clarification and final responses in the user's language when that language is known
+- store multilingual aliases and synonyms outside the system prompt when they are needed for routing
+
+English examples in this document are examples for design clarity, not the only supported user language.
+
 ## 3. Target Runtime Overview
 
 ```mermaid
@@ -180,13 +196,13 @@ flowchart TD
     X --> Z
 ```
 
-## 4. Complex Task Example: "Bikinin Aku Sebuah Website"
+## 4. Complex Task Example: "Build Me A Website"
 
 This is the expected agentic behavior for a complex build task.
 
 ```mermaid
 flowchart TD
-    A["User: Bikinin aku sebuah website"] --> B["Intent: create frontend artifact/app"]
+    A["User: Build me a website"] --> B["Intent: create frontend artifact/app"]
     B --> C["Policy: complex task, deliberative path"]
     C --> D["Plan goals"]
 
@@ -593,12 +609,12 @@ open whatsapp
   confirm: app.open if policy requires
   verify: tool result
 
-cek baterai
+check battery
   intent: system info
   tool: device.battery
   verify: result contains battery fields
 
-buat note judul "A" isi "B"
+create a note titled "A" with body "B"
   intent: create note
   tool: notes.create
   verify: snapshot/result contains created note
@@ -885,7 +901,37 @@ Should not:
   mention internal tool names unless debug/dev mode requires it
 ```
 
-### 10.3 Rules To Move Out Of Prompt
+### 10.3 Language-Neutral Prompt Policy
+
+System prompts must be language-neutral. They should describe behavior, schemas, constraints, and reasoning boundaries, not language-specific phrase triggers.
+
+Do:
+
+- use English examples only when an example is unavoidable
+- describe intent categories semantically, such as "open an app", "create a note", or "inspect build errors"
+- keep examples short and generic
+- instruct the model to preserve the user's language for clarification and final answer
+- keep multilingual routing data in code/config where it can be tested
+
+Do not:
+
+- include Indonesian-only examples such as the only valid way to express an intent
+- include long phrase lists inside system prompts
+- make a rule depend on exact user wording
+- mix several languages in the same prompt section as hidden routing hints
+- use examples to patch one specific case when a tool schema or runtime policy can solve it
+
+If a prompt needs a sample, prefer English:
+
+```text
+User: "Build me a website"
+Intent: create_frontend
+Path: deliberative
+```
+
+The runtime must still support user input in other languages through intent understanding, aliases, and semantic routing.
+
+### 10.4 Rules To Move Out Of Prompt
 
 Move these from prompt constants into code/config:
 
@@ -900,19 +946,21 @@ Move these from prompt constants into code/config:
 - bulk selector fan-out
 - destructive action handling
 - fallback to available entity list
+- language-specific aliases and synonym lists
 
-### 10.4 Rules That Can Stay In Prompt
+### 10.5 Rules That Can Stay In Prompt
 
 Keep only language/strategy behavior:
 
 - understand the user's natural language
 - preserve user's language in clarification/final answer
+- use English only for unavoidable internal examples
 - decompose genuinely complex tasks
 - choose among multiple reasonable strategies
 - explain verified results clearly
 - be honest about blockers
 
-### 10.5 Prompt Size Target
+### 10.6 Prompt Size Target
 
 Target sizes:
 
@@ -994,16 +1042,16 @@ Examples:
 
 ```text
 Done:
-  "Website-nya sudah aku buat dan build check sudah lolos."
+  "I built the website and the build check passed."
 
 Partial:
-  "UI sudah aku implementasikan, tapi build belum bisa diverifikasi karena dependency X belum tersedia."
+  "I implemented the UI, but I could not verify the build because dependency X is unavailable."
 
 Blocked:
-  "Aku perlu izin akses notifikasi dulu sebelum bisa lanjut."
+  "I need notification access before I can continue."
 
 Failed:
-  "Aku sudah coba dua strategi perbaikan, tapi error yang sama masih muncul di file X. Ini blocker-nya..."
+  "I tried two repair strategies, but the same error still appears in file X. Here is the blocker..."
 ```
 
 ## 14. Migration Plan
@@ -1139,10 +1187,10 @@ Acceptance criteria:
 
 ```text
 open whatsapp
-cek baterai
-apa isi clipboard?
+check battery
+what is in my clipboard?
 list notes
-buat note judul X isi Y
+create note titled X with body Y
 ```
 
 Expected:
@@ -1154,9 +1202,9 @@ Expected:
 ### Ambiguity
 
 ```text
-buka toko
-hapus agent itu
-update workflow yang kemarin
+open store
+delete that agent
+update yesterday's workflow
 ```
 
 Expected:
@@ -1168,9 +1216,9 @@ Expected:
 ### Complex Build
 
 ```text
-bikinin aku sebuah website
-buat module baru dan test
-rapihin workflow ini sampai jalan
+build me a website
+create a new module and test it
+fix this workflow until it runs
 ```
 
 Expected:
@@ -1256,4 +1304,3 @@ Meow Runtime V2 should feel like this:
 - final answers are based on verified facts
 
 The agent should not be reckless, but it should be persistent.
-
