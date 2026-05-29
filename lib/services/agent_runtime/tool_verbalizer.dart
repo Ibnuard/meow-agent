@@ -18,10 +18,7 @@ import 'runtime_models.dart';
 /// Caching: per-turn only. Call [resetTurn] at the start of every
 /// `engine.run()` invocation. Multi-turn caching is intentionally deferred.
 class ToolVerbalizer {
-  ToolVerbalizer({
-    required this.client,
-    required this.config,
-  });
+  ToolVerbalizer({required this.client, required this.config});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
@@ -66,7 +63,8 @@ class ToolVerbalizer {
         : '\n\nAlready completed automatically before this confirmation:\n'
               '${done.map((d) => '- ${jsonEncode(d)}').join('\n')}';
 
-    final prompt = '''You write ONE short sentence asking the user to confirm an action.
+    final prompt =
+        '''You write ONE short sentence asking the user to confirm an action.
 
 Action: ${tool.name}
 Action description: ${definition.description}
@@ -110,7 +108,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
         ? ''
         : '\nResult data (for context only): ${jsonEncode(_shrinkData(result.data))}';
 
-    final prompt = '''You write ONE natural confirmation that an action just completed.
+    final prompt =
+        '''You write ONE natural confirmation that an action just completed.
 
 Action: ${tool.name}
 Arguments: ${jsonEncode(tool.args)}$dataBlock
@@ -156,7 +155,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     final cached = _turnCache[cacheKey];
     if (cached != null) return cached;
 
-    final prompt = '''You answer the user's request using ONLY the tool result data.
+    final prompt =
+        '''You answer the user's request using ONLY the tool result data.
 
 User request:
 $userMessage
@@ -198,7 +198,8 @@ Reply with the answer only. No JSON, no quotes.''';
     final cached = _turnCache[cacheKey];
     if (cached != null) return cached;
 
-    final prompt = '''You write ONE short message acknowledging that the user cancelled the action.
+    final prompt =
+        '''You write ONE short message acknowledging that the user cancelled the action.
 
 Action that was cancelled: ${tool.name}
 
@@ -227,7 +228,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     final cached = _turnCache[cacheKey];
     if (cached != null) return cached;
 
-    final prompt = '''You write ONE short preview of what an action WOULD do, without actually doing it.
+    final prompt =
+        '''You write ONE short preview of what an action WOULD do, without actually doing it.
 
 Action: ${tool.name}
 Arguments: ${jsonEncode(tool.args)}
@@ -269,7 +271,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
         ? ''
         : '\nProgress at the time of abort: ${jsonEncode(goalState)}';
 
-    final prompt = '''You write ONE short message explaining that the agent is stopping a multi-step task it cannot finish.
+    final prompt =
+        '''You write ONE short message explaining that the agent is stopping a multi-step task it cannot finish.
 
 Reason (internal): $reason$goalBlock
 
@@ -311,20 +314,21 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
       'multi',
       const {},
       language.code,
-      extra: {
-        'main_goal': mainGoal,
-        'subgoals': completedSubgoals,
-      },
+      extra: {'main_goal': mainGoal, 'subgoals': completedSubgoals},
     );
     final cached = _turnCache[cacheKey];
     if (cached != null) return cached;
 
     final subgoalsBlock = completedSubgoals
-        .map((s) => '- [${s['status'] ?? 'done'}] ${s['label'] ?? ''}'
-            '${(s['notes'] ?? '').toString().isEmpty ? '' : ' (${s['notes']})'}')
+        .map(
+          (s) =>
+              '- [${s['status'] ?? 'done'}] ${s['label'] ?? ''}'
+              '${(s['notes'] ?? '').toString().isEmpty ? '' : ' (${s['notes']})'}',
+        )
         .join('\n');
 
-    final prompt = '''You write ONE natural recap of a multi-step task that just finished.
+    final prompt =
+        '''You write ONE natural recap of a multi-step task that just finished.
 
 Overall goal: $mainGoal
 
@@ -435,7 +439,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     final cached = _turnCache[cacheKey];
     if (cached != null) return cached;
 
-    final prompt = '''You write ONE short, friendly note because the user just sent a request that is unrelated to a task that was still in progress.
+    final prompt =
+        '''You write ONE short, friendly note because the user just sent a request that is unrelated to a task that was still in progress.
 
 Previous task in progress: "$previousMainGoal"
 
@@ -582,7 +587,8 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
     required String availableProviders,
     required DetectedLanguage language,
   }) async {
-    final prompt = '''You write ONE short sentence asking the user to pick a provider.
+    final prompt =
+        '''You write ONE short sentence asking the user to pick a provider.
 
 Available: ${availableProviders.isEmpty ? '(none listed)' : availableProviders}
 
@@ -617,8 +623,10 @@ Rules:
       '',
       'Context:',
       if (error.isNotEmpty) 'Error: $error',
-      if (triedName != null && triedName.isNotEmpty) 'The user tried: "$triedName"',
-      if (availableNames != null && availableNames.isNotEmpty) 'Available options: $availableNames',
+      if (triedName != null && triedName.isNotEmpty)
+        'The user tried: "$triedName"',
+      if (availableNames != null && availableNames.isNotEmpty)
+        'Available options: $availableNames',
       '',
       'Rules:',
       '- Reply in ${language.label} (${language.code}). Match this language exactly.',

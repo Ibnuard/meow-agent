@@ -451,9 +451,7 @@ class TargetResolver {
     final entities = _entities(snapshot, entityType);
     if (entities.isEmpty) return null;
 
-    final originId = seed.subgoalId.isEmpty
-        ? '__bulk_$index'
-        : seed.subgoalId;
+    final originId = seed.subgoalId.isEmpty ? '__bulk_$index' : seed.subgoalId;
     Subgoal? origin;
     for (final s in tree.subgoals) {
       if (s.id == originId) {
@@ -1103,16 +1101,11 @@ class TargetResolver {
         .toSet()
         .join(', ');
     if (names.isEmpty) {
-      return LanguageRegistry.phrase(
-        'clarify_target_unknown',
-        language.code,
-      );
+      return LanguageRegistry.phrase('clarify_target_unknown', language.code);
     }
-    return LanguageRegistry.phrase(
-      'clarify_target_unverified',
-      language.code,
-      {'names': names},
-    );
+    return LanguageRegistry.phrase('clarify_target_unverified', language.code, {
+      'names': names,
+    });
   }
 
   static String _blockForNoEligibleTargets(

@@ -106,6 +106,7 @@ ${PromptConstants.planResponseFormat}''';
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
+    List<Map<String, String>> recentMessages = const [],
   }) {
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n${PromptConstants.selectToolMemoryHeader}\n$recentToolMemory\n'
@@ -124,6 +125,22 @@ ${PromptConstants.planResponseFormat}''';
               'Active subgoal: ${goalTree.nextActionable?.id ?? 'none'} '
               '— ${goalTree.nextActionable?.label ?? 'all subgoals are terminal'}\n'
               'Pick the tool that advances the active subgoal. If all subgoals are terminal, return status=done.\n';
+    // Conversation history block. Critical for chained workflows: the previous
+    // step's output arrives here as the most recent assistant turn. When this
+    // step's instruction says "send / save / forward the result", the tool
+    // arguments (e.g. chat.send content) MUST be drawn from this history —
+    // never invented. Without this block the selector hallucinates plausible
+    // but wrong content.
+    final historyBlock = recentMessages.isEmpty
+        ? ''
+        : '\nConversation history (authoritative data — use VERBATIM when an '
+              'instruction refers to "the result", "this", "it", or the '
+              'previous step output):\n'
+              '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n'
+              'When filling a tool argument that carries content (message body, '
+              'note text, file body), copy the relevant text from the history '
+              'above. Do NOT paraphrase, embellish, add jokes, or invent '
+              'items/names/numbers that are not present there.\n';
     return '''${PromptConstants.selectToolIntro}
 
 Execution plan:
@@ -132,7 +149,7 @@ ${_jsonString(plan)}
 Current step: $currentStep
 Previous results (this turn):
 ${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
-$goalBlock$memoryBlock$sourceModeBlock
+$historyBlock$goalBlock$memoryBlock$sourceModeBlock
 Available tools:
 ${availableTools.join('\n')}
 
@@ -147,6 +164,7 @@ ${PromptConstants.selectToolResponseFormat}''';
     required String userMessage,
     String language = 'English',
     GoalTree? goalTree,
+    List<Map<String, String>> recentMessages = const [],
   }) {
     final goalBlock = goalTree == null || goalTree.isEmpty
         ? ''
@@ -154,13 +172,19 @@ ${PromptConstants.selectToolResponseFormat}''';
               'Active subgoal: ${goalTree.nextActionable?.id ?? 'none'}\n'
               'You MUST emit "subgoal_update" for the active subgoal. '
               'Only return status=done when every subgoal is terminal and every completion criterion is satisfied.\n';
+    final historyBlock = recentMessages.isEmpty
+        ? ''
+        : '\nConversation history (authoritative data — when writing any '
+              'final_response or summary, ground it strictly on this; do NOT '
+              'invent items, names, numbers, or jokes not present here):\n'
+              '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
     return '''${PromptConstants.reviewIntro}
 
 Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
-$goalBlock
+$historyBlock$goalBlock
 Current step: $currentStep
 
 Tool result:

@@ -984,8 +984,7 @@ This file stores persistent memory and context that carries across sessions.
       final enabledArg = args['enabled'];
       if (settingKey.isEmpty) {
         // Toggle module-level enabled.
-        final newEnabled =
-            enabledArg is bool ? enabledArg : !mod.enabled;
+        final newEnabled = enabledArg is bool ? enabledArg : !mod.enabled;
         await moduleRepository.update(mod.copyWith(enabled: newEnabled));
         return ToolExecutionResult(
           success: true,
@@ -1053,18 +1052,17 @@ This file stores persistent memory and context that carries across sessions.
         return ToolExecutionResult(
           success: false,
           toolName: 'system.agents.update',
-          error:
-              'Agent not found by id="$id" or name="$lookupName".',
+          error: 'Agent not found by id="$id" or name="$lookupName".',
           data: {
-            'available':
-                agents.map((a) => {'id': a.id, 'name': a.name}).toList(),
+            'available': agents
+                .map((a) => {'id': a.id, 'name': a.name})
+                .toList(),
           },
         );
       }
 
       final newName = (args['newName'] as String? ?? '').trim();
-      final newProviderRaw =
-          (args['providerId'] as String? ?? '').trim();
+      final newProviderRaw = (args['providerId'] as String? ?? '').trim();
       final newMaxContext = (args['maxContextLength'] as num?)?.toInt();
       final newIcon = args['iconKey'] as String?;
       final newColor = args['colorKey'] as String?;
@@ -1073,10 +1071,11 @@ This file stores persistent memory and context that carries across sessions.
       if (newProviderRaw.isNotEmpty) {
         final providers = await _loadProviders();
         final found = providers
-            .where((p) =>
-                p.id == newProviderRaw ||
-                p.nickname.toLowerCase() ==
-                    newProviderRaw.toLowerCase())
+            .where(
+              (p) =>
+                  p.id == newProviderRaw ||
+                  p.nickname.toLowerCase() == newProviderRaw.toLowerCase(),
+            )
             .firstOrNull;
         if (found == null) {
           return ToolExecutionResult(
@@ -1091,8 +1090,7 @@ This file stores persistent memory and context that carries across sessions.
       final updated = target.copyWith(
         name: newName.isEmpty ? null : newName,
         providerId: finalProviderId,
-        maxContextLength:
-            newMaxContext?.clamp(512, 1000000).toInt(),
+        maxContextLength: newMaxContext?.clamp(512, 1000000).toInt(),
         iconKey: newIcon,
         colorKey: newColor,
       );
@@ -1170,9 +1168,7 @@ This file stores persistent memory and context that carries across sessions.
   /// - merge (default): adds missing agents and modules; existing entries are
   ///   left alone.
   /// - replace: clears existing agents/modules first.
-  Future<ToolExecutionResult> executeImport(
-    Map<String, dynamic> args,
-  ) async {
+  Future<ToolExecutionResult> executeImport(Map<String, dynamic> args) async {
     try {
       final snapshot = args['snapshot'];
       if (snapshot is! Map) {
@@ -1202,8 +1198,7 @@ This file stores persistent memory and context that carries across sessions.
       final save = saveAgent;
       if ((repo != null || save != null) && snapshot['agents'] is List) {
         final existing = _loadAgents();
-        final existingNames =
-            existing.map((a) => a.name.toLowerCase()).toSet();
+        final existingNames = existing.map((a) => a.name.toLowerCase()).toSet();
         if (mode == 'replace') {
           for (final a in existing) {
             if (a.id == agentId) continue; // Cannot delete self.
@@ -1241,8 +1236,7 @@ This file stores persistent memory and context that carries across sessions.
           final m = ModuleModel.fromJson(Map<String, dynamic>.from(raw));
           if (existingIds.contains(m.id)) {
             await moduleRepository.update(m);
-            stats['modulesUpdated'] =
-                (stats['modulesUpdated'] ?? 0) + 1;
+            stats['modulesUpdated'] = (stats['modulesUpdated'] ?? 0) + 1;
           } else {
             await moduleRepository.install(m);
             stats['modulesAdded'] = (stats['modulesAdded'] ?? 0) + 1;

@@ -15,20 +15,15 @@ import 'runtime_models.dart';
 /// - [clarify]      → ask the user one short question first
 /// - [autoResolve]  → run preparatory steps silently, then continue (Phase 4 finishes this)
 /// - [block]        → refuse with a clear, helpful explanation
-enum ReflectionStrategy {
-  directExecute,
-  clarify,
-  autoResolve,
-  block,
-}
+enum ReflectionStrategy { directExecute, clarify, autoResolve, block }
 
 extension ReflectionStrategyX on ReflectionStrategy {
   String get label => switch (this) {
-        ReflectionStrategy.directExecute => 'direct_execute',
-        ReflectionStrategy.clarify => 'clarify',
-        ReflectionStrategy.autoResolve => 'auto_resolve',
-        ReflectionStrategy.block => 'block',
-      };
+    ReflectionStrategy.directExecute => 'direct_execute',
+    ReflectionStrategy.clarify => 'clarify',
+    ReflectionStrategy.autoResolve => 'auto_resolve',
+    ReflectionStrategy.block => 'block',
+  };
 
   static ReflectionStrategy fromLabel(String? raw) {
     switch (raw) {
@@ -78,15 +73,15 @@ class ReflectionImpact {
   final String sourceTargetId;
 
   Map<String, dynamic> toJson() => {
-        'entity_type': entityType,
-        'entity_id': entityId,
-        'entity_label': entityLabel,
-        'relation': relation,
-        'severity': severity,
-        'auto_resolvable': autoResolvable,
-        'resolution_hint': resolutionHint,
-        if (sourceTargetId.isNotEmpty) 'source_target_id': sourceTargetId,
-      };
+    'entity_type': entityType,
+    'entity_id': entityId,
+    'entity_label': entityLabel,
+    'relation': relation,
+    'severity': severity,
+    'auto_resolvable': autoResolvable,
+    'resolution_hint': resolutionHint,
+    if (sourceTargetId.isNotEmpty) 'source_target_id': sourceTargetId,
+  };
 
   factory ReflectionImpact.fromJson(Map<String, dynamic> json) =>
       ReflectionImpact(
@@ -124,26 +119,24 @@ class ReflectionTarget {
   final Map<String, dynamic> selector;
 
   Map<String, dynamic> toJson() => {
-        'subgoal_id': subgoalId,
-        'operation': operation,
-        'entity_type': entityType,
-        if (entityId.isNotEmpty) 'entity_id': entityId,
-        if (entityLabel.isNotEmpty) 'entity_label': entityLabel,
-        if (selector.isNotEmpty) 'selector': selector,
-      };
+    'subgoal_id': subgoalId,
+    'operation': operation,
+    'entity_type': entityType,
+    if (entityId.isNotEmpty) 'entity_id': entityId,
+    if (entityLabel.isNotEmpty) 'entity_label': entityLabel,
+    if (selector.isNotEmpty) 'selector': selector,
+  };
 
-  factory ReflectionTarget.fromJson(Map<String, dynamic> json) =>
-      ReflectionTarget(
-        subgoalId: (json['subgoal_id'] ?? json['subgoalId'] ?? '').toString(),
-        operation: (json['operation'] ?? '').toString(),
-        entityType: (json['entity_type'] ?? json['entityType'] ?? '')
-            .toString(),
-        entityId: (json['entity_id'] ?? json['entityId'] ?? '').toString(),
-        entityLabel:
-            (json['entity_label'] ?? json['entityLabel'] ?? '').toString(),
-        selector: (json['selector'] as Map?)?.cast<String, dynamic>() ??
-            const {},
-      );
+  factory ReflectionTarget.fromJson(
+    Map<String, dynamic> json,
+  ) => ReflectionTarget(
+    subgoalId: (json['subgoal_id'] ?? json['subgoalId'] ?? '').toString(),
+    operation: (json['operation'] ?? '').toString(),
+    entityType: (json['entity_type'] ?? json['entityType'] ?? '').toString(),
+    entityId: (json['entity_id'] ?? json['entityId'] ?? '').toString(),
+    entityLabel: (json['entity_label'] ?? json['entityLabel'] ?? '').toString(),
+    selector: (json['selector'] as Map?)?.cast<String, dynamic>() ?? const {},
+  );
 }
 
 /// Output of one reflection turn.
@@ -186,19 +179,16 @@ class ReflectionOutput {
   bool get hasImpacts => impacts.isNotEmpty;
 
   Map<String, dynamic> toJson() => {
-        'strategy': strategy.label,
-        'goal_tree': goalTree.toJson(),
-        if (targets.isNotEmpty)
-          'targets': targets.map((e) => e.toJson()).toList(),
-        if (impacts.isNotEmpty)
-          'impacts': impacts.map((e) => e.toJson()).toList(),
-        if (clarifyQuestions.isNotEmpty)
-          'clarify_questions': clarifyQuestions,
-        if (blockReason.isNotEmpty) 'block_reason': blockReason,
-        if (reasoning.isNotEmpty) 'reasoning': reasoning,
-        if (narrative.isNotEmpty) 'narrative': narrative,
-        if (degraded) 'degraded': true,
-      };
+    'strategy': strategy.label,
+    'goal_tree': goalTree.toJson(),
+    if (targets.isNotEmpty) 'targets': targets.map((e) => e.toJson()).toList(),
+    if (impacts.isNotEmpty) 'impacts': impacts.map((e) => e.toJson()).toList(),
+    if (clarifyQuestions.isNotEmpty) 'clarify_questions': clarifyQuestions,
+    if (blockReason.isNotEmpty) 'block_reason': blockReason,
+    if (reasoning.isNotEmpty) 'reasoning': reasoning,
+    if (narrative.isNotEmpty) 'narrative': narrative,
+    if (degraded) 'degraded': true,
+  };
 }
 
 /// The mandatory deep-thinking phase between analyze and execute.
@@ -213,10 +203,7 @@ class ReflectionOutput {
 /// Failures degrade to `directExecute` with the analyzer's seed tree, so a
 /// reflection outage never bricks the runtime.
 class Reflector {
-  Reflector({
-    required this.client,
-    required this.config,
-  });
+  Reflector({required this.client, required this.config});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
@@ -276,7 +263,10 @@ class Reflector {
         lastResponse = response;
         parsed = JsonUtils.tryParseObject(response);
       } catch (e) {
-        logger.logError('Reflection LLM call failed (attempt ${attempts + 1})', e);
+        logger.logError(
+          'Reflection LLM call failed (attempt ${attempts + 1})',
+          e,
+        );
       }
       attempts++;
     }
@@ -308,9 +298,7 @@ class Reflector {
   }) {
     final historyBlock = recentMessages.isEmpty
         ? 'No prior conversation.'
-        : recentMessages
-            .map((m) => '${m['role']}: ${m['content']}')
-            .join('\n');
+        : recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n');
 
     final ecosystemBlock = snapshot.isRelevantForReflection
         ? snapshot.toCompactString()
@@ -319,9 +307,12 @@ class Reflector {
     final toolsBlock = availableTools.isEmpty
         ? 'No tools available.'
         : availableTools
-            .map((t) => '- ${t.name} (${t.risk}): ${t.description}'
-                '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}')
-            .join('\n');
+              .map(
+                (t) =>
+                    '- ${t.name} (${t.risk}): ${t.description}'
+                    '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}',
+              )
+              .join('\n');
 
     // Recovery context: when the runtime is asking the reflector to rethink
     // after a previous failure, surface the full attempt history. This is
@@ -336,8 +327,7 @@ class Reflector {
         if (entry is Map) {
           final reason = (entry['reason'] ?? 'unknown').toString();
           final tool = (entry['tool'] ?? entry['failed_tool'] ?? '').toString();
-          final args =
-              (entry['args'] ?? entry['failed_args'] ?? '').toString();
+          final args = (entry['args'] ?? entry['failed_args'] ?? '').toString();
           final entity = (entry['unverified_entity'] ?? '').toString();
           final detail = [
             if (tool.isNotEmpty) 'tool=$tool',
@@ -358,7 +348,7 @@ class Reflector {
 
     final broadenedNote = analysis['available_tools_broadened'] == true
         ? 'NOTE: The full tool catalog is now available. Consider tools '
-            'outside the original selection if they fit better.'
+              'outside the original selection if they fit better.'
         : '';
 
     return '''${PromptConstants.reflectIntro}
@@ -387,7 +377,14 @@ ${PromptConstants.reflectResponseFormat}''';
   }
 
   String _jsonSummary(Map<String, dynamic> json) {
-    final keep = ['intent', 'goal', 'requires_tools', 'risk', 'missing_info', 'subgoal_seeds'];
+    final keep = [
+      'intent',
+      'goal',
+      'requires_tools',
+      'risk',
+      'missing_info',
+      'subgoal_seeds',
+    ];
     final compact = <String, dynamic>{};
     for (final k in keep) {
       if (json.containsKey(k)) compact[k] = json[k];
@@ -401,28 +398,28 @@ ${PromptConstants.reflectResponseFormat}''';
     Map<String, dynamic> json, {
     required GoalTree fallbackTree,
   }) {
-    final strategy =
-        ReflectionStrategyX.fromLabel(json['strategy'] as String?);
+    final strategy = ReflectionStrategyX.fromLabel(json['strategy'] as String?);
 
     final treeJson = json['goal_tree'] as Map<String, dynamic>?;
-    final goalTree =
-        treeJson != null ? GoalTree.fromJson(treeJson) : fallbackTree;
+    final goalTree = treeJson != null
+        ? GoalTree.fromJson(treeJson)
+        : fallbackTree;
 
     final impactsJson = json['impacts'] as List?;
     final impacts = impactsJson == null
         ? const <ReflectionImpact>[]
         : impactsJson
-            .whereType<Map>()
-            .map((m) => ReflectionImpact.fromJson(m.cast<String, dynamic>()))
-            .toList(growable: false);
+              .whereType<Map>()
+              .map((m) => ReflectionImpact.fromJson(m.cast<String, dynamic>()))
+              .toList(growable: false);
 
     final targetsJson = json['targets'] as List?;
     final targets = targetsJson == null
         ? const <ReflectionTarget>[]
         : targetsJson
-            .whereType<Map>()
-            .map((m) => ReflectionTarget.fromJson(m.cast<String, dynamic>()))
-            .toList(growable: false);
+              .whereType<Map>()
+              .map((m) => ReflectionTarget.fromJson(m.cast<String, dynamic>()))
+              .toList(growable: false);
 
     final clarifyQuestionsJson = json['clarify_questions'] as List?;
     final clarifyQuestions = clarifyQuestionsJson == null
@@ -451,8 +448,7 @@ ${PromptConstants.reflectResponseFormat}''';
     Map<String, dynamic> analysis,
     String userMessage,
   ) {
-    final mainGoal =
-        (analysis['goal'] as String?) ?? userMessage;
+    final mainGoal = (analysis['goal'] as String?) ?? userMessage;
     final seeds = analysis['subgoal_seeds'];
     if (seeds is List && seeds.isNotEmpty) {
       return GoalTree(

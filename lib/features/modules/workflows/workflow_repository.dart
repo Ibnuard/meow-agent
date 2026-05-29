@@ -18,9 +18,11 @@ class WorkflowRepository {
   /// Create a new workflow. Returns false if max limit reached.
   Future<bool> create(WorkflowModel workflow) async {
     final db = await _db.database;
-    final count = Sqflite.firstIntValue(
-      await db.rawQuery('SELECT COUNT(*) FROM workflows WHERE enabled = 1'),
-    ) ?? 0;
+    final count =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT COUNT(*) FROM workflows WHERE enabled = 1'),
+        ) ??
+        0;
     if (count >= maxWorkflows) return false;
 
     await db.insert('workflows', _db.workflowToRow(workflow));
@@ -31,10 +33,12 @@ class WorkflowRepository {
   Future<List<WorkflowModel>> list({String? agentId}) async {
     final db = await _db.database;
     final rows = agentId != null
-        ? await db.query('workflows',
+        ? await db.query(
+            'workflows',
             where: 'agent_id = ?',
             whereArgs: [agentId],
-            orderBy: 'created_at DESC')
+            orderBy: 'created_at DESC',
+          )
         : await db.query('workflows', orderBy: 'created_at DESC');
     return rows.map(_db.workflowFromRow).toList();
   }
@@ -42,8 +46,7 @@ class WorkflowRepository {
   /// Get a single workflow by ID.
   Future<WorkflowModel?> read(String id) async {
     final db = await _db.database;
-    final rows =
-        await db.query('workflows', where: 'id = ?', whereArgs: [id]);
+    final rows = await db.query('workflows', where: 'id = ?', whereArgs: [id]);
     if (rows.isEmpty) return null;
     return _db.workflowFromRow(rows.first);
   }
@@ -63,8 +66,11 @@ class WorkflowRepository {
   /// Delete a workflow.
   Future<bool> delete(String id) async {
     final db = await _db.database;
-    final count =
-        await db.delete('workflows', where: 'id = ?', whereArgs: [id]);
+    final count = await db.delete(
+      'workflows',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     return count > 0;
   }
 
@@ -199,8 +205,11 @@ class WorkflowRepository {
   /// Clear history for a specific workflow.
   Future<void> clearHistory(String workflowId) async {
     final db = await _db.database;
-    await db.delete('execution_history',
-        where: 'workflow_id = ?', whereArgs: [workflowId]);
+    await db.delete(
+      'execution_history',
+      where: 'workflow_id = ?',
+      whereArgs: [workflowId],
+    );
   }
 
   /// Clear ALL execution history across every workflow and agent.

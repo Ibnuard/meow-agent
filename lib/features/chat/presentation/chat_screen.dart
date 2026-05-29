@@ -1138,12 +1138,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .addMessage(_activeAgentId, message);
   }
 
+  /// True when [a] and [b] fall on the same calendar day (local time).
+  static bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     final agents = ref.watch(agentListProvider);
     final providers = ref.watch(providerListProvider).value ?? [];
     final debugMode = ref.watch(llmDebugModeProvider);
+    final isId = resolveLanguageCode(ref.watch(appLanguageProvider)) == 'id';
 
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -1326,19 +1331,43 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   final msgIndex = i - (_loadingOlder ? 1 : 0);
                                   // Order: messages → debug bubbles → thinking.
                                   if (msgIndex < _messages.length) {
-                                    return RepaintBoundary(
+                                    final current = _messages[msgIndex];
+                                    // Show a floating date separator when the
+                                    // day changes from the previous message
+                                    // (or for the very first message).
+                                    final prev = msgIndex > 0
+                                        ? _messages[msgIndex - 1]
+                                        : null;
+                                    final showDate =
+                                        prev == null ||
+                                        !_isSameDay(
+                                          prev.timestamp.toLocal(),
+                                          current.timestamp.toLocal(),
+                                        );
+                                    final bubble = RepaintBoundary(
                                       child: _Bubble(
-                                        msg: _messages[msgIndex],
+                                        msg: current,
                                         onConfirmAction: (action) =>
                                             _handleConfirmation(
                                               action,
                                               msgIndex,
                                             ),
                                         onActionTap: _handleResultAction,
-                                        onLongPress: () => _showMessageActions(
-                                          _messages[msgIndex],
-                                        ),
+                                        onLongPress: () =>
+                                            _showMessageActions(current),
                                       ),
+                                    );
+                                    if (!showDate) return bubble;
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _DateSeparator(
+                                          date: current.timestamp.toLocal(),
+                                          isId: isId,
+                                        ),
+                                        bubble,
+                                      ],
                                     );
                                   }
                                   final debugIdx = msgIndex - _messages.length;
@@ -1568,6 +1597,21 @@ class _Bubble extends StatelessWidget {
                   .toList(),
             ),
           ],
+          // Timestamp (WhatsApp-style, bottom-aligned). Respects the system
+          // 24H/12H clock preference.
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              _formatBubbleTime(context, msg.timestamp),
+              style: TextStyle(
+                fontSize: 10,
+                color: isUser
+                    ? Colors.white.withValues(alpha: 0.7)
+                    : cs.onSurfaceVariant.withValues(alpha: 0.7),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1578,6 +1622,94 @@ class _Bubble extends StatelessWidget {
           ? GestureDetector(onLongPress: onLongPress, child: bubble)
           : bubble,
     );
+  }
+
+  /// Format a message timestamp following the device's 24H/12H clock setting.
+  static String _formatBubbleTime(BuildContext context, DateTime dt) {
+    final use24 = MediaQuery.of(context).alwaysUse24HourFormat;
+    final tod = TimeOfDay.fromDateTime(dt.toLocal());
+    return MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(tod, alwaysUse24HourFormat: use24);
+  }
+}
+
+/// A floating, centered date separator (WhatsApp/Telegram style) shown above
+/// the first message of each day. Renders "Today" / "Yesterday" for recent
+/// days and a localized date otherwise.
+class _DateSeparator extends StatelessWidget {
+  const _DateSeparator({required this.date, required this.isId});
+
+  final DateTime date;
+  final bool isId;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final extras = context.extras;
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          color: extras.card.withValues(alpha: 0.7),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Text(
+          _label(),
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurfaceVariant,
+            letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(that).inDays;
+    if (diff == 0) return isId ? 'Hari ini' : 'Today';
+    if (diff == 1) return isId ? 'Kemarin' : 'Yesterday';
+
+    const monthsId = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
+    ];
+    const monthsEn = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final months = isId ? monthsId : monthsEn;
+    final mon = months[date.month - 1];
+    // Include year only when it's not the current year.
+    if (date.year == now.year) return '${date.day} $mon';
+    return '${date.day} $mon ${date.year}';
   }
 }
 

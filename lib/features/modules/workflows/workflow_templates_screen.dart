@@ -11,10 +11,12 @@ class WorkflowTemplatesScreen extends ConsumerStatefulWidget {
   const WorkflowTemplatesScreen({super.key});
 
   @override
-  ConsumerState<WorkflowTemplatesScreen> createState() => _WorkflowTemplatesScreenState();
+  ConsumerState<WorkflowTemplatesScreen> createState() =>
+      _WorkflowTemplatesScreenState();
 }
 
-class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScreen> {
+class _WorkflowTemplatesScreenState
+    extends ConsumerState<WorkflowTemplatesScreen> {
   TemplateCategory? _selectedCategory;
 
   @override
@@ -43,7 +45,10 @@ class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScree
               height: 50,
               child: ListView(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
                 children: [
                   _categoryChip(null, isId ? 'Semua' : 'All', cs),
                   ...TemplateCategory.values.map(
@@ -56,7 +61,8 @@ class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScree
               child: ListView.builder(
                 padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + bottomInset),
                 itemCount: templates.length,
-                itemBuilder: (_, i) => _templateCard(templates[i], cs, extras, isId),
+                itemBuilder: (_, i) =>
+                    _templateCard(templates[i], cs, extras, isId),
               ),
             ),
           ],
@@ -74,10 +80,14 @@ class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScree
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
-            color: selected ? cs.primary.withValues(alpha: 0.15) : Colors.transparent,
+            color: selected
+                ? cs.primary.withValues(alpha: 0.15)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
-              color: selected ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.2),
+              color: selected
+                  ? cs.primary
+                  : cs.onSurfaceVariant.withValues(alpha: 0.2),
             ),
           ),
           child: Center(
@@ -95,7 +105,12 @@ class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScree
     );
   }
 
-  Widget _templateCard(WorkflowTemplate tpl, ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _templateCard(
+    WorkflowTemplate tpl,
+    ColorScheme cs,
+    MeowExtras extras,
+    bool isId,
+  ) {
     return GestureDetector(
       onTap: () async {
         final result = await Navigator.push<bool>(
@@ -142,28 +157,42 @@ class _WorkflowTemplatesScreenState extends ConsumerState<WorkflowTemplatesScree
                   const SizedBox(height: 4),
                   Text(
                     isId ? tpl.descriptionId : tpl.description,
-                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, height: 1.3),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant,
+                      height: 1.3,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (tpl.defaultSteps.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: cs.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
                         '${tpl.defaultSteps.length} ${isId ? "langkah" : "steps"}',
-                        style: TextStyle(fontSize: 10, color: cs.primary, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: cs.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
           ],
         ),
       ),

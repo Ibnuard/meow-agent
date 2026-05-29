@@ -303,13 +303,26 @@ class WorkflowRunner {
     // built-ins (time/identity/trigger). Built-ins win to avoid stale data.
     final builtIns = await WorkflowBuiltInVars.resolve(
       agentName: agent.name,
+      agentId: wf.agentId,
       now: DateTime.now(),
       triggerVars: triggerVars,
     );
     final vars = <String, String>{}
       ..addAll(wf.variables) // legacy fallback
       ..addAll(builtIns);
-    final resolvedPrompt = WorkflowBuiltInVars.substitute(wf.prompt, vars);
+    // Avoid double-injecting trigger var content: if the prompt references
+    // any trigger var (@notif, @notif_body, etc.), swap that value for a
+    // reference marker. The actual content lives once in the
+    // [TRIGGER CONTEXT] block appended below.
+    final substituteVars = _maskTriggerVarReferences(
+      prompt: wf.prompt,
+      vars: vars,
+      triggerVars: triggerVars,
+    );
+    final resolvedPrompt = WorkflowBuiltInVars.substitute(
+      wf.prompt,
+      substituteVars,
+    );
     final prompt = _wrapWithTriggerContext(resolvedPrompt, triggerVars);
 
     final response = await engine
@@ -394,10 +407,12 @@ class WorkflowRunner {
     String previousResult = '';
     bool chainFailed = false;
 
-    // Build base built-in variable map once. Per-step we'll override {{prev}}
-    // and {{step_index}}.
+    // Built-in variables that don't depend on the running agent are computed
+    // once. Per-step we'll re-resolve to refresh `{{chat_session}}` with the
+    // step's specific agent and to override `{{prev}}` / `{{step_index}}`.
     final baseBuiltIns = await WorkflowBuiltInVars.resolve(
       agentName: fallbackAgent.name,
+      agentId: fallbackAgent.id,
       now: DateTime.now(),
       triggerVars: triggerVars,
     );
@@ -436,9 +451,23 @@ class WorkflowRunner {
       // Build per-step var map: legacy custom vars + base built-ins +
       // step-local extras. Order: built-ins win over legacy, step extras win
       // over built-ins.
+      //
+      // We re-resolve `{{chat_session}}` (per-agent reference) and
+      // `{{chat_history}}` (recent message dump) against the STEP'S agent so
+      // a chain that hops Mina -> Mars sees Mars's session/history, not
+      // Mina's.
+      final isFallbackAgent = stepAgent.id == fallbackAgent.id;
+      final stepChatSession = isFallbackAgent
+          ? (baseBuiltIns['chat_session'] ?? '')
+          : WorkflowBuiltInVars.renderChatSessionRef(stepAgent.name);
+      final stepChatHistory = isFallbackAgent
+          ? (baseBuiltIns['chat_history'] ?? '')
+          : await WorkflowBuiltInVars.resolveChatHistory(stepAgent.id);
       final runtimeVars = <String, String>{}
         ..addAll(wf.variables) // legacy fallback
         ..addAll(baseBuiltIns)
+        ..['chat_session'] = stepChatSession
+        ..['chat_history'] = stepChatHistory
         ..['prev'] = previousResult
         ..['step_index'] = i.toString();
 
@@ -463,24 +492,96 @@ class WorkflowRunner {
         }
       }
 
-      var rawPrompt = WorkflowBuiltInVars.substitute(step.prompt, runtimeVars);
-      // Only the first step sees the raw trigger context. Later steps build
-      // on {{prev}} which already contains digested context.
+      // ─── Build the resolved step prompt ─────────────────────────────────
+      //
+      // Generic structure for chained steps:
+      //
+      //   [WORKFLOW CONTEXT]   ← tells the runtime it already has data
+      //   [USER INSTRUCTION]   ← user prompt with @prev swapped for a
+      //                          reference marker (no duplicated content)
+      //   [PREVIOUS STEP OUTPUT] ← single authoritative copy of prev
+      //
+      // The marker swap is the key fix: substituting @prev with the full
+      // prev content AND attaching it as a separate block double-injects the
+      // data into the prompt. The analyzer/selector then keys on whatever
+      // domain the prev content happens to mention (e.g. "WhatsApp", "notif")
+      // and picks the wrong tool family.
+      final substituteVars = Map<String, String>.from(runtimeVars);
+      final referencesPrev =
+          RegExp(r'(?<![\w@])@prev\b').hasMatch(step.prompt) ||
+          step.prompt.contains('{{prev}}');
+      if (referencesPrev && i > 0) {
+        substituteVars['prev'] =
+            '<the previous step output — provided as the most recent '
+            'assistant message in the conversation history>';
+      }
+      // Step 0 also has trigger-var content double-injection risk — mask
+      // any trigger var the prompt references so its content lives once,
+      // in the [TRIGGER CONTEXT] block. Same fix shape as @prev above.
+      if (i == 0) {
+        substituteVars.addAll(
+          _maskTriggerVarReferences(
+            prompt: step.prompt,
+            vars: substituteVars,
+            triggerVars: triggerVars,
+            // Only override the specific keys we mask; preserve everything
+            // else from runtimeVars.
+            onlyKeysReferenced: true,
+          ),
+        );
+      }
+
+      var rawPrompt = WorkflowBuiltInVars.substitute(
+        step.prompt,
+        substituteVars,
+      );
+
       if (i == 0) {
         rawPrompt = _wrapWithTriggerContext(rawPrompt, triggerVars);
       }
 
-      // Inject system context so the agent understands what {{prev}} was.
-      // This prevents the agent from saying "berikan ide jurnalnya" when
-      // {{prev}} already contains the journal content from step 1.
-      final systemPrefix = i > 0 && previousResult.isNotEmpty
-          ? '[SYSTEM CONTEXT: This is step ${i + 1} of a multi-step workflow. '
-                'The previous step\'s output is provided below as context — use it '
-                'directly, do NOT ask the user to provide it again.]\n'
-                '--- PREVIOUS STEP RESULT ---\n$previousResult\n'
-                '--- END PREVIOUS STEP RESULT ---\n\n'
-          : '';
-      final resolvedPrompt = '$systemPrefix$rawPrompt';
+      // Compose request for the runtime engine. For step ≥ 2 we deliver
+      // the previous step output as a CONVERSATION TURN (assistant role)
+      // rather than mashing it into userMessage. This keeps the analyzer's
+      // intent classification focused on the actual instruction ("kirim ke
+      // chat") instead of the prev payload's keywords ("WhatsApp", "notif",
+      // "shopping list") that would otherwise mis-route to fetchers like
+      // notification.read_recent or notes.search.
+      String stepUserMessage;
+      List<ChatMessage> stepRecentMessages = const [];
+
+      if (i == 0) {
+        stepUserMessage = rawPrompt;
+      } else if (previousResult.isEmpty) {
+        stepUserMessage = rawPrompt;
+      } else {
+        stepUserMessage = _buildChainedUserMessage(
+          stepIndex: i,
+          totalSteps: wf.steps.length,
+          userInstruction: rawPrompt,
+        );
+        stepRecentMessages = [
+          ChatMessage(role: 'user', content: _previousStepInstructionMarker(i)),
+          ChatMessage(role: 'assistant', content: previousResult),
+        ];
+
+        // Observability: record the EXACT previous-step output handed to this
+        // step as conversation history. Lets the user verify whether step N
+        // received correct data vs. hallucinated — without this, a wrong
+        // result is indistinguishable from a bad handoff.
+        final preview = previousResult.length > 500
+            ? '${previousResult.substring(0, 500)}… (${previousResult.length} chars total)'
+            : previousResult;
+        capturedEvents.add(
+          WorkflowExecutionEvent(
+            type: 'step_handoff',
+            message:
+                '[Step ${i + 1}] Received from step $i (prev, '
+                '${previousResult.length} chars):\n$preview',
+            createdAt: DateTime.now(),
+          ),
+        );
+      }
 
       capturedEvents.add(
         WorkflowExecutionEvent(
@@ -498,7 +599,8 @@ class WorkflowRunner {
               AgentRuntimeRequest(
                 agentId: stepAgent.id,
                 agentName: stepAgent.name,
-                userMessage: resolvedPrompt,
+                userMessage: stepUserMessage,
+                recentMessages: stepRecentMessages,
                 source: RequestSource.workflow,
               ),
               provider: stepProvider,
@@ -563,7 +665,8 @@ class WorkflowRunner {
                     AgentRuntimeRequest(
                       agentId: stepAgent.id,
                       agentName: stepAgent.name,
-                      userMessage: resolvedPrompt,
+                      userMessage: stepUserMessage,
+                      recentMessages: stepRecentMessages,
                       source: RequestSource.workflow,
                     ),
                     provider: stepProvider,
@@ -696,6 +799,109 @@ class WorkflowRunner {
     }
   }
 
+  /// Wrap a chained step's user instruction in a structured workflow context.
+  ///
+  /// Domain-agnostic: works for summarize → send-to-chat, fetch → save-note,
+  /// list-events → write-file, etc. The contract enforced by this block:
+  ///
+  ///   1. The previous step output is INLINE below — already retrieved.
+  ///   2. The agent MUST act on it directly. No re-fetching, no re-reading.
+  ///   3. If the user asks to "send / share / save / write / forward" it,
+  ///      the runtime should pick a delivery tool (chat, notes, files, etc.)
+  ///      and pass the inline content as the body — not a tool that fetches
+  ///      data again.
+  ///   4. Concrete facts in the previous output must be preserved verbatim;
+  ///      no inventing names, numbers, or items.
+  /// Build the userMessage for a chained step (i ≥ 1).
+  ///
+  /// Keeps the actual instruction front-and-center so the analyzer's intent
+  /// classification keys on the verbs/objects the user wrote (e.g. "kirim ke
+  /// chat", "simpan ke notes", "bikin file"). The previous step output is
+  /// delivered separately as a recentMessages turn — NOT inlined here — so
+  /// it doesn't drown out the instruction's keywords.
+  String _buildChainedUserMessage({
+    required int stepIndex,
+    required int totalSteps,
+    required String userInstruction,
+  }) {
+    final buf = StringBuffer()
+      ..writeln('[CHAINED WORKFLOW STEP ${stepIndex + 1} of $totalSteps]')
+      ..writeln(
+        'The previous step\'s output is in the conversation above (most '
+        'recent assistant turn). Treat it as data already retrieved — do '
+        'NOT call any tool to fetch, read, list, or summarize the same '
+        'kind of data again.',
+      )
+      ..writeln(
+        'If this step asks to send / share / save / write / forward / post / '
+        'deliver the data, choose a delivery tool that takes a content body '
+        '(chat.send, notes.create, files.write, intent.open_url, etc.) and '
+        'pass the previous turn\'s content verbatim as that body. Preserve '
+        'concrete facts (items, names, numbers, dates) exactly.',
+      )
+      ..writeln('')
+      ..writeln('Instruction for this step:')
+      ..write(userInstruction);
+    return buf.toString();
+  }
+
+  /// Synthetic user turn placed BEFORE the assistant turn that holds the
+  /// previous step output. Gives the conversation history a coherent shape
+  /// (user asked → assistant produced output) so the planner sees natural
+  /// turn-taking instead of an orphaned assistant turn.
+  String _previousStepInstructionMarker(int stepIndex) {
+    return '[Previous workflow step $stepIndex output below — already '
+        'produced for this chain. Use it as authoritative data for the '
+        'next step instead of fetching again.]';
+  }
+
+  /// Trigger-var keys that, when referenced in a user's prompt, should be
+  /// masked with a reference marker rather than substituted with the live
+  /// content. Their content lives once in the `[TRIGGER CONTEXT]` block.
+  static const _maskedTriggerKeys = {
+    'notif',
+    'notif_app',
+    'notif_title',
+    'notif_body',
+    'notif_keyword',
+    'app_name',
+    'app_package',
+    'battery_level',
+    'battery_state',
+  };
+
+  /// For each masked trigger key referenced by [prompt], return a map that
+  /// overrides the value in [vars] with a short reference marker. Used to
+  /// prevent the analyzer from seeing the same content keywords twice (once
+  /// inline, once in `[TRIGGER CONTEXT]`).
+  ///
+  /// When [onlyKeysReferenced] is true, the returned map only contains
+  /// overrides for keys the prompt actually mentions. Otherwise it returns
+  /// a full copy of [vars] with the masks applied (for callers that pass
+  /// the result directly to `substitute`).
+  Map<String, String> _maskTriggerVarReferences({
+    required String prompt,
+    required Map<String, String> vars,
+    required Map<String, String> triggerVars,
+    bool onlyKeysReferenced = false,
+  }) {
+    final out = onlyKeysReferenced
+        ? <String, String>{}
+        : Map<String, String>.from(vars);
+    if (triggerVars.isEmpty) return out;
+
+    for (final key in _maskedTriggerKeys) {
+      final value = triggerVars[key];
+      if (value == null || value.isEmpty) continue;
+      final referenced =
+          RegExp('(?<![\\w@])@$key\\b').hasMatch(prompt) ||
+          prompt.contains('{{$key}}');
+      if (!referenced) continue;
+      out[key] = '<see TRIGGER CONTEXT block below for the live $key value>';
+    }
+    return out;
+  }
+
   /// Prepend a `[TRIGGER CONTEXT]` block describing the notification that
   /// fired this workflow. Tells the agent the data is inline so it doesn't
   /// go hunting for tools to fetch chat / notification history.
@@ -715,10 +921,17 @@ class WorkflowRunner {
     final buf = StringBuffer()
       ..writeln('[TRIGGER CONTEXT]')
       ..writeln(
-        'This workflow was fired by an incoming Android notification. The '
-        'notification content is provided INLINE below — you do NOT need to '
-        'fetch chat history, open apps, or use any tool to read it. Treat '
-        'the content below as the user-provided input to the prompt.',
+        'This workflow run was fired by an incoming Android notification. '
+        'The full notification text is delivered to you INLINE below as the '
+        'input data for this step — you already have it; you do NOT need '
+        'tools or external access to read it.',
+      )
+      ..writeln(
+        'Treat the inline notification text as the authoritative source. '
+        'When summarizing / extracting, work directly from this text and '
+        'preserve only facts that are actually present in it. Do NOT invent '
+        'items, names, numbers, or details that are not in the notification, '
+        'and do NOT ask the user to forward / paste the content again.',
       );
     if (app.isNotEmpty) buf.writeln('- App: $app');
     if (keyword.isNotEmpty) buf.writeln('- Matched keyword: $keyword');

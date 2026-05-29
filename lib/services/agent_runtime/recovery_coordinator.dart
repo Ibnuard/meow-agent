@@ -31,13 +31,13 @@ class RecoveryAttempt {
   final String unverifiedEntityType;
 
   Map<String, dynamic> toJson() => {
-        'reason': reason,
-        'failed_tool': failedToolName,
-        if (failedArgsSummary.isNotEmpty) 'args_summary': failedArgsSummary,
-        if (unverifiedEntity.isNotEmpty) 'unverified_entity': unverifiedEntity,
-        if (unverifiedEntityType.isNotEmpty)
-          'unverified_entity_type': unverifiedEntityType,
-      };
+    'reason': reason,
+    'failed_tool': failedToolName,
+    if (failedArgsSummary.isNotEmpty) 'args_summary': failedArgsSummary,
+    if (unverifiedEntity.isNotEmpty) 'unverified_entity': unverifiedEntity,
+    if (unverifiedEntityType.isNotEmpty)
+      'unverified_entity_type': unverifiedEntityType,
+  };
 
   String toCompactString() {
     final parts = [
@@ -144,8 +144,10 @@ class RecoveryCoordinator {
     for (var i = 0; i < _attempts.length; i++) {
       buf.writeln('  ${i + 1}. ${_attempts[i].toCompactString()}');
     }
-    buf.writeln('Pick a different tool, different args, or break the goal '
-        'into smaller subgoals.');
+    buf.writeln(
+      'Pick a different tool, different args, or break the goal '
+      'into smaller subgoals.',
+    );
     return buf.toString().trim();
   }
 
@@ -159,11 +161,9 @@ class RecoveryCoordinator {
   /// exhausting recovery budget.
   String giveUpMessage(DetectedLanguage language) {
     final lastReason = _attempts.isEmpty ? 'unknown' : _attempts.last.reason;
-    return LanguageRegistry.phrase(
-      'recovery_giving_up',
-      language.code,
-      {'reason': _humanReadableReason(lastReason, language)},
-    );
+    return LanguageRegistry.phrase('recovery_giving_up', language.code, {
+      'reason': _humanReadableReason(lastReason, language),
+    });
   }
 
   bool _isRepeatingSameFailure() {

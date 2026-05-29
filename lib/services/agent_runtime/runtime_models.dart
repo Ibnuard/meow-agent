@@ -22,10 +22,7 @@ enum AgentRuntimeState {
 /// Used by prompt builders and runtime guards to know whether a real user is
 /// reading the response (chat) or whether the run is a background automation
 /// without a user in the loop (workflow).
-enum RequestSource {
-  chat,
-  workflow,
-}
+enum RequestSource { chat, workflow }
 
 /// Request to run the agent runtime.
 class AgentRuntimeRequest {
@@ -62,26 +59,27 @@ class AgentRuntimeResponse {
   final bool success;
   final AgentRuntimeState state;
   final List<RuntimeEvent> events;
+
   /// Tool name awaiting confirmation (only set when state == waitingConfirmation).
   final String? pendingTool;
+
   /// Tool args awaiting confirmation.
   final Map<String, dynamic>? pendingToolArgs;
+
   /// Optional contextual action buttons to render after the final message.
   final List<ResultAction> actions;
 }
 
 /// A single event logged during runtime execution.
 class RuntimeEvent {
-  RuntimeEvent({
-    required this.type,
-    required this.message,
-    this.data,
-  })  : id = DateTime.now().microsecondsSinceEpoch.toString(),
-        createdAt = DateTime.now();
+  RuntimeEvent({required this.type, required this.message, this.data})
+    : id = DateTime.now().microsecondsSinceEpoch.toString(),
+      createdAt = DateTime.now();
 
   final String id;
   final DateTime createdAt;
-  final String type; // state_change, llm_decision, tool_call, tool_result, error
+  final String
+  type; // state_change, llm_decision, tool_call, tool_result, error
   final String message;
   final Map<String, dynamic>? data;
 }
@@ -141,22 +139,22 @@ class ResultAction {
   final Map<String, dynamic> params;
 
   Map<String, dynamic> toJson() => {
-        'label': label,
-        'labelId': labelId,
-        'icon': icon,
-        'type': type,
-        'target': target,
-        'params': params,
-      };
+    'label': label,
+    'labelId': labelId,
+    'icon': icon,
+    'type': type,
+    'target': target,
+    'params': params,
+  };
 
   factory ResultAction.fromJson(Map<String, dynamic> json) => ResultAction(
-        label: json['label'] as String? ?? '',
-        labelId: json['labelId'] as String? ?? '',
-        icon: json['icon'] as String? ?? '',
-        type: json['type'] as String? ?? 'navigate',
-        target: json['target'] as String? ?? '',
-        params: (json['params'] as Map<String, dynamic>?) ?? const {},
-      );
+    label: json['label'] as String? ?? '',
+    labelId: json['labelId'] as String? ?? '',
+    icon: json['icon'] as String? ?? '',
+    type: json['type'] as String? ?? 'navigate',
+    target: json['target'] as String? ?? '',
+    params: (json['params'] as Map<String, dynamic>?) ?? const {},
+  );
 }
 
 /// Result of a tool execution.

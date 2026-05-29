@@ -35,8 +35,7 @@ class UnreadService extends ChangeNotifier {
       final raw = prefs.getString(_prefKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
-        _counts = decoded
-            .map((k, v) => MapEntry(k, (v as num).toInt()))
+        _counts = decoded.map((k, v) => MapEntry(k, (v as num).toInt()))
           ..removeWhere((_, v) => v <= 0);
       }
     } catch (_) {

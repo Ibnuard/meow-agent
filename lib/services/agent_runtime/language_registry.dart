@@ -27,7 +27,8 @@ class LanguageRegistry {
     Map<String, String> params = const {},
   ]) {
     final bundle = _bundles[code] ?? _bundles[_fallbackCode]!;
-    final raw = bundle[phase] ?? _bundles[_fallbackCode]![phase] ?? _genericError;
+    final raw =
+        bundle[phase] ?? _bundles[_fallbackCode]![phase] ?? _genericError;
     if (params.isEmpty) return raw;
     var out = raw;
     params.forEach((key, value) {
@@ -43,7 +44,8 @@ class LanguageRegistry {
   static Iterable<String> get supportedCodes => _bundles.keys;
 
   static const _fallbackCode = 'en';
-  static const _genericError = 'Something went wrong while handling that request.';
+  static const _genericError =
+      'Something went wrong while handling that request.';
 
   /// Phase keys covered:
   /// - confirm, success, cancel, preview, abort, error  (legacy I18nFallback)
@@ -66,7 +68,8 @@ class LanguageRegistry {
       'success': 'Selesai.',
       'cancel': 'Aksi dibatalkan.',
       'preview': 'Berikut pratinjau hasilnya.',
-      'abort': 'Saya berhenti — sepertinya saya berputar pada langkah yang sama. Coba ulangi atau ubah permintaannya.',
+      'abort':
+          'Saya berhenti — sepertinya saya berputar pada langkah yang sama. Coba ulangi atau ubah permintaannya.',
       'error': 'Terjadi kesalahan saat memproses permintaan.',
       'clarify_target_unverified':
           'Aku belum bisa memastikan target ini: {names}. Mau pakai target yang mana?',
@@ -98,8 +101,7 @@ class LanguageRegistry {
       'recovery_reason_unknown': 'belum ketemu jalannya',
       'context_title': '🧠 Memori {agent}',
       'context_headline_low': 'masih sangat lega, baru terpakai {pct}%',
-      'context_headline_comfortable':
-          'masih nyaman, sekitar {pct}% terpakai',
+      'context_headline_comfortable': 'masih nyaman, sekitar {pct}% terpakai',
       'context_headline_tight': 'mulai padat, sudah {pct}% terpakai',
       'context_headline_full':
           'hampir penuh, sudah {pct}% — sebentar lagi otomatis dirapikan',
@@ -120,7 +122,8 @@ class LanguageRegistry {
       'success': 'Done.',
       'cancel': 'Action cancelled.',
       'preview': "Here's a preview of the result.",
-      'abort': "I'm stopping — I seem to be looping on the same step. Try rephrasing or breaking it down.",
+      'abort':
+          "I'm stopping — I seem to be looping on the same step. Try rephrasing or breaking it down.",
       'error': 'Something went wrong while handling that request.',
       'clarify_target_unverified':
           'I cannot verify these target(s): {names}. Which target should I use?',
@@ -189,8 +192,7 @@ class LanguageRegistry {
       'completion_unverified':
           '確認させてください — {entity} がまだシステムに反映されていません。少し待って再度お試しを。',
       'completion_unverified_generic': '確認させてください — 結果がシステム上で未検証です。',
-      'recovery_giving_up':
-          'いくつか試しましたが ({reason}) 解決できませんでした。別の方法を試しますか？',
+      'recovery_giving_up': 'いくつか試しましたが ({reason}) 解決できませんでした。別の方法を試しますか？',
     },
     'ko': {
       'confirm': '작업을 실행할까요?',
@@ -203,7 +205,8 @@ class LanguageRegistry {
       'clarify_target_no_eligible': '실행 가능한 대상이 없습니다. 건너뜀: {names}.',
       'clarify_target_unknown': '대상이 명확하지 않습니다. 어떤 것을 사용할까요?',
       'block_no_targets': '이 요청에 대해 실행 가능한 대상이 없습니다.',
-      'permission_denied': '{module}이(가) 꺼져 있어 {action}할 수 없습니다. 먼저 "{setting}"을(를) 켜 주세요.',
+      'permission_denied':
+          '{module}이(가) 꺼져 있어 {action}할 수 없습니다. 먼저 "{setting}"을(를) 켜 주세요.',
       'permission_denied_no_setting': '{module}이(가) 꺼져 있어 {action}할 수 없습니다.',
       'permission_module_default': '관련 모듈',
       'permission_action_default': '해당 작업을 실행',
@@ -239,7 +242,8 @@ class LanguageRegistry {
       'success': 'Listo.',
       'cancel': 'Acción cancelada.',
       'preview': 'Aquí tienes una vista previa del resultado.',
-      'abort': 'Voy a detenerme: parece que estoy en bucle. Intenta reformular.',
+      'abort':
+          'Voy a detenerme: parece que estoy en bucle. Intenta reformular.',
       'error': 'Algo salió mal al procesar la solicitud.',
       'clarify_target_unverified':
           'No puedo verificar este(os) objetivo(s): {names}. ¿Cuál usamos?',
@@ -270,7 +274,8 @@ class LanguageRegistry {
       'success': 'Terminé.',
       'cancel': 'Action annulée.',
       'preview': "Voici un aperçu du résultat.",
-      'abort': "Je m'arrête : je semble tourner en boucle. Essayez de reformuler.",
+      'abort':
+          "Je m'arrête : je semble tourner en boucle. Essayez de reformuler.",
       'error': 'Une erreur est survenue lors du traitement.',
       'clarify_target_unverified':
           "Je ne peux pas vérifier cette/ces cible(s) : {names}. Laquelle utilisons-nous ?",
@@ -301,7 +306,8 @@ class LanguageRegistry {
       'success': 'Fertig.',
       'cancel': 'Aktion abgebrochen.',
       'preview': 'Hier ist eine Vorschau des Ergebnisses.',
-      'abort': 'Ich höre auf — ich scheine in einer Schleife zu sein. Bitte umformulieren.',
+      'abort':
+          'Ich höre auf — ich scheine in einer Schleife zu sein. Bitte umformulieren.',
       'error': 'Bei der Verarbeitung ist ein Fehler aufgetreten.',
       'clarify_target_unverified':
           'Ich kann diese Ziel(e) nicht verifizieren: {names}. Welches nehmen wir?',
@@ -363,7 +369,8 @@ class LanguageRegistry {
       'success': 'Готово.',
       'cancel': 'Действие отменено.',
       'preview': 'Вот предварительный результат.',
-      'abort': 'Останавливаюсь — кажется, я зациклился. Попробуйте переформулировать.',
+      'abort':
+          'Останавливаюсь — кажется, я зациклился. Попробуйте переформулировать.',
       'error': 'Произошла ошибка при обработке запроса.',
       'clarify_target_unverified':
           'Не могу подтвердить цели: {names}. Какую использовать?',
@@ -374,8 +381,7 @@ class LanguageRegistry {
       'block_no_targets': 'Нет подходящих целей для этого запроса.',
       'permission_denied':
           'Не могу {action}: {module} выключен. Сначала включите «{setting}».',
-      'permission_denied_no_setting':
-          'Не могу {action}: {module} выключен.',
+      'permission_denied_no_setting': 'Не могу {action}: {module} выключен.',
       'permission_module_default': 'нужный модуль',
       'permission_action_default': 'выполнить это',
       'task_aborted_heads_up':
@@ -396,14 +402,16 @@ class LanguageRegistry {
       'preview': 'هذه معاينة للنتيجة.',
       'abort': 'سأتوقف — يبدو أنني أكرر نفس الخطوة. حاول إعادة الصياغة.',
       'error': 'حدث خطأ أثناء معالجة الطلب.',
-      'clarify_target_unverified': 'لا أستطيع التحقق من الأهداف: {names}. أيها نستخدم؟',
-      'clarify_target_no_eligible': 'لا توجد أهداف صالحة للتنفيذ. تم تخطي: {names}.',
-      'clarify_target_unknown': 'لا أستطيع التحقق من الهدف المطلوب. أيها نستخدم؟',
+      'clarify_target_unverified':
+          'لا أستطيع التحقق من الأهداف: {names}. أيها نستخدم؟',
+      'clarify_target_no_eligible':
+          'لا توجد أهداف صالحة للتنفيذ. تم تخطي: {names}.',
+      'clarify_target_unknown':
+          'لا أستطيع التحقق من الهدف المطلوب. أيها نستخدم؟',
       'block_no_targets': 'لا توجد أهداف صالحة لهذا الطلب.',
       'permission_denied':
           'لا أستطيع {action} لأن {module} متوقف. فعّل "{setting}" أولاً.',
-      'permission_denied_no_setting':
-          'لا أستطيع {action} لأن {module} متوقف.',
+      'permission_denied_no_setting': 'لا أستطيع {action} لأن {module} متوقف.',
       'permission_module_default': 'الوحدة المطلوبة',
       'permission_action_default': 'تنفيذ ذلك',
       'task_aborted_heads_up':
@@ -459,8 +467,7 @@ class LanguageRegistry {
           'Tôi chưa xác minh được mục tiêu: {names}. Dùng cái nào?',
       'clarify_target_no_eligible':
           'Không có mục tiêu hợp lệ để xử lý. Đã bỏ qua: {names}.',
-      'clarify_target_unknown':
-          'Chưa xác minh được mục tiêu. Dùng cái nào?',
+      'clarify_target_unknown': 'Chưa xác minh được mục tiêu. Dùng cái nào?',
       'block_no_targets': 'Không có mục tiêu hợp lệ cho yêu cầu này.',
       'permission_denied':
           'Tôi không thể {action} vì {module} đang tắt. Hãy bật "{setting}" trước.',
@@ -488,8 +495,7 @@ class LanguageRegistry {
       'error': 'เกิดข้อผิดพลาดขณะประมวลผล',
       'clarify_target_unverified':
           'ยังยืนยันเป้าหมายไม่ได้: {names} จะใช้อันไหนดี?',
-      'clarify_target_no_eligible':
-          'ไม่มีเป้าหมายที่ทำได้ ข้ามไป: {names}',
+      'clarify_target_no_eligible': 'ไม่มีเป้าหมายที่ทำได้ ข้ามไป: {names}',
       'clarify_target_unknown': 'ยังยืนยันเป้าหมายที่ขอไม่ได้ จะใช้อันไหนดี?',
       'block_no_targets': 'ไม่มีเป้าหมายที่ทำได้สำหรับคำขอนี้',
       'permission_denied':
@@ -500,12 +506,9 @@ class LanguageRegistry {
       'permission_action_default': 'ทำสิ่งนั้น',
       'task_aborted_heads_up':
           'พักงานเดิม ("{previous}") ไว้ก่อน — ไปต่อกับงานใหม่',
-      'task_aborted_heads_up_unknown':
-          'พักงานเดิมไว้ก่อน — ไปต่อกับงานใหม่',
-      'completion_unverified':
-          'ขอเช็คอีกที — {entity} ยังไม่ปรากฏในระบบ',
-      'completion_unverified_generic':
-          'ขอเช็คอีกที — ผลยังไม่ถูกยืนยันในระบบ',
+      'task_aborted_heads_up_unknown': 'พักงานเดิมไว้ก่อน — ไปต่อกับงานใหม่',
+      'completion_unverified': 'ขอเช็คอีกที — {entity} ยังไม่ปรากฏในระบบ',
+      'completion_unverified_generic': 'ขอเช็คอีกที — ผลยังไม่ถูกยืนยันในระบบ',
       'recovery_giving_up':
           'ลองหลายวิธีแล้วไม่สำเร็จ ({reason}) เปลี่ยนวิธีดีไหม?',
     },
@@ -545,7 +548,8 @@ class LanguageRegistry {
       'success': 'Selesai.',
       'cancel': 'Tindakan dibatalkan.',
       'preview': 'Berikut adalah pratonton hasil.',
-      'abort': 'Saya akan berhenti — saya kelihatan berulang pada langkah yang sama.',
+      'abort':
+          'Saya akan berhenti — saya kelihatan berulang pada langkah yang sama.',
       'error': 'Berlaku ralat semasa memproses permintaan.',
       'clarify_target_unverified':
           'Saya tidak dapat mengesahkan sasaran: {names}. Yang mana hendak digunakan?',
@@ -580,23 +584,19 @@ class LanguageRegistry {
       'error': 'אירעה שגיאה במהלך עיבוד הבקשה.',
       'clarify_target_unverified':
           'לא הצלחתי לאמת את היעדים: {names}. במי להשתמש?',
-      'clarify_target_no_eligible':
-          'אין יעדים תקפים לטיפול. דולג: {names}.',
-      'clarify_target_unknown':
-          'לא הצלחתי לאמת את היעד המבוקש. במי להשתמש?',
+      'clarify_target_no_eligible': 'אין יעדים תקפים לטיפול. דולג: {names}.',
+      'clarify_target_unknown': 'לא הצלחתי לאמת את היעד המבוקש. במי להשתמש?',
       'block_no_targets': 'אין יעדים תקפים לבקשה הזו.',
       'permission_denied':
           'לא אוכל {action} כי {module} כבוי. הפעל קודם את "{setting}".',
-      'permission_denied_no_setting':
-          'לא אוכל {action} כי {module} כבוי.',
+      'permission_denied_no_setting': 'לא אוכל {action} כי {module} כבוי.',
       'permission_module_default': 'המודול הנדרש',
       'permission_action_default': 'לבצע את הפעולה',
       'task_aborted_heads_up':
           'אני משהה את המשימה הקודמת ("{previous}") — נמשיך לחדשה.',
       'task_aborted_heads_up_unknown':
           'אני משהה את המשימה הקודמת — נמשיך לחדשה.',
-      'completion_unverified':
-          'אבדוק שוב — {entity} עדיין לא מופיע במערכת.',
+      'completion_unverified': 'אבדוק שוב — {entity} עדיין לא מופיע במערכת.',
       'completion_unverified_generic':
           'אבדוק שוב — התוצאה עדיין לא אומתה במערכת.',
       'recovery_giving_up':

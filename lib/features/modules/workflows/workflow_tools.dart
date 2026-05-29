@@ -12,8 +12,8 @@ class WorkflowTools {
   WorkflowTools({
     ModuleRepository? moduleRepository,
     AgentRepository? agentRepository,
-  })  : _moduleRepository = moduleRepository ?? ModuleRepository(),
-        _agentRepository = agentRepository;
+  }) : _moduleRepository = moduleRepository ?? ModuleRepository(),
+       _agentRepository = agentRepository;
 
   final WorkflowRepository _repo = WorkflowRepository();
   final ModuleRepository _moduleRepository;
@@ -41,15 +41,17 @@ class WorkflowTools {
     final byId = agents.where((a) => a.id == value).firstOrNull;
     if (byId != null) return byId.id;
     final lower = value.toLowerCase();
-    final byName =
-        agents.where((a) => a.name.toLowerCase() == lower).firstOrNull;
+    final byName = agents
+        .where((a) => a.name.toLowerCase() == lower)
+        .firstOrNull;
     if (byName != null) return byName.id;
     return null;
   }
 
   /// Read an agent reference from any of the common arg keys LLMs use.
   String? _readAgentRef(Map<String, dynamic> args) {
-    final v = args['agentId'] ??
+    final v =
+        args['agentId'] ??
         args['agent_id'] ??
         args['agent'] ??
         args['assignedTo'] ??
@@ -318,9 +320,8 @@ class WorkflowTools {
     final filtered = assignedTo.isEmpty
         ? workflows
         : workflows
-            .where((w) =>
-                w.agentId.toLowerCase() == assignedTo.toLowerCase())
-            .toList();
+              .where((w) => w.agentId.toLowerCase() == assignedTo.toLowerCase())
+              .toList();
 
     final items = filtered
         .map(

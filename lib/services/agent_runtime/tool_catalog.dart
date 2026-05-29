@@ -126,9 +126,7 @@ class ToolCatalog {
       'system.export_all',
       'system.import',
     },
-    'chat': {
-      'chat.send',
-    },
+    'chat': {'chat.send'},
   };
 
   static ToolCatalogSelection select({

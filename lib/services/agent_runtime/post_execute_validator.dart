@@ -38,11 +38,9 @@ class PostExecuteVerification {
   String userFacingMessage(DetectedLanguage language) {
     if (!isUnverified) return '';
     if (expectedEntity.isNotEmpty) {
-      return LanguageRegistry.phrase(
-        'completion_unverified',
-        language.code,
-        {'entity': expectedEntity},
-      );
+      return LanguageRegistry.phrase('completion_unverified', language.code, {
+        'entity': expectedEntity,
+      });
     }
     return LanguageRegistry.phrase(
       'completion_unverified_generic',
@@ -64,13 +62,12 @@ class PostExecuteVerification {
     required String expectedEntity,
     required String entityType,
     required String reason,
-  }) =>
-      PostExecuteVerification._(
-        status: PostExecuteStatus.unverified,
-        expectedEntity: expectedEntity,
-        entityType: entityType,
-        reason: reason,
-      );
+  }) => PostExecuteVerification._(
+    status: PostExecuteStatus.unverified,
+    expectedEntity: expectedEntity,
+    entityType: entityType,
+    reason: reason,
+  );
 }
 
 enum PostExecuteStatus { ok, unverified, skipped }
@@ -151,9 +148,7 @@ class PostExecuteValidator {
       return PostExecuteVerification.skipped('no_entity_type');
     }
     if (!SnapshotTargetResolver.isSnapshotBacked(entityType)) {
-      return PostExecuteVerification.skipped(
-        'not_snapshot_backed:$entityType',
-      );
+      return PostExecuteVerification.skipped('not_snapshot_backed:$entityType');
     }
 
     final EcosystemSnapshot snapshot;

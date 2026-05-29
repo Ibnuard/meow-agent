@@ -88,15 +88,9 @@ class WorkflowDatabase {
           await db.execute(
             'ALTER TABLE workflows ADD COLUMN timeout_seconds INTEGER NOT NULL DEFAULT 60',
           );
-          await db.execute(
-            'ALTER TABLE workflows ADD COLUMN steps TEXT',
-          );
-          await db.execute(
-            'ALTER TABLE workflows ADD COLUMN variables TEXT',
-          );
-          await db.execute(
-            'ALTER TABLE workflows ADD COLUMN template_id TEXT',
-          );
+          await db.execute('ALTER TABLE workflows ADD COLUMN steps TEXT');
+          await db.execute('ALTER TABLE workflows ADD COLUMN variables TEXT');
+          await db.execute('ALTER TABLE workflows ADD COLUMN template_id TEXT');
           await db.execute(
             'ALTER TABLE execution_history ADD COLUMN step_results TEXT',
           );
@@ -110,27 +104,27 @@ class WorkflowDatabase {
 
   /// Convert WorkflowModel to DB row.
   Map<String, dynamic> workflowToRow(WorkflowModel w) => {
-        'id': w.id,
-        'agent_id': w.agentId,
-        'title': w.title,
-        'prompt': w.prompt,
-        'trigger_config': jsonEncode(w.trigger.toJson()),
-        'notif_config': jsonEncode(w.notification.toJson()),
-        'send_to_chat': w.sendToChat ? 1 : 0,
-        'allow_sensitive': w.allowSensitive ? 1 : 0,
-        'enabled': w.enabled ? 1 : 0,
-        'last_run': w.lastRun?.toIso8601String(),
-        'last_result': w.lastResult,
-        'retry_count': w.retryCount,
-        'priority': w.priority.name,
-        'timeout_seconds': w.timeoutSeconds,
-        'steps': w.steps.isEmpty
-            ? null
-            : jsonEncode(w.steps.map((s) => s.toJson()).toList()),
-        'variables': w.variables.isEmpty ? null : jsonEncode(w.variables),
-        'template_id': w.templateId,
-        'created_at': w.createdAt.toIso8601String(),
-      };
+    'id': w.id,
+    'agent_id': w.agentId,
+    'title': w.title,
+    'prompt': w.prompt,
+    'trigger_config': jsonEncode(w.trigger.toJson()),
+    'notif_config': jsonEncode(w.notification.toJson()),
+    'send_to_chat': w.sendToChat ? 1 : 0,
+    'allow_sensitive': w.allowSensitive ? 1 : 0,
+    'enabled': w.enabled ? 1 : 0,
+    'last_run': w.lastRun?.toIso8601String(),
+    'last_result': w.lastResult,
+    'retry_count': w.retryCount,
+    'priority': w.priority.name,
+    'timeout_seconds': w.timeoutSeconds,
+    'steps': w.steps.isEmpty
+        ? null
+        : jsonEncode(w.steps.map((s) => s.toJson()).toList()),
+    'variables': w.variables.isEmpty ? null : jsonEncode(w.variables),
+    'template_id': w.templateId,
+    'created_at': w.createdAt.toIso8601String(),
+  };
 
   /// Convert DB row to WorkflowModel.
   WorkflowModel workflowFromRow(Map<String, dynamic> row) {

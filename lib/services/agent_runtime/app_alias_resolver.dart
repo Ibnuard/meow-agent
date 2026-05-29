@@ -24,7 +24,11 @@ class AppAliasResolver {
     'ig': ['instagram', 'com.instagram.android'],
     'twitter': ['twitter', 'com.twitter.android'],
     'x': ['twitter', 'com.twitter.android'],
-    'tiktok': ['tiktok', 'com.zhiliaoapp.musically', 'com.ss.android.ugc.trill'],
+    'tiktok': [
+      'tiktok',
+      'com.zhiliaoapp.musically',
+      'com.ss.android.ugc.trill',
+    ],
     'tt': ['tiktok', 'com.zhiliaoapp.musically'],
     'facebook': ['facebook', 'com.facebook.katana'],
     'fb': ['facebook', 'com.facebook.katana'],
@@ -71,7 +75,11 @@ class AppAliasResolver {
     'github': ['github', 'com.github.android'],
     'vscode': ['code', 'com.microsoft.vscode'],
     // System
-    'camera': ['camera', 'com.android.camera2', 'com.google.android.GoogleCamera'],
+    'camera': [
+      'camera',
+      'com.android.camera2',
+      'com.google.android.GoogleCamera',
+    ],
     'gallery': ['photos', 'com.google.android.apps.photos'],
     'calculator': ['calculator', 'com.google.android.calculator'],
     'calendar': ['calendar', 'com.google.android.calendar'],
@@ -163,11 +171,13 @@ class AppAliasResolver {
       packageName: best.app['package'] ?? '',
       confidence: best.confidence,
       alternatives: alternatives
-          .map((m) => AppResolveCandidate(
-                name: m.app['name'] ?? '',
-                packageName: m.app['package'] ?? '',
-                confidence: m.confidence,
-              ))
+          .map(
+            (m) => AppResolveCandidate(
+              name: m.app['name'] ?? '',
+              packageName: m.app['package'] ?? '',
+              confidence: m.confidence,
+            ),
+          )
           .toList(),
     );
   }
@@ -223,11 +233,11 @@ class AppResolveResult {
   final List<AppResolveCandidate> alternatives;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'packageName': packageName,
-        'confidence': confidence,
-        'alternatives': alternatives.map((a) => a.toJson()).toList(),
-      };
+    'name': name,
+    'packageName': packageName,
+    'confidence': confidence,
+    'alternatives': alternatives.map((a) => a.toJson()).toList(),
+  };
 }
 
 class AppResolveCandidate {
@@ -242,8 +252,8 @@ class AppResolveCandidate {
   final double confidence;
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'packageName': packageName,
-        'confidence': confidence,
-      };
+    'name': name,
+    'packageName': packageName,
+    'confidence': confidence,
+  };
 }

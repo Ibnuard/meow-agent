@@ -1,4 +1,5 @@
 import '../../../services/workspace/workspace_file_service.dart';
+import '../../chat/data/chat_history_service.dart';
 
 /// Catalog entry describing a single built-in variable so the editor UI
 /// can render it (label + description) and let users tap-to-insert.
@@ -17,7 +18,7 @@ class BuiltInVariable {
   final BuiltInCategory category;
   final String? exampleValue;
 
-  String get placeholder => '{{$key}}';
+  String get placeholder => '@$key';
 
   String descriptionFor(String langCode) {
     final code = langCode.toLowerCase();
@@ -138,6 +139,24 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
     descriptionEn: 'Your nickname (from the agent profile)',
     category: BuiltInCategory.identity,
   ),
+  BuiltInVariable(
+    key: 'chat_session',
+    descriptionId:
+        'Sesi chat in-app dengan agent ini (target untuk "kirim ke chat")',
+    descriptionEn:
+        'In-app chat session with this agent (target for "send to chat")',
+    category: BuiltInCategory.identity,
+    exampleValue:
+        '[chat session in-app dengan agent Mina Chan — gunakan chat.send]',
+  ),
+  BuiltInVariable(
+    key: 'chat_history',
+    descriptionId:
+        'Cuplikan obrolan terakhir kamu dengan agent ini (max 20 pesan)',
+    descriptionEn: 'Recent chat history with this agent (last 20 messages)',
+    category: BuiltInCategory.identity,
+    exampleValue: 'user: halo\nassistant: hai, ada yang bisa dibantu?',
+  ),
 
   // ─── Multi-step ──────────────────────────────────────────────────────────
   BuiltInVariable(
@@ -218,12 +237,16 @@ class WorkflowBuiltInVars {
   ///
   /// [agentName] is used both as `{{agent_name}}` and to fetch the user's
   /// SOUL.md identity fields.
+  /// [agentId] is the running agent's id; used to resolve `{{chat_session}}`
+  /// from recent chat history. Pass null if not available — `chat_session`
+  /// will resolve to an empty string in that case.
   /// [triggerVars] are event-derived values like `{{notif}}`. They take
   /// precedence over computed values.
   /// [extra] is for runtime additions (e.g. {{prev}} during chained steps).
   static Future<Map<String, String>> resolve({
     required String agentName,
     required DateTime now,
+    String? agentId,
     String langCode = 'id',
     Map<String, String> triggerVars = const {},
     Map<String, String> extra = const {},
@@ -245,6 +268,12 @@ class WorkflowBuiltInVars {
     final identity = await _readUserIdentity(agentName);
     vars['user_name'] = identity.name;
     vars['user_nickname'] = identity.nickname;
+    vars['chat_session'] = agentId == null
+        ? '[chat session in-app dengan agent ini]'
+        : renderChatSessionRef(agentName);
+    vars['chat_history'] = agentId == null
+        ? ''
+        : await resolveChatHistory(agentId);
 
     // ── Trigger overrides ─────────────────────────────────────────────────
     vars.addAll(triggerVars);
@@ -255,15 +284,91 @@ class WorkflowBuiltInVars {
     return vars;
   }
 
-  /// Substitute every `{{key}}` placeholder in [prompt] with values from
-  /// [vars]. Unknown placeholders are left as-is so the agent can still see
-  /// them and the user notices the typo.
+  /// Maximum characters of chat session to inline. Keeps prompt budget sane;
+  /// the most recent messages are preserved when the cap is hit.
+  static const int _chatSessionCharCap = 3000;
+
+  /// Maximum messages pulled from the chat history.
+  static const int _chatSessionMessageCap = 20;
+
+  /// Short, target-friendly descriptor for the in-app chat session. This is
+  /// what `{{chat_session}}` resolves to. Designed so prompts like
+  /// "kirim ke {{chat_session}}" expand into something the agent recognizes
+  /// as a delivery target (→ picks `chat.send`) rather than a content blob.
+  ///
+  /// Public so callers (e.g. workflow runner) can refresh `{{chat_session}}`
+  /// per step when chained agents differ.
+  static String renderChatSessionRef(String agentName) {
+    return '[chat session in-app dengan agent "$agentName" — tujuan untuk '
+        'tool chat.send / send-to-chat]';
+  }
+
+  /// Format the running agent's recent chat history as `role: content` lines.
+  /// Empty string if there are no messages or loading fails.
+  ///
+  /// Public so callers (e.g. workflow runner) can refresh `{{chat_history}}`
+  /// per step without re-resolving the entire built-in map.
+  static Future<String> resolveChatHistory(String agentId) async {
+    try {
+      final svc = ChatHistoryService();
+      final messages = await svc.loadLatest(
+        agentId,
+        limit: _chatSessionMessageCap,
+      );
+      if (messages.isEmpty) return '';
+      final lines = messages
+          .map((m) => '${m.role}: ${m.content.trim()}')
+          .toList();
+      var joined = lines.join('\n');
+      if (joined.length > _chatSessionCharCap) {
+        // Trim from the front so the most recent turns survive.
+        joined = joined.substring(joined.length - _chatSessionCharCap);
+        // Drop the leading partial line for cleanliness.
+        final firstNewline = joined.indexOf('\n');
+        if (firstNewline > 0 && firstNewline < joined.length - 1) {
+          joined = joined.substring(firstNewline + 1);
+        }
+      }
+      return joined;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Substitute every `@key` (and legacy `{{key}}`) placeholder in [prompt]
+  /// with values from [vars].
+  ///
+  /// `@key` is matched with a left-side word boundary so emails like
+  /// `foo@bar.com` don't get rewritten. The right side stops at the first
+  /// non-word character.
+  ///
+  /// Unknown placeholders are left as-is so the agent can still see them and
+  /// the user notices the typo.
   static String substitute(String prompt, Map<String, String> vars) {
     var resolved = prompt;
     for (final entry in vars.entries) {
+      final escaped = RegExp.escape(entry.key);
+      // Legacy {{key}} — still supported for older workflows.
       resolved = resolved.replaceAll('{{${entry.key}}}', entry.value);
+      // New @key — word-bounded, won't touch emails or @@chains.
+      final re = RegExp('(?<![\\w@])@$escaped\\b');
+      resolved = resolved.replaceAllMapped(re, (_) => entry.value);
     }
     return resolved;
+  }
+
+  /// Convert any legacy `{{key}}` placeholder for KNOWN built-ins into the
+  /// new `@key` form. Unknown keys are left as-is so users can still see
+  /// their typos.
+  ///
+  /// Idempotent: running on already-migrated text is a no-op.
+  static String migrateLegacyPlaceholders(String text) {
+    if (text.isEmpty) return text;
+    var out = text;
+    for (final key in kBuiltInVariableKeys) {
+      out = out.replaceAll('{{$key}}', '@$key');
+    }
+    return out;
   }
 
   // ─── Time formatting helpers ──────────────────────────────────────────
@@ -276,18 +381,50 @@ class WorkflowBuiltInVars {
   static String _pad(int n) => n.toString().padLeft(2, '0');
 
   static const _idMonths = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    'Januari',
+    'Februari',
+    'Maret',
+    'April',
+    'Mei',
+    'Juni',
+    'Juli',
+    'Agustus',
+    'September',
+    'Oktober',
+    'November',
+    'Desember',
   ];
   static const _enMonths = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
   static const _idDays = [
-    'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
+    'Senin',
+    'Selasa',
+    'Rabu',
+    'Kamis',
+    'Jumat',
+    'Sabtu',
+    'Minggu',
   ];
   static const _enDays = [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
   ];
 
   static String _monthName(int month, String langCode) {
@@ -345,8 +482,7 @@ class WorkflowBuiltInVars {
 
 class _UserIdentity {
   const _UserIdentity({required this.name, required this.nickname});
-  factory _UserIdentity.empty() =>
-      const _UserIdentity(name: '', nickname: '');
+  factory _UserIdentity.empty() => const _UserIdentity(name: '', nickname: '');
   final String name;
   final String nickname;
 }

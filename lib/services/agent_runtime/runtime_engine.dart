@@ -696,7 +696,8 @@ class AgentRuntimeEngine {
           reflection != null && reflection.goalTree.subgoals.length > 1;
       final reflectorMultiTarget =
           reflection != null && reflection.targets.length > 1;
-      final hasMultiTarget = hasMultiSeed ||
+      final hasMultiTarget =
+          hasMultiSeed ||
           analyzerBulk ||
           reflectorMultiSubgoal ||
           reflectorMultiTarget;
@@ -750,8 +751,8 @@ class AgentRuntimeEngine {
           logger.logError(
             'Planner returned null on first attempt; retrying with broadened tools.',
           );
-          final broadenedAnalyzer =
-              toolRouter.buildAllAnalyzerToolDescriptions();
+          final broadenedAnalyzer = toolRouter
+              .buildAllAnalyzerToolDescriptions();
           plan = await planner.plan(
             analysis: analysis,
             availableTools: broadenedAnalyzer.isNotEmpty
@@ -814,7 +815,8 @@ class AgentRuntimeEngine {
       // body, so we promote explicitly.
       final capturedAnalysis = Map<String, dynamic>.from(analysis);
 
-      Future<({Map<String, dynamic> plan, GoalTree goalTree})?> rethink() async {
+      Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
+      rethink() async {
         try {
           final freshSnapshot = await _buildSnapshot();
           final freshAnalysis = Map<String, dynamic>.from(capturedAnalysis);
@@ -827,16 +829,17 @@ class AgentRuntimeEngine {
           // have missed the right tool category; giving the planner the full
           // catalog lets it pivot to a different approach.
           final broadenedTools = toolRouter.buildAllToolDescriptions();
-          final broadenedAnalyzerTools =
-              toolRouter.buildAllAnalyzerToolDescriptions();
+          final broadenedAnalyzerTools = toolRouter
+              .buildAllAnalyzerToolDescriptions();
           freshAnalysis['available_tools_broadened'] = true;
 
           final reReflection = await reflector.reflect(
             userMessage: effectiveUserMessage,
             analysis: freshAnalysis,
             snapshot: freshSnapshot,
-            availableTools:
-                _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+            availableTools: _toolDefinitionsFor(
+              toolRouter.registeredTools.toSet(),
+            ),
             language: detectedLang,
             logger: logger,
             recentMessages: recentMsgs,
@@ -1359,7 +1362,7 @@ class AgentRuntimeEngine {
     RecoveryCoordinator? recovery,
     PostExecuteValidator? postExecuteValidator,
     Future<({Map<String, dynamic> plan, GoalTree goalTree})?> Function()?
-        rethink,
+    rethink,
     bool autoApproveSensitive = false,
     bool isWorkflowAutoExecute = false,
     List<Map<String, dynamic>>? initialPreviousResults,
@@ -1371,6 +1374,16 @@ class AgentRuntimeEngine {
     var retryCount = 0;
     var rePlanned = false;
     final stuck = StuckDetector();
+
+    // Conversation history snapshot (latest 20, chronological). Carries the
+    // previous workflow step's output as the most recent assistant turn. Fed
+    // to the selector + reviewer so tool arguments (e.g. chat.send content)
+    // and synthesized summaries are grounded on real data, not hallucinated.
+    final loopRecentMsgs = () {
+      final src = request.recentMessages;
+      final latest = src.length > 20 ? src.sublist(src.length - 20) : src;
+      return latest.map((m) => {'role': m.role, 'content': m.content}).toList();
+    }();
 
     // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3
     // for safety. Multi-target tasks need more headroom than the legacy 5.
@@ -1405,6 +1418,7 @@ class AgentRuntimeEngine {
         recentToolMemory: memorySnapshot,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         goalTree: goalTree,
+        recentMessages: loopRecentMsgs,
       );
       emit(logger.events.last);
 
@@ -1418,10 +1432,7 @@ class AgentRuntimeEngine {
             'Repeated null tool selection. Aborting to prevent infinite loop.',
           );
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-          return _fail(
-            _capabilityNotFoundMessage(detectedLang),
-            logger,
-          );
+          return _fail(_capabilityNotFoundMessage(detectedLang), logger);
         }
         final recoveryDecision = await _maybeRecover(
           recovery: recovery,
@@ -1662,7 +1673,8 @@ class AgentRuntimeEngine {
             );
           }
           // No recovery possible — abort with a localized message.
-          final abortMsg = recovery?.giveUpMessage(detectedLang) ??
+          final abortMsg =
+              recovery?.giveUpMessage(detectedLang) ??
               await verbalizer.abort(
                 reason: 'agent looped on ${toolRequest.name} after retry',
                 language: detectedLang,
@@ -1938,8 +1950,9 @@ class AgentRuntimeEngine {
                 );
               }
               await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-              final unverifiedMessage =
-                  verification.userFacingMessage(detectedLang);
+              final unverifiedMessage = verification.userFacingMessage(
+                detectedLang,
+              );
               logger.logFinalResponse(unverifiedMessage);
               return AgentRuntimeResponse(
                 finalMessage: unverifiedMessage,
@@ -2039,6 +2052,7 @@ class AgentRuntimeEngine {
           logger: logger,
           language: detectedLang.label,
           goalTree: goalTree,
+          recentMessages: loopRecentMsgs,
         );
         emit(logger.events.last);
 
@@ -2074,8 +2088,10 @@ class AgentRuntimeEngine {
             // Inject a synthesized final_response so downstream synthesis path
             // doesn't fall back to "Maximum runtime steps reached".
             review?['status'] = 'done';
-            review?['final_response'] ??=
-                _emptyResultMessage(detectedLang.code, toolRequest.name);
+            review?['final_response'] ??= _emptyResultMessage(
+              detectedLang.code,
+              toolRequest.name,
+            );
           }
         }
 
@@ -2275,7 +2291,8 @@ class AgentRuntimeEngine {
             );
           }
           await _finishTaskScopeForRequest(request, LedgerStatus.failed);
-          final giveUp = recovery?.giveUpMessage(detectedLang) ??
+          final giveUp =
+              recovery?.giveUpMessage(detectedLang) ??
               (review['error'] as String? ?? 'Unrecoverable error.');
           return _fail(giveUp, logger);
         }
@@ -2321,8 +2338,8 @@ class AgentRuntimeEngine {
   Future<({Map<String, dynamic> plan, GoalTree goalTree})?> _maybeRecover({
     required RecoveryCoordinator? recovery,
     required Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
-            Function()?
-        rethink,
+    Function()?
+    rethink,
     required String reason,
     required RuntimeLogger logger,
     ToolCallRequest? failedTool,
@@ -3369,8 +3386,8 @@ class AgentRuntimeEngine {
     // variant when available, otherwise default to the English variant
     // since LanguageRegistry will wrap it in a properly localized sentence.
     final actionRawKey = code == 'id' ? 'actionLabelId' : 'actionLabel';
-    final action = ((data[actionRawKey] ?? data['actionLabel']) as String? ?? '')
-        .trim();
+    final action =
+        ((data[actionRawKey] ?? data['actionLabel']) as String? ?? '').trim();
     final actionLabel = action.isEmpty
         ? LanguageRegistry.phrase('permission_action_default', code)
         : action;

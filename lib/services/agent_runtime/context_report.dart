@@ -74,15 +74,9 @@ class ContextReport {
     // Fall back to the synthesized estimate when no calls have happened yet.
     final peakMeasured = ContextCompactor.peakRecentInputTokens();
     final synthesizedTotal =
-        identityTokens +
-        knowledgeTokens +
-        messagesTokens +
-        selectedToolsTokens;
+        identityTokens + knowledgeTokens + messagesTokens + selectedToolsTokens;
     final usedTokens = peakMeasured > 0 ? peakMeasured : synthesizedTotal;
-    final remainingTokens = (maxContextLength - usedTokens).clamp(
-      0,
-      1 << 30,
-    );
+    final remainingTokens = (maxContextLength - usedTokens).clamp(0, 1 << 30);
 
     final pct = maxContextLength > 0
         ? ((usedTokens / maxContextLength) * 100).clamp(0, 999).round()
@@ -91,10 +85,10 @@ class ContextReport {
     final headlineKey = pct < 30
         ? 'context_headline_low'
         : pct < 60
-            ? 'context_headline_comfortable'
-            : pct < 80
-                ? 'context_headline_tight'
-                : 'context_headline_full';
+        ? 'context_headline_comfortable'
+        : pct < 80
+        ? 'context_headline_tight'
+        : 'context_headline_full';
     final headline = LanguageRegistry.phrase(headlineKey, languageCode, {
       'pct': pct.toString(),
     });
@@ -121,7 +115,9 @@ class ContextReport {
         }),
       )
       ..writeln()
-      ..writeln(LanguageRegistry.phrase('context_currently_holding', languageCode))
+      ..writeln(
+        LanguageRegistry.phrase('context_currently_holding', languageCode),
+      )
       ..writeln()
       ..writeln(
         LanguageRegistry.phrase('context_item_identity', languageCode, {

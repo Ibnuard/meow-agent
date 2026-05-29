@@ -53,7 +53,8 @@ class WorkspaceLoader {
     String? lastResult,
     String? lastError,
   }) async {
-    final content = '''# Heartbeat
+    final content =
+        '''# Heartbeat
 
 Current state: $state
 Current task: $task
@@ -66,7 +67,10 @@ Updated at: ${DateTime.now().toIso8601String()}
   }
 
   /// Ensure workspace directory exists with default files.
-  Future<void> ensureWorkspace(String agentName, {String languageCode = 'id'}) async {
+  Future<void> ensureWorkspace(
+    String agentName, {
+    String languageCode = 'id',
+  }) async {
     final dir = await WorkspacePaths.getAgentWorkspace(agentName);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
@@ -91,7 +95,10 @@ Updated at: ${DateTime.now().toIso8601String()}
   }
 
   Future<void> _ensureFile(
-      Directory dir, String filename, String defaultContent) async {
+    Directory dir,
+    String filename,
+    String defaultContent,
+  ) async {
     final file = File('${dir.path}/$filename');
     if (!await file.exists()) {
       await file.writeAsString(defaultContent);
@@ -148,7 +155,8 @@ Updated at: ${DateTime.now().toIso8601String()}
     return false;
   }
 
-  static String _defaultSoul(String name, String lang) => '''# SOUL.md
+  static String _defaultSoul(String name, String lang) =>
+      '''# SOUL.md
 
 ## Agent Identity
 

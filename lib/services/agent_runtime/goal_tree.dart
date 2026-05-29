@@ -5,12 +5,12 @@ enum SubgoalStatus { pending, inProgress, done, failed, skipped }
 
 extension SubgoalStatusX on SubgoalStatus {
   String get label => switch (this) {
-        SubgoalStatus.pending => 'pending',
-        SubgoalStatus.inProgress => 'in_progress',
-        SubgoalStatus.done => 'done',
-        SubgoalStatus.failed => 'failed',
-        SubgoalStatus.skipped => 'skipped',
-      };
+    SubgoalStatus.pending => 'pending',
+    SubgoalStatus.inProgress => 'in_progress',
+    SubgoalStatus.done => 'done',
+    SubgoalStatus.failed => 'failed',
+    SubgoalStatus.skipped => 'skipped',
+  };
 
   static SubgoalStatus fromLabel(String? raw) {
     switch (raw) {
@@ -48,8 +48,8 @@ class Subgoal {
     this.status = SubgoalStatus.pending,
     this.resultRef,
     this.notes,
-  })  : requiredSlots = requiredSlots ?? const {},
-        missingSlots = missingSlots ?? const [];
+  }) : requiredSlots = requiredSlots ?? const {},
+       missingSlots = missingSlots ?? const [];
 
   final String id;
   final String label;
@@ -81,14 +81,14 @@ class Subgoal {
       status == SubgoalStatus.skipped;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'label': label,
-        if (requiredSlots.isNotEmpty) 'required_slots': requiredSlots,
-        if (missingSlots.isNotEmpty) 'missing_slots': missingSlots,
-        'status': status.label,
-        if (resultRef != null) 'result_ref': resultRef,
-        if (notes != null) 'notes': notes,
-      };
+    'id': id,
+    'label': label,
+    if (requiredSlots.isNotEmpty) 'required_slots': requiredSlots,
+    if (missingSlots.isNotEmpty) 'missing_slots': missingSlots,
+    'status': status.label,
+    if (resultRef != null) 'result_ref': resultRef,
+    if (notes != null) 'notes': notes,
+  };
 
   factory Subgoal.fromJson(Map<String, dynamic> json) {
     return Subgoal(
@@ -115,8 +115,8 @@ class GoalTree {
     required this.mainGoal,
     List<String>? completionCriteria,
     List<Subgoal>? subgoals,
-  })  : completionCriteria = completionCriteria ?? const [],
-        subgoals = subgoals ?? [];
+  }) : completionCriteria = completionCriteria ?? const [],
+       subgoals = subgoals ?? [];
 
   final String mainGoal;
   final List<String> completionCriteria;
@@ -129,8 +129,7 @@ class GoalTree {
       subgoals.isNotEmpty &&
       subgoals.every((s) => s.status == SubgoalStatus.done);
 
-  bool get hasFailed =>
-      subgoals.any((s) => s.status == SubgoalStatus.failed);
+  bool get hasFailed => subgoals.any((s) => s.status == SubgoalStatus.failed);
 
   /// Next subgoal to work on. `inProgress` first (resume), then `pending`.
   /// Returns null when all subgoals are terminal.
@@ -170,8 +169,7 @@ class GoalTree {
   /// Compact human-readable summary for prompt injection.
   String toCompactString() {
     if (subgoals.isEmpty) return 'Goal: $mainGoal';
-    final buf = StringBuffer()
-      ..writeln('Main goal: $mainGoal');
+    final buf = StringBuffer()..writeln('Main goal: $mainGoal');
     if (completionCriteria.isNotEmpty) {
       buf.writeln('Completion criteria:');
       for (final c in completionCriteria) {
@@ -180,19 +178,20 @@ class GoalTree {
     }
     buf.writeln('Subgoals (${subgoals.length}):');
     for (final s in subgoals) {
-      final missing =
-          s.missingSlots.isEmpty ? '' : ' [missing:${s.missingSlots.join(",")}]';
+      final missing = s.missingSlots.isEmpty
+          ? ''
+          : ' [missing:${s.missingSlots.join(",")}]';
       buf.writeln('- [${s.status.label}] ${s.id}: ${s.label}$missing');
     }
     return buf.toString().trim();
   }
 
   Map<String, dynamic> toJson() => {
-        'main_goal': mainGoal,
-        if (completionCriteria.isNotEmpty)
-          'completion_criteria': completionCriteria,
-        'subgoals': subgoals.map((s) => s.toJson()).toList(),
-      };
+    'main_goal': mainGoal,
+    if (completionCriteria.isNotEmpty)
+      'completion_criteria': completionCriteria,
+    'subgoals': subgoals.map((s) => s.toJson()).toList(),
+  };
 
   factory GoalTree.fromJson(Map<String, dynamic> json) {
     return GoalTree(
@@ -215,9 +214,7 @@ class GoalTree {
     final id = 'sg_main';
     return GoalTree(
       mainGoal: mainGoal,
-      subgoals: [
-        Subgoal(id: id, label: subgoalLabel ?? mainGoal),
-      ],
+      subgoals: [Subgoal(id: id, label: subgoalLabel ?? mainGoal)],
     );
   }
 }
@@ -233,10 +230,7 @@ class StuckDetector {
 
   /// Returns true when the same key has been observed [threshold] times in
   /// a row. The caller should reset after a successful re-plan.
-  bool observe({
-    required String toolName,
-    required Map<String, dynamic> args,
-  }) {
+  bool observe({required String toolName, required Map<String, dynamic> args}) {
     final key = _key(toolName, args);
     if (key == _lastKey) {
       _counts[key] = (_counts[key] ?? 1) + 1;

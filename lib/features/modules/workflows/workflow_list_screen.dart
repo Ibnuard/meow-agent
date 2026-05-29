@@ -36,7 +36,12 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   Future<void> _load() async {
     final list = await _repo.list();
-    if (mounted) setState(() { _workflows = list; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _workflows = list;
+        _loading = false;
+      });
+    }
   }
 
   Future<void> _toggle(WorkflowModel wf) async {
@@ -157,12 +162,13 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
             : _workflows.isEmpty
-                ? _buildEmpty(cs, extras, isId)
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-                    itemCount: _workflows.length,
-                    itemBuilder: (_, i) => _buildCard(_workflows[i], cs, extras, isId),
-                  ),
+            ? _buildEmpty(cs, extras, isId)
+            : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
+                itemCount: _workflows.length,
+                itemBuilder: (_, i) =>
+                    _buildCard(_workflows[i], cs, extras, isId),
+              ),
       ),
     );
   }
@@ -181,7 +187,9 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
           onPressed: () async {
             final result = await Navigator.push<bool>(
               context,
-              MaterialPageRoute(builder: (_) => const WorkflowTemplatesScreen()),
+              MaterialPageRoute(
+                builder: (_) => const WorkflowTemplatesScreen(),
+              ),
             );
             if (result == true) _load();
           },
@@ -214,16 +222,19 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
       ),
       actions: [
         IconButton(
-          icon: Icon(allSelected
-              ? Icons.deselect_rounded
-              : Icons.select_all_rounded),
+          icon: Icon(
+            allSelected ? Icons.deselect_rounded : Icons.select_all_rounded,
+          ),
           tooltip: allSelected
               ? (isId ? 'Batal pilih semua' : 'Deselect all')
               : (isId ? 'Pilih semua' : 'Select all'),
           onPressed: _selectAll,
         ),
         IconButton(
-          icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+          icon: const Icon(
+            Icons.delete_outline_rounded,
+            color: Colors.redAccent,
+          ),
           tooltip: isId ? 'Hapus' : 'Delete',
           onPressed: count > 0 ? () => _deleteSelected(isId) : null,
         ),
@@ -236,7 +247,11 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.schedule_rounded, size: 48, color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+          Icon(
+            Icons.schedule_rounded,
+            size: 48,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+          ),
           const SizedBox(height: 12),
           Text(
             isId ? 'Belum ada workflow' : 'No workflows yet',
@@ -247,14 +262,19 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             isId
                 ? 'Buat workflow untuk menjalankan tugas otomatis'
                 : 'Create workflows to run automated tasks',
-            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+            ),
           ),
           const SizedBox(height: 18),
           OutlinedButton.icon(
             onPressed: () async {
               final result = await Navigator.push<bool>(
                 context,
-                MaterialPageRoute(builder: (_) => const WorkflowTemplatesScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const WorkflowTemplatesScreen(),
+                ),
               );
               if (result == true) _load();
             },
@@ -263,7 +283,9 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             style: OutlinedButton.styleFrom(
               foregroundColor: cs.primary,
               side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
             ),
           ),
         ],
@@ -271,7 +293,12 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     );
   }
 
-  Widget _buildCard(WorkflowModel wf, ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildCard(
+    WorkflowModel wf,
+    ColorScheme cs,
+    MeowExtras extras,
+    bool isId,
+  ) {
     final selected = _selectedIds.contains(wf.id);
     return GestureDetector(
       onTap: () => _onCardTap(wf),
@@ -297,7 +324,9 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                     ? Icons.check_circle_rounded
                     : Icons.radio_button_unchecked_rounded,
                 size: 20,
-                color: selected ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                color: selected
+                    ? cs.primary
+                    : cs.onSurfaceVariant.withValues(alpha: 0.5),
               ),
               const SizedBox(width: 12),
             ],
@@ -327,7 +356,10 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                       const SizedBox(width: 4),
                       Text(
                         wf.trigger.summary,
-                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Icon(
@@ -338,7 +370,10 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                       const SizedBox(width: 4),
                       Text(
                         _notifLabel(wf.notification.style, isId),
-                        style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -346,7 +381,10 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                     const SizedBox(height: 6),
                     Text(
                       '${isId ? "Terakhir:" : "Last run:"} ${_formatTime(wf.lastRun!)}',
-                      style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                      ),
                     ),
                   ],
                 ],

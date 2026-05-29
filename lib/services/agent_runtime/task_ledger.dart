@@ -12,9 +12,9 @@ enum LedgerSource { chat, workflow }
 
 extension LedgerSourceX on LedgerSource {
   String get label => switch (this) {
-        LedgerSource.chat => 'chat',
-        LedgerSource.workflow => 'workflow',
-      };
+    LedgerSource.chat => 'chat',
+    LedgerSource.workflow => 'workflow',
+  };
 
   static LedgerSource fromLabel(String? raw) =>
       raw == 'workflow' ? LedgerSource.workflow : LedgerSource.chat;
@@ -30,11 +30,11 @@ enum LedgerStatus { active, completed, aborted, failed }
 
 extension LedgerStatusX on LedgerStatus {
   String get label => switch (this) {
-        LedgerStatus.active => 'active',
-        LedgerStatus.completed => 'completed',
-        LedgerStatus.aborted => 'aborted',
-        LedgerStatus.failed => 'failed',
-      };
+    LedgerStatus.active => 'active',
+    LedgerStatus.completed => 'completed',
+    LedgerStatus.aborted => 'aborted',
+    LedgerStatus.failed => 'failed',
+  };
 
   static LedgerStatus fromLabel(String? raw) {
     switch (raw) {
@@ -90,8 +90,8 @@ class TaskLedger {
     DateTime? createdAt,
     DateTime? updatedAt,
     this.completedAt,
-  })  : createdAt = createdAt ?? DateTime.now(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   final String id;
   final String agentId;
@@ -139,31 +139,31 @@ class TaskLedger {
   bool get isTerminal => status != LedgerStatus.active;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'agent_id': agentId,
-        'source': source.label,
-        'source_ref': sourceRef,
-        'main_goal': mainGoal,
-        'language_code': languageCode,
-        'original_user_message': originalUserMessage,
-        'goal_tree': goalTree.toJson(),
-        'completion_criteria': completionCriteria,
-        'impacts': impacts,
-        if (targetGraph.isNotEmpty) 'target_graph': targetGraph,
-        'previous_results': previousResults,
-        'current_step': currentStep,
-        'available_tools': availableTools,
-        'memory_snapshot': memorySnapshot,
-        'auto_approve_sensitive': autoApproveSensitive,
-        'is_workflow_auto_execute': isWorkflowAutoExecute,
-        if (plan != null) 'plan': plan,
-        if (pendingToolName != null) 'pending_tool_name': pendingToolName,
-        if (pendingToolArgs != null) 'pending_tool_args': pendingToolArgs,
-        'status': status.label,
-        'created_at': createdAt.toIso8601String(),
-        'updated_at': updatedAt.toIso8601String(),
-        'completed_at': completedAt?.toIso8601String(),
-      };
+    'id': id,
+    'agent_id': agentId,
+    'source': source.label,
+    'source_ref': sourceRef,
+    'main_goal': mainGoal,
+    'language_code': languageCode,
+    'original_user_message': originalUserMessage,
+    'goal_tree': goalTree.toJson(),
+    'completion_criteria': completionCriteria,
+    'impacts': impacts,
+    if (targetGraph.isNotEmpty) 'target_graph': targetGraph,
+    'previous_results': previousResults,
+    'current_step': currentStep,
+    'available_tools': availableTools,
+    'memory_snapshot': memorySnapshot,
+    'auto_approve_sensitive': autoApproveSensitive,
+    'is_workflow_auto_execute': isWorkflowAutoExecute,
+    if (plan != null) 'plan': plan,
+    if (pendingToolName != null) 'pending_tool_name': pendingToolName,
+    if (pendingToolArgs != null) 'pending_tool_args': pendingToolArgs,
+    'status': status.label,
+    'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
+    'completed_at': completedAt?.toIso8601String(),
+  };
 
   factory TaskLedger.fromJson(Map<String, dynamic> json) {
     return TaskLedger(
@@ -177,24 +177,28 @@ class TaskLedger {
       goalTree: GoalTree.fromJson(
         (json['goal_tree'] as Map?)?.cast<String, dynamic>() ?? const {},
       ),
-      completionCriteria: (json['completion_criteria'] as List?)
+      completionCriteria:
+          (json['completion_criteria'] as List?)
               ?.map((e) => e.toString())
               .toList() ??
           const [],
-      impacts: (json['impacts'] as List?)
+      impacts:
+          (json['impacts'] as List?)
               ?.whereType<Map>()
               .map((m) => m.cast<String, dynamic>())
               .toList() ??
           const [],
-      targetGraph: (json['target_graph'] as Map?)?.cast<String, dynamic>() ??
-          const {},
-      previousResults: (json['previous_results'] as List?)
+      targetGraph:
+          (json['target_graph'] as Map?)?.cast<String, dynamic>() ?? const {},
+      previousResults:
+          (json['previous_results'] as List?)
               ?.whereType<Map>()
               .map((m) => m.cast<String, dynamic>())
               .toList() ??
           <Map<String, dynamic>>[],
       currentStep: (json['current_step'] as num?)?.toInt() ?? 1,
-      availableTools: (json['available_tools'] as List?)
+      availableTools:
+          (json['available_tools'] as List?)
               ?.map((e) => e.toString())
               .toList() ??
           const [],
@@ -203,12 +207,14 @@ class TaskLedger {
       isWorkflowAutoExecute: json['is_workflow_auto_execute'] as bool? ?? false,
       plan: (json['plan'] as Map?)?.cast<String, dynamic>(),
       pendingToolName: json['pending_tool_name'] as String?,
-      pendingToolArgs:
-          (json['pending_tool_args'] as Map?)?.cast<String, dynamic>(),
+      pendingToolArgs: (json['pending_tool_args'] as Map?)
+          ?.cast<String, dynamic>(),
       status: LedgerStatusX.fromLabel(json['status'] as String?),
-      createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+      createdAt:
+          DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.now(),
-      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? '') ??
+      updatedAt:
+          DateTime.tryParse(json['updated_at'] as String? ?? '') ??
           DateTime.now(),
       completedAt: json['completed_at'] != null
           ? DateTime.tryParse(json['completed_at'] as String)
@@ -234,7 +240,8 @@ class TaskLedger {
 /// Stored in its own database (`meow_task_ledgers.db`) following the project
 /// convention of one SQLite file per concern.
 class TaskLedgerDatabase {
-  TaskLedgerDatabase({String? overrideDbPath}) : _overrideDbPath = overrideDbPath;
+  TaskLedgerDatabase({String? overrideDbPath})
+    : _overrideDbPath = overrideDbPath;
 
   final String? _overrideDbPath;
   Database? _db;
@@ -246,8 +253,8 @@ class TaskLedgerDatabase {
   }
 
   Future<Database> _init() async {
-    final path = _overrideDbPath ??
-        '${await getDatabasesPath()}/meow_task_ledgers.db';
+    final path =
+        _overrideDbPath ?? '${await getDatabasesPath()}/meow_task_ledgers.db';
     return openDatabase(
       path,
       version: 1,
@@ -341,11 +348,7 @@ class TaskLedgerDatabase {
   /// hard-delete via [delete].
   Future<void> delete(String id) async {
     final db = await database;
-    await db.delete(
-      'task_ledgers',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete('task_ledgers', where: 'id = ?', whereArgs: [id]);
   }
 
   /// List all active ledgers for an agent. Diagnostic; the runtime should
@@ -371,19 +374,19 @@ class TaskLedgerDatabase {
   // ───────────────────────────────────────────────────────────────────────
 
   Map<String, dynamic> _toRow(TaskLedger l) => {
-        'id': l.id,
-        'agent_id': l.agentId,
-        'source': l.source.label,
-        'source_ref': l.sourceRef,
-        'status': l.status.label,
-        'main_goal': l.mainGoal,
-        'language_code': l.languageCode,
-        'original_user_message': l.originalUserMessage,
-        'payload_json': jsonEncode(l.toJson()),
-        'created_at': l.createdAt.toIso8601String(),
-        'updated_at': l.updatedAt.toIso8601String(),
-        'completed_at': l.completedAt?.toIso8601String(),
-      };
+    'id': l.id,
+    'agent_id': l.agentId,
+    'source': l.source.label,
+    'source_ref': l.sourceRef,
+    'status': l.status.label,
+    'main_goal': l.mainGoal,
+    'language_code': l.languageCode,
+    'original_user_message': l.originalUserMessage,
+    'payload_json': jsonEncode(l.toJson()),
+    'created_at': l.createdAt.toIso8601String(),
+    'updated_at': l.updatedAt.toIso8601String(),
+    'completed_at': l.completedAt?.toIso8601String(),
+  };
 
   TaskLedger _fromRow(Map<String, dynamic> row) {
     // payload_json is the source of truth; the dedicated columns exist for

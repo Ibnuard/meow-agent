@@ -43,9 +43,7 @@ class _WorkflowLogDetailScreenState
     final isSuccess = execution.status == 'success';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(isId ? 'Detail Log' : 'Log Detail'),
-      ),
+      appBar: AppBar(title: Text(isId ? 'Detail Log' : 'Log Detail')),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(
@@ -58,129 +56,136 @@ class _WorkflowLogDetailScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            // Status banner.
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isSuccess
-                    ? Colors.green.withValues(alpha: 0.12)
-                    : Colors.red.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
+              // Status banner.
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
                   color: isSuccess
-                      ? Colors.green.withValues(alpha: 0.3)
-                      : Colors.red.withValues(alpha: 0.3),
+                      ? Colors.green.withValues(alpha: 0.12)
+                      : Colors.red.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isSuccess
+                        ? Colors.green.withValues(alpha: 0.3)
+                        : Colors.red.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isSuccess
+                          ? Icons.check_circle_rounded
+                          : Icons.error_rounded,
+                      color: isSuccess ? Colors.green : Colors.red,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            execution.workflowTitle,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            isSuccess
+                                ? (isId
+                                      ? 'Berhasil dijalankan'
+                                      : 'Successfully executed')
+                                : (isId
+                                      ? 'Gagal dijalankan'
+                                      : 'Execution failed'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: isSuccess ? Colors.green : Colors.red,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                children: [
-                  Icon(
-                    isSuccess
-                        ? Icons.check_circle_rounded
-                        : Icons.error_rounded,
-                    color: isSuccess ? Colors.green : Colors.red,
-                    size: 28,
+              const SizedBox(height: 20),
+
+              // Metadata section.
+              _sectionLabel(isId ? 'Informasi' : 'Information', cs),
+              const SizedBox(height: 10),
+              _infoCard(extras, [
+                _infoRow(
+                  Icons.smart_toy_outlined,
+                  isId ? 'Agent' : 'Agent',
+                  agent?.name ?? execution.agentId,
+                  cs,
+                ),
+                _infoRow(
+                  Icons.schedule_rounded,
+                  isId ? 'Waktu Eksekusi' : 'Executed At',
+                  _formatDateTime(execution.executedAt, isId),
+                  cs,
+                ),
+                _infoRow(
+                  Icons.timer_outlined,
+                  isId ? 'Durasi' : 'Duration',
+                  _formatDuration(execution.durationMs ?? 0),
+                  cs,
+                ),
+              ]),
+              const SizedBox(height: 20),
+
+              // Open workflow button (right after Informasi).
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => _openWorkflow(context, isId),
+                  icon: const Icon(Icons.edit_note_rounded, size: 20),
+                  label: Text(
+                    isId ? 'Buka Workflow' : 'Open Workflow',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          execution.workflowTitle,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: cs.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          isSuccess
-                              ? (isId ? 'Berhasil dijalankan' : 'Successfully executed')
-                              : (isId ? 'Gagal dijalankan' : 'Execution failed'),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isSuccess ? Colors.green : Colors.red,
-                          ),
-                        ),
-                      ],
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: cs.primary,
+                    side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Metadata section.
-            _sectionLabel(isId ? 'Informasi' : 'Information', cs),
-            const SizedBox(height: 10),
-            _infoCard(extras, [
-              _infoRow(
-                Icons.smart_toy_outlined,
-                isId ? 'Agent' : 'Agent',
-                agent?.name ?? execution.agentId,
-                cs,
-              ),
-              _infoRow(
-                Icons.schedule_rounded,
-                isId ? 'Waktu Eksekusi' : 'Executed At',
-                _formatDateTime(execution.executedAt, isId),
-                cs,
-              ),
-              _infoRow(
-                Icons.timer_outlined,
-                isId ? 'Durasi' : 'Duration',
-                _formatDuration(execution.durationMs ?? 0),
-                cs,
-              ),
-            ]),
-            const SizedBox(height: 20),
-
-            // Open workflow button (right after Informasi).
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () => _openWorkflow(context, isId),
-                icon: const Icon(Icons.edit_note_rounded, size: 20),
-                label: Text(
-                  isId ? 'Buka Workflow' : 'Open Workflow',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // Result section — formatted with step separators + expand/collapse.
-            _sectionLabel(
-              isSuccess
-                  ? (isId ? 'Hasil' : 'Result')
-                  : (isId ? 'Error' : 'Error'),
-              cs,
-            ),
-            const SizedBox(height: 10),
-            _buildResultCard(cs, extras, isId),
-            const SizedBox(height: 24),
-
-            // Runtime timeline section.
-            if (execution.events.isNotEmpty) ...[
+              // Result section — formatted with step separators + expand/collapse.
               _sectionLabel(
-                isId ? 'Runtime' : 'Runtime',
+                isSuccess
+                    ? (isId ? 'Hasil' : 'Result')
+                    : (isId ? 'Error' : 'Error'),
                 cs,
               ),
               const SizedBox(height: 10),
-              _buildTimelineSection(execution.events, extras, cs, isId, isDevMode),
-              const SizedBox(height: 12),
+              _buildResultCard(cs, extras, isId),
+              const SizedBox(height: 24),
+
+              // Runtime timeline section.
+              if (execution.events.isNotEmpty) ...[
+                _sectionLabel(isId ? 'Runtime' : 'Runtime', cs),
+                const SizedBox(height: 10),
+                _buildTimelineSection(
+                  execution.events,
+                  extras,
+                  cs,
+                  isId,
+                  isDevMode,
+                ),
+                const SizedBox(height: 12),
+              ],
             ],
-          ],
           ),
         ),
       ),
@@ -215,13 +220,35 @@ class _WorkflowLogDetailScreenState
             shrinkWrap: true,
             styleSheet: MarkdownStyleSheet(
               p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.5),
-              h1: TextStyle(color: cs.onSurface, fontSize: 18, fontWeight: FontWeight.w700, height: 1.4),
-              h2: TextStyle(color: cs.onSurface, fontSize: 16, fontWeight: FontWeight.w700, height: 1.4),
-              h3: TextStyle(color: cs.onSurface, fontSize: 15, fontWeight: FontWeight.w600, height: 1.4),
-              strong: TextStyle(color: cs.onSurface, fontWeight: FontWeight.w700),
+              h1: TextStyle(
+                color: cs.onSurface,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+              ),
+              h2: TextStyle(
+                color: cs.onSurface,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1.4,
+              ),
+              h3: TextStyle(
+                color: cs.onSurface,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                height: 1.4,
+              ),
+              strong: TextStyle(
+                color: cs.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
               em: TextStyle(color: cs.onSurface, fontStyle: FontStyle.italic),
               listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
-              blockquote: TextStyle(color: cs.onSurfaceVariant, fontSize: 14, height: 1.5),
+              blockquote: TextStyle(
+                color: cs.onSurfaceVariant,
+                fontSize: 14,
+                height: 1.5,
+              ),
               code: TextStyle(
                 color: cs.primary,
                 backgroundColor: cs.primary.withValues(alpha: 0.08),
@@ -278,8 +305,8 @@ class _WorkflowLogDetailScreenState
       final emoji = step.status == 'success'
           ? '✅'
           : step.status == 'skipped'
-              ? '⏭️'
-              : '❌';
+          ? '⏭️'
+          : '❌';
       buf.writeln('$emoji Langkah ${i + 1}: ${step.stepId}');
       buf.writeln('─' * 30);
       buf.writeln(step.result.trim());
@@ -331,7 +358,13 @@ class _WorkflowLogDetailScreenState
       child: Column(
         children: [
           for (var i = 0; i < filtered.length; i++)
-            _timelineRow(filtered[i], i == filtered.length - 1, cs, extras, isDevMode),
+            _timelineRow(
+              filtered[i],
+              i == filtered.length - 1,
+              cs,
+              extras,
+              isDevMode,
+            ),
         ],
       ),
     );
@@ -344,6 +377,7 @@ class _WorkflowLogDetailScreenState
     const humanTypes = {
       'narrative',
       'step_start',
+      'step_handoff',
       'step_skipped',
       'step_retry',
       'step_failure_skipped',
@@ -363,7 +397,9 @@ class _WorkflowLogDetailScreenState
   ) {
     final accent = _eventColor(event.type, cs);
     // In non-dev mode, show friendlier labels.
-    final label = isDevMode ? _eventLabel(event.type) : _friendlyLabel(event.type);
+    final label = isDevMode
+        ? _eventLabel(event.type)
+        : _friendlyLabel(event.type);
     final icon = isDevMode ? _eventIcon(event.type) : _friendlyIcon(event.type);
     // In non-dev mode, strip technical prefixes like "[Step 1]".
     final message = isDevMode ? event.message : _humanizeMessage(event);
@@ -466,6 +502,8 @@ class _WorkflowLogDetailScreenState
         return Icons.error_outline_rounded;
       case 'final_response':
         return Icons.flag_rounded;
+      case 'step_handoff':
+        return Icons.swap_horiz_rounded;
       default:
         return Icons.info_outline_rounded;
     }
@@ -477,6 +515,8 @@ class _WorkflowLogDetailScreenState
         return Icons.chat_bubble_outline_rounded;
       case 'step_start':
         return Icons.play_circle_outline_rounded;
+      case 'step_handoff':
+        return Icons.swap_horiz_rounded;
       case 'step_skipped':
         return Icons.skip_next_rounded;
       case 'step_retry':
@@ -508,6 +548,8 @@ class _WorkflowLogDetailScreenState
         return cs.primary;
       case 'step_start':
         return cs.onSurfaceVariant;
+      case 'step_handoff':
+        return Colors.tealAccent;
       case 'chain_stopped':
         return Colors.red;
       default:
@@ -529,6 +571,8 @@ class _WorkflowLogDetailScreenState
         return 'ERROR';
       case 'final_response':
         return 'RESPONSE';
+      case 'step_handoff':
+        return 'HANDOFF';
       default:
         return type.toUpperCase();
     }
@@ -540,6 +584,8 @@ class _WorkflowLogDetailScreenState
         return 'PROSES';
       case 'step_start':
         return 'LANGKAH';
+      case 'step_handoff':
+        return 'DATA MASUK';
       case 'step_skipped':
         return 'DILEWATI';
       case 'step_retry':
@@ -581,13 +627,13 @@ class _WorkflowLogDetailScreenState
   // ─── Formatting Helpers ─────────────────────────────────────────────────────
 
   Widget _sectionLabel(String text, ColorScheme cs) => Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: cs.onSurfaceVariant,
-        ),
-      );
+    text,
+    style: TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: cs.onSurfaceVariant,
+    ),
+  );
 
   Widget _infoCard(MeowExtras extras, List<Widget> children) {
     return Container(
@@ -610,10 +656,7 @@ class _WorkflowLogDetailScreenState
           const SizedBox(width: 12),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 13,
-              color: cs.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
           ),
           Expanded(
             child: Text(
@@ -640,12 +683,32 @@ class _WorkflowLogDetailScreenState
 
   String _formatDateTime(DateTime dt, bool isId) {
     const monthsId = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
     const monthsEn = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final months = isId ? monthsId : monthsEn;
     final dd = dt.day.toString().padLeft(2, '0');
@@ -671,9 +734,9 @@ class _WorkflowLogDetailScreenState
     if (workflow == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isId
-              ? 'Workflow sudah dihapus.'
-              : 'Workflow has been deleted.'),
+          content: Text(
+            isId ? 'Workflow sudah dihapus.' : 'Workflow has been deleted.',
+          ),
         ),
       );
       return;

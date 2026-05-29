@@ -24,6 +24,7 @@ class Executor {
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
+    List<Map<String, String>> recentMessages = const [],
   }) async {
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
@@ -33,6 +34,7 @@ class Executor {
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
       goalTree: goalTree,
+      recentMessages: recentMessages,
     );
 
     return _callLlm(prompt, 'selectTool', logger);
@@ -47,6 +49,7 @@ class Executor {
     required RuntimeLogger logger,
     String language = 'English',
     GoalTree? goalTree,
+    List<Map<String, String>> recentMessages = const [],
   }) async {
     final prompt = PromptTemplates.reviewPrompt(
       result: result,
@@ -55,6 +58,7 @@ class Executor {
       userMessage: userMessage,
       language: language,
       goalTree: goalTree,
+      recentMessages: recentMessages,
     );
 
     return _callLlm(prompt, 'review', logger);

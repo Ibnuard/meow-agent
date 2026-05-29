@@ -5,13 +5,7 @@ import '../llm/openai_compatible_client.dart';
 import 'json_utils.dart';
 
 /// Decision for pending confirmation actions.
-enum ConfirmationDecision {
-  confirmed,
-  rejected,
-  previewOnly,
-  unclear,
-  none,
-}
+enum ConfirmationDecision { confirmed, rejected, previewOnly, unclear, none }
 
 /// Represents a pending sensitive action awaiting user confirmation.
 ///
@@ -62,26 +56,26 @@ class PendingAction {
   final Map<String, dynamic>? resumeContext;
 
   Map<String, dynamic> toJson() => {
-        'tool': toolName,
-        'args': toolArgs,
-        'summary': userFacingSummary,
-        'preview': userFacingPreview,
-        'lang': languageCode,
-        'created_at': createdAt.toIso8601String(),
-        if (resumeContext != null) 'resume': resumeContext,
-      };
+    'tool': toolName,
+    'args': toolArgs,
+    'summary': userFacingSummary,
+    'preview': userFacingPreview,
+    'lang': languageCode,
+    'created_at': createdAt.toIso8601String(),
+    if (resumeContext != null) 'resume': resumeContext,
+  };
 
   factory PendingAction.fromJson(Map<String, dynamic> json) => PendingAction(
-        toolName: json['tool'] as String,
-        toolArgs: (json['args'] as Map<String, dynamic>?) ?? {},
-        userFacingSummary: json['summary'] as String? ?? '',
-        userFacingPreview: json['preview'] as String? ?? '',
-        languageCode: json['lang'] as String? ?? 'en',
-        resumeContext: (json['resume'] as Map<String, dynamic>?),
-        createdAt: json['created_at'] != null
-            ? DateTime.parse(json['created_at'] as String)
-            : DateTime.now(),
-      );
+    toolName: json['tool'] as String,
+    toolArgs: (json['args'] as Map<String, dynamic>?) ?? {},
+    userFacingSummary: json['summary'] as String? ?? '',
+    userFacingPreview: json['preview'] as String? ?? '',
+    languageCode: json['lang'] as String? ?? 'en',
+    resumeContext: (json['resume'] as Map<String, dynamic>?),
+    createdAt: json['created_at'] != null
+        ? DateTime.parse(json['created_at'] as String)
+        : DateTime.now(),
+  );
 
   /// Compact debug description used by the analyzer prompt only.
   ///
@@ -107,8 +101,15 @@ class ConfirmationChecker {
   };
 
   static const _rejectPhrases = {
-    'ga usah', 'gak usah', 'tidak usah', 'jangan dulu',
-    "don't", 'do not', 'not now', 'never mind', 'nevermind',
+    'ga usah',
+    'gak usah',
+    'tidak usah',
+    'jangan dulu',
+    "don't",
+    'do not',
+    'not now',
+    'never mind',
+    'nevermind',
   };
 
   static const _previewKeywords = {
@@ -119,10 +120,20 @@ class ConfirmationChecker {
   };
 
   static const _previewPhrases = {
-    'kasih tau', 'kasih tahu', 'lihat dulu', 'lihat hasilnya',
-    'hasilnya seperti', 'hasilnya kayak', 'hasilnya gimana',
-    'seperti apa', 'kayak apa', 'kaya apa',
-    "what does it", 'show me', 'just show', 'just preview',
+    'kasih tau',
+    'kasih tahu',
+    'lihat dulu',
+    'lihat hasilnya',
+    'hasilnya seperti',
+    'hasilnya kayak',
+    'hasilnya gimana',
+    'seperti apa',
+    'kayak apa',
+    'kaya apa',
+    "what does it",
+    'show me',
+    'just show',
+    'just preview',
   };
 
   static const _confirmKeywords = {
@@ -136,7 +147,11 @@ class ConfirmationChecker {
   };
 
   static const _confirmPhrases = {
-    'go ahead', 'go for it', "let's go", 'lets go', 'do it',
+    'go ahead',
+    'go for it',
+    "let's go",
+    'lets go',
+    'do it',
   };
 
   /// Check user message against pending action.
@@ -166,13 +181,15 @@ class ConfirmationChecker {
       return false;
     }
 
-    if (matchesAnyPhrase(_previewPhrases) || matchesAnyToken(_previewKeywords)) {
+    if (matchesAnyPhrase(_previewPhrases) ||
+        matchesAnyToken(_previewKeywords)) {
       return ConfirmationDecision.previewOnly;
     }
     if (matchesAnyPhrase(_rejectPhrases) || matchesAnyToken(_rejectKeywords)) {
       return ConfirmationDecision.rejected;
     }
-    if (matchesAnyPhrase(_confirmPhrases) || matchesAnyToken(_confirmKeywords)) {
+    if (matchesAnyPhrase(_confirmPhrases) ||
+        matchesAnyToken(_confirmKeywords)) {
       return ConfirmationDecision.confirmed;
     }
     return ConfirmationDecision.unclear;

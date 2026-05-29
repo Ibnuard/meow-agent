@@ -57,7 +57,9 @@ class EcosystemSnapshot {
         final used = a.usedByWorkflows.isEmpty
             ? ''
             : ' · used_by:[${a.usedByWorkflows.join(", ")}]';
-        buf.writeln('  - ${a.name} [id=${a.id}] · provider:${a.providerNickname}$used');
+        buf.writeln(
+          '  - ${a.name} [id=${a.id}] · provider:${a.providerNickname}$used',
+        );
       }
     }
 
@@ -130,20 +132,14 @@ class EcosystemWorkflow {
 }
 
 class EcosystemProvider {
-  const EcosystemProvider({
-    required this.id,
-    required this.nickname,
-  });
+  const EcosystemProvider({required this.id, required this.nickname});
 
   final String id;
   final String nickname;
 }
 
 class EcosystemModule {
-  const EcosystemModule({
-    required this.id,
-    required this.enabled,
-  });
+  const EcosystemModule({required this.id, required this.enabled});
 
   final String id;
   final bool enabled;
@@ -166,9 +162,7 @@ class EcosystemSnapshotBuilder {
   final ProviderRepository providerRepository;
   final WorkflowRepository workflowRepository;
 
-  Future<EcosystemSnapshot> build({
-    required List<AgentModel> agents,
-  }) async {
+  Future<EcosystemSnapshot> build({required List<AgentModel> agents}) async {
     final modules = await _safeLoadModules();
     final providers = await _safeLoadProviders();
     final workflows = await _safeLoadWorkflows();
@@ -201,8 +195,7 @@ class EcosystemSnapshotBuilder {
         EcosystemAgent(
           id: a.id,
           name: a.name,
-          providerNickname:
-              providerById[a.providerId]?.nickname ?? '(unknown)',
+          providerNickname: providerById[a.providerId]?.nickname ?? '(unknown)',
           usedByWorkflows: usedByByAgent[a.id] ?? const [],
         ),
     ];

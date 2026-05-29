@@ -61,7 +61,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   void _loadFromWorkflow(WorkflowModel wf) {
     _titleCtrl.text = wf.title;
-    _promptCtrl.text = wf.prompt;
+    _promptCtrl.text = WorkflowBuiltInVars.migrateLegacyPlaceholders(wf.prompt);
     _selectedAgentId = wf.agentId;
     _triggerType = wf.trigger.type;
     _eventKind = wf.trigger.eventKind ?? EventTriggerKind.batteryLow;
@@ -79,13 +79,26 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _allowSensitive = wf.allowSensitive;
     _priority = wf.priority;
     _timeoutSeconds = _snapTimeoutToOption(wf.timeoutSeconds);
-    _steps = List.from(wf.steps);
+    _steps = wf.steps
+        .map(
+          (s) => WorkflowStep(
+            id: s.id,
+            prompt: WorkflowBuiltInVars.migrateLegacyPlaceholders(s.prompt),
+            agentId: s.agentId,
+            condition: s.condition,
+            onFailure: s.onFailure,
+            timeoutSeconds: s.timeoutSeconds,
+          ),
+        )
+        .toList();
     _templateId = wf.templateId;
   }
 
   void _loadFromTemplate(WorkflowTemplate tpl) {
     _titleCtrl.text = tpl.titleId;
-    _promptCtrl.text = tpl.defaultPrompt;
+    _promptCtrl.text = WorkflowBuiltInVars.migrateLegacyPlaceholders(
+      tpl.defaultPrompt,
+    );
     _templateId = tpl.id;
     if (tpl.defaultTrigger != null) {
       final t = tpl.defaultTrigger!;
@@ -98,7 +111,18 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       _selectedDays = List<int>.from(t.daysOfWeek ?? [1, 2, 3, 4, 5, 6, 7]);
       _intervalMinutes = _snapIntervalToOption(t.intervalMinutes ?? 60);
     }
-    _steps = List.from(tpl.defaultSteps);
+    _steps = tpl.defaultSteps
+        .map(
+          (s) => WorkflowStep(
+            id: s.id,
+            prompt: WorkflowBuiltInVars.migrateLegacyPlaceholders(s.prompt),
+            agentId: s.agentId,
+            condition: s.condition,
+            onFailure: s.onFailure,
+            timeoutSeconds: s.timeoutSeconds,
+          ),
+        )
+        .toList();
     _priority = tpl.defaultPriority;
     _timeoutSeconds = _snapTimeoutToOption(tpl.defaultTimeoutSeconds);
   }
@@ -956,27 +980,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Variables Section ──────────────────────────────────────────────────────
 
-  /// Detect {{varName}} patterns from prompt and steps.
-  Set<String> _detectUsedVariables() {
-    final pattern = RegExp(r'\{\{(\w+)\}\}');
-    final used = <String>{};
-    final allText = StringBuffer(_promptCtrl.text);
-    for (final s in _steps) {
-      allText.write(' ');
-      allText.write(s.prompt);
-    }
-    for (final match in pattern.allMatches(allText.toString())) {
-      final name = match.group(1);
-      if (name != null && name.isNotEmpty) used.add(name);
-    }
-    // Exclude built-ins; whatever remains is likely a typo / unsupported var.
-    used.removeAll(kBuiltInVariableKeys);
-    return used;
-  }
-
   Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, bool isId) {
     final langCode = isId ? 'id' : 'en';
-    final usedVars = _detectUsedVariables();
     final visibleVars = _visibleBuiltIns();
     final previewVars = visibleVars.take(6).toList();
 
@@ -1061,32 +1066,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             ],
           ),
         ),
-        if (usedVars.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: cs.error.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: cs.error.withValues(alpha: 0.22)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.info_outline_rounded, size: 15, color: cs.error),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isId
-                        ? 'Variabel tidak dikenal: ${usedVars.map((v) => '{{$v}}').join(', ')}'
-                        : 'Unknown variables: ${usedVars.map((v) => '{{$v}}').join(', ')}',
-                    style: TextStyle(fontSize: 11, color: cs.error),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -1735,45 +1714,52 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                       spacing: 7,
                       runSpacing: 7,
                       children: suggestions.map((v) {
-                        return InkWell(
-                          onTap: () {
-                            _replaceVariableTrigger(ctrl, trigger, v.key);
-                            localSetState(() {});
-                          },
-                          borderRadius: BorderRadius.circular(999),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: cs.primary.withValues(alpha: 0.10),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: cs.primary.withValues(alpha: 0.24),
+                        return ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 280),
+                          child: InkWell(
+                            onTap: () {
+                              _replaceVariableTrigger(ctrl, trigger, v.key);
+                              localSetState(() {});
+                            },
+                            borderRadius: BorderRadius.circular(999),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 6,
                               ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  v.key,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: cs.primary,
-                                    fontFamily: 'monospace',
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: cs.primary.withValues(alpha: 0.24),
                                 ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  v.descriptionFor(langCode),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: cs.onSurfaceVariant,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    v.key,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: cs.primary,
+                                      fontFamily: 'monospace',
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 6),
+                                  Flexible(
+                                    child: Text(
+                                      v.descriptionFor(langCode),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -1793,16 +1779,21 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     final selection = ctrl.selection;
     if (!selection.isValid || !selection.isCollapsed) return null;
     final cursor = selection.baseOffset;
-    if (cursor < 2 || cursor > ctrl.text.length) return null;
-    final before = ctrl.text.substring(0, cursor);
-    final open = before.lastIndexOf('{{');
-    if (open < 0) return null;
-    final closeAfterOpen = before.lastIndexOf('}}');
-    if (closeAfterOpen > open) return null;
-    final query = before.substring(open + 2);
-    // Stop suggestions if query spans whitespace/newline; user likely typed text.
-    if (RegExp(r'\s').hasMatch(query)) return null;
-    return _VariableTrigger(open, cursor, query);
+    if (cursor < 1 || cursor > ctrl.text.length) return null;
+    final text = ctrl.text;
+    final before = text.substring(0, cursor);
+    final at = before.lastIndexOf('@');
+    if (at < 0) return null;
+    // Word boundary on the left so emails like foo@bar.com don't trigger.
+    if (at > 0) {
+      final prev = before[at - 1];
+      if (RegExp(r'[\w@]').hasMatch(prev)) return null;
+    }
+    final query = before.substring(at + 1);
+    // Stop suggestions if the user already typed a non-word character (space,
+    // newline, punctuation) — they've moved on from the placeholder.
+    if (query.isNotEmpty && RegExp(r'[^\w]').hasMatch(query)) return null;
+    return _VariableTrigger(at, cursor, query);
   }
 
   void _replaceVariableTrigger(
@@ -1810,9 +1801,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _VariableTrigger trigger,
     String key,
   ) {
-    final replacement = '{{$key}}';
     final text = ctrl.text;
     final end = trigger.end.clamp(0, text.length);
+    // Append a trailing space so the cursor lands OUTSIDE the @key token,
+    // killing the active trigger and dismissing the suggestion strip. Skip
+    // when the next char is already whitespace to avoid doubling.
+    final nextChar = end < text.length ? text[end] : '';
+    final needsSpace = nextChar.isEmpty || !RegExp(r'\s').hasMatch(nextChar);
+    final replacement = needsSpace ? '@$key ' : '@$key';
     ctrl.text = text.replaceRange(trigger.start, end, replacement);
     final pos = trigger.start + replacement.length;
     ctrl.selection = TextSelection.collapsed(offset: pos);
@@ -2210,7 +2206,9 @@ class _VariableTrigger {
 class _VariableTextEditingController extends TextEditingController {
   _VariableTextEditingController({super.text});
 
-  static final _pattern = RegExp(r'\{\{([^{}\n]+)\}\}');
+  // Match @key tokens with a left-side word boundary so emails (foo@bar.com)
+  // and double-@ chains never get rewritten.
+  static final _pattern = RegExp(r'(?<![\w@])@(\w+)');
 
   @override
   TextSpan buildTextSpan({
@@ -2224,28 +2222,24 @@ class _VariableTextEditingController extends TextEditingController {
     var cursor = 0;
 
     for (final match in _pattern.allMatches(textValue)) {
+      final key = match.group(1) ?? '';
+      // Only color KNOWN built-ins. Unknown @foo stays plain so the user can
+      // tell at a glance that it's not a real placeholder.
+      if (!kBuiltInVariableKeys.contains(key)) continue;
+
       if (match.start > cursor) {
         spans.add(TextSpan(text: textValue.substring(cursor, match.start)));
       }
-      final key = match.group(1) ?? textValue.substring(match.start, match.end);
-      final hiddenBraceStyle = base.copyWith(
-        color: Colors.transparent,
-        fontSize: 0.01,
-        height: 0.01,
-      );
-      spans
-        ..add(TextSpan(text: '{{', style: hiddenBraceStyle))
-        ..add(
-          TextSpan(
-            text: key,
-            style: base.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w800,
-              fontFamily: 'monospace',
-            ),
+      spans.add(
+        TextSpan(
+          text: textValue.substring(match.start, match.end),
+          style: base.copyWith(
+            color: Theme.of(context).colorScheme.primary,
+            fontWeight: FontWeight.w800,
+            fontFamily: 'monospace',
           ),
-        )
-        ..add(TextSpan(text: '}}', style: hiddenBraceStyle));
+        ),
+      );
       cursor = match.end;
     }
 
@@ -2257,14 +2251,14 @@ class _VariableTextEditingController extends TextEditingController {
   }
 }
 
-/// Treats a complete `{{variable}}` placeholder like an atomic chip for
-/// deletion. The whole token is removed only when:
+/// Treats a complete `@key` placeholder like an atomic chip for deletion when
+/// `key` matches a registered built-in. The whole token is removed only when:
 /// - backspace is pressed right after it
 /// - cursor/selection is inside it
 class _VariableTokenDeleteFormatter extends TextInputFormatter {
   const _VariableTokenDeleteFormatter();
 
-  static final _pattern = RegExp(r'\{\{[^{}\n]+\}\}');
+  static final _pattern = RegExp(r'(?<![\w@])@(\w+)');
 
   @override
   TextEditingValue formatEditUpdate(
@@ -2279,6 +2273,10 @@ class _VariableTokenDeleteFormatter extends TextInputFormatter {
     if (!oldSel.isValid) return newValue;
 
     for (final match in _pattern.allMatches(oldText)) {
+      final key = match.group(1) ?? '';
+      // Only atomize valid built-in tokens — unknown @foo behaves like prose.
+      if (!kBuiltInVariableKeys.contains(key)) continue;
+
       final selectionInsideToken =
           !oldSel.isCollapsed &&
           oldSel.end > match.start &&

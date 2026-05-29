@@ -21,20 +21,19 @@ class WorkflowNotificationService {
   }) async {
     if (_initialized) return;
 
-    const androidSettings =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
 
     final settings = InitializationSettings(android: androidSettings);
 
-    await _plugin.initialize(
-      settings,
-      onDidReceiveNotificationResponse: onTap,
-    );
+    await _plugin.initialize(settings, onDidReceiveNotificationResponse: onTap);
 
     // Request POST_NOTIFICATIONS permission on Android 13+.
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidPlugin != null) {
       await androidPlugin.requestNotificationsPermission();
       await androidPlugin.requestExactAlarmsPermission();

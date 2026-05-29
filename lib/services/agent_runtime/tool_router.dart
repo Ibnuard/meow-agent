@@ -1111,13 +1111,13 @@ class ToolRouter {
     'chat.send': const ToolDefinition(
       name: 'chat.send',
       description:
-          'Send a message from the agent into a chat UI as an assistant message. Use when user explicitly asks to "kirim ke chat", "send to chat", or to deliver a markdown-formatted result (summary, digest, report) as a chat bubble rather than just a notification. Content supports full markdown.',
+          'Send a message from the agent into a chat UI as an assistant message. Use when user explicitly asks to "kirim ke chat", "send to chat", or to deliver a markdown-formatted result (summary, digest, report) as a chat bubble rather than just a notification. Content supports full markdown. By default the message lands in the running agent\'s own chat — omit agentId unless the user explicitly names a different agent.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {
         'content': 'string (required, markdown body of the message)',
         'agentId':
-            'string (optional, target agent id; defaults to the current agent)',
+            'string (optional, internal agent id only — NOT a display name like "Meow Agent" or "user". Omit to deliver to the current agent\'s chat, which is the right default in workflows.)',
       },
     ),
   };
@@ -2392,15 +2392,39 @@ class ToolRouter {
         );
       }
 
-      // Resolve target agent. Falls back to the current router agent so the
-      // common case ("send this summary to my chat") works without the LLM
-      // having to look up an id first.
-      final rawTarget = (args['agentId'] ?? '').toString().trim();
-      final targetAgentId = rawTarget.isNotEmpty
-          ? rawTarget
-          : (agentId.isNotEmpty ? agentId : agentName);
+      // Resolve the target agent. Models occasionally hallucinate this field
+      // into a friendly label (e.g. "Meow Agent", "user", "main chat") which
+      // would silently land the message in an orphan bucket that no chat
+      // screen can open. We validate against the registry:
+      //
+      //   1. exact id match  → use it
+      //   2. exact name match (case-insensitive) → use that agent's id
+      //   3. otherwise → ignore the arg and fall back to the current agent
+      //
+      // The fallback uses the router's agentId (never agentName) so the
+      // message always lands in a real chat-history bucket whose unread
+      // badge ties back to a chat screen the user can actually open.
+      final rawTarget =
+          (args['agentId'] ?? args['agent'] ?? args['target'] ?? '')
+              .toString()
+              .trim();
+      String? targetAgentId;
+      if (rawTarget.isNotEmpty && agentRepository != null) {
+        final all = agentRepository!.loadAll();
+        final byId = all.where((a) => a.id == rawTarget).firstOrNull;
+        if (byId != null) {
+          targetAgentId = byId.id;
+        } else {
+          final lower = rawTarget.toLowerCase();
+          final byName = all
+              .where((a) => a.name.trim().toLowerCase() == lower)
+              .firstOrNull;
+          if (byName != null) targetAgentId = byName.id;
+        }
+      }
+      targetAgentId ??= agentId.isNotEmpty ? agentId : null;
 
-      if (targetAgentId.isEmpty) {
+      if (targetAgentId == null || targetAgentId.isEmpty) {
         return const ToolExecutionResult(
           success: false,
           toolName: 'chat.send',

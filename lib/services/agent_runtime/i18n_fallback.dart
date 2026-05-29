@@ -24,7 +24,8 @@ class I18nFallback {
       'success': 'Selesai.',
       'cancel': 'Aksi dibatalkan.',
       'preview': 'Berikut pratinjau hasilnya.',
-      'abort': 'Saya berhenti — sepertinya saya berputar pada langkah yang sama. Coba ulangi atau ubah permintaannya.',
+      'abort':
+          'Saya berhenti — sepertinya saya berputar pada langkah yang sama. Coba ulangi atau ubah permintaannya.',
       'error': 'Terjadi kesalahan saat memproses permintaan.',
     },
     'en': {
@@ -32,7 +33,8 @@ class I18nFallback {
       'success': 'Done.',
       'cancel': 'Action cancelled.',
       'preview': "Here's a preview of the result.",
-      'abort': "I'm stopping — I seem to be looping on the same step. Try rephrasing or breaking it down.",
+      'abort':
+          "I'm stopping — I seem to be looping on the same step. Try rephrasing or breaking it down.",
       'error': 'Something went wrong while handling that request.',
     },
     'ja': {
@@ -64,7 +66,8 @@ class I18nFallback {
       'success': 'Listo.',
       'cancel': 'Acción cancelada.',
       'preview': 'Aquí tienes una vista previa del resultado.',
-      'abort': 'Voy a detenerme: parece que estoy en bucle. Intenta reformular.',
+      'abort':
+          'Voy a detenerme: parece que estoy en bucle. Intenta reformular.',
       'error': 'Algo salió mal al procesar la solicitud.',
     },
     'fr': {
@@ -72,7 +75,8 @@ class I18nFallback {
       'success': 'Terminé.',
       'cancel': 'Action annulée.',
       'preview': "Voici un aperçu du résultat.",
-      'abort': "Je m'arrête : je semble tourner en boucle. Essayez de reformuler.",
+      'abort':
+          "Je m'arrête : je semble tourner en boucle. Essayez de reformuler.",
       'error': 'Une erreur est survenue lors du traitement.',
     },
     'de': {
@@ -80,7 +84,8 @@ class I18nFallback {
       'success': 'Fertig.',
       'cancel': 'Aktion abgebrochen.',
       'preview': 'Hier ist eine Vorschau des Ergebnisses.',
-      'abort': 'Ich höre auf — ich scheine in einer Schleife zu sein. Bitte umformulieren.',
+      'abort':
+          'Ich höre auf — ich scheine in einer Schleife zu sein. Bitte umformulieren.',
       'error': 'Bei der Verarbeitung ist ein Fehler aufgetreten.',
     },
     'pt': {
@@ -96,7 +101,8 @@ class I18nFallback {
       'success': 'Готово.',
       'cancel': 'Действие отменено.',
       'preview': 'Вот предварительный результат.',
-      'abort': 'Останавливаюсь — кажется, я зациклился. Попробуйте переформулировать.',
+      'abort':
+          'Останавливаюсь — кажется, я зациклился. Попробуйте переформулировать.',
       'error': 'Произошла ошибка при обработке запроса.',
     },
     'ar': {
@@ -144,7 +150,8 @@ class I18nFallback {
       'success': 'Selesai.',
       'cancel': 'Tindakan dibatalkan.',
       'preview': 'Berikut adalah pratonton hasil.',
-      'abort': 'Saya akan berhenti — saya kelihatan berulang pada langkah yang sama.',
+      'abort':
+          'Saya akan berhenti — saya kelihatan berulang pada langkah yang sama.',
       'error': 'Berlaku ralat semasa memproses permintaan.',
     },
     'he': {
