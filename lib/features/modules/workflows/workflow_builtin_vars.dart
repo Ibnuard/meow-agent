@@ -159,16 +159,13 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
   ),
 
   // ─── Multi-step ──────────────────────────────────────────────────────────
+  // NOTE: @step1, @step2, ... @stepN are generated dynamically per workflow
+  // by [stepResultVariables] (they depend on how many steps exist). Only the
+  // step-agnostic `@prev` lives in this static catalog.
   BuiltInVariable(
     key: 'prev',
     descriptionId: 'Hasil dari langkah sebelumnya',
     descriptionEn: 'Output from the previous step',
-    category: BuiltInCategory.step,
-  ),
-  BuiltInVariable(
-    key: 'step_index',
-    descriptionId: 'Nomor urut langkah saat ini (0, 1, 2 ...)',
-    descriptionEn: 'Current step index (0, 1, 2 ...)',
     category: BuiltInCategory.step,
   ),
 
@@ -227,6 +224,45 @@ final Set<String> kBuiltInVariableKeys = {
   for (final v in kWorkflowBuiltInVariables) v.key,
 };
 
+/// Matches dynamic per-step result keys: `step1`, `step2`, ... `step42`.
+final RegExp _stepResultKeyPattern = RegExp(r'^step(\d+)$');
+
+/// True if [key] is a dynamic step-result reference (`step1`, `step2`, ...).
+bool isStepResultKey(String key) => _stepResultKeyPattern.hasMatch(key);
+
+/// The 1-based step number a `stepN` key points to, or null if not a step key.
+int? stepResultNumber(String key) {
+  final m = _stepResultKeyPattern.firstMatch(key);
+  if (m == null) return null;
+  return int.tryParse(m.group(1)!);
+}
+
+/// True if [key] is any recognized built-in: a static catalog entry OR a
+/// dynamic `@stepN` reference. The editor uses this for highlighting,
+/// atomic-token deletion, and the undefined-variable check so dynamic step
+/// variables are treated as first-class.
+bool isKnownBuiltInKey(String key) =>
+    kBuiltInVariableKeys.contains(key) || isStepResultKey(key);
+
+/// Build the dynamic step-result variables for a workflow with [stepCount]
+/// steps. `@stepN` resolves to the output of step N (1-based).
+///
+/// Only steps whose output a LATER step could reference are emitted: the
+/// FINAL step's output is never referenceable (nothing runs after it), so we
+/// generate `@step1 .. @step{stepCount-1}`. Returns empty for < 2 steps.
+List<BuiltInVariable> stepResultVariables(int stepCount) {
+  if (stepCount < 2) return const [];
+  return [
+    for (var n = 1; n < stepCount; n++)
+      BuiltInVariable(
+        key: 'step$n',
+        descriptionId: 'Hasil dari langkah $n',
+        descriptionEn: 'Output from step $n',
+        category: BuiltInCategory.step,
+      ),
+  ];
+}
+
 /// Resolver for built-in variables. Computes time/identity values once per
 /// execution and merges trigger-derived vars on top so a notification's
 /// `notif` always wins over user-stored custom vars.
@@ -278,7 +314,7 @@ class WorkflowBuiltInVars {
     // ── Trigger overrides ─────────────────────────────────────────────────
     vars.addAll(triggerVars);
 
-    // ── Runtime extras (e.g. {{prev}}, {{step_index}}) ───────────────────
+    // ── Runtime extras (e.g. @prev, @step1..@stepN during chained steps) ──
     vars.addAll(extra);
 
     return vars;

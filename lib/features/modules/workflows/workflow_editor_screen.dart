@@ -1071,7 +1071,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   List<BuiltInVariable> _visibleBuiltIns() {
-    return kWorkflowBuiltInVariables.where((v) {
+    final statics = kWorkflowBuiltInVariables.where((v) {
       switch (v.category) {
         case BuiltInCategory.step:
           return _steps.isNotEmpty;
@@ -1093,6 +1093,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           return true;
       }
     }).toList();
+    // Dynamic @step1..@step{N-1} grow with the number of steps. The final
+    // step's output is never referenceable, so stepResultVariables emits
+    // exactly the useful ones (empty for < 2 steps).
+    return [...statics, ...stepResultVariables(_steps.length)];
   }
 
   Widget _builtInChip(
@@ -1719,6 +1723,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           child: InkWell(
                             onTap: () {
                               _replaceVariableTrigger(ctrl, trigger, v.key);
+                              // Programmatic controller edits don't fire
+                              // TextField.onChanged, so step prompts (which
+                              // persist via onChanged) would otherwise save the
+                              // half-typed token. Propagate the final text.
+                              onChanged?.call(ctrl.text);
                               localSetState(() {});
                             },
                             borderRadius: BorderRadius.circular(999),
@@ -2223,9 +2232,9 @@ class _VariableTextEditingController extends TextEditingController {
 
     for (final match in _pattern.allMatches(textValue)) {
       final key = match.group(1) ?? '';
-      // Only color KNOWN built-ins. Unknown @foo stays plain so the user can
-      // tell at a glance that it's not a real placeholder.
-      if (!kBuiltInVariableKeys.contains(key)) continue;
+      // Only color KNOWN built-ins (static catalog OR dynamic @stepN). Unknown
+      // @foo stays plain so the user can tell it's not a real placeholder.
+      if (!isKnownBuiltInKey(key)) continue;
 
       if (match.start > cursor) {
         spans.add(TextSpan(text: textValue.substring(cursor, match.start)));
@@ -2274,8 +2283,9 @@ class _VariableTokenDeleteFormatter extends TextInputFormatter {
 
     for (final match in _pattern.allMatches(oldText)) {
       final key = match.group(1) ?? '';
-      // Only atomize valid built-in tokens — unknown @foo behaves like prose.
-      if (!kBuiltInVariableKeys.contains(key)) continue;
+      // Only atomize valid built-in tokens (static OR dynamic @stepN) — unknown
+      // @foo behaves like prose.
+      if (!isKnownBuiltInKey(key)) continue;
 
       final selectionInsideToken =
           !oldSel.isCollapsed &&

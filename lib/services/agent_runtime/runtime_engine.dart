@@ -292,10 +292,17 @@ class AgentRuntimeEngine {
       // This runs even while a pending confirmation exists. Pending does NOT
       // imply continuation: a user may send a completely new task instead of
       // confirming/rejecting the previous one.
-      final activeLedger = await ledgerDb.findActive(
-        agentId: request.agentId,
-        source: _ledgerSourceFor(request.source),
-      );
+      // Workflow runs are owned by the WorkflowRunner, not the engine. A
+      // workflow step must never resume from a workflow-scoped ledger —
+      // otherwise two steps sharing an agent collide on the same
+      // (agentId, workflow) row and bleed state across steps. Chat keeps the
+      // resume lookup.
+      final activeLedger = request.source == RequestSource.workflow
+          ? null
+          : await ledgerDb.findActive(
+              agentId: request.agentId,
+              source: _ledgerSourceFor(request.source),
+            );
       String activeTaskContext = '';
       if (activeLedger != null) {
         activeTaskContext = activeLedger.describeForUser();
@@ -1773,6 +1780,28 @@ class AgentRuntimeEngine {
             (definition.requiresConfirmation || crossWs) &&
             !autoApproveSensitive;
         if (mustConfirm) {
+          // Workflow runs never park for confirmation. If "Allow sensitive
+          // actions" is off and a step reaches a sensitive tool, fail closed
+          // with a distinct state so the runner can destroy the chain and tell
+          // the user exactly which step needs permission. No pending action,
+          // no zombie task.
+          if (request.source == RequestSource.workflow) {
+            logger.logStateChange(
+              AgentRuntimeState.blockedSensitive,
+              'Sensitive action blocked in workflow (allow-sensitive off): '
+              '${toolRequest.name}',
+            );
+            emit(logger.events.last);
+            await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+            return AgentRuntimeResponse(
+              finalMessage: '',
+              success: false,
+              state: AgentRuntimeState.blockedSensitive,
+              events: logger.events,
+              pendingTool: toolRequest.name,
+              pendingToolArgs: toolRequest.args,
+            );
+          }
           state = AgentRuntimeState.waitingConfirmation;
           logger.logStateChange(
             state,
@@ -2967,6 +2996,9 @@ class AgentRuntimeEngine {
     _pendingActions.remove(agentId);
     _pendingClarifications.remove(agentId);
 
+    // Workflow run state lives in the WorkflowRunner's run ledger, not here.
+    if (source == RequestSource.workflow) return;
+
     final active = await ledgerDb.findActive(
       agentId: agentId,
       source: _ledgerSourceFor(source),
@@ -2985,6 +3017,8 @@ class AgentRuntimeEngine {
     AgentRuntimeRequest request,
     LedgerStatus terminal,
   ) async {
+    // Workflow runs do not use the engine's resume ledger.
+    if (request.source == RequestSource.workflow) return;
     final active = await ledgerDb.findActive(
       agentId: request.agentId,
       source: _ledgerSourceFor(request.source),

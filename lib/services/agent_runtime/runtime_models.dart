@@ -15,6 +15,11 @@ enum AgentRuntimeState {
   askingUser,
   done,
   failed,
+
+  /// Workflow-only terminal state: a step needed a sensitive/confirmation
+  /// action but the workflow's "Allow sensitive actions" toggle was off.
+  /// The runner converts this into a step failure that destroys the chain.
+  blockedSensitive,
 }
 
 /// Where a runtime request originated from.
