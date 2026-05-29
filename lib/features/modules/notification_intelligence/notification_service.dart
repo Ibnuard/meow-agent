@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,7 +8,44 @@ import 'notification_models.dart';
 /// Flutter wrapper for the native NotificationListener bridge.
 /// Read-only — never sends, dismisses, or replies.
 class NotificationService {
+  NotificationService._() {
+    // One-time handler registration. Native MainActivity invokes
+    // 'onNotificationPosted' on this channel for every new notification.
+    _channel.setMethodCallHandler(_handleMethodCall);
+  }
+
+  static final NotificationService _instance = NotificationService._();
+  factory NotificationService() => _instance;
+
   static const _channel = MethodChannel('com.meowagent/notifications');
+
+  final StreamController<NotificationInfo> _incoming =
+      StreamController<NotificationInfo>.broadcast();
+
+  /// Broadcast stream of newly-posted notifications.
+  /// Used by [WorkflowEventListener] to fire keyword triggers and any other
+  /// real-time consumer (digesters, summarizers).
+  Stream<NotificationInfo> get incoming => _incoming.stream;
+
+  Future<dynamic> _handleMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'onNotificationPosted':
+        final raw = call.arguments;
+        if (raw is Map) {
+          try {
+            final info = NotificationInfo.fromMap(raw);
+            if (info.hasContent) {
+              _incoming.add(info);
+            }
+          } catch (_) {
+            // Malformed payload — drop silently.
+          }
+        }
+        return null;
+      default:
+        return null;
+    }
+  }
 
   Future<bool> isAccessGranted() async {
     try {
@@ -60,3 +99,4 @@ class NotificationService {
 final notificationServiceProvider = Provider<NotificationService>(
   (ref) => NotificationService(),
 );
+

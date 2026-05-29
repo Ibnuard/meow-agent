@@ -24,6 +24,14 @@ class NotificationListener : NotificationListenerService() {
         @Volatile
         private var instance: NotificationListener? = null
 
+        /**
+         * Optional callback invoked whenever a notification is posted.
+         * Set by [MainActivity] so it can forward the event to Flutter.
+         * Survives across listener reconnects because it's static.
+         */
+        @Volatile
+        var onPostedCallback: ((CachedNotification) -> Unit)? = null
+
         /** True if the listener is connected (i.e. permission granted + service bound). */
         var isConnected: Boolean = false
             private set
@@ -55,7 +63,7 @@ class NotificationListener : NotificationListenerService() {
         try {
             // Seed cache with whatever is currently in the shade.
             activeNotifications?.forEach { sbn ->
-                addOrUpdate(sbn)
+                addOrUpdate(sbn, notify = false)
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to seed cache: ${e.message}")
@@ -73,7 +81,7 @@ class NotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
         try {
-            addOrUpdate(sbn)
+            addOrUpdate(sbn, notify = true)
         } catch (e: Exception) {
             Log.w(TAG, "onNotificationPosted error: ${e.message}")
         }
@@ -91,13 +99,22 @@ class NotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun addOrUpdate(sbn: StatusBarNotification) {
+    private fun addOrUpdate(sbn: StatusBarNotification, notify: Boolean = true) {
         val cached = toCached(sbn) ?: return
+        // Skip self-posted notifications to prevent recursive triggers.
+        if (cached.packageName == this.packageName) return
         synchronized(cache) {
             // Remove existing entry with the same id (notifications can be updated in place).
             cache.removeAll { it.id == cached.id }
             cache.addFirst(cached)
             while (cache.size > MAX_CACHE) cache.removeLast()
+        }
+        if (notify) {
+            try {
+                onPostedCallback?.invoke(cached)
+            } catch (e: Exception) {
+                Log.w(TAG, "onPostedCallback error: ${e.message}")
+            }
         }
     }
 

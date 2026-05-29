@@ -134,27 +134,43 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "isNotificationAccessGranted" -> {
-                        result.success(isNotificationAccessGranted())
-                    }
-                    "openNotificationAccessSettings" -> {
-                        openNotificationAccessSettings()
-                        result.success(true)
-                    }
-                    "getRecentNotifications" -> {
-                        val limit = (call.argument<Int>("limit") ?: 10).coerceIn(1, 100)
-                        result.success(getRecentNotifications(limit))
-                    }
-                    "getNotificationById" -> {
-                        val id = call.argument<String>("id") ?: ""
-                        result.success(getNotificationById(id))
-                    }
-                    else -> result.notImplemented()
+        val notificationsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
+        notificationsChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isNotificationAccessGranted" -> {
+                    result.success(isNotificationAccessGranted())
+                }
+                "openNotificationAccessSettings" -> {
+                    openNotificationAccessSettings()
+                    result.success(true)
+                }
+                "getRecentNotifications" -> {
+                    val limit = (call.argument<Int>("limit") ?: 10).coerceIn(1, 100)
+                    result.success(getRecentNotifications(limit))
+                }
+                "getNotificationById" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    result.success(getNotificationById(id))
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Bridge: forward each newly-posted notification to Flutter so the
+        // workflow event listener can match keyword triggers in real time.
+        // The listener service runs on a binder thread; hop to main before
+        // invoking the channel.
+        val mainHandler = Handler(Looper.getMainLooper())
+        NotificationListener.onPostedCallback = { cached ->
+            mainHandler.post {
+                try {
+                    notificationsChannel.invokeMethod("onNotificationPosted", cached.toMap())
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to forward notification to Flutter: ${e.message}")
                 }
             }
+        }
+
 
         // Alarm permission channel — check/request SCHEDULE_EXACT_ALARM.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/alarm_permission")

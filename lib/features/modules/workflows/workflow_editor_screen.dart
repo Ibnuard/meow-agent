@@ -734,8 +734,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       final name = match.group(1);
       if (name != null && name.isNotEmpty) used.add(name);
     }
-    // Exclude reserved runtime vars.
-    used.removeAll(['prev', 'step_index', 'date']);
+    // Exclude reserved runtime vars (auto-injected by the runner).
+    used.removeAll([
+      'prev',
+      'step_index',
+      'date',
+      'notif',
+      'notif_title',
+      'notif_body',
+      'notif_app',
+      'notif_keyword',
+    ]);
     return used;
   }
 
@@ -772,8 +781,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             color: cs.onSurfaceVariant.withValues(alpha: 0.6),
           ),
         ),
-        // System variables info — only shown for multi-step workflows.
-        if (_steps.isNotEmpty) ...[
+        // System variables info — shown for multi-step workflows AND for
+        // notification-keyword event triggers (so users know they can use
+        // {{notif}} etc.).
+        if (_steps.isNotEmpty ||
+            (_triggerType == TriggerType.event &&
+                _eventKind == EventTriggerKind.notificationKeyword)) ...[
           const SizedBox(height: 10),
           Container(
             padding: const EdgeInsets.all(10),
@@ -800,21 +813,49 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   ],
                 ),
                 const SizedBox(height: 6),
-                _systemVarRow('{{prev}}',
-                    isId ? 'Hasil output dari langkah sebelumnya' : 'Output from the previous step',
-                    cs),
-                const SizedBox(height: 3),
+                if (_steps.isNotEmpty) ...[
+                  _systemVarRow('{{prev}}',
+                      isId ? 'Hasil output dari langkah sebelumnya' : 'Output from the previous step',
+                      cs),
+                  const SizedBox(height: 3),
+                ],
                 _systemVarRow('{{date}}',
                     isId ? 'Tanggal hari ini (YYYY-MM-DD)' : 'Today\'s date (YYYY-MM-DD)',
                     cs),
-                const SizedBox(height: 3),
-                _systemVarRow('{{step_index}}',
-                    isId ? 'Nomor urut langkah saat ini (0, 1, 2...)' : 'Current step index (0, 1, 2...)',
-                    cs),
+                if (_steps.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{step_index}}',
+                      isId ? 'Nomor urut langkah saat ini (0, 1, 2...)' : 'Current step index (0, 1, 2...)',
+                      cs),
+                ],
+                if (_triggerType == TriggerType.event &&
+                    _eventKind == EventTriggerKind.notificationKeyword) ...[
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{notif}}',
+                      isId ? 'Notifikasi pemicu (judul + isi)' : 'Triggering notification (title + body)',
+                      cs),
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{notif_title}}',
+                      isId ? 'Judul notifikasi' : 'Notification title',
+                      cs),
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{notif_body}}',
+                      isId ? 'Isi notifikasi' : 'Notification body',
+                      cs),
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{notif_app}}',
+                      isId ? 'Nama aplikasi pengirim' : 'Sender app name',
+                      cs),
+                  const SizedBox(height: 3),
+                  _systemVarRow('{{notif_keyword}}',
+                      isId ? 'Kata kunci yang cocok' : 'Matched keyword',
+                      cs),
+                ],
               ],
             ),
           ),
         ],
+
         if (undefinedVars.isNotEmpty) ...[
           const SizedBox(height: 10),
           Container(

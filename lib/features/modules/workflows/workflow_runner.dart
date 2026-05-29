@@ -35,8 +35,9 @@ class WorkflowRunner {
   static int _effectiveTimeout(int stored) =>
       stored < _minStepTimeoutSeconds ? _minStepTimeoutSeconds : stored;
 
-  /// Priority-ordered execution queue.
-  final Queue<WorkflowModel> _executionQueue = Queue();
+  /// Priority-ordered execution queue. Each entry pairs a workflow with the
+  /// optional trigger context that fired it (e.g. notification metadata).
+  final Queue<_QueuedWorkflow> _executionQueue = Queue();
   bool _processingQueue = false;
 
   /// Start the dynamic scheduler.
@@ -104,20 +105,26 @@ class WorkflowRunner {
         retryCount: wf.retryCount,
       );
 
-      _enqueue(wf.copyWith(lastRun: now));
+      _enqueue(_QueuedWorkflow(wf.copyWith(lastRun: now), const {}));
     }
   }
 
   /// Enqueue a workflow for execution (used by both scheduler and event listener).
-  void enqueue(WorkflowModel wf) => _enqueue(wf);
+  ///
+  /// [triggerVars] is an optional map of trigger-derived variables exposed to
+  /// the prompt as `{{notif}}`, `{{notif_title}}`, etc. when the trigger is a
+  /// notification keyword event. Pass null/empty for scheduled triggers.
+  void enqueue(WorkflowModel wf, {Map<String, String>? triggerVars}) =>
+      _enqueue(_QueuedWorkflow(wf, triggerVars ?? const {}));
 
-  void _enqueue(WorkflowModel wf) {
+  void _enqueue(_QueuedWorkflow item) {
+    final wf = item.workflow;
     // Insert into queue based on priority.
     if (_executionQueue.isEmpty ||
-        wf.priority.index <= _executionQueue.first.priority.index) {
-      _executionQueue.addFirst(wf);
+        wf.priority.index <= _executionQueue.first.workflow.priority.index) {
+      _executionQueue.addFirst(item);
     } else {
-      _executionQueue.addLast(wf);
+      _executionQueue.addLast(item);
     }
     _processQueue();
   }
@@ -129,13 +136,14 @@ class WorkflowRunner {
 
     try {
       while (_executionQueue.isNotEmpty) {
-        final wf = _executionQueue.removeFirst();
+        final item = _executionQueue.removeFirst();
+        final wf = item.workflow;
         if (_runningWorkflows.contains(wf.id)) continue;
 
         _runningWorkflows.add(wf.id);
         await WorkflowForegroundService.start(workflowTitle: wf.title);
         try {
-          await _executeWorkflow(wf);
+          await _executeWorkflow(wf, item.triggerVars);
         } finally {
           _runningWorkflows.remove(wf.id);
           await WorkflowForegroundService.onWorkflowComplete();
@@ -187,7 +195,14 @@ class WorkflowRunner {
   }
 
   /// Execute a workflow — handles both single-step and chained modes.
-  Future<void> _executeWorkflow(WorkflowModel wf) async {
+  ///
+  /// [triggerVars] are variables derived from the trigger context (e.g.
+  /// notification metadata) and override workflow-defined variables when keys
+  /// collide. Empty for scheduled/interval triggers.
+  Future<void> _executeWorkflow(
+    WorkflowModel wf,
+    Map<String, String> triggerVars,
+  ) async {
     final stopwatch = Stopwatch()..start();
     final notifId = wf.id.hashCode.abs() % 2147483647;
     final capturedEvents = <WorkflowExecutionEvent>[];
@@ -219,10 +234,10 @@ class WorkflowRunner {
 
       if (wf.isChained) {
         // ─── Chained Workflow Execution ─────────────────────────────────────
-        await _executeChained(wf, engine, provider, agent, capturedEvents, stopwatch, notifId);
+        await _executeChained(wf, engine, provider, agent, capturedEvents, stopwatch, notifId, triggerVars);
       } else {
         // ─── Single-Step Execution ──────────────────────────────────────────
-        await _executeSingle(wf, engine, provider, agent, capturedEvents, stopwatch, notifId);
+        await _executeSingle(wf, engine, provider, agent, capturedEvents, stopwatch, notifId, triggerVars);
       }
     } on TimeoutException {
       stopwatch.stop();
@@ -244,11 +259,16 @@ class WorkflowRunner {
     List<WorkflowExecutionEvent> capturedEvents,
     Stopwatch stopwatch,
     int notifId,
+    Map<String, String> triggerVars,
   ) async {
     final now = DateTime.now();
     final vars = Map<String, String>.from(wf.variables);
     vars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    final prompt = _resolveVariables(wf.prompt, vars, {});
+    // Trigger-derived vars (e.g. {{notif}}) take precedence so the prompt
+    // sees the freshly-fired event, not the stored workflow defaults.
+    vars.addAll(triggerVars);
+    final resolvedPrompt = _resolveVariables(wf.prompt, vars, {});
+    final prompt = _wrapWithTriggerContext(resolvedPrompt, triggerVars);
 
     final response = await engine.run(
       AgentRuntimeRequest(
@@ -316,6 +336,7 @@ class WorkflowRunner {
     List<WorkflowExecutionEvent> capturedEvents,
     Stopwatch stopwatch,
     int notifId,
+    Map<String, String> triggerVars,
   ) async {
     final stepResults = <StepResult>[];
     String previousResult = '';
@@ -325,6 +346,9 @@ class WorkflowRunner {
     final runtimeVars = Map<String, String>.from(wf.variables);
     final now = DateTime.now();
     runtimeVars['date'] = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    // Trigger vars (e.g. {{notif}}) override defaults so each step sees the
+    // event that fired the workflow.
+    runtimeVars.addAll(triggerVars);
 
     for (int i = 0; i < wf.steps.length; i++) {
       final step = wf.steps[i];
@@ -349,7 +373,12 @@ class WorkflowRunner {
       // Resolve variables in prompt.
       runtimeVars['prev'] = previousResult;
       runtimeVars['step_index'] = i.toString();
-      final rawPrompt = _resolveVariables(step.prompt, runtimeVars, {});
+      var rawPrompt = _resolveVariables(step.prompt, runtimeVars, {});
+      // Only the first step sees the raw trigger context. Later steps build
+      // on {{prev}} which already contains digested context.
+      if (i == 0) {
+        rawPrompt = _wrapWithTriggerContext(rawPrompt, triggerVars);
+      }
 
       // Inject system context so the agent understands what {{prev}} was.
       // This prevents the agent from saying "berikan ide jurnalnya" when
@@ -362,6 +391,7 @@ class WorkflowRunner {
             '--- END PREVIOUS STEP RESULT ---\n\n'
           : '';
       final resolvedPrompt = '$systemPrefix$rawPrompt';
+
 
       capturedEvents.add(WorkflowExecutionEvent(
         type: 'step_start',
@@ -555,6 +585,42 @@ class WorkflowRunner {
     return resolved;
   }
 
+  /// Prepend a `[TRIGGER CONTEXT]` block describing the notification that
+  /// fired this workflow. Tells the agent the data is inline so it doesn't
+  /// go hunting for tools to fetch chat / notification history.
+  ///
+  /// No-op when there's no notification trigger context.
+  String _wrapWithTriggerContext(
+    String prompt,
+    Map<String, String> triggerVars,
+  ) {
+    final notif = triggerVars['notif'] ?? '';
+    if (notif.isEmpty) return prompt;
+    final app = triggerVars['notif_app'] ?? '';
+    final keyword = triggerVars['notif_keyword'] ?? '';
+    final title = triggerVars['notif_title'] ?? '';
+    final body = triggerVars['notif_body'] ?? '';
+
+    final buf = StringBuffer()
+      ..writeln('[TRIGGER CONTEXT]')
+      ..writeln(
+        'This workflow was fired by an incoming Android notification. The '
+        'notification content is provided INLINE below — you do NOT need to '
+        'fetch chat history, open apps, or use any tool to read it. Treat '
+        'the content below as the user-provided input to the prompt.',
+      );
+    if (app.isNotEmpty) buf.writeln('- App: $app');
+    if (keyword.isNotEmpty) buf.writeln('- Matched keyword: $keyword');
+    if (title.isNotEmpty) buf.writeln('- Title: $title');
+    if (body.isNotEmpty) buf.writeln('- Body: $body');
+    buf
+      ..writeln('[/TRIGGER CONTEXT]')
+      ..writeln()
+      ..writeln('[USER PROMPT]')
+      ..write(prompt);
+    return buf.toString();
+  }
+
   /// Simple condition evaluator for step conditions.
   /// Supports: "prev.contains('keyword')", "prev.isEmpty", "prev.isNotEmpty"
   bool _evaluateCondition(
@@ -668,3 +734,13 @@ class WorkflowRunner {
 final workflowRunnerProvider = Provider<WorkflowRunner>((ref) {
   return WorkflowRunner(ref);
 });
+
+/// Pairs a queued workflow with the trigger context that fired it.
+/// Trigger context is empty for scheduled/interval workflows and populated
+/// for event-driven workflows (notification keyword, app opened, etc.).
+class _QueuedWorkflow {
+  const _QueuedWorkflow(this.workflow, this.triggerVars);
+
+  final WorkflowModel workflow;
+  final Map<String, String> triggerVars;
+}

@@ -4,6 +4,8 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../notification_intelligence/notification_models.dart';
+import '../notification_intelligence/notification_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_runner.dart';
@@ -18,6 +20,7 @@ class WorkflowEventListener {
 
   StreamSubscription<BatteryState>? _batteryStateSub;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
+  StreamSubscription<NotificationInfo>? _notificationSub;
   Timer? _batteryLevelTimer;
 
   int _lastBatteryLevel = -1;
@@ -32,15 +35,18 @@ class WorkflowEventListener {
   void start() {
     _listenBattery();
     _listenConnectivity();
+    _listenNotifications();
   }
 
   /// Stop all listeners.
   void stop() {
     _batteryStateSub?.cancel();
     _connectivitySub?.cancel();
+    _notificationSub?.cancel();
     _batteryLevelTimer?.cancel();
     _batteryStateSub = null;
     _connectivitySub = null;
+    _notificationSub = null;
     _batteryLevelTimer = null;
   }
 
@@ -108,25 +114,84 @@ class WorkflowEventListener {
     });
   }
 
-  // ─── Notification Keyword (called externally) ───────────────────────────────
+  // ─── Notification Events ────────────────────────────────────────────────────
 
-  /// Called by NotificationIntelligence when a notification is received.
-  /// Checks if any event workflow matches the keyword.
-  Future<void> onNotificationReceived(String title, String body) async {
+  /// Subscribe to the notification stream from native. Each incoming
+  /// notification is matched against keyword triggers via
+  /// [_handleNotification].
+  void _listenNotifications() {
+    final service = _ref.read(notificationServiceProvider);
+    _notificationSub = service.incoming.listen(_handleNotification);
+  }
+
+  /// Match an incoming notification against all keyword-based event
+  /// workflows and fire any whose keyword(s) appear in title+body. The
+  /// notification metadata is exposed to the workflow prompt as `{{notif}}`,
+  /// `{{notif_title}}`, `{{notif_body}}`, `{{notif_app}}`, `{{notif_keyword}}`.
+  Future<void> _handleNotification(NotificationInfo info) async {
+    final title = info.title ?? '';
+    final body = info.text ?? '';
+    final text = '$title $body'.toLowerCase().trim();
+    if (text.isEmpty) return;
+
     final workflows = await _repo.listEventTriggered();
-    final text = '$title $body'.toLowerCase();
-
     for (final wf in workflows) {
       if (wf.trigger.eventKind != EventTriggerKind.notificationKeyword) continue;
-      final keyword = (wf.trigger.eventParams?['keyword'] as String? ?? '').toLowerCase();
-      if (keyword.isEmpty) continue;
-      if (text.contains(keyword)) {
-        _triggerWorkflow(wf);
-      }
+      final rawKeyword =
+          (wf.trigger.eventParams?['keyword'] as String? ?? '').trim();
+      if (rawKeyword.isEmpty) continue;
+      // Comma-separated keyword list: ANY match fires the workflow.
+      final keywords = rawKeyword
+          .split(',')
+          .map((k) => k.trim().toLowerCase())
+          .where((k) => k.isNotEmpty)
+          .toList();
+      final matched = keywords.firstWhere(
+        text.contains,
+        orElse: () => '',
+      );
+      if (matched.isEmpty) continue;
+
+      _triggerWorkflow(
+        wf,
+        triggerVars: _buildNotifTriggerVars(info, matched),
+      );
     }
   }
 
-  // ─── App Opened (called externally) ─────────────────────────────────────────
+  /// Test/manual hook so tests and other callers can drive the keyword logic
+  /// without a real platform notification.
+  Future<void> onNotificationReceived(String title, String body) async {
+    await _handleNotification(NotificationInfo(
+      id: 'manual-${DateTime.now().millisecondsSinceEpoch}',
+      packageName: 'manual',
+      appName: 'Manual',
+      title: title,
+      text: body,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      clearable: true,
+    ));
+  }
+
+  Map<String, String> _buildNotifTriggerVars(
+    NotificationInfo info,
+    String matchedKeyword,
+  ) {
+    final title = info.title?.trim() ?? '';
+    final body = info.text?.trim() ?? '';
+    final combined = title.isEmpty
+        ? body
+        : (body.isEmpty ? title : '$title — $body');
+    return {
+      'notif': combined,
+      'notif_title': title,
+      'notif_body': body,
+      'notif_app': info.appName,
+      'notif_keyword': matchedKeyword,
+    };
+  }
+
+  // ─── App Opened (called externally) ────────────────────────────────
 
   /// Called by DeviceContext when foreground app changes.
   Future<void> onAppOpened(String packageName) async {
@@ -169,7 +234,10 @@ class WorkflowEventListener {
   }
 
   /// Trigger a workflow with cooldown protection.
-  void _triggerWorkflow(WorkflowModel wf) {
+  void _triggerWorkflow(
+    WorkflowModel wf, {
+    Map<String, String>? triggerVars,
+  }) {
     final now = DateTime.now();
     final lastFire = _lastFired[wf.id];
     if (lastFire != null && now.difference(lastFire) < _cooldown) {
@@ -179,7 +247,7 @@ class WorkflowEventListener {
 
     // Enqueue in the runner.
     final runner = _ref.read(workflowRunnerProvider);
-    runner.enqueue(wf);
+    runner.enqueue(wf, triggerVars: triggerVars);
   }
 }
 
@@ -187,3 +255,4 @@ class WorkflowEventListener {
 final workflowEventListenerProvider = Provider<WorkflowEventListener>((ref) {
   return WorkflowEventListener(ref);
 });
+
