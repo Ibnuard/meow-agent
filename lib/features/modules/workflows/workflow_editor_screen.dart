@@ -30,6 +30,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   final _titleCtrl = TextEditingController();
   TextEditingController _promptCtrl = _VariableTextEditingController();
   final _keywordCtrl = TextEditingController();
+  final Map<String, TextEditingController> _stepPromptCtrls = {};
 
   bool get _isEdit => widget.workflow != null;
 
@@ -46,6 +47,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   int _timeoutSeconds = 300;
   List<WorkflowStep> _steps = [];
   String? _templateId;
+  bool _advancedSettingsExpanded = false;
 
   @override
   void initState() {
@@ -106,6 +108,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _titleCtrl.dispose();
     _promptCtrl.dispose();
     _keywordCtrl.dispose();
+    for (final ctrl in _stepPromptCtrls.values) {
+      ctrl.dispose();
+    }
     super.dispose();
   }
 
@@ -148,6 +153,20 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       );
       return;
     }
+    if (_steps.isNotEmpty &&
+        _steps.any((step) => (step.agentId ?? _selectedAgentId) == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isId
+                ? 'Setiap langkah harus punya agent.'
+                : 'Each step must have an agent.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     Map<String, dynamic>? eventParams;
     if (_triggerType == TriggerType.event) {
@@ -184,6 +203,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           (s) => WorkflowStep(
             id: s.id,
             prompt: s.prompt,
+            agentId: s.agentId ?? _selectedAgentId,
             condition: s.condition,
             onFailure: s.onFailure,
             timeoutSeconds: _timeoutSeconds,
@@ -270,6 +290,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         WorkflowStep(
           id: 'step_${_steps.length + 1}',
           prompt: '',
+          agentId: _selectedAgentId,
           timeoutSeconds: _timeoutSeconds,
         ),
       );
@@ -303,7 +324,22 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   void _removeStep(int index) {
+    final removed = _steps[index];
+    _stepPromptCtrls.remove(removed.id)?.dispose();
     setState(() => _steps.removeAt(index));
+  }
+
+  TextEditingController _stepPromptController(WorkflowStep step) {
+    final existing = _stepPromptCtrls[step.id];
+    if (existing != null) {
+      if (existing.text != step.prompt && existing.selection.baseOffset < 0) {
+        existing.text = step.prompt;
+      }
+      return existing;
+    }
+    return _stepPromptCtrls[step.id] = _VariableTextEditingController(
+      text: step.prompt,
+    );
   }
 
   void _updateStep(int index, WorkflowStep updated) {
@@ -354,9 +390,13 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _sectionLabel(isId ? 'Agent' : 'Agent', cs),
-              const SizedBox(height: 8),
-              _buildAgentPicker(agents, isId),
+              if (_steps.isEmpty) ...[
+                _sectionLabel(isId ? 'Agent' : 'Agent', cs),
+                const SizedBox(height: 8),
+                _buildAgentPicker(agents, isId),
+              ] else ...[
+                _multiAgentInfoCard(cs, extras, isId),
+              ],
               const SizedBox(height: 20),
 
               _sectionLabel(isId ? 'Judul' : 'Title', cs),
@@ -368,6 +408,22 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 extras,
               ),
               const SizedBox(height: 20),
+
+              _sectionLabel(isId ? 'Trigger' : 'Trigger', cs),
+              const SizedBox(height: 8),
+              _buildTriggerSelector(cs, isId),
+              const SizedBox(height: 16),
+
+              if (_triggerType == TriggerType.schedule) ...[
+                _buildTimePicker(cs, extras, isId),
+                const SizedBox(height: 12),
+                _buildDaySelector(cs, isId),
+              ] else if (_triggerType == TriggerType.interval) ...[
+                _buildIntervalPicker(cs, isId),
+              ] else ...[
+                _buildEventTriggerConfig(cs, extras, isId),
+              ],
+              const SizedBox(height: 24),
 
               // Mode toggle: single prompt vs chained steps.
               Row(
@@ -412,7 +468,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   ),
                 ),
               ] else ...[
-                ..._buildStepList(cs, extras, isId),
+                ..._buildStepList(cs, extras, isId, agents),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: _addStep,
@@ -426,36 +482,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               _buildVariablesSection(cs, extras, isId),
               const SizedBox(height: 24),
 
-              _sectionLabel(isId ? 'Trigger' : 'Trigger', cs),
-              const SizedBox(height: 8),
-              _buildTriggerSelector(cs, isId),
-              const SizedBox(height: 16),
-
-              if (_triggerType == TriggerType.schedule) ...[
-                _buildTimePicker(cs, extras, isId),
-                const SizedBox(height: 12),
-                _buildDaySelector(cs, isId),
-              ] else if (_triggerType == TriggerType.interval) ...[
-                _buildIntervalPicker(cs, isId),
-              ] else ...[
-                _buildEventTriggerConfig(cs, extras, isId),
-              ],
-              const SizedBox(height: 24),
-
-              _sectionLabel(isId ? 'Notifikasi' : 'Notification', cs),
-              const SizedBox(height: 8),
-              _buildNotifSelector(cs, isId),
-              const SizedBox(height: 20),
-
-              // ─── Priority (moved below Notifikasi) ─────────────────
-              _sectionLabel(isId ? 'Prioritas' : 'Priority', cs),
-              const SizedBox(height: 8),
-              _buildPrioritySelector(cs, isId),
-              const SizedBox(height: 20),
-
-              _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
-              const SizedBox(height: 8),
-              _buildTimeoutSelector(cs, isId),
+              _buildAdvancedSettings(cs, extras, isId),
               const SizedBox(height: 20),
 
               _buildToggle(
@@ -503,9 +530,154 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
+  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, bool isId) {
+    return Container(
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        children: [
+          InkWell(
+            onTap: () => setState(
+              () => _advancedSettingsExpanded = !_advancedSettingsExpanded,
+            ),
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+              child: Row(
+                children: [
+                  Icon(Icons.tune_rounded, size: 18, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      isId ? 'Pengaturan Lainnya' : 'More settings',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${_notifLabel(_notifStyle, isId)} · ${_priorityLabel(_priority, isId)} · ${_timeoutLabel(_timeoutSeconds)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: _advancedSettingsExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 20,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Divider(color: extras.subtleBorder, height: 1),
+                  const SizedBox(height: 14),
+                  _sectionLabel(isId ? 'Notifikasi' : 'Notification', cs),
+                  const SizedBox(height: 8),
+                  _buildNotifSelector(cs, isId),
+                  const SizedBox(height: 18),
+                  _sectionLabel(isId ? 'Prioritas' : 'Priority', cs),
+                  const SizedBox(height: 8),
+                  _buildPrioritySelector(cs, isId),
+                  const SizedBox(height: 18),
+                  _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
+                  const SizedBox(height: 8),
+                  _buildTimeoutSelector(cs, isId),
+                ],
+              ),
+            ),
+            crossFadeState: _advancedSettingsExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 180),
+            firstCurve: Curves.easeOutCubic,
+            secondCurve: Curves.easeOutCubic,
+            sizeCurve: Curves.easeOutCubic,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _timeoutLabel(int seconds) {
+    if (seconds >= 60) return '${seconds ~/ 60}m';
+    return '${seconds}s';
+  }
+
+  Widget _multiAgentInfoCard(ColorScheme cs, MeowExtras extras, bool isId) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.groups_2_outlined, size: 18, color: cs.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isId ? 'Mode multi-agent' : 'Multi-agent mode',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  isId
+                      ? 'Setiap langkah wajib punya agent. Semua langkah otomatis memakai agent default dulu, lalu bisa diganti per langkah.'
+                      : 'Each step requires an agent. Steps use the default agent first, then can be changed per step.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.35,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.82),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ─── Step List Builders ─────────────────────────────────────────────────────
 
-  List<Widget> _buildStepList(ColorScheme cs, MeowExtras extras, bool isId) {
+  List<Widget> _buildStepList(
+    ColorScheme cs,
+    MeowExtras extras,
+    bool isId,
+    List<AgentModel> agents,
+  ) {
     return List.generate(_steps.length, (i) {
       final step = _steps[i];
       return Container(
@@ -561,40 +733,30 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            TextFormField(
-              key: ValueKey('step_prompt_${step.id}'),
-              initialValue: step.prompt,
-              maxLines: 3,
-              style: TextStyle(fontSize: 13, color: cs.onSurface),
-              decoration: InputDecoration(
-                hintText: isId
-                    ? 'Apa yang harus dilakukan di langkah ini?'
-                    : 'What should happen in this step?',
-                hintStyle: TextStyle(
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.5),
-                  fontSize: 12,
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
+            _buildStepAgentPicker(step, i, agents, isId),
+            const SizedBox(height: 10),
+            _buildVariableAwareInput(
+              _stepPromptController(step),
+              isId
+                  ? 'Apa yang harus dilakukan di langkah ini?'
+                  : 'What should happen in this step?',
+              cs,
+              extras,
+              maxLines: 4,
+              minLines: 3,
+              isId: isId,
               onChanged: (v) {
                 _updateStep(
                   i,
                   WorkflowStep(
                     id: step.id,
                     prompt: v,
+                    agentId: step.agentId,
                     condition: step.condition,
                     onFailure: step.onFailure,
                     timeoutSeconds: step.timeoutSeconds,
                   ),
                 );
-                setState(() {}); // refresh variable suggestions
               },
             ),
             const SizedBox(height: 10),
@@ -630,6 +792,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         WorkflowStep(
                           id: step.id,
                           prompt: step.prompt,
+                          agentId: step.agentId,
                           condition: step.condition,
                           onFailure: a,
                           timeoutSeconds: step.timeoutSeconds,
@@ -673,6 +836,73 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     });
   }
 
+  Widget _buildStepAgentPicker(
+    WorkflowStep step,
+    int index,
+    List<AgentModel> agents,
+    bool isId,
+  ) {
+    final fallbackAgentId = _selectedAgentId ?? agents.firstOrNull?.id;
+    final effectiveAgentId = step.agentId ?? fallbackAgentId;
+    if (step.agentId == null && effectiveAgentId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final current = _steps[index];
+        if (current.agentId != null) return;
+        _updateStep(
+          index,
+          WorkflowStep(
+            id: current.id,
+            prompt: current.prompt,
+            agentId: effectiveAgentId,
+            condition: current.condition,
+            onFailure: current.onFailure,
+            timeoutSeconds: current.timeoutSeconds,
+          ),
+        );
+      });
+    }
+
+    return MeowDropdown<String>(
+      value: effectiveAgentId,
+      presentation: MeowDropdownPresentation.sheet,
+      sheetTitle: isId ? 'Pilih agent langkah' : 'Choose step agent',
+      sheetSubtitle: isId
+          ? 'Langkah ini akan dijalankan oleh agent yang dipilih.'
+          : 'This step will run using the selected agent.',
+      searchHint: isId ? 'Cari agent...' : 'Search agents...',
+      emptyText: isId ? 'Agent belum tersedia' : 'No agents available',
+      searchable: agents.length > 6,
+      dense: true,
+      options: agents
+          .map(
+            (agent) => MeowDropdownOption<String>(
+              value: agent.id,
+              label: agent.name,
+              subtitle: isId
+                  ? 'Agent untuk langkah ini'
+                  : 'Agent for this step',
+              searchText: agent.name,
+            ),
+          )
+          .toList(),
+      onChanged: (agentId) {
+        if (agentId == null) return;
+        _updateStep(
+          index,
+          WorkflowStep(
+            id: step.id,
+            prompt: step.prompt,
+            agentId: agentId,
+            condition: step.condition,
+            onFailure: step.onFailure,
+            timeoutSeconds: step.timeoutSeconds,
+          ),
+        );
+      },
+    );
+  }
+
   String _failureActionLabel(StepFailureAction a, bool isId) {
     switch (a) {
       case StepFailureAction.stop:
@@ -714,6 +944,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           WorkflowStep(
             id: step.id,
             prompt: step.prompt,
+            agentId: step.agentId,
             condition: value.value,
             onFailure: step.onFailure,
             timeoutSeconds: step.timeoutSeconds,
@@ -1410,6 +1641,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     ColorScheme cs,
     MeowExtras extras, {
     int maxLines = 1,
+    int? minLines,
     ValueChanged<String>? onChanged,
     required bool isId,
   }) {
@@ -1434,6 +1666,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           children: [
             TextField(
               controller: ctrl,
+              minLines: minLines,
               maxLines: maxLines,
               inputFormatters: const [_VariableTokenDeleteFormatter()],
               onChanged: (value) {
@@ -1447,22 +1680,26 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   color: cs.onSurfaceVariant.withValues(alpha: 0.5),
                 ),
                 filled: true,
-                fillColor: extras.card,
+                fillColor: extras.inputFill,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: extras.subtleBorder),
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.18),
+                  ),
                 ),
                 enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: extras.subtleBorder),
+                  borderRadius: BorderRadius.circular(18),
+                  borderSide: BorderSide(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.18),
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(18),
                   borderSide: BorderSide(color: cs.primary),
                 ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: maxLines > 1 ? 16 : 12,
                 ),
               ),
             ),
@@ -1766,6 +2003,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
+  String _notifLabel(NotifStyle style, bool isId) {
+    switch (style) {
+      case NotifStyle.silent:
+        return isId ? 'Senyap' : 'Silent';
+      case NotifStyle.normal:
+        return 'Normal';
+      case NotifStyle.alarm:
+        return 'Alarm';
+    }
+  }
+
   Widget _buildNotifSelector(ColorScheme cs, bool isId) {
     return Row(
       children: [
@@ -1960,6 +2208,8 @@ class _VariableTrigger {
 }
 
 class _VariableTextEditingController extends TextEditingController {
+  _VariableTextEditingController({super.text});
+
   static final _pattern = RegExp(r'\{\{([^{}\n]+)\}\}');
 
   @override

@@ -184,7 +184,8 @@ class WorkflowRunner {
     // Already executed/claimed today's occurrence? Skip until tomorrow.
     if (wf.lastRun != null) {
       final lr = wf.lastRun!;
-      final alreadyClaimedThisOccurrence = lr.year == triggerToday.year &&
+      final alreadyClaimedThisOccurrence =
+          lr.year == triggerToday.year &&
           lr.month == triggerToday.month &&
           lr.day == triggerToday.day &&
           !lr.isBefore(triggerToday) &&
@@ -219,10 +220,17 @@ class WorkflowRunner {
 
       final agent = agents.where((a) => a.id == wf.agentId).firstOrNull;
       if (agent == null) {
-        await _handleFailure(wf, 'Agent tidak ditemukan: ${wf.agentId}', 0, capturedEvents);
+        await _handleFailure(
+          wf,
+          'Agent tidak ditemukan: ${wf.agentId}',
+          0,
+          capturedEvents,
+        );
         return;
       }
-      final provider = providers.where((p) => p.id == agent.providerId).firstOrNull;
+      final provider = providers
+          .where((p) => p.id == agent.providerId)
+          .firstOrNull;
       if (provider == null) {
         await _handleFailure(
           wf,
@@ -235,19 +243,48 @@ class WorkflowRunner {
 
       if (wf.isChained) {
         // ─── Chained Workflow Execution ─────────────────────────────────────
-        await _executeChained(wf, engine, provider, agent, capturedEvents, stopwatch, notifId, triggerVars);
+        await _executeChained(
+          wf,
+          engine,
+          providers,
+          agents,
+          agent,
+          capturedEvents,
+          stopwatch,
+          notifId,
+          triggerVars,
+        );
       } else {
         // ─── Single-Step Execution ──────────────────────────────────────────
-        await _executeSingle(wf, engine, provider, agent, capturedEvents, stopwatch, notifId, triggerVars);
+        await _executeSingle(
+          wf,
+          engine,
+          provider,
+          agent,
+          capturedEvents,
+          stopwatch,
+          notifId,
+          triggerVars,
+        );
       }
     } on TimeoutException {
       stopwatch.stop();
-      await _handleFailure(wf, 'Timeout: eksekusi melebihi ${_effectiveTimeout(wf.timeoutSeconds)} detik.', stopwatch.elapsedMilliseconds, capturedEvents);
+      await _handleFailure(
+        wf,
+        'Timeout: eksekusi melebihi ${_effectiveTimeout(wf.timeoutSeconds)} detik.',
+        stopwatch.elapsedMilliseconds,
+        capturedEvents,
+      );
     } catch (e, st) {
       stopwatch.stop();
       // ignore: avoid_print
       print('[WorkflowRunner] ${wf.title} error: $e\n$st');
-      await _handleFailure(wf, 'Error: $e', stopwatch.elapsedMilliseconds, capturedEvents);
+      await _handleFailure(
+        wf,
+        'Error: $e',
+        stopwatch.elapsedMilliseconds,
+        capturedEvents,
+      );
     }
   }
 
@@ -275,47 +312,56 @@ class WorkflowRunner {
     final resolvedPrompt = WorkflowBuiltInVars.substitute(wf.prompt, vars);
     final prompt = _wrapWithTriggerContext(resolvedPrompt, triggerVars);
 
-    final response = await engine.run(
-      AgentRuntimeRequest(
-        agentId: wf.agentId,
-        agentName: agent.name,
-        userMessage: prompt,
-        source: RequestSource.workflow,
-      ),
-      provider: provider,
-      autoApproveSensitive: wf.allowSensitive,
-      onEvent: (event) {
-        capturedEvents.add(WorkflowExecutionEvent(
-          type: event.type,
-          message: event.message,
-          createdAt: event.createdAt,
-        ));
-      },
-    ).timeout(Duration(seconds: _effectiveTimeout(wf.timeoutSeconds)));
+    final response = await engine
+        .run(
+          AgentRuntimeRequest(
+            agentId: wf.agentId,
+            agentName: agent.name,
+            userMessage: prompt,
+            source: RequestSource.workflow,
+          ),
+          provider: provider,
+          autoApproveSensitive: wf.allowSensitive,
+          onEvent: (event) {
+            capturedEvents.add(
+              WorkflowExecutionEvent(
+                type: event.type,
+                message: event.message,
+                createdAt: event.createdAt,
+              ),
+            );
+          },
+        )
+        .timeout(Duration(seconds: _effectiveTimeout(wf.timeoutSeconds)));
 
     stopwatch.stop();
     final result = response.finalMessage;
 
-    await _repo.updateLastRun(wf.id, lastRun: DateTime.now(), lastResult: result, retryCount: 0);
+    await _repo.updateLastRun(
+      wf.id,
+      lastRun: DateTime.now(),
+      lastResult: result,
+      retryCount: 0,
+    );
 
-    await _repo.logExecution(WorkflowExecution(
-      workflowId: wf.id,
-      agentId: wf.agentId,
-      workflowTitle: wf.title,
-      status: response.success ? 'success' : 'failed',
-      result: result,
-      executedAt: DateTime.now(),
-      durationMs: stopwatch.elapsedMilliseconds,
-      events: List.unmodifiable(capturedEvents),
-    ));
+    await _repo.logExecution(
+      WorkflowExecution(
+        workflowId: wf.id,
+        agentId: wf.agentId,
+        workflowTitle: wf.title,
+        status: response.success ? 'success' : 'failed',
+        result: result,
+        executedAt: DateTime.now(),
+        durationMs: stopwatch.elapsedMilliseconds,
+        events: List.unmodifiable(capturedEvents),
+      ),
+    );
 
     if (wf.notification.showResult) {
       await WorkflowNotificationService.cancel(notifId);
       await WorkflowNotificationService.show(
         id: notifId,
-        title: response.success
-            ? '✅ ${wf.title}'
-            : '❌ ${wf.title}',
+        title: response.success ? '✅ ${wf.title}' : '❌ ${wf.title}',
         body: result,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
@@ -336,8 +382,9 @@ class WorkflowRunner {
   Future<void> _executeChained(
     WorkflowModel wf,
     AgentRuntimeEngine engine,
-    dynamic provider,
-    dynamic agent,
+    List<dynamic> providers,
+    List<dynamic> agents,
+    dynamic fallbackAgent,
     List<WorkflowExecutionEvent> capturedEvents,
     Stopwatch stopwatch,
     int notifId,
@@ -350,13 +397,41 @@ class WorkflowRunner {
     // Build base built-in variable map once. Per-step we'll override {{prev}}
     // and {{step_index}}.
     final baseBuiltIns = await WorkflowBuiltInVars.resolve(
-      agentName: agent.name,
+      agentName: fallbackAgent.name,
       now: DateTime.now(),
       triggerVars: triggerVars,
     );
 
     for (int i = 0; i < wf.steps.length; i++) {
       final step = wf.steps[i];
+      final stepAgent = step.agentId == null
+          ? fallbackAgent
+          : agents.where((a) => a.id == step.agentId).firstOrNull;
+      final stepProvider = stepAgent == null
+          ? null
+          : providers.where((p) => p.id == stepAgent.providerId).firstOrNull;
+
+      if (stepAgent == null || stepProvider == null) {
+        stepResults.add(
+          StepResult(
+            stepId: step.id,
+            status: 'failed',
+            result: stepAgent == null
+                ? 'Agent tidak ditemukan untuk langkah ini.'
+                : 'Provider tidak ditemukan untuk agent "${stepAgent.name}".',
+          ),
+        );
+        capturedEvents.add(
+          WorkflowExecutionEvent(
+            type: 'step_failed',
+            message:
+                'Step ${i + 1} "${step.id}" failed: agent/provider not found.',
+            createdAt: DateTime.now(),
+          ),
+        );
+        chainFailed = true;
+        break;
+      }
 
       // Build per-step var map: legacy custom vars + base built-ins +
       // step-local extras. Order: built-ins win over legacy, step extras win
@@ -370,16 +445,20 @@ class WorkflowRunner {
       // Evaluate condition.
       if (step.condition != null && step.condition!.isNotEmpty) {
         if (!_evaluateCondition(step.condition!, previousResult, runtimeVars)) {
-          stepResults.add(StepResult(
-            stepId: step.id,
-            status: 'skipped',
-            result: 'Condition not met: ${step.condition}',
-          ));
-          capturedEvents.add(WorkflowExecutionEvent(
-            type: 'step_skipped',
-            message: 'Step ${i + 1} "${step.id}" skipped: condition not met.',
-            createdAt: DateTime.now(),
-          ));
+          stepResults.add(
+            StepResult(
+              stepId: step.id,
+              status: 'skipped',
+              result: 'Condition not met: ${step.condition}',
+            ),
+          );
+          capturedEvents.add(
+            WorkflowExecutionEvent(
+              type: 'step_skipped',
+              message: 'Step ${i + 1} "${step.id}" skipped: condition not met.',
+              createdAt: DateTime.now(),
+            ),
+          );
           continue;
         }
       }
@@ -396,93 +475,112 @@ class WorkflowRunner {
       // {{prev}} already contains the journal content from step 1.
       final systemPrefix = i > 0 && previousResult.isNotEmpty
           ? '[SYSTEM CONTEXT: This is step ${i + 1} of a multi-step workflow. '
-            'The previous step\'s output is provided below as context — use it '
-            'directly, do NOT ask the user to provide it again.]\n'
-            '--- PREVIOUS STEP RESULT ---\n$previousResult\n'
-            '--- END PREVIOUS STEP RESULT ---\n\n'
+                'The previous step\'s output is provided below as context — use it '
+                'directly, do NOT ask the user to provide it again.]\n'
+                '--- PREVIOUS STEP RESULT ---\n$previousResult\n'
+                '--- END PREVIOUS STEP RESULT ---\n\n'
           : '';
       final resolvedPrompt = '$systemPrefix$rawPrompt';
 
-
-      capturedEvents.add(WorkflowExecutionEvent(
-        type: 'step_start',
-        message: 'Starting step ${i + 1}: ${step.id}',
-        createdAt: DateTime.now(),
-      ));
+      capturedEvents.add(
+        WorkflowExecutionEvent(
+          type: 'step_start',
+          message: 'Starting step ${i + 1}: ${step.id} (${stepAgent.name})',
+          createdAt: DateTime.now(),
+        ),
+      );
 
       final stepStopwatch = Stopwatch()..start();
 
       try {
-        final response = await engine.run(
-          AgentRuntimeRequest(
-            agentId: wf.agentId,
-            agentName: agent.name,
-            userMessage: resolvedPrompt,
-            source: RequestSource.workflow,
-          ),
-          provider: provider,
-          autoApproveSensitive: wf.allowSensitive,
-          onEvent: (event) {
-            capturedEvents.add(WorkflowExecutionEvent(
-              type: event.type,
-              message: '[Step ${i + 1}] ${event.message}',
-              createdAt: event.createdAt,
-            ));
-          },
-        ).timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
+        final response = await engine
+            .run(
+              AgentRuntimeRequest(
+                agentId: stepAgent.id,
+                agentName: stepAgent.name,
+                userMessage: resolvedPrompt,
+                source: RequestSource.workflow,
+              ),
+              provider: stepProvider,
+              autoApproveSensitive: wf.allowSensitive,
+              onEvent: (event) {
+                capturedEvents.add(
+                  WorkflowExecutionEvent(
+                    type: event.type,
+                    message: '[Step ${i + 1}] ${event.message}',
+                    createdAt: event.createdAt,
+                  ),
+                );
+              },
+            )
+            .timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
 
         stepStopwatch.stop();
         previousResult = response.finalMessage;
         runtimeVars['step_${step.id}_result'] = previousResult;
 
-        stepResults.add(StepResult(
-          stepId: step.id,
-          status: response.success ? 'success' : 'failed',
-          result: previousResult,
-          durationMs: stepStopwatch.elapsedMilliseconds,
-        ));
+        stepResults.add(
+          StepResult(
+            stepId: step.id,
+            status: response.success ? 'success' : 'failed',
+            result: previousResult,
+            durationMs: stepStopwatch.elapsedMilliseconds,
+          ),
+        );
 
         if (!response.success) {
           switch (step.onFailure) {
             case StepFailureAction.stop:
               chainFailed = true;
-              capturedEvents.add(WorkflowExecutionEvent(
-                type: 'chain_stopped',
-                message: 'Chain stopped at step ${i + 1} due to failure.',
-                createdAt: DateTime.now(),
-              ));
+              capturedEvents.add(
+                WorkflowExecutionEvent(
+                  type: 'chain_stopped',
+                  message: 'Chain stopped at step ${i + 1} due to failure.',
+                  createdAt: DateTime.now(),
+                ),
+              );
               break;
             case StepFailureAction.skip:
-              capturedEvents.add(WorkflowExecutionEvent(
-                type: 'step_failure_skipped',
-                message: 'Step ${i + 1} failed but continuing (skip policy).',
-                createdAt: DateTime.now(),
-              ));
+              capturedEvents.add(
+                WorkflowExecutionEvent(
+                  type: 'step_failure_skipped',
+                  message: 'Step ${i + 1} failed but continuing (skip policy).',
+                  createdAt: DateTime.now(),
+                ),
+              );
               break;
             case StepFailureAction.retry:
               // Retry once.
-              capturedEvents.add(WorkflowExecutionEvent(
-                type: 'step_retry',
-                message: 'Retrying step ${i + 1}...',
-                createdAt: DateTime.now(),
-              ));
-              final retryResponse = await engine.run(
-                AgentRuntimeRequest(
-                  agentId: wf.agentId,
-                  agentName: agent.name,
-                  userMessage: resolvedPrompt,
-                  source: RequestSource.workflow,
+              capturedEvents.add(
+                WorkflowExecutionEvent(
+                  type: 'step_retry',
+                  message: 'Retrying step ${i + 1}...',
+                  createdAt: DateTime.now(),
                 ),
-                provider: provider,
-                autoApproveSensitive: wf.allowSensitive,
-                onEvent: (event) {
-                  capturedEvents.add(WorkflowExecutionEvent(
-                    type: event.type,
-                    message: '[Step ${i + 1} retry] ${event.message}',
-                    createdAt: event.createdAt,
-                  ));
-                },
-              ).timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
+              );
+              final retryResponse = await engine
+                  .run(
+                    AgentRuntimeRequest(
+                      agentId: stepAgent.id,
+                      agentName: stepAgent.name,
+                      userMessage: resolvedPrompt,
+                      source: RequestSource.workflow,
+                    ),
+                    provider: stepProvider,
+                    autoApproveSensitive: wf.allowSensitive,
+                    onEvent: (event) {
+                      capturedEvents.add(
+                        WorkflowExecutionEvent(
+                          type: event.type,
+                          message: '[Step ${i + 1} retry] ${event.message}',
+                          createdAt: event.createdAt,
+                        ),
+                      );
+                    },
+                  )
+                  .timeout(
+                    Duration(seconds: _effectiveTimeout(step.timeoutSeconds)),
+                  );
 
               previousResult = retryResponse.finalMessage;
               runtimeVars['step_${step.id}_result'] = previousResult;
@@ -509,24 +607,28 @@ class WorkflowRunner {
         }
       } on TimeoutException {
         stepStopwatch.stop();
-        stepResults.add(StepResult(
-          stepId: step.id,
-          status: 'failed',
-          result: 'Timeout (${_effectiveTimeout(step.timeoutSeconds)}s)',
-          durationMs: stepStopwatch.elapsedMilliseconds,
-        ));
+        stepResults.add(
+          StepResult(
+            stepId: step.id,
+            status: 'failed',
+            result: 'Timeout (${_effectiveTimeout(step.timeoutSeconds)}s)',
+            durationMs: stepStopwatch.elapsedMilliseconds,
+          ),
+        );
         if (step.onFailure == StepFailureAction.stop) {
           chainFailed = true;
           break;
         }
       } catch (e) {
         stepStopwatch.stop();
-        stepResults.add(StepResult(
-          stepId: step.id,
-          status: 'failed',
-          result: 'Error: $e',
-          durationMs: stepStopwatch.elapsedMilliseconds,
-        ));
+        stepResults.add(
+          StepResult(
+            stepId: step.id,
+            status: 'failed',
+            result: 'Error: $e',
+            durationMs: stepStopwatch.elapsedMilliseconds,
+          ),
+        );
         if (step.onFailure == StepFailureAction.stop) {
           chainFailed = true;
           break;
@@ -538,27 +640,39 @@ class WorkflowRunner {
 
     final overallStatus = chainFailed
         ? 'failed'
-        : stepResults.every((s) => s.status == 'success' || s.status == 'skipped')
-            ? 'success'
-            : 'partial';
+        : stepResults.every(
+            (s) => s.status == 'success' || s.status == 'skipped',
+          )
+        ? 'success'
+        : 'partial';
 
     final summaryResult = stepResults
-        .map((s) => '[${s.stepId}] ${s.status}: ${s.result.length > 80 ? '${s.result.substring(0, 80)}...' : s.result}')
+        .map(
+          (s) =>
+              '[${s.stepId}] ${s.status}: ${s.result.length > 80 ? '${s.result.substring(0, 80)}...' : s.result}',
+        )
         .join('\n');
 
-    await _repo.updateLastRun(wf.id, lastRun: DateTime.now(), lastResult: summaryResult, retryCount: 0);
+    await _repo.updateLastRun(
+      wf.id,
+      lastRun: DateTime.now(),
+      lastResult: summaryResult,
+      retryCount: 0,
+    );
 
-    await _repo.logExecution(WorkflowExecution(
-      workflowId: wf.id,
-      agentId: wf.agentId,
-      workflowTitle: wf.title,
-      status: overallStatus,
-      result: summaryResult,
-      executedAt: DateTime.now(),
-      durationMs: stopwatch.elapsedMilliseconds,
-      events: List.unmodifiable(capturedEvents),
-      stepResults: List.unmodifiable(stepResults),
-    ));
+    await _repo.logExecution(
+      WorkflowExecution(
+        workflowId: wf.id,
+        agentId: wf.agentId,
+        workflowTitle: wf.title,
+        status: overallStatus,
+        result: summaryResult,
+        executedAt: DateTime.now(),
+        durationMs: stopwatch.elapsedMilliseconds,
+        events: List.unmodifiable(capturedEvents),
+        stepResults: List.unmodifiable(stepResults),
+      ),
+    );
 
     if (wf.notification.showResult) {
       await WorkflowNotificationService.cancel(notifId);
@@ -628,7 +742,9 @@ class WorkflowRunner {
     final trimmed = condition.trim();
 
     // prev.contains('...')
-    final containsMatch = RegExp(r"prev\.contains\('(.+?)'\)").firstMatch(trimmed);
+    final containsMatch = RegExp(
+      r"prev\.contains\('(.+?)'\)",
+    ).firstMatch(trimmed);
     if (containsMatch != null) {
       return previousResult.contains(containsMatch.group(1)!);
     }
@@ -640,7 +756,9 @@ class WorkflowRunner {
     if (trimmed == 'prev.isNotEmpty') return previousResult.isNotEmpty;
 
     // prev.length > N
-    final lengthMatch = RegExp(r'prev\.length\s*([><=!]+)\s*(\d+)').firstMatch(trimmed);
+    final lengthMatch = RegExp(
+      r'prev\.length\s*([><=!]+)\s*(\d+)',
+    ).firstMatch(trimmed);
     if (lengthMatch != null) {
       final op = lengthMatch.group(1)!;
       final n = int.parse(lengthMatch.group(2)!);
@@ -685,16 +803,18 @@ class WorkflowRunner {
       retryCount: wf.retryCount + 1,
     );
 
-    await _repo.logExecution(WorkflowExecution(
-      workflowId: wf.id,
-      agentId: wf.agentId,
-      workflowTitle: wf.title,
-      status: 'failed',
-      result: error,
-      executedAt: DateTime.now(),
-      durationMs: durationMs,
-      events: List.unmodifiable(events),
-    ));
+    await _repo.logExecution(
+      WorkflowExecution(
+        workflowId: wf.id,
+        agentId: wf.agentId,
+        workflowTitle: wf.title,
+        status: 'failed',
+        result: error,
+        executedAt: DateTime.now(),
+        durationMs: durationMs,
+        events: List.unmodifiable(events),
+      ),
+    );
 
     final notifId = wf.id.hashCode.abs() % 2147483647;
     await WorkflowNotificationService.cancel(notifId);
@@ -707,7 +827,10 @@ class WorkflowRunner {
     );
 
     if (wf.sendToChat) {
-      await _injectToChat(wf.agentId, '❌ Workflow **${wf.title}** gagal: $error');
+      await _injectToChat(
+        wf.agentId,
+        '❌ Workflow **${wf.title}** gagal: $error',
+      );
     }
   }
 

@@ -171,6 +171,7 @@ class WorkflowStep {
   const WorkflowStep({
     required this.id,
     required this.prompt,
+    this.agentId,
     this.condition,
     this.onFailure = StepFailureAction.stop,
     this.timeoutSeconds = 300,
@@ -178,6 +179,7 @@ class WorkflowStep {
 
   final String id;
   final String prompt;
+  final String? agentId;
 
   /// Optional condition to evaluate before running this step.
   /// Uses simple expressions: "prev.contains('success')", "prev.length > 0", etc.
@@ -193,6 +195,7 @@ class WorkflowStep {
   Map<String, dynamic> toJson() => {
     'id': id,
     'prompt': prompt,
+    'agentId': agentId,
     'condition': condition,
     'onFailure': onFailure.name,
     'timeoutSeconds': timeoutSeconds,
@@ -201,6 +204,7 @@ class WorkflowStep {
   factory WorkflowStep.fromJson(Map<String, dynamic> json) => WorkflowStep(
     id: json['id'] as String? ?? '',
     prompt: json['prompt'] as String? ?? '',
+    agentId: json['agentId'] as String?,
     condition: json['condition'] as String?,
     onFailure: StepFailureAction.values.firstWhere(
       (a) => a.name == json['onFailure'],
