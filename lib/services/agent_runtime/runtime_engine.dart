@@ -1375,6 +1375,15 @@ class AgentRuntimeEngine {
     var rePlanned = false;
     final stuck = StuckDetector();
 
+    // Idempotency tracking for delivery/side-effect tools. A delivery to the
+    // SAME destination (e.g. chat.send to the same agent) must not fire twice
+    // in one task run. This guards against plans that conflate "compose" and
+    // "send" into separate subgoals, which made the loop re-pick chat.send
+    // after it already succeeded and deliver a duplicate message.
+    final deliveredKeys = <String>{};
+    ToolCallRequest? lastDeliveryTool;
+    ToolExecutionResult? lastDeliveryResult;
+
     // Conversation history snapshot (latest 20, chronological). Carries the
     // previous workflow step's output as the most recent assistant turn. Fed
     // to the selector + reviewer so tool arguments (e.g. chat.send content)
@@ -1863,6 +1872,64 @@ class AgentRuntimeEngine {
           );
         }
 
+        // Duplicate-delivery guard. If this is a delivery tool targeting a
+        // destination we've already delivered to in this run, suppress the
+        // re-send. Plans that split "compose" and "send" into separate
+        // subgoals otherwise re-pick chat.send and spam the user with a
+        // second copy of the same message.
+        final deliveryKey = _deliveryDestinationKey(toolRequest);
+        if (deliveryKey != null && deliveredKeys.contains(deliveryKey)) {
+          logger.logStateChange(
+            state,
+            'Duplicate delivery suppressed: ${toolRequest.name} to an '
+            'already-delivered destination ($deliveryKey).',
+          );
+          emit(logger.events.last);
+          // Advance the active subgoal so the tree doesn't softlock on a
+          // "send" subgoal that is effectively already satisfied.
+          if (goalTree.isNotEmpty) {
+            final active = goalTree.nextActionable;
+            if (active != null) active.status = SubgoalStatus.done;
+          }
+          if (goalTree.isEmpty || goalTree.isComplete) {
+            final priorTool = lastDeliveryTool ?? toolRequest;
+            final priorResult =
+                lastDeliveryResult ??
+                ToolExecutionResult(success: true, toolName: toolRequest.name);
+            final finalMsg = await verbalizer.success(
+              tool: priorTool,
+              result: priorResult,
+              language: detectedLang,
+            );
+            logger.logFinalResponse(finalMsg);
+            await workspaceLoader.updateHeartbeat(
+              request.agentName.isNotEmpty
+                  ? request.agentName
+                  : request.agentId,
+              state: 'done',
+              task: request.userMessage,
+              lastTool: priorTool.name,
+              lastResult: 'success',
+            );
+            await _archiveLedgerForRequest(request, LedgerStatus.completed);
+            return AgentRuntimeResponse(
+              finalMessage: finalMsg,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+              actions: priorResult.actions,
+            );
+          }
+          previousResults.add({
+            'step': currentStep,
+            'tool': toolRequest.name,
+            'note': 'Duplicate delivery to $deliveryKey suppressed.',
+          });
+          currentStep++;
+          retryCount = 0;
+          continue;
+        }
+
         // Execute tool.
         state = AgentRuntimeState.executingTool;
         logger.logStateChange(state, 'Executing ${toolRequest.name}');
@@ -1883,6 +1950,14 @@ class AgentRuntimeEngine {
           success: result.success,
           error: result.error,
         );
+
+        // Record a successful delivery so a later re-pick of the same
+        // destination is recognized as a duplicate (see guard above).
+        if (deliveryKey != null && result.success) {
+          deliveredKeys.add(deliveryKey);
+          lastDeliveryTool = toolRequest;
+          lastDeliveryResult = result;
+        }
 
         final permissionFinal = _permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
@@ -3263,6 +3338,27 @@ class AgentRuntimeEngine {
         toolName.endsWith('.summary') ||
         toolName.endsWith('.classify') ||
         toolName.endsWith('.summarize');
+  }
+
+  /// Returns a stable destination key for delivery tools whose duplicate
+  /// execution within a SINGLE run is almost always a bug (e.g. sending the
+  /// same chat message twice). Returns null for tools where a repeat may be
+  /// legitimate, so the duplicate-delivery guard stays surgical.
+  ///
+  /// The key is destination-scoped (not content-scoped): re-sending to the
+  /// same chat with slightly reworded content is still a duplicate. This is
+  /// what catches the "compose + send" plans that re-pick chat.send after it
+  /// already succeeded.
+  static String? _deliveryDestinationKey(ToolCallRequest tool) {
+    switch (tool.name) {
+      case 'chat.send':
+        final agentId = (tool.args['agentId'] ?? '').toString().trim();
+        return 'chat.send|${agentId.isEmpty ? 'self' : agentId}';
+      case 'notification.create_local':
+        return 'notification.create_local';
+      default:
+        return null;
+    }
   }
 
   /// Localized "no results" reply when the empty-result loop guard fires.

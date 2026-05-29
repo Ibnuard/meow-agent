@@ -835,9 +835,14 @@ class WorkflowRunner {
       ..writeln(
         'If this step asks to send / share / save / write / forward / post / '
         'deliver the data, choose a delivery tool that takes a content body '
-        '(chat.send, notes.create, files.write, intent.open_url, etc.) and '
-        'pass the previous turn\'s content verbatim as that body. Preserve '
-        'concrete facts (items, names, numbers, dates) exactly.',
+        '(chat.send, notes.create, files.write, intent.open_url, etc.). '
+        'Decide the body from the instruction: if it asks to relay / forward '
+        'the data as-is, use the previous turn\'s content verbatim; if it '
+        'asks you to respond / react / reply / comment on / rephrase the '
+        'data, WRITE YOUR OWN new text that builds on it (do not just resend '
+        'the same content). Either way, stay grounded in the real facts '
+        '(items, names, numbers, dates) — never invent details that are not '
+        'in the previous output.',
       )
       ..writeln('')
       ..writeln('Instruction for this step:')
@@ -921,10 +926,19 @@ class WorkflowRunner {
     final buf = StringBuffer()
       ..writeln('[TRIGGER CONTEXT]')
       ..writeln(
-        'This workflow run was fired by an incoming Android notification. '
-        'The full notification text is delivered to you INLINE below as the '
-        'input data for this step — you already have it; you do NOT need '
-        'tools or external access to read it.',
+        'This workflow run was fired by ONE specific incoming Android '
+        'notification — the single one that matched your trigger keyword. '
+        'That notification is delivered to you INLINE below and is the '
+        'COMPLETE and ONLY input for this step. You already have it; you do '
+        'NOT need any tool to read, fetch, or look it up.',
+      )
+      ..writeln(
+        'CRITICAL: Do NOT call notification.read_recent, '
+        'notification.summarize, notification.classify, or any other tool '
+        'that reads the notification tray. Those return DIFFERENT, unrelated '
+        'notifications and will produce the wrong result (a general digest of '
+        'everything instead of this one item). Work ONLY from the single '
+        'inline notification below.',
       )
       ..writeln(
         'Treat the inline notification text as the authoritative source. '

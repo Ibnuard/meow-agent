@@ -133,14 +133,18 @@ ${PromptConstants.planResponseFormat}''';
     // but wrong content.
     final historyBlock = recentMessages.isEmpty
         ? ''
-        : '\nConversation history (authoritative data — use VERBATIM when an '
+        : '\nConversation history (authoritative data — use it when an '
               'instruction refers to "the result", "this", "it", or the '
               'previous step output):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n'
-              'When filling a tool argument that carries content (message body, '
-              'note text, file body), copy the relevant text from the history '
-              'above. Do NOT paraphrase, embellish, add jokes, or invent '
-              'items/names/numbers that are not present there.\n';
+              'When filling a tool argument that carries content (message '
+              'body, note text, file body): if the instruction is to '
+              'forward / relay / send the data as-is, copy the relevant text '
+              'from the history VERBATIM. If the instruction is to respond / '
+              'react / reply / comment / compose / rephrase, WRITE NEW '
+              'original text that builds on the history (do not just resend '
+              'it). In BOTH cases stay grounded — never invent items, names, '
+              'numbers, or facts that are not present in the history above.\n';
     return '''${PromptConstants.selectToolIntro}
 
 Execution plan:
