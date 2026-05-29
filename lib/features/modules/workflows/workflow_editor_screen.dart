@@ -1157,7 +1157,85 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             cs,
             extras,
           ),
+          const SizedBox(height: 10),
+          _notificationTriggerInfoCard(cs, extras, isId),
         ],
+      ],
+    );
+  }
+
+  Widget _notificationTriggerInfoCard(
+    ColorScheme cs,
+    MeowExtras extras,
+    bool isId,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 16, color: cs.primary),
+              const SizedBox(width: 8),
+              Text(
+                isId ? 'Agar trigger berjalan' : 'Required for this trigger',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurface,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _infoBullet(
+            isId
+                ? 'Pastikan permission akses notifikasi sudah diizinkan.'
+                : 'Make sure notification access permission is allowed.',
+            cs,
+          ),
+          const SizedBox(height: 7),
+          _infoBullet(
+            isId
+                ? 'Pastikan module Notifikasi aktif di halaman Modules.'
+                : 'Make sure the Notification module is enabled in Modules.',
+            cs,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoBullet(String text, ColorScheme cs) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.only(top: 6),
+          width: 5,
+          height: 5,
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.85),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.82),
+            ),
+          ),
+        ),
       ],
     );
   }
