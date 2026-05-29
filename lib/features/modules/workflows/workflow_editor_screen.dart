@@ -36,7 +36,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   String? _selectedAgentId;
   TriggerType _triggerType = TriggerType.schedule;
   EventTriggerKind _eventKind = EventTriggerKind.batteryLow;
-  int _batteryThreshold = 20;
   TimeOfDay _time = const TimeOfDay(hour: 8, minute: 0);
   List<int> _selectedDays = [1, 2, 3, 4, 5, 6, 7];
   int _intervalMinutes = 60;
@@ -64,7 +63,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     _selectedAgentId = wf.agentId;
     _triggerType = wf.trigger.type;
     _eventKind = wf.trigger.eventKind ?? EventTriggerKind.batteryLow;
-    _batteryThreshold = (wf.trigger.eventParams?['threshold'] as int?) ?? 20;
     _keywordCtrl.text = (wf.trigger.eventParams?['keyword'] as String?) ?? '';
     _time = TimeOfDay(
       hour: wf.trigger.hour ?? 8,
@@ -91,7 +89,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       final t = tpl.defaultTrigger!;
       _triggerType = t.type;
       _eventKind = t.eventKind ?? EventTriggerKind.batteryLow;
-      _batteryThreshold = (t.eventParams?['threshold'] as int?) ?? 20;
       _keywordCtrl.text = (t.eventParams?['keyword'] as String?) ?? '';
       if (t.hour != null) {
         _time = TimeOfDay(hour: t.hour!, minute: t.minute ?? 0);
@@ -155,9 +152,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     Map<String, dynamic>? eventParams;
     if (_triggerType == TriggerType.event) {
       switch (_eventKind) {
-        case EventTriggerKind.batteryLow:
-          eventParams = {'threshold': _batteryThreshold};
-          break;
         case EventTriggerKind.notificationKeyword:
           eventParams = {'keyword': _keywordCtrl.text.trim()};
           break;
@@ -880,6 +874,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         case BuiltInCategory.triggerBattery:
           return _triggerType == TriggerType.event &&
               (_eventKind == EventTriggerKind.batteryLow ||
+                  _eventKind == EventTriggerKind.batteryAbove ||
                   _eventKind == EventTriggerKind.batteryFull ||
                   _eventKind == EventTriggerKind.chargingStart ||
                   _eventKind == EventTriggerKind.chargingStop);
@@ -1122,14 +1117,22 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         const SizedBox(height: 8),
         MeowDropdown<EventTriggerKind>(
           value: _eventKind,
-          presentation: MeowDropdownPresentation.menu,
-          searchable: false,
+          presentation: MeowDropdownPresentation.sheet,
+          sheetTitle: isId ? 'Pilih jenis event' : 'Choose event type',
+          sheetSubtitle: isId
+              ? 'Workflow akan berjalan otomatis saat event ini terjadi.'
+              : 'Workflow runs automatically when this event happens.',
+          searchHint: isId ? 'Cari event...' : 'Search events...',
+          emptyText: isId ? 'Event tidak ditemukan' : 'No events found',
+          searchable: true,
           dense: true,
           options: EventTriggerKind.values
               .map(
                 (kind) => MeowDropdownOption<EventTriggerKind>(
                   value: kind,
                   label: _eventKindLabel(kind, isId),
+                  subtitle: _eventKindSubtitle(kind, isId),
+                  searchText: _eventKindSearchText(kind),
                 ),
               )
               .toList(),
@@ -1137,18 +1140,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               setState(() => _eventKind = value ?? EventTriggerKind.batteryLow),
         ),
         const SizedBox(height: 12),
-        if (_eventKind == EventTriggerKind.batteryLow) ...[
-          _sectionLabel(isId ? 'Threshold (%)' : 'Threshold (%)', cs),
-          const SizedBox(height: 8),
-          Slider(
-            value: _batteryThreshold.toDouble(),
-            min: 5,
-            max: 50,
-            divisions: 9,
-            label: '$_batteryThreshold%',
-            onChanged: (v) => setState(() => _batteryThreshold = v.toInt()),
-          ),
-        ] else if (_eventKind == EventTriggerKind.notificationKeyword) ...[
+        if (_eventKind == EventTriggerKind.notificationKeyword) ...[
           _sectionLabel(isId ? 'Kata Kunci' : 'Keyword', cs),
           const SizedBox(height: 8),
           _buildInput(
@@ -1243,7 +1235,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   String _eventKindLabel(EventTriggerKind k, bool isId) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return isId ? '🔋 Baterai Rendah' : '🔋 Battery Low';
+        return isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+      case EventTriggerKind.batteryAbove:
+        return isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
       case EventTriggerKind.batteryFull:
         return isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
       case EventTriggerKind.chargingStart:
@@ -1258,6 +1252,70 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         return isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
       case EventTriggerKind.wifiDisconnected:
         return isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+    }
+  }
+
+  String _eventKindSubtitle(EventTriggerKind k, bool isId) {
+    switch (k) {
+      case EventTriggerKind.batteryLow:
+        return isId
+            ? 'Jalan saat baterai turun melewati 50%.'
+            : 'Runs when battery drops past 50%.';
+      case EventTriggerKind.batteryAbove:
+        return isId
+            ? 'Jalan saat baterai naik melewati 50%.'
+            : 'Runs when battery rises past 50%.';
+      case EventTriggerKind.batteryFull:
+        return isId
+            ? 'Jalan saat baterai mencapai 100%.'
+            : 'Runs when battery reaches 100%.';
+      case EventTriggerKind.chargingStart:
+        return isId
+            ? 'Jalan saat perangkat mulai di-charge.'
+            : 'Runs when device starts charging.';
+      case EventTriggerKind.chargingStop:
+        return isId
+            ? 'Jalan saat perangkat berhenti di-charge.'
+            : 'Runs when device stops charging.';
+      case EventTriggerKind.notificationKeyword:
+        return isId
+            ? 'Jalan saat notifikasi mengandung kata kunci.'
+            : 'Runs when a notification contains a keyword.';
+      case EventTriggerKind.appOpened:
+        return isId
+            ? 'Jalan saat aplikasi tertentu dibuka.'
+            : 'Runs when a specific app is opened.';
+      case EventTriggerKind.wifiConnected:
+        return isId
+            ? 'Jalan saat WiFi tersambung.'
+            : 'Runs when WiFi connects.';
+      case EventTriggerKind.wifiDisconnected:
+        return isId
+            ? 'Jalan saat WiFi terputus.'
+            : 'Runs when WiFi disconnects.';
+    }
+  }
+
+  String _eventKindSearchText(EventTriggerKind k) {
+    switch (k) {
+      case EventTriggerKind.batteryLow:
+        return 'battery baterai low rendah below dibawah 50';
+      case EventTriggerKind.batteryAbove:
+        return 'battery baterai high above diatas 50';
+      case EventTriggerKind.batteryFull:
+        return 'battery baterai full penuh 100';
+      case EventTriggerKind.chargingStart:
+        return 'charge charging charger mulai plug plugged';
+      case EventTriggerKind.chargingStop:
+        return 'charge charging stop berhenti unplug unplugged';
+      case EventTriggerKind.notificationKeyword:
+        return 'notification notif notifikasi keyword kata kunci';
+      case EventTriggerKind.appOpened:
+        return 'app aplikasi opened dibuka package';
+      case EventTriggerKind.wifiConnected:
+        return 'wifi connected tersambung terhubung internet';
+      case EventTriggerKind.wifiDisconnected:
+        return 'wifi disconnected terputus putus internet';
     }
   }
 

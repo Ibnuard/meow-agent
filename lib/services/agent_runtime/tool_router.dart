@@ -721,9 +721,7 @@ class ToolRouter {
           'Agenda view: list upcoming events grouped by date for the next N days. Default 7 days.',
       risk: 'safe',
       requiresConfirmation: false,
-      inputSchema: {
-        'days': 'int (optional, 1-90, default 7)',
-      },
+      inputSchema: {'days': 'int (optional, 1-90, default 7)'},
     ),
     'calendar.conflicts': const ToolDefinition(
       name: 'calendar.conflicts',
@@ -778,7 +776,7 @@ class ToolRouter {
         'agentId':
             'string (optional, defaults to caller agent; accepts agent UUID or display name to assign workflow to a specific agent)',
         'trigger':
-            'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {threshold, keyword, package}}',
+            'object (required) - {type: schedule|interval|event, hour, minute, daysOfWeek, intervalMinutes, eventKind: batteryLow|batteryAbove|batteryFull|chargingStart|chargingStop|notificationKeyword|appOpened|wifiConnected|wifiDisconnected, eventParams: {keyword, package}}',
         'notification':
             'object (optional) - {style: silent|normal|alarm, showResult: bool}',
         'send_to_chat': 'bool (optional, default false)',
@@ -824,8 +822,7 @@ class ToolRouter {
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'assignedTo':
-            'string (optional, agent id or name to filter on)',
+        'assignedTo': 'string (optional, agent id or name to filter on)',
       },
       operation: 'list',
       targetEntity: 'workflow',
@@ -2453,9 +2450,8 @@ class ToolRouter {
         );
       }
       final styleRaw = (args['style'] ?? 'normal').toString().toLowerCase();
-      final style = (styleRaw == 'silent' ||
-              styleRaw == 'normal' ||
-              styleRaw == 'alarm')
+      final style =
+          (styleRaw == 'silent' || styleRaw == 'normal' || styleRaw == 'alarm')
           ? styleRaw
           : 'normal';
       final id = await AgentNotificationService.showNow(
@@ -2466,11 +2462,7 @@ class ToolRouter {
       return ToolExecutionResult(
         success: true,
         toolName: 'notification.create_local',
-        data: {
-          'notificationId': id,
-          'title': title,
-          'style': style,
-        },
+        data: {'notificationId': id, 'title': title, 'style': style},
       );
     } catch (e) {
       return ToolExecutionResult(

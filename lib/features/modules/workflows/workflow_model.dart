@@ -9,7 +9,8 @@ enum TriggerType {
 
 /// Event trigger subtypes.
 enum EventTriggerKind {
-  batteryLow, // Battery drops below threshold
+  batteryLow, // Battery drops below 50%
+  batteryAbove, // Battery rises above 50%
   batteryFull, // Battery reaches 100%
   chargingStart, // Device plugged in
   chargingStop, // Device unplugged
@@ -27,12 +28,7 @@ enum NotifStyle {
 }
 
 /// Priority level for workflow execution queue.
-enum WorkflowPriority {
-  low,
-  normal,
-  high,
-  critical,
-}
+enum WorkflowPriority { low, normal, high, critical }
 
 /// When the workflow should fire.
 class TriggerConfig {
@@ -67,32 +63,32 @@ class TriggerConfig {
   final Map<String, dynamic>? eventParams;
 
   Map<String, dynamic> toJson() => {
-        'type': type.name,
-        'hour': hour,
-        'minute': minute,
-        'daysOfWeek': daysOfWeek,
-        'intervalMinutes': intervalMinutes,
-        'eventKind': eventKind?.name,
-        'eventParams': eventParams,
-      };
+    'type': type.name,
+    'hour': hour,
+    'minute': minute,
+    'daysOfWeek': daysOfWeek,
+    'intervalMinutes': intervalMinutes,
+    'eventKind': eventKind?.name,
+    'eventParams': eventParams,
+  };
 
   factory TriggerConfig.fromJson(Map<String, dynamic> json) => TriggerConfig(
-        type: TriggerType.values.firstWhere(
-          (t) => t.name == json['type'],
-          orElse: () => TriggerType.schedule,
-        ),
-        hour: json['hour'] as int?,
-        minute: json['minute'] as int?,
-        daysOfWeek: (json['daysOfWeek'] as List?)?.cast<int>(),
-        intervalMinutes: json['intervalMinutes'] as int?,
-        eventKind: json['eventKind'] != null
-            ? EventTriggerKind.values.firstWhere(
-                (e) => e.name == json['eventKind'],
-                orElse: () => EventTriggerKind.batteryLow,
-              )
-            : null,
-        eventParams: (json['eventParams'] as Map<String, dynamic>?),
-      );
+    type: TriggerType.values.firstWhere(
+      (t) => t.name == json['type'],
+      orElse: () => TriggerType.schedule,
+    ),
+    hour: json['hour'] as int?,
+    minute: json['minute'] as int?,
+    daysOfWeek: (json['daysOfWeek'] as List?)?.cast<int>(),
+    intervalMinutes: json['intervalMinutes'] as int?,
+    eventKind: json['eventKind'] != null
+        ? EventTriggerKind.values.firstWhere(
+            (e) => e.name == json['eventKind'],
+            orElse: () => EventTriggerKind.batteryLow,
+          )
+        : null,
+    eventParams: (json['eventParams'] as Map<String, dynamic>?),
+  );
 
   /// Human-readable summary of the trigger.
   String get summary {
@@ -122,8 +118,9 @@ class TriggerConfig {
   String get _eventSummary {
     switch (eventKind) {
       case EventTriggerKind.batteryLow:
-        final threshold = eventParams?['threshold'] ?? 20;
-        return 'Baterai < $threshold%';
+        return 'Baterai < 50%';
+      case EventTriggerKind.batteryAbove:
+        return 'Baterai > 50%';
       case EventTriggerKind.batteryFull:
         return 'Baterai penuh';
       case EventTriggerKind.chargingStart:
@@ -148,10 +145,7 @@ class TriggerConfig {
 
 /// Notification configuration.
 class NotifConfig {
-  const NotifConfig({
-    this.style = NotifStyle.normal,
-    this.showResult = true,
-  });
+  const NotifConfig({this.style = NotifStyle.normal, this.showResult = true});
 
   final NotifStyle style;
 
@@ -159,17 +153,17 @@ class NotifConfig {
   final bool showResult;
 
   Map<String, dynamic> toJson() => {
-        'style': style.name,
-        'showResult': showResult,
-      };
+    'style': style.name,
+    'showResult': showResult,
+  };
 
   factory NotifConfig.fromJson(Map<String, dynamic> json) => NotifConfig(
-        style: NotifStyle.values.firstWhere(
-          (s) => s.name == json['style'],
-          orElse: () => NotifStyle.normal,
-        ),
-        showResult: json['showResult'] as bool? ?? true,
-      );
+    style: NotifStyle.values.firstWhere(
+      (s) => s.name == json['style'],
+      orElse: () => NotifStyle.normal,
+    ),
+    showResult: json['showResult'] as bool? ?? true,
+  );
 }
 
 /// A single step in a chained workflow.
@@ -197,23 +191,23 @@ class WorkflowStep {
   final int timeoutSeconds;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'prompt': prompt,
-        'condition': condition,
-        'onFailure': onFailure.name,
-        'timeoutSeconds': timeoutSeconds,
-      };
+    'id': id,
+    'prompt': prompt,
+    'condition': condition,
+    'onFailure': onFailure.name,
+    'timeoutSeconds': timeoutSeconds,
+  };
 
   factory WorkflowStep.fromJson(Map<String, dynamic> json) => WorkflowStep(
-        id: json['id'] as String? ?? '',
-        prompt: json['prompt'] as String? ?? '',
-        condition: json['condition'] as String?,
-        onFailure: StepFailureAction.values.firstWhere(
-          (a) => a.name == json['onFailure'],
-          orElse: () => StepFailureAction.stop,
-        ),
-        timeoutSeconds: json['timeoutSeconds'] as int? ?? 300,
-      );
+    id: json['id'] as String? ?? '',
+    prompt: json['prompt'] as String? ?? '',
+    condition: json['condition'] as String?,
+    onFailure: StepFailureAction.values.firstWhere(
+      (a) => a.name == json['onFailure'],
+      orElse: () => StepFailureAction.stop,
+    ),
+    timeoutSeconds: json['timeoutSeconds'] as int? ?? 300,
+  );
 }
 
 /// Action when a step fails.
@@ -303,27 +297,26 @@ class WorkflowModel {
     List<WorkflowStep>? steps,
     Map<String, String>? variables,
     String? templateId,
-  }) =>
-      WorkflowModel(
-        id: id,
-        agentId: agentId ?? this.agentId,
-        title: title ?? this.title,
-        prompt: prompt ?? this.prompt,
-        trigger: trigger ?? this.trigger,
-        notification: notification ?? this.notification,
-        sendToChat: sendToChat ?? this.sendToChat,
-        allowSensitive: allowSensitive ?? this.allowSensitive,
-        enabled: enabled ?? this.enabled,
-        lastRun: lastRun ?? this.lastRun,
-        lastResult: lastResult ?? this.lastResult,
-        retryCount: retryCount ?? this.retryCount,
-        priority: priority ?? this.priority,
-        timeoutSeconds: timeoutSeconds ?? this.timeoutSeconds,
-        steps: steps ?? this.steps,
-        variables: variables ?? this.variables,
-        templateId: templateId ?? this.templateId,
-        createdAt: createdAt,
-      );
+  }) => WorkflowModel(
+    id: id,
+    agentId: agentId ?? this.agentId,
+    title: title ?? this.title,
+    prompt: prompt ?? this.prompt,
+    trigger: trigger ?? this.trigger,
+    notification: notification ?? this.notification,
+    sendToChat: sendToChat ?? this.sendToChat,
+    allowSensitive: allowSensitive ?? this.allowSensitive,
+    enabled: enabled ?? this.enabled,
+    lastRun: lastRun ?? this.lastRun,
+    lastResult: lastResult ?? this.lastResult,
+    retryCount: retryCount ?? this.retryCount,
+    priority: priority ?? this.priority,
+    timeoutSeconds: timeoutSeconds ?? this.timeoutSeconds,
+    steps: steps ?? this.steps,
+    variables: variables ?? this.variables,
+    templateId: templateId ?? this.templateId,
+    createdAt: createdAt,
+  );
 }
 
 /// A serialized runtime event for a workflow execution.
@@ -340,16 +333,17 @@ class WorkflowExecutionEvent {
   final DateTime createdAt;
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'message': message,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'type': type,
+    'message': message,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   factory WorkflowExecutionEvent.fromJson(Map<String, dynamic> json) =>
       WorkflowExecutionEvent(
         type: json['type'] as String? ?? '',
         message: json['message'] as String? ?? '',
-        createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+        createdAt:
+            DateTime.tryParse(json['createdAt'] as String? ?? '') ??
             DateTime.now(),
       );
 }
@@ -398,16 +392,16 @@ class StepResult {
   final int? durationMs;
 
   Map<String, dynamic> toJson() => {
-        'stepId': stepId,
-        'status': status,
-        'result': result,
-        'durationMs': durationMs,
-      };
+    'stepId': stepId,
+    'status': status,
+    'result': result,
+    'durationMs': durationMs,
+  };
 
   factory StepResult.fromJson(Map<String, dynamic> json) => StepResult(
-        stepId: json['stepId'] as String? ?? '',
-        status: json['status'] as String? ?? 'failed',
-        result: json['result'] as String? ?? '',
-        durationMs: json['durationMs'] as int?,
-      );
+    stepId: json['stepId'] as String? ?? '',
+    status: json['status'] as String? ?? 'failed',
+    result: json['result'] as String? ?? '',
+    durationMs: json['durationMs'] as int?,
+  );
 }

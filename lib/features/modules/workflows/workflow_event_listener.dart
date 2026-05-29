@@ -55,8 +55,8 @@ class WorkflowEventListener {
   void _listenBattery() {
     // Monitor charging state changes.
     _batteryStateSub = _battery.onBatteryStateChanged.listen((state) {
-      final isCharging = state == BatteryState.charging ||
-          state == BatteryState.full;
+      final isCharging =
+          state == BatteryState.charging || state == BatteryState.full;
 
       if (isCharging && !_wasCharging) {
         _fireEvent(
@@ -91,16 +91,18 @@ class WorkflowEventListener {
   Future<void> _checkBatteryLevel() async {
     try {
       final level = await _battery.batteryLevel;
-      if (_lastBatteryLevel > 0 && level < _lastBatteryLevel) {
-        // Battery is draining — check thresholds.
-        _fireEventWithParams(
-          EventTriggerKind.batteryLow,
-          (params) {
-            final threshold = params?['threshold'] as int? ?? 20;
-            return level <= threshold && _lastBatteryLevel > threshold;
-          },
-          triggerVars: _batteryTriggerVars(levelOverride: level),
-        );
+      if (_lastBatteryLevel >= 0) {
+        if (level <= 50 && _lastBatteryLevel > 50) {
+          _fireEvent(
+            EventTriggerKind.batteryLow,
+            triggerVars: _batteryTriggerVars(levelOverride: level),
+          );
+        } else if (level > 50 && _lastBatteryLevel <= 50) {
+          _fireEvent(
+            EventTriggerKind.batteryAbove,
+            triggerVars: _batteryTriggerVars(levelOverride: level),
+          );
+        }
       }
       _lastBatteryLevel = level;
     } catch (_) {}
@@ -110,9 +112,9 @@ class WorkflowEventListener {
 
   void _listenConnectivity() {
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
-      final connected = results.any((r) =>
-          r == ConnectivityResult.wifi ||
-          r == ConnectivityResult.ethernet);
+      final connected = results.any(
+        (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
+      );
 
       if (connected && !_wasConnected) {
         _fireEvent(EventTriggerKind.wifiConnected);
@@ -146,9 +148,11 @@ class WorkflowEventListener {
 
     final workflows = await _repo.listEventTriggered();
     for (final wf in workflows) {
-      if (wf.trigger.eventKind != EventTriggerKind.notificationKeyword) continue;
-      final rawKeyword =
-          (wf.trigger.eventParams?['keyword'] as String? ?? '').trim();
+      if (wf.trigger.eventKind != EventTriggerKind.notificationKeyword) {
+        continue;
+      }
+      final rawKeyword = (wf.trigger.eventParams?['keyword'] as String? ?? '')
+          .trim();
       if (rawKeyword.isEmpty) continue;
       // Comma-separated keyword list: ANY match fires the workflow.
       final keywords = rawKeyword
@@ -156,31 +160,27 @@ class WorkflowEventListener {
           .map((k) => k.trim().toLowerCase())
           .where((k) => k.isNotEmpty)
           .toList();
-      final matched = keywords.firstWhere(
-        text.contains,
-        orElse: () => '',
-      );
+      final matched = keywords.firstWhere(text.contains, orElse: () => '');
       if (matched.isEmpty) continue;
 
-      _triggerWorkflow(
-        wf,
-        triggerVars: _buildNotifTriggerVars(info, matched),
-      );
+      _triggerWorkflow(wf, triggerVars: _buildNotifTriggerVars(info, matched));
     }
   }
 
   /// Test/manual hook so tests and other callers can drive the keyword logic
   /// without a real platform notification.
   Future<void> onNotificationReceived(String title, String body) async {
-    await _handleNotification(NotificationInfo(
-      id: 'manual-${DateTime.now().millisecondsSinceEpoch}',
-      packageName: 'manual',
-      appName: 'Manual',
-      title: title,
-      text: body,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
-      clearable: true,
-    ));
+    await _handleNotification(
+      NotificationInfo(
+        id: 'manual-${DateTime.now().millisecondsSinceEpoch}',
+        packageName: 'manual',
+        appName: 'Manual',
+        title: title,
+        text: body,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        clearable: true,
+      ),
+    );
   }
 
   Map<String, String> _buildNotifTriggerVars(
@@ -212,12 +212,7 @@ class WorkflowEventListener {
       final targetPackage = wf.trigger.eventParams?['package'] as String? ?? '';
       if (targetPackage.isEmpty) continue;
       if (packageName.toLowerCase() == targetPackage.toLowerCase()) {
-        _triggerWorkflow(
-          wf,
-          triggerVars: {
-            'app_package': packageName,
-          },
-        );
+        _triggerWorkflow(wf, triggerVars: {'app_package': packageName});
       }
     }
   }
@@ -237,21 +232,6 @@ class WorkflowEventListener {
     }
   }
 
-  /// Fire workflows matching an event kind with param validation.
-  Future<void> _fireEventWithParams(
-    EventTriggerKind kind,
-    bool Function(Map<String, dynamic>? params) paramCheck, {
-    Map<String, String>? triggerVars,
-  }) async {
-    final workflows = await _repo.listEventTriggered();
-    for (final wf in workflows) {
-      if (wf.trigger.eventKind == kind &&
-          paramCheck(wf.trigger.eventParams)) {
-        _triggerWorkflow(wf, triggerVars: triggerVars);
-      }
-    }
-  }
-
   Map<String, String> _batteryTriggerVars({int? levelOverride}) {
     final level = levelOverride ?? _lastBatteryLevel;
     if (level < 0) return const {};
@@ -259,10 +239,7 @@ class WorkflowEventListener {
   }
 
   /// Trigger a workflow with cooldown protection.
-  void _triggerWorkflow(
-    WorkflowModel wf, {
-    Map<String, String>? triggerVars,
-  }) {
+  void _triggerWorkflow(WorkflowModel wf, {Map<String, String>? triggerVars}) {
     final now = DateTime.now();
     final lastFire = _lastFired[wf.id];
     if (lastFire != null && now.difference(lastFire) < _cooldown) {
@@ -280,4 +257,3 @@ class WorkflowEventListener {
 final workflowEventListenerProvider = Provider<WorkflowEventListener>((ref) {
   return WorkflowEventListener(ref);
 });
-

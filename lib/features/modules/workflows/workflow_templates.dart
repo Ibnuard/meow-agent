@@ -49,8 +49,10 @@ class WorkflowTemplateRegistry {
       id: 'tpl_morning_briefing',
       title: 'Morning Briefing',
       titleId: 'Briefing Pagi',
-      description: 'Get a daily summary of weather, calendar, and tasks every morning.',
-      descriptionId: 'Dapatkan ringkasan cuaca, kalender, dan tugas setiap pagi.',
+      description:
+          'Get a daily summary of weather, calendar, and tasks every morning.',
+      descriptionId:
+          'Dapatkan ringkasan cuaca, kalender, dan tugas setiap pagi.',
       icon: '🌅',
       category: TemplateCategory.productivity,
       defaultPrompt:
@@ -91,7 +93,8 @@ class WorkflowTemplateRegistry {
         ),
         WorkflowStep(
           id: 'save_note',
-          prompt: 'Simpan prompt berikut sebagai note baru dengan judul "Jurnal {{date}}": {{prev}}',
+          prompt:
+              'Simpan prompt berikut sebagai note baru dengan judul "Jurnal {{date}}": {{prev}}',
           condition: "prev.isNotEmpty",
           timeoutSeconds: 300,
         ),
@@ -113,7 +116,6 @@ class WorkflowTemplateRegistry {
       defaultTrigger: TriggerConfig(
         type: TriggerType.event,
         eventKind: EventTriggerKind.batteryLow,
-        eventParams: {'threshold': 20},
       ),
       defaultPriority: WorkflowPriority.high,
     ),
@@ -141,7 +143,8 @@ class WorkflowTemplateRegistry {
       title: 'Notification Digest',
       titleId: 'Ringkasan Notifikasi',
       description: 'Summarize unread notifications every few hours.',
-      descriptionId: 'Ringkas notifikasi yang belum dibaca setiap beberapa jam.',
+      descriptionId:
+          'Ringkas notifikasi yang belum dibaca setiap beberapa jam.',
       icon: '🔔',
       category: TemplateCategory.communication,
       defaultPrompt:
@@ -157,8 +160,10 @@ class WorkflowTemplateRegistry {
       id: 'tpl_keyword_alert',
       title: 'Keyword Alert',
       titleId: 'Alert Kata Kunci',
-      description: 'Get alerted when a notification contains a specific keyword.',
-      descriptionId: 'Dapatkan alert saat notifikasi mengandung kata kunci tertentu.',
+      description:
+          'Get alerted when a notification contains a specific keyword.',
+      descriptionId:
+          'Dapatkan alert saat notifikasi mengandung kata kunci tertentu.',
       icon: '🔍',
       category: TemplateCategory.communication,
       defaultPrompt:
@@ -196,7 +201,8 @@ class WorkflowTemplateRegistry {
       title: 'Multi-Step Report',
       titleId: 'Laporan Multi-Langkah',
       description: 'Generate a report by gathering data from multiple sources.',
-      descriptionId: 'Buat laporan dengan mengumpulkan data dari berbagai sumber.',
+      descriptionId:
+          'Buat laporan dengan mengumpulkan data dari berbagai sumber.',
       icon: '📊',
       category: TemplateCategory.automation,
       defaultPrompt: 'Mulai proses pembuatan laporan.',
@@ -214,7 +220,8 @@ class WorkflowTemplateRegistry {
         ),
         WorkflowStep(
           id: 'compile_report',
-          prompt: 'Kompilasi informasi berikut menjadi laporan ringkas dan simpan sebagai note:\n\nDevice: {{step_gather_device_result}}\nKalender: {{step_gather_calendar_result}}',
+          prompt:
+              'Kompilasi informasi berikut menjadi laporan ringkas dan simpan sebagai note:\n\nDevice: {{step_gather_device_result}}\nKalender: {{step_gather_calendar_result}}',
           condition: "prev.isNotEmpty",
           timeoutSeconds: 300,
         ),
