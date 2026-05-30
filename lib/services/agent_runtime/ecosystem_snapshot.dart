@@ -66,8 +66,11 @@ class EcosystemSnapshot {
     if (workflows.isNotEmpty) {
       buf.writeln('Workflows (${workflows.length}):');
       for (final w in workflows) {
+        final stepInfo = w.stepAgentIds.isEmpty
+            ? ''
+            : ' · step_agents:[${w.stepAgentIds.join(", ")}]';
         buf.writeln(
-          '  - ${w.title} [id=${w.id}] · agent:${w.agentName} · trigger:${w.triggerSummary} · enabled:${w.enabled}',
+          '  - ${w.title} [id=${w.id}] · agent:${w.agentName} · trigger:${w.triggerSummary} · enabled:${w.enabled}$stepInfo',
         );
       }
     }
@@ -121,6 +124,7 @@ class EcosystemWorkflow {
     required this.agentName,
     required this.triggerSummary,
     required this.enabled,
+    this.stepAgentIds = const [],
   });
 
   final String id;
@@ -129,6 +133,11 @@ class EcosystemWorkflow {
   final String agentName;
   final String triggerSummary;
   final bool enabled;
+
+  /// Agent IDs referenced inside multi-step workflow steps (in addition to
+  /// the primary [agentId]). Used by impact analysis to detect cross-references
+  /// hidden inside chained workflows so deleting that agent surfaces a warning.
+  final List<String> stepAgentIds;
 }
 
 class EcosystemProvider {
@@ -181,13 +190,27 @@ class EcosystemSnapshotBuilder {
           agentName: agentById[w.agentId]?.name ?? '(deleted agent)',
           triggerSummary: w.trigger.summary,
           enabled: w.enabled,
+          stepAgentIds: [
+            if (w.isChained)
+              for (final step in w.steps)
+                if (step.agentId != null) step.agentId!,
+          ],
         ),
     ];
 
     // Pre-compute reverse index: agent.id -> workflow titles using it.
+    // Covers BOTH the primary workflow agent AND agents referenced inside
+    // chained multi-step workflow steps (user's test-2 scenario).
     final usedByByAgent = <String, List<String>>{};
     for (final w in workflowEntries) {
       usedByByAgent.putIfAbsent(w.agentId, () => []).add(w.title);
+      for (final stepAgentId in w.stepAgentIds) {
+        if (stepAgentId != w.agentId) {
+          usedByByAgent
+              .putIfAbsent(stepAgentId, () => [])
+              .add('${w.title} (step)');
+        }
+      }
     }
 
     final agentEntries = <EcosystemAgent>[

@@ -1,353 +1,264 @@
 # SKILLS.md — Meow Agent Codebase Guide
 
-> Panduan lengkap untuk coding agent agar bisa langsung paham arsitektur, cara nambah tool baru, module baru, handling LLM, dan native code.
+> The canonical codebase guide for Meow Agent. All coding agents MUST read and follow this document.
 
 ---
 
-## Arsitektur Overview
+## Core Principles (READ FIRST)
+
+1. **Accuracy is #1.** The agent must never hallucinate a capability it doesn't have or claim success it can't verify. When data is missing or a capability doesn't exist, tell the user honestly and quickly — do not retry/guess/fabricate.
+2. **Language-generic, always.** NO per-language word lists, NO per-case patches ("kalau user bilang X, lakukan Y"), NO Indonesian-specific examples in routing/classification code. The engine works across ALL languages equally. Examples in prompts use English only; the LLM handles the user's language naturally.
+3. **LLM-driven classification, not keyword-matching.** Tool selection is driven by the analyzer LLM's `tool_groups` enum, not by hardcoded keyword sets. The analyzer sees every tool and decides which group(s) cover the request — language-agnostic and semantic.
+4. **More LLM calls are OK if they improve accuracy — but zero wasted calls.** The engine skips provably redundant phases (reflect for trivial safe reads, review for terminal retrievals) while keeping deep-thinking for destructive/multi-entity/cross-reference turns. Efficient ≠ stingy.
+5. **Validation before declaration.** A task is only "done" after state re-check (snapshot probe, registry re-read, tool result data keys) confirms it. Never trust the LLM's self-report alone.
+6. **Self-registering modules.** Adding a tool or module = creating ONE file (a `ModulePlugin`). There is no central registry map, dispatch switch, or catalog group map to hand-edit.
+
+---
+
+## Architecture Overview
 
 ```
 lib/
-├── main.dart                          # Entry point, Riverpod ProviderScope
-├── app/
-│   ├── router.dart                    # GoRouter navigation
-│   ├── shell.dart                     # App shell + floating dock
-│   ├── theme.dart                     # Design system (dark navy theme)
-│   └── widgets/                       # Shared UI components
-├── core/
-│   └── storage/                       # Local storage utilities
+├── main.dart
+├── app/                                    # UI: theme, router, widgets
+├── core/storage/                           # Local storage
 ├── features/
-│   ├── chat/                          # Chat UI + history
-│   │   ├── data/                      # ChatHistoryService, ChatMessage model
-│   │   └── presentation/             # Chat screen widgets
-│   ├── agents/                        # Agent management UI
-│   ├── modules/
-│   │   ├── data/                      # ModuleModel, ModuleRepository, ModuleRegistry
-│   │   ├── device_context/            # Device Context module (models, service, repo)
-│   │   └── presentation/             # Module store + detail screens
-│   ├── providers/                     # LLM provider config UI
-│   ├── settings/                      # App settings
-│   ├── home/                          # Home screen
-│   └── activity/                      # Activity log
+│   ├── chat/                               # Chat UI + runtime manager
+│   ├── agents/                             # Agent management UI
+│   ├── providers/                          # LLM provider config UI
+│   ├── settings/                           # App settings
+│   └── modules/
+│       ├── data/                           # ModuleModel, ModuleRepository
+│       ├── <module_name>/                  # One folder per module
+│       │   ├── <module>_module.dart        # ModulePlugin (self-registering)
+│       │   ├── <module>_tools.dart         # Handler implementations
+│       │   ├── <module>_models.dart        # Data classes
+│       │   └── <module>_repository.dart    # Business logic + settings gate
+│       └── presentation/                   # UI screens
 ├── services/
 │   ├── llm/
-│   │   └── openai_compatible_client.dart  # OpenAI-compatible HTTP client (Dio)
+│   │   └── openai_compatible_client.dart
 │   └── agent_runtime/
-│       ├── runtime_engine.dart        # Main agentic loop orchestrator
-│       ├── runtime_models.dart        # All data classes (Request, Response, ToolDef, etc.)
-│       ├── tool_router.dart           # Tool registry + dispatch + execution
-│       ├── planner.dart               # LLM-based intent analysis + plan creation
-│       ├── executor.dart              # LLM-based tool selection + review loop
-│       ├── context_builder.dart       # Builds prompt context from workspace
-│       ├── prompt_templates.dart      # All LLM prompt templates
-│       ├── pending_action.dart        # Confirmation flow + keyword checker
-│       ├── workspace_loader.dart      # SOUL/MEMORY/SKILL/HEARTBEAT file management
-│       ├── app_alias_resolver.dart    # Friendly name → package resolution
-│       └── runtime_logger.dart        # Event logging during runtime
-
-android/app/src/main/kotlin/com/meowagent/meow_agent/
-├── MainActivity.kt                    # MethodChannel registrations (share, services, app_control, device_context)
-├── DeviceContextPlugin.kt             # Native device info (battery, network, storage, time, locale, usage, charging, dnd, bluetooth)
-├── ClipboardForegroundService.kt      # Persistent clipboard monitoring service
-└── FloatingBubbleService.kt           # Floating bubble overlay service
+│       ├── runtime_engine.dart             # Main agentic loop (3586→stable)
+│       ├── runtime_models.dart             # ToolDefinition, ToolCallRequest, etc.
+│       ├── runtime_module_plugins.dart     # ALL module plugins in one list
+│       ├── module_plugin.dart              # ModulePlugin abstract class
+│       ├── module_registry.dart            # Collects plugins → registry + catalog
+│       ├── tool_router.dart                # Validation + dispatch (232 lines)
+│       ├── tool_catalog.dart               # Shortlisting from analyzer tool_groups
+│       ├── planner.dart                    # Analyzer (intent + tool_groups)
+│       ├── executor.dart                   # Tool selector + reviewer
+│       ├── reflector.dart                  # Deep-thinking impact/slot analysis
+│       ├── target_resolution.dart          # Target resolution + bulk/predicate expansion
+│       ├── ecosystem_snapshot.dart         # World model (agents/workflows/providers/modules)
+│       ├── context_builder.dart            # Builds prompt context
+│       ├── prompt_templates.dart           # Prompt assembly
+│       ├── prompt_constants.dart           # All LLM prompt strings
+│       ├── tool_verbalizer.dart            # LLM-driven user-facing messages
+│       ├── language_detector.dart          # Script-based bootstrap + analyzer refinement
+│       ├── language_registry.dart          # i18n for short deterministic phrases
+│       ├── post_execute_validator.dart     # Anti-hallucination verification gate
+│       ├── recovery_coordinator.dart       # Bounded retry + re-plan logic
+│       ├── pending_action.dart             # Confirmation gate
+│       └── workspace_loader.dart           # SOUL/MEMORY/SKILL/HEARTBEAT
 ```
 
 ---
 
 ## Agentic Runtime Loop
 
-Flow eksekusi saat user kirim pesan:
+Flow per user turn (simplified — see `runtime_engine.dart` for exact conditions):
 
 ```
 User Message
     │
     ▼
-┌─────────────────────┐
-│  RuntimeEngine.run() │
-└─────────┬───────────┘
-          │
-          ▼
-┌─────────────────────┐     ┌──────────────────┐
-│  Check Pending Action│────▶│ ConfirmationChecker│ (keyword-based, no LLM)
-└─────────┬───────────┘     └──────────────────┘
-          │
-          ▼
-┌─────────────────────┐
-│  Planner.analyze()   │  ← LLM call: "requires_tools? intent? risk?"
-└─────────┬───────────┘
-          │
-    ┌─────┴─────┐
-    │           │
-    ▼           ▼
- No Tools    Tools Required
-    │           │
-    ▼           ▼
- Direct     ┌──────────────┐
- Response   │ Planner.plan()│  ← LLM call: create step-by-step plan
-            └──────┬───────┘
-                   │
-                   ▼
-            ┌──────────────────┐
-            │ Execute Loop      │  (max 5 iterations)
-            │  ├─ selectTool()  │  ← LLM picks next tool
-            │  ├─ validate()    │  ← ToolRouter checks registry
-            │  ├─ execute()     │  ← ToolRouter dispatches
-            │  └─ review()      │  ← LLM reviews result
-            └──────────────────┘
-                   │
-                   ▼
-            Final Response to User
+┌──────────────────────────┐
+│ RuntimeEngine.run()       │
+│  1. Bootstrap language    │  ← Script detection (non-Latin) or app fallback (Latin)
+│  2. Load workspace        │
+│  3. ToolCatalog.select()  │  ← Full catalog pre-analyze (no keyword matching)
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│ Planner.analyze()         │  ← LLM: intent, goal, risk, tool_groups, detected_language,
+│   → Refine language       │     missing_info, subgoal_seeds, task_relation, bulk_selector
+│   → Narrow tools from     │
+│     tool_groups hint      │
+└──────────┬───────────────┘
+           │
+    ┌──────┴──────┐
+    │             │
+    ▼             ▼
+ No Tools     Tools Required
+    │             │
+    ▼             ├─ Reflect? (skipped for trivial safe single-tool reads)
+ Direct         │     │
+ Response       │     ▼
+                │  ┌──────────────────┐
+                │  │ Execute Loop      │  (adaptive budget: 5–15 iters)
+                │  │  ├─ selectTool()  │  ← LLM picks next tool/marks done
+                │  │  ├─ validate()    │  ← ToolRouter checks registry
+                │  │  ├─ execute()     │  ← ToolRouter dispatches to plugin
+                │  │  └─ review()      │  ← LLM reviews result (skipped for terminal retrievals)
+                │  └──────────────────┘
+                │         │
+                ▼         ▼
+         Final Response to User (via ToolVerbalizer)
 ```
 
 ---
 
-## Cara Menambah Tool Baru
+## How to Add a New Tool (Post-Stage-3 Architecture)
 
-### Step 1: Register di `tool_router.dart` → `_registry`
+### ONE file to create: a `ModulePlugin`
+
+1. Create `lib/features/modules/<your_module>/<your_module>_module.dart`.
+2. Extend `ModulePlugin`. Implement `moduleId`, `catalogGroup`, `toolDefinitions`, and `dispatch`.
+3. Add the plugin instance to the list in `lib/services/agent_runtime/runtime_module_plugins.dart`.
+
+That's it. The `ModuleRegistry` derives the tool registry, the catalog group map, and the dispatch index automatically. The `ToolRouter` dispatches to your plugin at runtime.
+
+### Example: a minimal module
 
 ```dart
-'namespace.tool_name': const ToolDefinition(
-  name: 'namespace.tool_name',
-  description: 'Deskripsi yang jelas untuk LLM. Ini yang dibaca LLM untuk decide kapan pakai tool ini.',
-  risk: 'safe',              // 'safe' | 'sensitive' | 'dangerous'
-  requiresConfirmation: false, // true = user harus confirm dulu
-  inputSchema: {'arg1': 'string', 'arg2': 'int (optional, default 5)'},
-),
+// lib/features/modules/hello/hello_module.dart
+import '../../../services/agent_runtime/module_plugin.dart';
+import '../../../services/agent_runtime/runtime_models.dart';
+
+class HelloModulePlugin extends ModulePlugin {
+  const HelloModulePlugin();
+
+  @override String get moduleId => 'hello';
+  @override String get catalogGroup => 'hello';
+
+  @override
+  List<String> get capabilityHints => const ['greet', 'hello'];
+
+  @override
+  List<ToolDefinition> get toolDefinitions => const [
+    ToolDefinition(
+      name: 'hello.greet',
+      description: 'Greet the user by name.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'name': 'string (optional)'},
+    ),
+  ];
+
+  @override
+  Future<ToolExecutionResult> dispatch(ToolCallRequest req, ModuleToolContext ctx) {
+    final name = (req.args['name'] as String?) ?? 'world';
+    return Future.value(ToolExecutionResult(
+      success: true,
+      toolName: 'hello.greet',
+      data: {'greeting': 'Hello, $name!'},
+    ));
+  }
+}
 ```
 
-**Naming convention:** `namespace.action` — contoh: `device.battery`, `app.open`, `clipboard.read`
+Then in `runtime_module_plugins.dart`, add `HelloModulePlugin()` to the list.
 
-**Risk levels:**
+### Risk Levels & ToolDefinition Metadata
+
 - `safe` — read-only, no side effects → auto-execute
-- `sensitive` — has side effects (open app, write data) → requires confirmation
-- `dangerous` — destructive/irreversible → requires confirmation + extra warning
+- `sensitive` — has side effects (write, open app, create) → confirmation card
+- `dangerous` — destructive/irreversible → confirmation + extra warning
+- `sensitive-lite` — side effects but low risk (toggle, pin, append) → auto-execute
 
-### Step 2: Tambah case di `_dispatch()` switch
+Key ToolDefinition fields beyond the basics:
+- `isRetrieval: true` — marks a read/list/search tool; retrieval results are the answer, triggers the grounded `answerFromToolResult` path, and exempts from mutation verification.
+- `verificationProbe` — post-execute anti-hallucination gate. For `tool_result_data`, asserts expected keys exist in the response. For `snapshot_contains`/`snapshot_absent`, re-reads the ecosystem to confirm the mutation landed.
+- `operation` / `targetEntity` / `selectorArgs` — drive target resolution, impact analysis, and bulk expansion.
 
-```dart
-case 'namespace.tool_name':
-  return _executeMyNewTool(request.args);
-```
-
-### Step 3: Implement execution method
-
-```dart
-Future<ToolExecutionResult> _executeMyNewTool(Map<String, dynamic> args) async {
-  try {
-    // 1. Parse args
-    final myArg = args['arg1'] as String? ?? '';
-    
-    // 2. Execute logic (call native, call service, etc.)
-    final result = await someService.doThing(myArg);
-    
-    // 3. Return success
-    return ToolExecutionResult(
-      success: true,
-      toolName: 'namespace.tool_name',
-      data: {'key': result},  // Data ini dikirim ke LLM untuk review
-    );
-  } catch (e) {
-    return ToolExecutionResult(
-      success: false,
-      toolName: 'namespace.tool_name',
-      error: e.toString(),
-    );
-  }
-}
-```
-
-### Step 4: Register di `tool_catalog.dart` → `groups`
-
-> [!CAUTION]
-> **CRITICAL — Sering kelewat!** `ToolCatalog.groups` adalah **shortlist filter** yang dipakai analyzer untuk hemat token. Tool yang ada di `_registry` tapi TIDAK ada di `ToolCatalog.groups` akan **silent-dropped** saat shortlist phase. Akibatnya agent jujur bilang "saya tidak punya kemampuan X" padahal tool-nya ada — capability boundary jalan benar, tapi catalog-nya outdated.
-
-Tambah tool name ke group yang sesuai di `lib/services/agent_runtime/tool_catalog.dart`:
-
-```dart
-static const Map<String, Set<String>> groups = {
-  // ...
-  'notes': {
-    'notes.create',
-    'notes.read',
-    'namespace.tool_name',  // ← tambah di sini
-  },
-  // ...
-};
-```
-
-Kalau tool punya namespace baru (misal `chat.send`), bikin group baru:
-
-```dart
-'chat': {
-  'chat.send',
-  'namespace.tool_name',
-},
-```
-
-Juga tambahkan keyword detector kalau perlu di `_<group>Words` set agar shortlist bisa pick up dari user message.
-
-### Step 5: Update `workspace_loader.dart` → `_defaultSkillsBlock`
-
-Tambah entry di section yang sesuai:
-
-```dart
-- namespace.tool_name: Deskripsi tool. Risk: safe. Args: arg1 (string), arg2 (int, optional).
-```
-
-> **PENTING:** String ini yang dibaca oleh `ContextBuilder.buildToolDescriptions()` dan dikirim ke LLM sebagai available tools. Format HARUS `- tool.name: description`.
-
-### Step 6: (Jika `requiresConfirmation: true`) Update `_humanizeConfirmation()`
-
-```dart
-case 'namespace.tool_name':
-  return 'Saya akan melakukan X. Lanjutkan?';
-```
+Every mutating tool MUST have a `verificationProbe`. A tool reporting `success: true` without one is a gap.
 
 ---
 
-## Cara Menambah Module Baru
+## Tool Naming Convention
 
-Module = fitur yang bisa di-install/uninstall user dari Module Store.
-
-### Step 1: Define di `ModuleRegistry` (`module_model.dart`)
-
-```dart
-static const myModule = ModuleModel(
-  id: 'my_module',           // unique ID
-  name: 'My Module',
-  description: 'Deskripsi untuk user di store.',
-  icon: '🔧',               // emoji atau icon name
-  settings: {
-    'allow_feature_a': true,  // default ON
-    'allow_feature_b': false, // default OFF
-  },
-);
-
-// Tambah ke list:
-static const List<ModuleModel> available = [
-  clipboardAi,
-  appControl,
-  deviceContext,
-  myModule,        // ← tambah di sini
-];
-```
-
-### Step 2: Buat folder module di `lib/features/modules/my_module/`
-
-```
-lib/features/modules/my_module/
-├── my_module_models.dart       # Data classes
-├── my_module_service.dart      # MethodChannel wrapper (jika perlu native)
-└── my_module_repository.dart   # Business logic + settings check
-```
-
-### Step 3: Pattern Repository (cek settings sebelum execute)
-
-```dart
-class MyModuleRepository {
-  MyModuleRepository({required this.service, required this.moduleRepository});
-  
-  final MyModuleService service;
-  final ModuleRepository moduleRepository;
-  
-  static const _moduleId = 'my_module';
-
-  Future<SomeResult?> doThing() async {
-    // Cek module enabled + per-setting toggle
-    final modules = await moduleRepository.getInstalled();
-    final mod = modules.where((m) => m.id == _moduleId).firstOrNull;
-    if (mod == null || !mod.enabled) return null;
-    if (mod.settings['allow_feature_a'] == false) return null;
-    
-    return service.nativeCall();
-  }
-}
-```
-
-### Step 4: Register tools di `tool_router.dart`
-
-Ikuti "Cara Menambah Tool Baru" di atas. Di execution method, panggil repository:
-
-```dart
-Future<ToolExecutionResult> _executeMyModuleTool() async {
-  try {
-    final repo = MyModuleRepository(
-      service: MyModuleService(),
-      moduleRepository: ModuleRepository(),
-    );
-    final result = await repo.doThing();
-    if (result == null) {
-      return const ToolExecutionResult(
-        success: false,
-        toolName: 'my_module.tool',
-        error: 'My Module is disabled or feature not allowed.',
-      );
-    }
-    return ToolExecutionResult(
-      success: true,
-      toolName: 'my_module.tool',
-      data: result.toJson(),
-    );
-  } catch (e) {
-    return ToolExecutionResult(success: false, toolName: 'my_module.tool', error: e.toString());
-  }
-}
-```
+`namespace.action` (lowercase, dot-separated). Examples: `device.battery`, `notes.create`, `system.agents.list`.
 
 ---
 
-## Handling LLM
+## How to Add a New Module (Store-level)
 
-### Client: `OpenAiCompatibleClient`
+A Module is a user-installable feature with settings toggles in the Module Store.
 
-- Single class, works with ANY OpenAI-compatible API (OpenAI, Groq, Together, local Ollama, etc.)
-- Uses Dio for HTTP
-- Endpoint: `{baseUrl}/chat/completions`
-- Auth: Bearer token
-- Response parsing: `choices[0].message.content`
+1. Define in `ModuleModel` (in `module_model.dart`): id, name, description, icon, default settings.
+2. Create folder `lib/features/modules/<module_id>/` with:
+   - `<module>_module.dart` — ModulePlugin (self-registering tool surface)
+   - `<module>_models.dart` — data classes with `fromMap()` and `toJson()`
+   - `<module>_service.dart` — MethodChannel wrapper (if native)
+   - `<module>_repository.dart` — business logic + per-setting toggle check
+3. Register the plugin in `runtime_module_plugins.dart`.
+4. (If native) Kotlin plugin + `MainActivity.kt` registration.
+5. (If native) permissions in `AndroidManifest.xml`.
 
-### LLM Interaction Pattern
+---
 
-Semua LLM call menggunakan pattern yang sama:
+## Language Detection Architecture
 
-```dart
-final response = await client.chat(
-  config: llmConfig,  // baseUrl, apiKey, model
-  messages: [
-    {'role': 'system', 'content': 'You are a JSON-only responder.'},
-    {'role': 'user', 'content': promptString},
-  ],
-);
-```
+Two-tier, no per-language word lists:
 
-### JSON Parsing + Auto-Repair
+1. **Bootstrap (LanguageDetector)**: Unicode script detection for non-Latin scripts → high-confidence instant mapping. For Latin script, returns the app setting as a provisional low-confidence fallback — no guessing between Latin languages.
+2. **Refinement (analyzer LLM)**: The analyzer emits `detected_language` after reading the user's actual message. The engine overwrites the bootstrap with this authoritative value. All languages are detected equally — there is no special-casing for Indonesian, English, or any other language.
 
-Semua LLM response di-parse sebagai JSON. Jika gagal:
-1. Strip markdown code fences (```json ... ```)
-2. Retry dengan `jsonRepairPrompt` — minta LLM fix JSON-nya
-3. Jika masih gagal → return null → runtime fails gracefully
+The `LanguageRegistry` is a separate i18n layer for short deterministic runtime phrases (16 languages, English fallback). It is NOT used for routing or classification.
 
-### Prompt Architecture
+---
 
-4 fase prompt (semua di `prompt_templates.dart`):
+## Prompt Rules
 
-| Fase | Input | Output JSON |
-|------|-------|-------------|
-| `analyzePrompt` | user message + workspace + tools | `{intent, goal, requires_tools, risk}` |
-| `planPrompt` | analysis + tools | `{steps: [{id, description, tool}]}` |
-| `selectToolPrompt` | plan + step + previous results | `{status, tool: {name, args}}` atau `{status: "done", final_response}` |
-| `reviewPrompt` | tool result + plan + user message | `{status: "done"/"continue"/"retry"/"failed"}` |
+All prompt strings live in `prompt_constants.dart`. Assembly in `prompt_templates.dart`.
 
-### Workspace Files (Agent Context)
+### Language-generic requirements
+- Examples in prompts MUST be in English only.
+- NEVER enumerate language-specific words ("semua/setiap/seluruh" or "all/every/each") as a fixed list. Describe the concept semantically ("any word meaning all/every/each in any language").
+- The `tool_groups` enum the analyzer emits is an English-only closed set. The `capabilityHints` on ModulePlugins are English-only.
+- BULK SELECTOR PROTOCOL and PREDICATE SELECTOR are fully structural (the runtime matches against live snapshot state), never language-dependent.
 
-Setiap agent punya workspace di `documents/workspaces/{agentId}/`:
+### Confirmation vs Clarification (two distinct paths)
+- **Missing detail** (ambiguous time, vague title, unclear target) → ASK a clarifying question in plain text.
+- **Sensitive action** (detail is complete, but the action has side effects) → CALL the tool. The runtime renders a confirmation card. Do NOT ask "are you sure?" in plain text.
 
-| File | Fungsi |
-|------|--------|
-| `SOUL.md` | System prompt / personality |
-| `MEMORY.md` | Persistent memory |
-| `SKILLS.md` | Available tools list (auto-refreshed) |
-| `HEARTBEAT.md` | Current runtime state |
+### Redundancy rules
+- The narrative spec (ONE short POV-AI sentence, no tool names, no IDs) is documented once and referenced; it is NOT copy-pasted across phases.
+- Dead prompt constants must be removed when a phase is refactored.
+
+---
+
+## Verification & Anti-Hallucination
+
+1. **PostExecuteValidator**: Runs after every tool that declares a `verificationProbe`. Re-checks actual state (snapshot or result data) before declaring success.
+2. **Empty-result loop guard**: A tool returning zero matches IS the answer. The engine forces `done` rather than letting the LLM re-search with different keywords.
+3. **Capability boundary**: The `systemRules` prompt explicitly states the agent's abilities are strictly limited to registered tools. The selector returns `null` for unavailable capabilities, and the engine surfaces the `capabilityNotFound` message.
+4. **Stuck detector**: Same tool+args × 3 iterations → one re-plan, then recovery, then abort with a human-readable message. No infinite loops.
+5. **Recovery coordinator**: Bounded retries (max 2). Exhausted → honest give-up message with what was attempted.
+
+---
+
+## Bulk & Predicate Selectors
+
+Fully language-agnostic and structural. The runtime evaluates against live snapshot state — the LLM never enumerates entity names.
+
+- **scope: "all"** — fan out to every entity in the collection from the snapshot.
+- **scope: "predicate"** — filter by a structured op against a field:
+  ```json
+  {"scope":"predicate","field":"agent","op":"equals","value":"Mina Chan","case_sensitive":false}
+  ```
+  Supported ops: `ends_with`, `starts_with`, `contains`, `equals`, `regex`.
+  The field resolves against `_EntityMatch.metadata` first (per-entity-type extended fields like `workflow.agent_name`, `module.enabled`), then against `id`, then against `label`.
+
+No keyword matching, no natural-language parsing — the LLM supplies the structured predicate, the runtime matches.
+
+---
+
+## Multi-Step Workflow Impact Detection
+
+The `EcosystemSnapshotBuilder` scans both the primary workflow agent AND the `agentId` references inside chained `WorkflowStep`s. All referenced agents appear in the `usedByWorkflows` reverse index, so deleting an agent that appears *only* inside a workflow step still triggers impact analysis and clarification. No per-workflow hardcoding — the builder iterates `steps` generically.
 
 ---
 
@@ -355,78 +266,25 @@ Setiap agent punya workspace di `documents/workspaces/{agentId}/`:
 
 ### MethodChannel Pattern
 
-Flutter dan Kotlin berkomunikasi via `MethodChannel`. Setiap channel punya namespace:
-
-| Channel | Fungsi |
-|---------|--------|
+| Channel | Function |
+|---------|----------|
 | `com.meowagent/device_context` | Battery, network, storage, time, locale, foreground app, usage stats |
 | `com.meowagent/app_control` | Open app, list apps, open settings, open URL |
 | `com.meowagent/services` | Start/stop foreground services, permissions |
 | `com.meowagent/share` | Share intent handling |
 
-### Cara Menambah Native Method Baru
-
-#### Flutter side (`device_context_service.dart` atau service baru):
-
-```dart
-static const _channel = MethodChannel('com.meowagent/my_channel');
-
-Future<MyResult?> getMyData() async {
-  try {
-    final raw = await _channel.invokeMethod<Map>('getMyData');
-    if (raw == null) return null;
-    return MyResult.fromMap(raw);
-  } on PlatformException {
-    return null;  // SELALU handle gracefully, jangan crash
-  }
-}
-```
-
-#### Kotlin side (`DeviceContextPlugin.kt` atau plugin baru):
-
-```kotlin
-override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-    try {
-        when (call.method) {
-            "getMyData" -> result.success(getMyData())
-            // ... existing methods
-            else -> result.notImplemented()
-        }
-    } catch (e: Exception) {
-        result.error("MY_ERROR", e.message, null)
-    }
-}
-
-private fun getMyData(): Map<String, Any?> {
-    // Native Android API calls here
-    return mapOf(
-        "key1" to value1,
-        "key2" to value2
-    )
-}
-```
-
-#### Register channel di `MainActivity.kt`:
-
-```kotlin
-// Di configureFlutterEngine():
-MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/my_channel")
-    .setMethodCallHandler(MyPlugin(this))
-```
-
-### Aturan Native Code
-
-1. **SELALU return Map<String, Any?>** — Flutter expects Map
-2. **SELALU wrap dalam try-catch** — jangan crash app
-3. **Permission check di native** — return `mapOf("available" to false, "reason" to "permission_required")` jika permission belum granted
-4. **Log errors** — `Log.e(TAG, "message", exception)`
-5. **Jangan block main thread** — heavy work harus async
+### Rules
+1. ALWAYS return `Map<String, Any?>` from native.
+2. ALWAYS wrap in try-catch — never crash the app.
+3. Permission check in native — return safe fallback, not a crash.
+4. Log errors: `Log.e(TAG, "message", exception)`.
+5. Do NOT block the main thread — heavy work must be async.
 
 ---
 
 ## Confirmation Flow
 
-Tools dengan `requiresConfirmation: true` mengikuti flow ini:
+Tools with `requiresConfirmation: true`:
 
 ```
 LLM picks tool → ToolRouter detects confirmation needed
@@ -448,305 +306,46 @@ UI shows confirmation card (Confirm / Reject buttons)
 
 ---
 
-## State Management
+## Testing (REQUIRED)
 
-- **Riverpod** untuk dependency injection dan state
-- Provider pattern: `final xProvider = Provider<X>((ref) => X());`
-- FutureProvider untuk async data: `final yProvider = FutureProvider<Y>((ref) => ...);`
+### Golden Suite (`test/runtime_golden_test.dart`)
 
----
+End-to-end regression gate. Scripts every LLM phase + tool result, runs the real engine, and asserts:
+- final `state` and `success`
+- exact LLM phase sequence (orchestration cost signal)
+- tool dispatch sequence
+- no-hallucination (final message grounded in canned data, not invented)
 
-## Checklist: Menambah Tool Baru (Quick Reference)
+Run after every refactor: `flutter test test/runtime_golden_test.dart`
 
-- [ ] `tool_router.dart` → tambah `ToolDefinition` di `_registry`
-- [ ] `tool_router.dart` → tambah case di `_dispatch()`
-- [ ] `tool_router.dart` → implement `_executeXxx()` method
-- [ ] **`tool_catalog.dart` → tambah tool name ke `groups`** ⚠️ critical, kalau lewat tool tidak akan terlihat oleh LLM analyzer
-- [ ] `tool_catalog.dart` → (kalau perlu) tambah keyword di `_<group>Words` agar shortlist bisa match user phrasing
-- [ ] `workspace_loader.dart` → update `_defaultSkillsBlock` string
-- [ ] (Jika sensitive) `tool_router.dart` → update `_humanizeConfirmation()`
-- [ ] (Jika perlu native) Flutter service class + Kotlin plugin method
-- [ ] (Jika module-gated) Repository class dengan settings check
-- [ ] (Jika module baru) `module_model.dart` → tambah di `ModuleRegistry`
-- [ ] **Tests** → tulis unit test (lihat section Testing di bawah)
+### Drift Guard (`test/module_plugin_test.dart`)
 
----
+Asserts the router registry and catalog groups are in perfect sync. Run after every module addition/migration: `flutter test test/module_plugin_test.dart`
 
-## Checklist: Menambah Module Baru (Quick Reference)
+### Unit Tests (per-tool/per-module)
 
-- [ ] `module_model.dart` → define `ModuleModel` constant + tambah ke `available` list
-- [ ] Buat folder `lib/features/modules/{module_id}/`
-- [ ] Buat `{module}_models.dart` — data classes dengan `fromMap()` dan `toJson()`
-- [ ] Buat `{module}_service.dart` — MethodChannel wrapper
-- [ ] Buat `{module}_repository.dart` — business logic + settings gate
-- [ ] (Jika native) Kotlin plugin class + register di `MainActivity.kt`
-- [ ] (Jika native) Tambah permissions di `AndroidManifest.xml` jika perlu
-- [ ] Register tools di `tool_router.dart` (ikuti checklist tool di atas)
-- [ ] **Sync `tool_catalog.dart` → `groups` + `_<group>Words`** ⚠️ wajib agar tool baru terlihat LLM
-- [ ] Update `_defaultSkillsBlock` di `workspace_loader.dart`
-- [ ] **Tests** → tulis unit test (lihat section Testing di bawah)
+Minimum per new tool:
+1. Success path — fromMap/toJson correct
+2. Empty/null input — no crash, sensible defaults
+3. Permission missing — safe fallback, no throw
+4. Tool registered — risk & confirmation metadata correct
+5. For mutation tools: verificationProbe set
 
-## Testing (WAJIB)
-
-Setiap tool atau module baru **HARUS** disertai unit test di `test/`.
-
-File test naming: `test/{feature_name}_test.dart`
-
-### Test Cases yang WAJIB Ditulis
-
-Untuk **setiap tool baru**, minimal cover:
-
-| # | Test Case | Tujuan |
-|---|-----------|--------|
-| 1 | **Success path** — parse response dari native | Pastikan `fromMap()` dan `toJson()` benar |
-| 2 | **Empty/null input** — `fromMap({})` | Pastikan tidak crash, return defaults |
-| 3 | **Permission missing** — graceful fallback | Pastikan return safe state, bukan throw |
-| 4 | **Tool registered** — cek `ToolRouter` | Pastikan risk & confirmation level benar |
-| 5 | **Module disabled** — return null/error | Pastikan settings gate berfungsi |
-
-Untuk **module baru**, tambahan:
-
-| # | Test Case | Tujuan |
-|---|-----------|--------|
-| 6 | **Settings migration** — new keys added | Pastikan existing users dapat default baru |
-| 7 | **Summary includes new data** | Pastikan `device.summary` atau equivalent updated |
-
-### Pattern Test
-
-```dart
-import 'package:flutter_test/flutter_test.dart';
-import 'package:meow_agent/features/modules/device_context/device_context_models.dart';
-import 'package:meow_agent/services/agent_runtime/tool_router.dart';
-
-void main() {
-  group('namespace.tool_name', () {
-    test('success — parses info correctly', () {
-      final raw = {'key': 'value'};
-      final info = MyModel.fromMap(raw);
-      expect(info.key, 'value');
-    });
-
-    test('fromMap handles empty map gracefully', () {
-      final info = MyModel.fromMap({});
-      expect(info.key, 'default_value'); // tidak crash
-    });
-
-    test('permission missing returns safe fallback', () {
-      final raw = {'available': false, 'reason': 'permission_required'};
-      final info = MyModel.fromMap(raw);
-      expect(info.available, false); // tidak throw
-    });
-
-    test('tool is registered with correct risk level', () {
-      final router = ToolRouter();
-      final def = router.getDefinition('namespace.tool_name');
-      expect(def, isNotNull);
-      expect(def!.risk, 'safe');
-      expect(def.requiresConfirmation, false);
-    });
-  });
-}
-```
-
-### Menjalankan Tests
-
-```bash
-# Single file
-flutter test test/my_feature_test.dart
-
-# All tests
-flutter test
-```
-
-### Real Device Testing (WAJIB di-include dalam response)
-
-Setelah implementasi selesai, agent **WAJIB menyertakan instruksi testing di real device** dalam response-nya ke user. User harus tahu cara verifikasi fitur baru di HP asli.
-
-Format yang harus disertakan:
-
-```
-## Cara Test di Real Device
-
-### Prerequisites
-- [permissions yang perlu di-grant manual, jika ada]
-- [module yang perlu di-enable di app]
-
-### Steps
-1. Build & install: `flutter run`
-2. Buka app → [navigasi ke screen yang relevan]
-3. [Aksi spesifik untuk trigger tool, misal: "ketik 'cek bluetooth' di chat"]
-4. [Expected result yang harus muncul]
-
-### Verifikasi Per-Tool
-- **tool.name**: [cara trigger] → [expected output]
-- **tool.name**: [cara trigger edge case] → [expected fallback]
-
-### Edge Cases untuk Dicoba
-- [ ] [Kondisi X — misal: matikan bluetooth, lalu trigger tool]
-- [ ] [Kondisi Y — misal: deny permission, lalu trigger tool]
-- [ ] [Kondisi Z — misal: disable module di settings, lalu trigger tool]
-```
-
-**Contoh nyata** (untuk device.bluetooth):
-
-```
-## Cara Test di Real Device
-
-### Prerequisites
-- Grant BLUETOOTH_CONNECT permission (Android 12+): Settings → Apps → Meow Agent → Permissions → Nearby devices
-- Enable module: App → Modules → Device Context → Enable → Allow Bluetooth Status: ON
-
-### Steps
-1. `flutter run` ke device
-2. Buka chat dengan agent
-3. Ketik: "cek bluetooth saya"
-4. Agent harus respond dengan status bluetooth + connected devices
-
-### Verifikasi
-- **device.bluetooth** (normal): "cek bluetooth" → shows enabled: true + list devices
-- **device.bluetooth** (no permission): Revoke permission → "cek bluetooth" → shows permissionGranted: false, no crash
-- **device.bluetooth** (BT off): Matikan bluetooth → "cek bluetooth" → shows enabled: false
-
-### Edge Cases
-- [ ] Deny BLUETOOTH_CONNECT → tool returns safe fallback
-- [ ] Disable "Allow Bluetooth Status" di module settings → tool returns module disabled error
-- [ ] Bluetooth ON tapi tidak ada device connected → connectedDevices: []
-```
-
-**Kenapa ini penting:**
-- Unit test hanya cover parsing logic, BUKAN integrasi native
-- MethodChannel + native code hanya bisa diverifikasi di real device
-- Permission edge cases hanya reproducible di Android asli
+Run: `flutter test`
 
 ---
 
-## Permission-on-Toggle (WAJIB)
-
-Jika sebuah setting toggle membutuhkan permission Android, maka saat user meng-ON-kan toggle tersebut, app **HARUS** request permission-nya.
-
-**Aturan utama:** **PRIORITAS request permission langsung di app (in-app runtime dialog). JANGAN redirect ke settings page kecuali permission tersebut tidak bisa di-grant lewat runtime dialog.**
-
-### Klasifikasi Permission
-
-**1. Runtime/Dangerous Permissions** → request langsung di app (Android native dialog muncul instant):
-- `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`
-- `READ_PHONE_STATE`
-- `BLUETOOTH_CONNECT` / `BLUETOOTH_SCAN`
-- `POST_NOTIFICATIONS`
-- `RECORD_AUDIO`, `CAMERA`, contacts, calendar, dst.
-
-**2. Special Access Permissions** → harus redirect ke settings (tidak bisa via runtime dialog):
-- `PACKAGE_USAGE_STATS` → Usage Access Settings
-- `ACCESS_NOTIFICATION_POLICY` → DND Access Settings
-- `SYSTEM_ALERT_WINDOW` → Overlay Settings
-- `WRITE_SECURE_SETTINGS` → ADB only
-- "Notification Listener" → Notification Access Settings
-
-### Pattern 1: In-App Runtime Permission (PREFERRED)
-
-Pakai native handler `requestRuntimePermissions` di `MainActivity.kt`. Multiple permissions bisa di-request sekaligus.
-
-```dart
-// Di dalam _toggleSetting(), SEBELUM save toggle:
-if (_module!.id == 'my_module' && key == 'allow_feature_x' && value) {
-  try {
-    await const MethodChannel('com.meowagent/services')
-        .invokeMethod<Map<dynamic, dynamic>>(
-      'requestRuntimePermissions',
-      {
-        'permissions': [
-          'android.permission.ACCESS_FINE_LOCATION',
-          'android.permission.READ_PHONE_STATE',
-        ],
-      },
-    );
-  } catch (_) {
-    // If denied or error, toggle still saves; tools degrade gracefully.
-  }
-}
-```
-
-Native handler otomatis:
-- Skip permissions yang udah granted
-- Skip request kalau SDK < 23 (auto-granted at install time)
-- Return `Map<String, Boolean>` per permission
-- Reentrancy guard (gak bisa overlapping requests)
-
-### Pattern 2: Settings Redirect (FALLBACK only untuk Special Access)
-
-Pakai pattern ini HANYA kalau permission masuk kategori Special Access. Tampilkan dialog explain dulu, baru redirect.
-
-```dart
-if (_module!.id == 'my_module' && key == 'allow_special_x' && value) {
-  if (mounted) {
-    final goSettings = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Permission Required'),
-        content: const Text(
-          'Fitur X butuh "Special Access Y".\n\n'
-          'Tap "Open Settings" untuk mengaktifkan.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Open Settings'),
-          ),
-        ],
-      ),
-    );
-    if (goSettings != true) return;
-    await const MethodChannel('com.meowagent/app_control')
-        .invokeMethod<bool>(
-      'openSettings',
-      {'action': 'android.settings.RELEVANT_SETTINGS_ACTION'},
-    );
-  }
-}
-```
-
-### Mapping Permission → Pattern
-
-| Permission | Pattern | Method |
-|-----------|---------|--------|
-| ACCESS_FINE_LOCATION | In-app | `requestRuntimePermissions` |
-| ACCESS_COARSE_LOCATION | In-app | `requestRuntimePermissions` |
-| READ_PHONE_STATE | In-app | `requestRuntimePermissions` |
-| BLUETOOTH_CONNECT | In-app | `requestRuntimePermissions` |
-| POST_NOTIFICATIONS | In-app | `requestNotificationPermission` |
-| PACKAGE_USAGE_STATS | Settings redirect | `android.settings.USAGE_ACCESS_SETTINGS` |
-| ACCESS_NOTIFICATION_POLICY | Settings redirect | `android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS` |
-| SYSTEM_ALERT_WINDOW | Settings redirect | `android.settings.action.MANAGE_OVERLAY_PERMISSION` |
-
-### Aturan
-
-- **PRIORITAS pakai in-app runtime request** — UX paling smooth, user gak perlu keluar app
-- **JANGAN redirect ke settings** kalau permission bisa di-request runtime
-- **JANGAN block toggle** kalau permission denied — save toggle, tool handle gracefully (degraded data, bukan crash)
-- **SELALU** tambahkan subtitle di setting label yang menyebutkan permission requirement
-- **SELALU** wrap permission request in `try/catch` — toggle tetap save kalau error
-- **Tool-side native code** tetap defensive: per-call try/catch, return safe fallback (`null`, `"unknown"`, `permissionGranted: false`) bukan crash
-- **Tambahkan permission ke** `AndroidManifest.xml` (semua permission, runtime maupun special)
-
-
-
----
-
-## Konvensi & Aturan
+## Convention Quick Reference
 
 1. **Tool naming:** `namespace.action` (lowercase, dot-separated)
-2. **Error handling:** SELALU return `ToolExecutionResult` — jangan throw
-3. **Module gating:** Cek `module.enabled` DAN `module.settings[key]` sebelum execute
-4. **Native returns:** Selalu `Map<String, Any?>`, selalu handle null/error gracefully
-5. **LLM prompts:** Selalu minta JSON-only response, selalu handle parse failure
-6. **User-facing text language:** Ikuti app language preference (`System`, `Bahasa Indonesia`, `English`). `System` resolve dari device locale. Jangan hardcode Indonesian kecuali user/app preference memang Indonesian.
-7. **No tool names exposed to user:** `_humanizeConfirmation()` translates to natural language
-8. **Risk comes from registry, NOT from LLM output** — security enforcement
-9. **Testing:** SELALU tulis test setelah nambah tool/module baru — no exceptions
-10. **Permission-on-toggle:** Jika setting butuh permission, WAJIB cek/minta saat toggle ON — lihat section di atas
-11. **Module install defaults:** Saat module baru di-install, hanya `module.enabled` yang ON. Semua `module.settings[*]` wajib default OFF sampai user opt-in manual. Saat app update menambah setting key baru, key baru juga wajib OFF.
-12. **Module translations:** Setiap module baru WAJIB menyediakan translation untuk Bahasa Indonesia dan English di UI app. Pertahankan `module.name` tetap original/brand name, tapi translate `module.description`, section label, setting label/subtitle, permission dialog, snackbar, tooltip, empty/error state, dan confirmation text.
+2. **Error handling:** Always return `ToolExecutionResult` — never throw
+3. **Module gating:** Check `module.enabled` AND `module.settings[key]` before execution
+4. **Native returns:** Always `Map<String, Any?>`, handle null/error gracefully
+5. **LLM prompts:** Always request JSON-only response; handle parse failure with repair retry
+6. **Language:** ALL user-facing strings are i18n-driven (`LanguageRegistry`) or LLM-generated (`ToolVerbalizer` in detected language). NO hardcoded natural-language routing or classification.
+7. **Risk comes from registry, NOT from LLM output** — security enforcement
+8. **No tool names exposed to user** — verbalizer translates to natural language
+9. **Every mutating tool MUST have a verificationProbe**
+10. **Module install defaults:** `module.enabled` = ON. ALL `module.settings[*]` = OFF until user opts in manually.
+11. **Module translations:** New modules must provide translations for every user-facing string in the UI (description, labels, dialogs, snackbars, empty/error states).
+12. **English-only examples in prompts.** The LLM handles language naturally — no per-language word lists.

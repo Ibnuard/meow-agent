@@ -397,7 +397,13 @@ class TargetResolver {
     return _predicateOps.contains(normalized) ? normalized : '';
   }
 
-  /// Evaluate a predicate selector against a single entity label/id.
+  /// Evaluate a predicate selector against a single entity.
+  ///
+  /// Resolves [selector.field] against [entity.metadata] first (per-entity-type
+  /// extended fields like workflow.agent_name or module.enabled), then against
+  /// [entity.id] (for field == "id"), and finally against [entity.label]
+  /// (the human-readable name/title). This is fully generic — adding metadata
+  /// to [_entities] for a new entity type is all that's needed.
   static bool _matchesPredicate(
     Map<String, dynamic> selector,
     _EntityMatch entity,
@@ -408,7 +414,11 @@ class TargetResolver {
     if (value.isEmpty) return false;
 
     final field = (selector['field'] ?? 'name').toString().toLowerCase();
-    final subject = (field == 'id') ? entity.id : entity.label;
+    final subject = entity.metadata.containsKey(field)
+        ? (entity.metadata[field]?.toString() ?? '')
+        : (field == 'id')
+            ? entity.id
+            : entity.label;
 
     final caseSensitive = selector['case_sensitive'] == true;
     final a = caseSensitive ? subject : subject.toLowerCase();
@@ -990,7 +1000,16 @@ class TargetResolver {
       case 'agent':
         return [
           for (final agent in snapshot.agents)
-            _EntityMatch(entityType: 'agent', id: agent.id, label: agent.name),
+            _EntityMatch(
+              entityType: 'agent',
+              id: agent.id,
+              label: agent.name,
+              metadata: {
+                'provider': agent.providerNickname,
+                'provider_nickname': agent.providerNickname,
+                'used_by_workflows': agent.usedByWorkflows,
+              },
+            ),
         ];
       case 'workflow':
         return [
@@ -999,6 +1018,13 @@ class TargetResolver {
               entityType: 'workflow',
               id: workflow.id,
               label: workflow.title,
+              metadata: {
+                'agent': workflow.agentName,
+                'agent_name': workflow.agentName,
+                'agent_id': workflow.agentId,
+                'trigger': workflow.triggerSummary,
+                'enabled': workflow.enabled,
+              },
             ),
         ];
       case 'provider':
@@ -1008,12 +1034,22 @@ class TargetResolver {
               entityType: 'provider',
               id: provider.id,
               label: provider.nickname,
+              metadata: {
+                'nickname': provider.nickname,
+              },
             ),
         ];
       case 'module':
         return [
           for (final module in snapshot.modules)
-            _EntityMatch(entityType: 'module', id: module.id, label: module.id),
+            _EntityMatch(
+              entityType: 'module',
+              id: module.id,
+              label: module.id,
+              metadata: {
+                'enabled': module.enabled,
+              },
+            ),
         ];
       default:
         return const [];
@@ -1241,11 +1277,22 @@ class _EntityMatch {
     required this.entityType,
     required this.id,
     required this.label,
+    this.metadata = const {},
   });
 
   final String entityType;
   final String id;
   final String label;
+
+  /// Per-entity-type extended fields for predicate matching.
+  ///
+  /// Populated at snapshot-read time so `_matchesPredicate` can generically
+  /// resolve `selector.field` without a per-entity-type switch. Examples:
+  /// - workflow: {agent, agent_name, agent_id, trigger, enabled}
+  /// - agent:    {provider, provider_nickname}
+  /// - module:   {enabled}
+  /// - provider: {nickname}
+  final Map<String, dynamic> metadata;
 }
 
 class _BulkExpansion {

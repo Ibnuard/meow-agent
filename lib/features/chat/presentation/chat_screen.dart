@@ -1357,7 +1357,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             _showMessageActions(current),
                                       ),
                                     );
-                                    if (!showDate) return bubble;
+                                    final isUserMsg = current.role == 'user';
+                                    final alignedBubble = Align(
+                                      alignment: isUserMsg
+                                          ? Alignment.centerRight
+                                          : Alignment.centerLeft,
+                                      child: bubble,
+                                    );
+                                    if (!showDate) return alignedBubble;
                                     return Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
@@ -1366,7 +1373,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           date: current.timestamp.toLocal(),
                                           isId: isId,
                                         ),
-                                        bubble,
+                                        alignedBubble,
                                       ],
                                     );
                                   }
@@ -1464,13 +1471,14 @@ class _Bubble extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final bubble = Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    final bubble = ConstrainedBox(
       constraints: BoxConstraints(
         maxWidth: MediaQuery.of(context).size.width * 0.78,
       ),
-      decoration: BoxDecoration(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
         color: isUser ? cs.primary : extras.card,
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
@@ -1613,6 +1621,7 @@ class _Bubble extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
 

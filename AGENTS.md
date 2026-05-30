@@ -2,52 +2,74 @@
 
 ## Purpose
 
-This document defines the visual identity, layout rules, spacing system, interaction behavior, and UI philosophy for Meow Agent.
+This document defines the visual identity, layout rules, spacing system, interaction behavior, UI philosophy, AND runtime engineering principles for Meow Agent.
 
-All coding/design agents working on this project MUST follow this document to maintain a consistent experience across the entire application.
+All coding/design agents working on this project MUST follow this document to maintain a consistent experience and a correct, non-hallucinating agent runtime.
 
 ---
 
 ## Scope & Cross-References
 
-AGENTS.md governs **design, UX, and visual identity**. It does NOT cover code architecture.
+AGENTS.md governs **design, UX, visual identity, and runtime engineering principles**.
 
-For ANY code-level work — adding tools, adding modules, modifying the agent runtime, native Android code, prompt engineering, testing — you MUST read and follow:
+For detailed code architecture, tool/module registration procedures, runtime loop mechanics, and testing requirements, you MUST also read:
 
 > **[SKILLS.md](./SKILLS.md)** — the canonical codebase guide for Meow Agent.
 
 SKILLS.md contains:
-
-* Architecture overview (lib/, services/, features/, native/)
-* Agentic runtime loop (Planner → Executor → ToolRouter)
-* **Step-by-step tool registration** (registry, dispatch, **tool_catalog sync**, skills block, humanize)
-* Step-by-step module creation (model, service, repository, gating)
-* LLM client patterns (OpenAI-compatible, JSON repair, prompt phases)
-* Native MethodChannel patterns (Kotlin ↔ Flutter)
-* Confirmation flow (PendingAction, ConfirmationChecker)
-* Permission-on-toggle rules (in-app vs settings redirect)
-* Quick-reference checklists for new tools and new modules
-* Testing requirements (unit + real-device verification)
-
-> [!CAUTION]
-> If you add a new tool but skip the `tool_catalog.dart` sync step in SKILLS.md, the LLM analyzer will silent-drop your tool from the shortlist and the agent will hallucinate "I don't have that capability" — even though the tool is registered and executable. **Always run through the SKILLS.md checklist.**
+* Current architecture overview (self-registering module plugins, runtime layout)
+* Runtime loop (Planner → Reflector → Executor → ToolVerbalizer)
+* **One-file module plugin pattern** (extend ModulePlugin, add to runtime_module_plugins.dart)
+* LLM client patterns, prompt architecture, language detection
+* Verification & anti-hallucination gates
+* Bulk/predicate selector architecture
+* Testing requirements (golden suite, drift guard, unit tests)
 
 ---
 
+## Runtime Engineering Principles (READ FIRST)
+
+These override everything else in this document when coding the agent engine:
+
+### 1. Accuracy is #1
+The agent must never hallucinate a capability it doesn't have or claim success it cannot verify. When data is missing or a capability doesn't exist, tell the user honestly and quickly — do not retry, guess, or fabricate.
+
+### 2. Language-generic, always
+- NO per-language word lists for classification or routing.
+- NO per-case patches ("kalau user bilang X, lakukan Y").
+- NO Indonesian-specific examples in engine code or prompts.
+- English-only examples in system prompts are the standard.
+- The LLM handles the user's language naturally via `detected_language`.
+
+### 3. LLM-driven, not keyword-driven
+Tool selection uses the analyzer's `tool_groups` enum, NOT hardcoded keyword matching. The analyzer sees every tool and semantically decides which groups are relevant — works in any language.
+
+### 4. Efficient ≠ stingy
+More LLM calls are acceptable if they improve accuracy. But ZERO calls should be wasted (proven-redundant phases are gated by deterministic skip conditions). The engine skips reflection for trivial safe single-tool reads and skips review for terminal retrievals.
+
+### 5. Self-registering modules
+Adding a tool or module = one file (a `ModulePlugin`). There is no central registry map, dispatch switch, or catalog group map to hand-edit. `runtime_module_plugins.dart` holds one list of all plugins.
+
+### 6. Validation before declaration
+Task completion is only declared after state re-check (snapshot probe, registry re-read, or tool result data keys). Never trust the LLM's self-report of "done" alone.
+
+### 7. Generic entity matching
+Bulk operations (delete all, filter by predicate) use structured selectors (`"scope":"all"`, `"scope":"predicate"` with `op: ends_with/starts_with/contains/equals/regex`). The runtime evaluates against live snapshot data. The LLM supplies the pattern; the runtime does the matching — the LLM never enumerates entity names.
+
+---
+
+## Meow Agent Identity
 
 Meow Agent is NOT:
-
 * a developer dashboard
 * a terminal app
 * an enterprise admin panel
 * a hacker-style UI
 
 Meow Agent IS:
-
 > a modern Android-native AI companion operating system.
 
 The app should feel:
-
 * calm
 * futuristic
 * lightweight
@@ -57,7 +79,6 @@ The app should feel:
 * approachable
 
 Inspired by:
-
 * OpenAI Mobile
 * Arc Search
 * Linear
@@ -74,71 +95,29 @@ Inspired by:
 
 The UI must breathe.
 
-Do NOT stack elements tightly.
-Do NOT overfill the screen.
+Do NOT stack elements tightly. Do NOT overfill the screen.
 
-Good UI in Meow Agent relies heavily on:
+Good UI relies on: spacing, rhythm, hierarchy, subtle contrast.
 
-* spacing
-* rhythm
-* hierarchy
-* subtle contrast
-
-The app should feel:
-
-> spacious but intentional.
-
----
+The app should feel: spacious but intentional.
 
 ## 2. Floating Surfaces
 
 Most UI components should feel detached from the background.
 
-Use:
-
-* floating cards
-* rounded surfaces
-* soft shadows
-* translucent layers
-* subtle depth
-
-Avoid:
-
-* flat harsh containers
-* heavy separators
-* rigid dashboard layouts
-
----
+Use: floating cards, rounded surfaces, soft shadows, translucent layers, subtle depth.
+Avoid: flat harsh containers, heavy separators, rigid dashboard layouts.
 
 ## 3. Soft Futuristic
 
-The app should feel futuristic WITHOUT:
+The app should feel futuristic WITHOUT cyberpunk overload, neon everywhere, hacker aesthetics, or excessive gradients.
 
-* cyberpunk overload
-* neon everywhere
-* hacker aesthetics
-* excessive gradients
-
-Target:
-
-> ambient AI operating system.
-
----
+Target: ambient AI operating system.
 
 ## 4. Calm Interaction
 
-Animations and transitions must feel:
-
-* smooth
-* subtle
-* premium
-* lightweight
-
-Avoid:
-
-* aggressive bounce
-* flashy transitions
-* exaggerated motion
+Animations and transitions must feel: smooth, subtle, premium, lightweight.
+Avoid: aggressive bounce, flashy transitions, exaggerated motion.
 
 ---
 
@@ -146,515 +125,130 @@ Avoid:
 
 ## Background
 
-Primary background:
+Primary background: `#020817`. Deep navy, clean, minimal. No pure black, colorful backgrounds, or busy textures.
 
-```txt
-#020817
-```
+## Color System
 
-Background must remain:
+| Role | Value |
+|------|-------|
+| Primary Blue (active states, focused inputs, FAB) | `#3B82F6` |
+| Surface (cards, modals, dock, floating containers) | `rgba(15,23,42,0.82)` |
+| Text primary | `#E5E7EB` |
+| Text secondary | `#94A3B8` |
+| Text muted/inactive | `#64748B` |
+| Borders | `rgba(255,255,255,0.05)` |
 
-* dark navy
-* deep
-* clean
-* minimal
+Never use: thick borders, bright outlines, hard dividers.
 
-Do NOT use:
+## Spacing System
 
-* pure black
-* colorful backgrounds
-* busy textures
+Spacing consistency is critical. The app should NEVER feel cramped.
 
----
+| Context | Value |
+|---------|-------|
+| Section Title → Subtitle | 10–14px |
+| Subtitle → Input | 8–10px |
+| Input → Input | 14–18px |
+| Section → Section | 24–32px |
+| Card Internal Padding | 18–24px |
 
-# COLOR SYSTEM
+## Safe Area
 
-## Primary Blue
+Always support: Android edge-to-edge, gesture navigation, floating bottom dock.
 
-```txt
-#3B82F6
-```
+UI elements must NEVER collide with: Android gesture area, virtual navigation bar, floating FAB. Use SafeArea properly.
 
-Used for:
+## Typography
 
-* active states
-* focused inputs
-* chat FAB
-* primary actions
+Typography should feel modern, calm, highly readable, soft.
+Avoid: overly bold typography, giant headings, compressed text.
 
----
+Hierarchy:
+* Screen Title: medium weight, slightly emphasized, never oversized
+* Section Title: subtle emphasis, clean spacing
+* Field Labels: small, muted, secondary hierarchy
+* Body Text: clean, readable, relaxed line height
 
-## Surface
+## Containers
 
-```txt
-rgba(15,23,42,0.82)
-```
+All surfaces: large rounded corners (20–28px), subtle depth, soft translucent backgrounds.
+Floating dock: 999px (pill shape).
+FAB: fully circular.
+Avoid: flat rectangles, harsh cards, Material default appearance.
 
-Used for:
+Shadows must be: soft, ambient, subtle. Goal: floating AI surfaces.
 
-* cards
-* modals
-* bottom dock
-* floating containers
+## Input Fields
 
----
+Inputs must feel: soft, modern, premium, calm.
+Rounded, slightly translucent, subtle gradient, faint inner highlight.
+Focused: softly glow blue, slightly brighten border, ambient.
+Avoid: Flutter default TextField, thick borders, enterprise form styling.
 
-## Text Colors
+## Buttons
 
-Primary text:
+Soft and premium, subtle gradients, rounded corners, minimal elevation.
+Primary CTA: blue accent, subtle glow, clean typography.
+Avoid: bulky buttons, enterprise buttons, excessive shadows.
 
-```txt
-#E5E7EB
-```
+## Icons
 
-Secondary text:
+Consistent stroke weight, minimal, modern, slightly rounded.
+Avoid mixing filled / outline / thin / thick styles randomly.
 
-```txt
-#94A3B8
-```
+## Cards
 
-Muted/inactive:
+Interactive, lightweight, floating.
+Use: translucent navy surfaces, subtle border, soft shadow, rounded corners.
+Avoid: giant dashboard cards, excessive padding, rigid grid systems.
 
-```txt
-#64748B
-```
+## Empty States
 
----
+Educate naturally, feel friendly, guide the user.
+Avoid: technical language, cold placeholders, generic empty boxes.
 
-## Borders
+Structure: Icon/Illustration → Title → Description → Primary Action.
 
-Borders must be subtle.
+## Motion
 
-Preferred:
+Animations: soft, elegant, premium, ambient.
+Recommended: fade, smooth slide, subtle scale, gentle glow pulse.
+Avoid: spring explosions, exaggerated bounce, flashy transitions.
 
-```txt
-rgba(255,255,255,0.05)
-```
+## Bottom Navigation
 
-Never use:
+Floating dock style, full pill shape, translucent surface, soft blur.
+Must float above bottom edge, respect SafeArea, never touch Android gesture area.
 
-* thick borders
-* bright outlines
-* hard dividers
+## Chat FAB
 
----
-
-# SPACING SYSTEM
-
-## Most Important Rule
-
-Spacing consistency is critical.
-
-The app should NEVER feel cramped.
-
----
-
-# Vertical Rhythm
-
-Recommended spacing:
-
-## Section Title → Section Subtitle
-
-```txt
-10–14px
-```
-
-## Subtitle → Input Field
-
-```txt
-8–10px
-```
-
-## Input → Input
-
-```txt
-14–18px
-```
-
-## Section → Section
-
-```txt
-24–32px
-```
-
-## Card Internal Padding
-
-```txt
-18–24px
-```
-
----
-
-# SAFE AREA RULES
-
-Always support:
-
-* Android edge-to-edge
-* gesture navigation
-* floating bottom dock
-
-Critical:
-UI elements must NEVER collide with:
-
-* Android gesture area
-* virtual navigation bar
-* floating FAB
-
-Use SafeArea properly.
-
-Bottom padding should feel intentional and breathable.
-
----
-
-# TYPOGRAPHY RULES
-
-Typography should feel:
-
-* modern
-* calm
-* highly readable
-* soft
-
-Avoid:
-
-* overly bold typography
-* giant headings
-* compressed text
-
----
-
-# Typography Hierarchy
-
-## Screen Title
-
-* medium weight
-* slightly emphasized
-* never oversized
-
-## Section Title
-
-* subtle emphasis
-* clean spacing
-
-## Field Labels
-
-* small
-* muted
-* secondary hierarchy
-
-## Body Text
-
-* clean
-* readable
-* relaxed line height
-
----
-
-# CONTAINER RULES
-
-All surfaces should use:
-
-* large rounded corners
-* subtle depth
-* soft translucent backgrounds
-
-Avoid:
-
-* flat rectangles
-* harsh cards
-* Material default appearance
-
----
-
-# Rounded Radius
-
-Preferred:
-
-```txt
-20–28px
-```
-
-Floating dock:
-
-```txt
-999px (pill shape)
-```
-
-FAB:
-
-```txt
-fully circular
-```
-
----
-
-# SHADOW RULES
-
-Shadows must be:
-
-* soft
-* ambient
-* subtle
-
-Avoid:
-
-* dark hard shadows
-* excessive blur
-* dramatic elevation
-
-Goal:
-
-> floating AI surfaces.
-
----
-
-# INPUT FIELD RULES
-
-Inputs must:
-
-* feel soft
-* modern
-* premium
-* calm
-
-Input containers:
-
-* rounded
-* slightly translucent
-* subtle gradient
-* faint inner highlight
-
-Avoid:
-
-* Flutter default TextField appearance
-* thick borders
-* enterprise form styling
-
----
-
-# INPUT FOCUS STATE
-
-Focused input should:
-
-* softly glow blue
-* slightly brighten border
-* feel ambient
-
-Do NOT use:
-
-* harsh blue outlines
-* Material default focus
-
----
-
-# BUTTON RULES
-
-Buttons should:
-
-* feel soft and premium
-* use subtle gradients
-* have rounded corners
-* minimal elevation
-
-Primary CTA:
-
-* blue accent
-* subtle glow
-* clean typography
-
-Avoid:
-
-* bulky buttons
-* enterprise buttons
-* excessive shadows
-
----
-
-# BOTTOM NAVIGATION RULES
-
-Bottom navigation uses:
-
-* floating dock style
-* full pill shape
-* translucent surface
-* soft blur
-
-The dock must:
-
-* float above bottom edge
-* respect SafeArea
-* never touch Android gesture area
-
----
-
-# CHAT FAB RULES
-
-The center Chat button is:
-
-> the heart of the app.
-
-It should:
-
-* be the most visually important navigation item
-* slightly larger than others
-* softly glowing
-* premium and calm
-
-Avoid:
-
-* giant oversized FAB
-* aggressive neon glow
-* cartoonish bounce
-
----
-
-# ICON RULES
-
-Icons must:
-
-* use consistent stroke weight
-* be minimal
-* modern
-* slightly rounded
-
-Avoid mixing:
-
-* filled
-* outline
-* thin
-* thick
-
-icon styles randomly.
-
----
-
-# CARD DESIGN RULES
-
-Cards should feel:
-
-* interactive
-* lightweight
-* floating
-
-Use:
-
-* translucent navy surfaces
-* subtle border
-* soft shadow
-* rounded corners
-
-Avoid:
-
-* giant dashboard cards
-* excessive padding
-* rigid grid systems
-
----
-
-# EMPTY STATE RULES
-
-Empty states should:
-
-* educate naturally
-* feel friendly
-* guide the user
-
-Avoid:
-
-* technical language
-* cold placeholders
-* generic empty boxes
-
-Preferred structure:
-
-```txt
-Icon / Illustration
-
-Title
-Description
-
-Primary Action
-```
-
----
-
-# MOTION RULES
-
-Animations must feel:
-
-* soft
-* elegant
-* premium
-* ambient
-
-Recommended:
-
-* fade
-* smooth slide
-* subtle scale
-* gentle glow pulse
-
-Avoid:
-
-* spring explosions
-* exaggerated bounce
-* flashy transitions
-
----
-
-# DEVELOPMENT RULES
-
-## Flutter Guidelines
-
-Optimize for:
-
-* Flutter Material 3
-* reusable widgets
-* dark mode first
-* responsive layouts
-* edge-to-edge Android
+The center Chat button is the heart of the app.
+Slightly larger than others, softly glowing, premium and calm.
+Avoid: giant oversized FAB, aggressive neon glow, cartoonish bounce.
 
 ---
 
 # COMPONENT SYSTEM
 
-Reusable components should exist for:
-
-* AppScaffold
-* FloatingDock
-* ChatFAB
-* GlassCard
-* MeowTextField
-* SectionHeader
-* SettingsTile
-* ModuleCard
-* EmptyStateCard
-* PrimaryButton
+Reusable components: `AppScaffold`, `FloatingDock`, `ChatFAB`, `GlassCard`, `MeowTextField`, `SectionHeader`, `SettingsTile`, `ModuleCard`, `EmptyStateCard`, `PrimaryButton`.
 
 Avoid duplicated styling.
 
 ---
 
+# DEVELOPMENT RULES
+
+Optimize for: Flutter Material 3, reusable widgets, dark mode first, responsive layouts, edge-to-edge Android.
+
+---
+
 # DESIGN PHILOSOPHY
 
-Every screen should feel like:
+Every screen should feel like: _"You are interacting with an ambient AI operating system."_
 
-> “You are interacting with an ambient AI operating system.”
+NOT: server management software, Android settings app, terminal wrapper, cyberpunk dashboard.
 
-NOT:
-
-* server management software
-* Android settings app
-* terminal wrapper
-* cyberpunk dashboard
-
-The UI should communicate:
-
-* intelligence
-* calmness
-* safety
-* modernity
-* simplicity
+The UI should communicate: intelligence, calmness, safety, modernity, simplicity.
 
 ---
 
@@ -662,7 +256,6 @@ The UI should communicate:
 
 When designing anything in Meow Agent, always ask:
 
-> “Does this feel like a calm futuristic AI companion?”
+> "Does this feel like a calm futuristic AI companion?"
 
-If the answer is no:
-simplify it.
+If the answer is no: simplify it.
