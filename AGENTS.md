@@ -56,6 +56,18 @@ Task completion is only declared after state re-check (snapshot probe, registry 
 ### 7. Generic entity matching
 Bulk operations (delete all, filter by predicate) use structured selectors (`"scope":"all"`, `"scope":"predicate"` with `op: ends_with/starts_with/contains/equals/regex`). The runtime evaluates against live snapshot data. The LLM supplies the pattern; the runtime does the matching — the LLM never enumerates entity names.
 
+### 8. Real LLM testing for flow validation
+When testing a complex multi-turn flow (create + delete, bulk predicate, cross-reference impact analysis, workflow chaining) where scripted LLM doubles cannot capture real model behavior, use the real OpenAI-compatible provider configured in `.env`. The test harness in `test/support/` accepts a live `OpenAiCompatibleClient` — swap the `ScriptedLlmClient` for it when running manual accuracy tests.
+
+Credentials live in `.env` (gitignored). Copy `.env.example` to `.env` and fill in your provider details:
+```
+MEOW_TEST_BASE_URL=https://your-provider.example.com/v1
+MEOW_TEST_API_KEY=sk-your-key-here
+MEOW_TEST_MODEL=your-model-name
+```
+
+Never hardcode credentials. Never commit `.env`.
+
 ---
 
 ## Meow Agent Identity
