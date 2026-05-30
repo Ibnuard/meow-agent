@@ -49,7 +49,11 @@ class AgentRuntimeEngine {
     this.snapshotBuilder,
     this.agentLoader,
     TaskLedgerDatabase? ledgerDb,
-  }) : ledgerDb = ledgerDb ?? TaskLedgerDatabase();
+    OpenAiCompatibleClient? llmClient,
+    Future<EcosystemSnapshot> Function()? snapshotOverride,
+  }) : ledgerDb = ledgerDb ?? TaskLedgerDatabase(),
+       _client = llmClient ?? OpenAiCompatibleClient(),
+       _snapshotOverride = snapshotOverride;
 
   final WorkspaceLoader workspaceLoader;
   final ToolRouter toolRouter;
@@ -71,7 +75,12 @@ class AgentRuntimeEngine {
 
   /// Shared LLM client. Reused across all turns of this engine instance so
   /// the underlying Dio's connection pool can keep keep-alive sockets warm.
-  final OpenAiCompatibleClient _client = OpenAiCompatibleClient();
+  /// Injectable (defaults to a real client) so tests can script phase responses.
+  final OpenAiCompatibleClient _client;
+
+  /// Optional test/override hook for the ecosystem snapshot. When set, it
+  /// fully replaces [snapshotBuilder]/[agentLoader] snapshot construction.
+  final Future<EcosystemSnapshot> Function()? _snapshotOverride;
 
   static const int maxSteps = 5;
 
@@ -186,15 +195,18 @@ class AgentRuntimeEngine {
     final isWorkflowAutoExecute =
         request.source == RequestSource.workflow && autoApproveSensitive;
 
-    // Detect the user's language for THIS turn. Drives every user-facing
-    // string built by the verbalizer below.
-    final detectedLang = _languageDetector.detect(
+    // Bootstrap language detection for THIS turn (script-based, no LLM).
+    // For non-Latin scripts this is already authoritative; for Latin scripts
+    // it is a provisional value (the app-setting fallback) that the analyzer's
+    // `detected_language` refines below. Drives every user-facing string built
+    // by the verbalizer.
+    var detectedLang = _languageDetector.detect(
       userMessage: request.userMessage,
       fallbackCode: languageCode,
     );
     logger.logStateChange(
       AgentRuntimeState.analyzing,
-      'Language detected: ${detectedLang.code} '
+      'Language bootstrap: ${detectedLang.code} '
       '(${detectedLang.script}, conf ${detectedLang.confidence.toStringAsFixed(2)})',
     );
     emit(logger.events.last);
@@ -386,6 +398,59 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
       }
 
+      // Refine the turn language from the analyzer's authoritative
+      // classification. The LLM natively knows the user's language, so this
+      // corrects the Latin-script bootstrap (which only had the app-setting
+      // fallback). Non-Latin scripts already detected with high confidence are
+      // left alone unless the analyzer clearly disagrees. This is what makes
+      // the engine language-generic without per-language word lists.
+      final analyzerLangCode = (analysis['detected_language'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (analyzerLangCode.isNotEmpty &&
+          analyzerLangCode != detectedLang.code &&
+          (!detectedLang.isHighConfidence || detectedLang.script == 'Latin')) {
+        final refined = DetectedLanguage.fromAnalyzerCode(analyzerLangCode);
+        logger.logStateChange(
+          AgentRuntimeState.analyzing,
+          'Language refined by analyzer: ${detectedLang.code} '
+          '→ ${refined.code} (${refined.label})',
+        );
+        emit(logger.events.last);
+        detectedLang = refined;
+      }
+
+      // Narrow the downstream tool surface from the analyzer's tool_groups
+      // classification (language-agnostic — replaces keyword matching). The
+      // analyzer saw the full slim catalog; now reflect/plan and the skip
+      // conditions operate on the model-chosen groups. Skipped while an active
+      // task context exists (the broad catalog is intentionally used there so a
+      // new in-flight task in any domain stays reachable).
+      if (activeTaskContext.isEmpty) {
+        final groupsHint = (analysis['tool_groups'] as List?)
+            ?.map((e) => e.toString())
+            .toList();
+        final narrowed = ToolCatalog.fromGroups(groupsHint);
+        final narrowedAvailable = toolRouter.buildToolDescriptions(
+          narrowed.toolNames,
+        );
+        if (narrowedAvailable.isNotEmpty) {
+          toolSelection = narrowed;
+          analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+            narrowed.toolNames,
+          );
+          availableTools = narrowedAvailable;
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Tool surface narrowed from analyzer tool_groups: '
+            '${narrowed.reason} (${availableTools.length} tools, '
+            'confidence ${narrowed.confidence.toStringAsFixed(2)})',
+          );
+          emit(logger.events.last);
+        }
+      }
+
       // Relation gate: active ledger/pending/clarify state must not lock the
       // next user message. If the analyzer says the raw message is unrelated,
       // abort the old scope and continue with this request as a new task.
@@ -532,23 +597,56 @@ class AgentRuntimeEngine {
 
       _pendingClarifications.remove(request.agentId);
 
-      // 2.5 Reflection (mandatory deep-thinking phase).
+      // 2.5 Reflection (deep-thinking phase).
       // Builds an ecosystem snapshot, asks the LLM to decide a strategy
       // (direct_execute / clarify / auto_resolve / block), and short-circuits
       // when the strategy demands user input or refusal.
+      //
+      // Stage 2: reflection is SKIPPED for trivial, high-confidence,
+      // single-tool, safe turns. For those, the analyzer already has every
+      // signal reflection would echo (no missing info, single tool group, not
+      // bulk, not destructive), and the live snapshot shows no cross-entity
+      // impact to reason about. Skipping removes one full LLM round-trip per
+      // simple turn. The two safety valves — a non-safe/destructive intent OR
+      // an ecosystem with cross-references — force reflection back on, so
+      // anything that could surprise the user still gets the deep-thinking pass.
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
+
+      // Snapshot is opt-in via the engine constructor. When the loader is
+      // missing (tests, sandbox), this is empty and isRelevantForReflection
+      // is false. Built once here and reused by the reflect call below.
+      final reflectSnapshot = analyzerSaysToolsForReflect
+          ? await _buildSnapshot()
+          : EcosystemSnapshot(
+              agents: const [],
+              workflows: const [],
+              providers: const [],
+              modules: const [],
+              builtAt: DateTime.fromMillisecondsSinceEpoch(0),
+            );
+
+      final canSkipReflect =
+          analyzerSaysToolsForReflect &&
+          !isWorkflowAutoExecute &&
+          toolSelection.isHighConfidence &&
+          toolSelection.groups.length == 1 &&
+          missingInfo.isEmpty &&
+          analysis['bulk_selector'] != true &&
+          !_isDestructiveIntent(analysis) &&
+          !reflectSnapshot.isRelevantForReflection;
+
       final shouldReflect =
-          analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
+          analyzerSaysToolsForReflect &&
+          !isWorkflowAutoExecute &&
+          !canSkipReflect;
       if (shouldReflect) {
         state = AgentRuntimeState.analyzing;
         logger.logStateChange(state, 'Reflecting on impact and slot needs');
         emit(logger.events.last);
 
-        // Snapshot is opt-in via the engine constructor. When the loader is
-        // missing (tests, sandbox), reflection still runs without snapshot.
-        final snapshot = await _buildSnapshot();
+        final snapshot = reflectSnapshot;
 
         reflection = await reflector.reflect(
           userMessage: effectiveUserMessage,
@@ -2076,10 +2174,32 @@ class AgentRuntimeEngine {
         // straight to verbalizer.success here was the "buat 3 agen → 1 agen"
         // bug — we'd return after the first successful tool while sg2/sg3
         // were still pending.
-        final treeAllowsShortCircuit = goalTree.isEmpty || goalTree.isComplete;
+        //
+        // EARLY-COMPLETION (Stage 1): a successful RETRIEVAL tool whose result
+        // IS the answer can finalize without the redundant `review` round-trip
+        // that caused the "back-and-forth reflecting" the user reported. This
+        // only fires when the retrieval's subgoal is the SOLE remaining
+        // non-terminal one — so multi-target tasks (sg2/sg3 still pending) and
+        // multi-tool flows (e.g. app.resolve → app.open, where app.resolve is
+        // NOT a retrieval) keep going through review exactly as before. We mark
+        // the active subgoal done first so the completion verifier sees a
+        // consistent tree.
+        final shortCircuitActive = goalTree.nextActionable;
+        final retrievalCompletesTree =
+            result.success &&
+            shortCircuitActive != null &&
+            _isRetrievalTool(toolRequest.name) &&
+            !goalTree.subgoals.any(
+              (s) => !s.isTerminal && s.id != shortCircuitActive.id,
+            );
+        final wouldCompleteTree =
+            goalTree.isEmpty || goalTree.isComplete || retrievalCompletesTree;
         if (result.success &&
             _isLastPlannedStep(plan, currentStep) &&
-            treeAllowsShortCircuit) {
+            wouldCompleteTree) {
+          if (retrievalCompletesTree) {
+            shortCircuitActive.status = SubgoalStatus.done;
+          }
           final verificationBlocker = await _blockIfCompletionUnverified(
             request: request,
             plan: plan,
@@ -2556,6 +2676,8 @@ class AgentRuntimeEngine {
   /// Returns an empty snapshot when the engine was constructed without a
   /// builder/agent loader (e.g. unit tests). The reflector tolerates that.
   Future<EcosystemSnapshot> _buildSnapshot() async {
+    final override = _snapshotOverride;
+    if (override != null) return override();
     final builder = snapshotBuilder;
     final loader = agentLoader;
     if (builder == null || loader == null) {
@@ -3429,6 +3551,32 @@ class AgentRuntimeEngine {
     }
     if (userMessage.trim().isEmpty) return false;
     return _isRetrievalTool(toolName);
+  }
+
+  /// True when the analyzer's intent is destructive/side-effecting enough that
+  /// the deep-thinking reflection pass must run (impact + slot analysis), even
+  /// for a high-confidence single-tool turn. Reads the analyzer's `risk` and
+  /// `intent`/`goal` operation hints — language-agnostic, no keyword lists.
+  bool _isDestructiveIntent(Map<String, dynamic> analysis) {
+    final risk = (analysis['risk'] ?? '').toString().toLowerCase();
+    if (risk == 'sensitive' || risk == 'dangerous') return true;
+    // Operation hint: the analyzer may surface a verb in intent/goal. We only
+    // look for structured operation enums the reflector also uses, never
+    // natural-language phrasing, so this stays language-generic.
+    final intent = (analysis['intent'] ?? '').toString().toLowerCase();
+    const destructiveOps = {
+      'delete',
+      'remove',
+      'update',
+      'rename',
+      'toggle',
+      'overwrite',
+      'move',
+    };
+    for (final op in destructiveOps) {
+      if (intent.contains(op)) return true;
+    }
+    return false;
   }
 
   bool _isRetrievalTool(String toolName) {

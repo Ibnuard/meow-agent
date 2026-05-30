@@ -812,4 +812,104 @@ void main() {
       expect(result.graph.eligibleTargets, isEmpty);
     });
   });
+
+  group('TargetResolver — predicate selector (language-agnostic)', () {
+    // Snapshot with three agents whose names exercise an "ends_with don" filter.
+    EcosystemSnapshot agentsSnapshot() => EcosystemSnapshot(
+      builtAt: DateTime(2026, 1, 1),
+      agents: const [
+        EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'P'),
+        EcosystemAgent(id: 'gordon', name: 'Gordon', providerNickname: 'P'),
+        EcosystemAgent(id: 'brandon', name: 'Brandon', providerNickname: 'P'),
+      ],
+      workflows: const [],
+      providers: const [],
+      modules: const [],
+    );
+
+    ReflectionOutput predicateDelete({
+      required String op,
+      required String value,
+      bool caseSensitive = false,
+    }) => ReflectionOutput(
+      strategy: ReflectionStrategy.directExecute,
+      goalTree: GoalTree(
+        mainGoal: 'delete agents by name pattern',
+        subgoals: [Subgoal(id: 'sg_bulk', label: 'delete matching agents')],
+      ),
+      targets: [
+        ReflectionTarget(
+          subgoalId: 'sg_bulk',
+          operation: 'delete',
+          entityType: 'agent',
+          entityLabel: 'matching agents',
+          selector: {
+            'scope': 'predicate',
+            'field': 'name',
+            'op': op,
+            'value': value,
+            'case_sensitive': caseSensitive,
+          },
+        ),
+      ],
+    );
+
+    test('ends_with fans out only to matching agents (Gordon, Brandon)', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(op: 'ends_with', value: 'don'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with Don'),
+        language: language,
+      );
+
+      final labels = result.reflection.goalTree.subgoals
+          .map((s) => s.label)
+          .join(' | ');
+      // Mina must NOT be selected; Gordon and Brandon must be.
+      expect(labels.contains('Mina'), isFalse, reason: labels);
+      expect(labels.contains('Gordon'), isTrue, reason: labels);
+      expect(labels.contains('Brandon'), isTrue, reason: labels);
+      // Two concrete eligible targets, both real snapshot entities.
+      final ids = result.graph.eligibleTargets.map((t) => t.entityId).toSet();
+      expect(ids, {'gordon', 'brandon'});
+    });
+
+    test('starts_with filters by prefix', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(op: 'starts_with', value: 'g'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents starting with G'),
+        language: language,
+      );
+      expect(result.graph.eligibleTargets.map((t) => t.entityId).toSet(), {
+        'gordon',
+      });
+    });
+
+    test('predicate matching nothing yields no fabricated targets', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(op: 'ends_with', value: 'zzz'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with zzz'),
+        language: language,
+      );
+      // No match → no eligible targets → runtime cannot act on a guessed entity.
+      expect(result.graph.eligibleTargets, isEmpty);
+    });
+
+    test('case_sensitive predicate respects exact case', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(
+          op: 'ends_with',
+          value: 'DON',
+          caseSensitive: true,
+        ),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with DON'),
+        language: language,
+      );
+      // "Gordon"/"Brandon" end with "don" not "DON" → no case-sensitive match.
+      expect(result.graph.eligibleTargets, isEmpty);
+    });
+  });
 }

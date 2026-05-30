@@ -49,13 +49,14 @@ class PromptConstants {
     return '''SYSTEM RULES (always enforced):
 - Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
-- For sensitive or destructive actions, CALL the appropriate tool directly. The runtime will automatically render a confirmation card with approve/cancel buttons. NEVER reply with a confirmation question as plain text — the user has no button to press.
+- Two DISTINCT situations decide whether you ask the user a question — do not confuse them:
+  1. MISSING DETAIL (a required input is absent or ambiguous — time without AM/PM, vague title, unclear target): ASK one short clarifying question in plain text BEFORE calling any tool. Do not guess defaults silently.
+  2. SENSITIVE/DESTRUCTIVE ACTION (the detail is complete, but the action has side effects): do NOT ask in plain text. CALL the appropriate tool directly — the runtime renders a confirmation card with approve/cancel buttons. A plain-text "are you sure?" leaves the user no button to press.
 - Respect enabled permissions and modules. Do not assume capabilities.
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist. When listing what you can do, ONLY mention actions backed by real tools in your schema.
-- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
-- AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
+- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
   }
 
   /// Appended to the system prompt when the user has not introduced themselves
@@ -114,24 +115,27 @@ GOAL TREE:
 - For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
 - Status defaults to "pending".
 
-BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type):
-- When the user uses a bulk quantifier (English: all/every/each/any; Indonesian: semua/setiap/seluruh/tiap/segala; wildcard: *) on an existing entity collection (agents, workflows, providers, modules, notes, etc.), DO NOT try to invent or enumerate the entity names yourself.
-- Emit ONE seed target with operation set to the user's verb (delete/update/toggle/...), entity_type set to the entity collection, entity_label = "all", and selector = {"scope": "all"}.
+BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type and language):
+- A "bulk quantifier" is any word or phrase, IN ANY LANGUAGE, that means "all / every / each" of an existing entity collection (agents, workflows, providers, modules, notes, etc.). You understand the user's language — recognize the intent semantically. Do NOT rely on a fixed keyword list, and do NOT invent or enumerate the entity names yourself.
+- For a whole-collection request: emit ONE seed target with operation set to the user's verb (delete/update/toggle/...), entity_type set to the entity collection, entity_label = "all", and selector = {"scope": "all"}.
+- For a FILTERED-by-pattern request (e.g. "delete agents ending with Don", "toggle workflows starting with Daily", "remove notes containing draft" — in ANY language): emit ONE seed target with a PREDICATE selector instead of enumerating matches yourself:
+    selector = {"scope":"predicate", "field":"name", "op":"ends_with|starts_with|contains|equals|regex", "value":"<pattern>", "case_sensitive":false}
+  The runtime evaluates the predicate against the LIVE snapshot and fans out one concrete target per match. Never list the matching names yourself — you might miss or hallucinate one.
 - Emit ONE matching subgoal whose label describes the bulk action (e.g. "update all workflows to agent X"). Put SHARED slots (the target agent, the new value, etc.) in required_slots so they apply to every fanned-out child.
-- The runtime will deterministically expand this seed into one concrete subgoal+target per matching entity from the live snapshot. You do not need to do it yourself.
-- This rule is INDEPENDENT of how many entities exist. Even if the snapshot only has one workflow today, still emit the bulk shape; the expander handles N=0,1,many uniformly.
-- Bulk selectors NEVER apply to create. If the user says "create all X" treat it as ambiguous and clarify the count or list.
+- The runtime deterministically expands the seed into one concrete subgoal+target per matching entity from the live snapshot. You do not enumerate.
+- This rule is INDEPENDENT of how many entities exist. Even if the snapshot has one entity today, still emit the bulk/predicate shape; the expander handles N=0,1,many uniformly. Zero matches is a valid, honest outcome — the runtime reports "nothing matched", it does NOT act on a guess.
+- Bulk/predicate selectors NEVER apply to create. If the user says "create all X" treat it as ambiguous and clarify the count or list.
 
 TARGET GRAPH:
 - Also emit `targets`: one machine-readable target per subgoal when the action acts on a concrete entity.
 - operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
-- For BULK SELECTOR targets (per the protocol above), leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. The runtime will fan it out from snapshot.
+- For WHOLE-COLLECTION bulk targets, leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. For FILTERED bulk targets, leave entity_id empty and set a predicate selector (see protocol above). The runtime fans either out from the snapshot.
 - Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
 - If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
 - URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
-- If a target is selected by a semantic bulk selector, follow the BULK SELECTOR PROTOCOL above instead of pre-enumerating.
+- If a target is selected by a semantic bulk/predicate selector, follow the BULK SELECTOR PROTOCOL above instead of pre-enumerating.
 - Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
 
   static const reflectResponseFormat =
@@ -177,7 +181,7 @@ TARGET GRAPH:
   "clarify_questions": ["one combined question that covers all missing slots"],
   "block_reason": "string, only when strategy=block",
   "reasoning": "1-2 sentences in English describing why you picked this strategy",
-  "narrative": "ONE short, casual, POV-AI, present-progressive sentence in the user's language describing what you're thinking about RIGHT NOW (e.g. 'Aku lagi mikirin, kalau Writer dihapus ada workflow yang masih make dia.' or 'Checking what depends on this agent first...')"
+  "narrative": "ONE short, casual, POV-AI, present-progressive sentence in the user's language describing what you're thinking about RIGHT NOW (e.g. 'Checking what depends on this agent before I remove it...' or 'Working out which items match what you asked for...')"
 }
 
 Rules:
@@ -260,12 +264,13 @@ Multi-target enumeration rule (CRITICAL):
 - subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).
 
 Bulk-selector rule (applies to ANY entity type — agents, workflows, providers, modules, notes, files):
-- The words "all / every / each / any" (English) and "semua / setiap / seluruh / tiap / segala" (Indonesian), or "*" as a wildcard, are BULK SELECTORS. They mean "every existing entity of this type that the user can see".
-- A bulk selector ALWAYS produces a multi-target intent even though the user did not type out the names. Examples:
-  * "hapus semua workflow"          → multi-target delete on workflows
-  * "set semua workflow ke agen A"  → multi-target update on workflows (shared slot: target agent = A)
-  * "matikan semua agen kecuali X"  → multi-target toggle on agents minus X
-  * "delete every note"             → multi-target delete on notes
+- A BULK SELECTOR is any word or phrase, IN ANY LANGUAGE, meaning "all / every / each" of an existing entity collection (or "*" as a wildcard). You understand the user's language — recognize it semantically, do NOT depend on a fixed word list. It means "every existing entity of this type that the user can see".
+- A bulk selector ALWAYS produces a multi-target intent even though the user did not type out the names. Examples (intent shown in English; user phrasing may be in any language):
+  * "delete all workflows"            → multi-target delete on workflows
+  * "set all workflows to agent A"    → multi-target update on workflows (shared slot: target agent = A)
+  * "turn off every agent except X"   → multi-target toggle on agents minus X
+  * "delete every note"               → multi-target delete on notes
+- A FILTERED selector ("agents ending with Don", "workflows starting with Daily", in any language) is also bulk: set requires_tools=true and bulk_selector=true, emit a SINGLE subgoal_seed describing the filtered intent. The reflector emits the structured predicate; the runtime fans it out from the live snapshot.
 - For bulk requests, set requires_tools=true and emit a SINGLE subgoal_seed describing the bulk intent (e.g. "update all workflows assigned-agent"). The runtime fans this out to one subgoal per matching entity from the live snapshot — do NOT try to enumerate names yourself if you do not know them.
 - Set bulk_selector=true at the top level when the request matches this pattern, otherwise omit it.
 - Bulk selectors NEVER apply to create operations. "create all X" is ambiguous — set requires_tools=false and ask for the count or list.''';
@@ -304,19 +309,34 @@ IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly na
   "goal": "one sentence describing what user wants",
   "requires_tools": true/false,
   "risk": "safe/sensitive/dangerous",
+  "detected_language": "ISO 639-1 code of the user's message language",
+  "tool_groups": ["group enum", "..."],
   "missing_info": ["clarifying question 1", "clarifying question 2"],
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
   "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Aku coba paham nih, kamu mau hapus 3 agen sekaligus.' / 'Got it \u2014 you want to open WhatsApp.')"
+  "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Got it \u2014 you want to remove three agents at once.' / 'Got it \u2014 you want to open WhatsApp.')"
 }
 
 Rules:
 - If missing_info has items, requires_tools MUST be false.
+- detected_language: the ISO 639-1 code of the language the USER wrote in (e.g. "en", "id", "es", "fr", "ja", "ar"). Judge from the user's actual message text, not the app setting. This drives every user-facing reply, so be accurate. If the message is too short or ambiguous to tell, repeat the language of the recent conversation, else default to "en".
+- tool_groups: when requires_tools is true, list the tool CATEGORY/CATEGORIES most relevant to the request, chosen ONLY from this fixed English enum:
+    app          \u2014 open apps/URLs, list installed apps, open settings
+    clipboard    \u2014 read/write the clipboard
+    device       \u2014 battery, network/wifi/cellular, storage, time, locale, bluetooth, do-not-disturb, foreground app, usage
+    notification \u2014 read/summarize/classify/reply notifications, post a local notification
+    notes        \u2014 create/read/search/update/delete/pin/archive/append notes
+    files        \u2014 read/write/list/move/copy/delete files in the workspace
+    calendar     \u2014 create/read/update/delete calendar events, find free slots, conflicts
+    workflow     \u2014 create/list/update/delete/toggle scheduled or recurring automations
+    system       \u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
+    chat         \u2014 deliver a message into a chat UI
+  Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \u2014 the runtime then considers all tools. Never invent a group name outside this enum.
 - narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
   * "none"          -> no active task context provided, OR the new message clearly stands on its own and has nothing to do with the active task.
-  * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok lanjut", "yes", short answer to a clarify). Treat as same task.
+  * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok continue", "yes", short answer to a clarify). Treat as same task.
   * "revision"      -> user is editing/adjusting parameters of the active task (changing a name, slot, or scope of the same goal).
   * "new_task"      -> user is asking for something different and unrelated; the active task should be considered abandoned.
 - When ACTIVE TASK CONTEXT is absent, task_relation MUST be "none".''';
@@ -343,11 +363,11 @@ Rules:
       "status": "pending"
     }
   ],
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language describing the plan in human terms (e.g. 'Aku bagi jadi 3 langkah: hapus dulu, lalu buat baru, terakhir update.' / 'Breaking this into a few simple steps now.')"
+  "narrative": "ONE short, casual, POV-AI sentence in the user's language describing the plan in human terms (e.g. 'Splitting this into a few steps: clear the old ones first, then create the new, then update.' / 'Breaking this into a few simple steps now.')"
 }
 
 Rules:
-- One subgoal per user-visible outcome. Multi-target requests (e.g. "buat 3 agen X, Y, Z") MUST emit one subgoal per target.
+- One subgoal per user-visible outcome. Multi-target requests (e.g. "create 3 agents X, Y, Z") MUST emit one subgoal per target.
 - For existing-entity work, include a validation/list/resolve subgoal before acting when the user gave a partial name, nickname, typo, or ambiguous target. Do not construct a peer workspace path from an unvalidated agent nickname.
 - For information requests that need a tool, include both the retrieval/validation outcome and the final answer outcome. The task is not complete until the user receives the answer based on retrieved data.
 - For the final answer outcome, set required_slots {"_operation":"respond"} (or {"tool":"none"}) and leave missing_slots empty.
@@ -365,7 +385,7 @@ Rules:
   static const selectToolResponseFormat =
       '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you're about to do or have decided. NO tool names, NO IDs, NO internal jargon. First-person, present-progressive (e.g. 'Sebentar, aku mau hapus agen yang kamu sebut.' / 'Picking the right step for this now.').
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you're about to do or have decided. NO tool names, NO IDs, NO internal jargon. First-person, present-progressive (e.g. 'One sec, removing the agent you mentioned.' / 'Picking the right step for this now.').
 
 If a tool is needed:
 {
@@ -412,9 +432,8 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - NEVER include internal IDs in the reply (e.g. "note_13ff8f68").
 - Speak as a helpful assistant who just did the task naturally.
 - Be concise (1–2 short sentences).
-- If success, confirm what was done in human terms (e.g. "Sudah saya buatkan catatan tentang AI.").
-- If the successful tool only retrieved information (read/list/search/status), answer the user's actual question using the tool result. Do NOT say only that the file/list/status was opened or read.
-- For read-file results, synthesize the relevant content into a direct answer unless the user explicitly asked for raw file contents.
+- If success, confirm what was done in human terms (e.g. "I've created a note about AI.").
+- If the successful tool only retrieved information (read/list/search/status), you do NOT need to craft the full answer here — the runtime synthesizes the grounded answer from the tool data. Just decide the status and keep final_response to a short confirmation. Never claim the tool only "opened" or "read" something as if that were the answer.
 - If failed, explain what went wrong in plain language and suggest a next step.
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
 
@@ -425,15 +444,8 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
 - Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.''';
 
-  /// Backward-compat stub. Prefer reviewRulesFor(language).
-  static const reviewRules = '''CRITICAL RULES for final_response:
-- Reply in the SAME language as the user's original request (Indonesian if they used Indonesian).
-- NEVER mention internal tool names like "clipboard.write", "app.open", "intent.open_url".
-- NEVER say "the X tool executed successfully" or similar technical phrasing.
-- Speak naturally as a helpful assistant who just did the task.
-- Be concise (1-2 short sentences).
-- If the tool succeeded, confirm what was done in human terms.
-- If it failed, explain what went wrong in plain language and suggest a next step.''';
+  // (Removed the dead `reviewRules` backward-compat stub — every caller uses
+  // reviewRulesFor(language). Kept the history note so it isn't re-added.)
 
   static const reviewResponseFormat =
       '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
@@ -441,7 +453,7 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
   "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you observed and what's next (e.g. 'Beres! Sekarang lanjut bikin agen kedua.' / 'That worked, moving on to the next step.'). NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you observed and what's next (e.g. 'Done! Now on to the second one.' / 'That worked, moving on to the next step.'). NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
 
 If the active subgoal succeeded but other subgoals are still pending: status=continue.
 Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
@@ -492,7 +504,7 @@ If unrecoverable:
       'You are a conversation summarizer. Summarize the following conversation history '
       'into a concise paragraph that preserves: key facts, user preferences, names mentioned, '
       'decisions made, and important context. Keep it under 200 words. '
-      'Write in the same language as the conversation (Indonesian/English).';
+      "Write in the same language as the conversation.";
 
   // ─── JSON Repair ───────────────────────────────────────────────────────────
 

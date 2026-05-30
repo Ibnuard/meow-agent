@@ -345,6 +345,99 @@ class TargetResolver {
     return false;
   }
 
+  /// True when the selector declares a structured, language-agnostic predicate
+  /// over an entity field. The reflector emits this for requests like
+  /// "delete agents ending with Don" (in ANY language) instead of enumerating
+  /// names itself:
+  ///
+  ///   {"scope":"predicate","field":"name","op":"ends_with",
+  ///    "value":"Don","case_sensitive":false}
+  ///
+  /// The RUNTIME (not the LLM) evaluates the predicate against live snapshot
+  /// state, so it can never invent a non-existent entity — the model only
+  /// supplies the pattern.
+  static bool _isPredicateSelector(Map<String, dynamic> selector) {
+    if (selector.isEmpty) return false;
+    final scope = selector['scope']?.toString().toLowerCase() ?? '';
+    if (scope != 'predicate' && scope != 'filter_by') return false;
+    final op = _predicateOp(selector);
+    return op.isNotEmpty;
+  }
+
+  /// Supported predicate operators (language-agnostic, structural).
+  static const Set<String> _predicateOps = {
+    'ends_with',
+    'starts_with',
+    'contains',
+    'equals',
+    'regex',
+  };
+
+  static String _predicateOp(Map<String, dynamic> selector) {
+    final raw = (selector['op'] ?? selector['operator'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+    // Normalize a few common synonyms the model might emit.
+    const synonyms = {
+      'endswith': 'ends_with',
+      'suffix': 'ends_with',
+      'startswith': 'starts_with',
+      'prefix': 'starts_with',
+      'includes': 'contains',
+      'has': 'contains',
+      'eq': 'equals',
+      'is': 'equals',
+      'matches': 'regex',
+      'pattern': 'regex',
+    };
+    final normalized = synonyms[raw] ?? raw;
+    return _predicateOps.contains(normalized) ? normalized : '';
+  }
+
+  /// Evaluate a predicate selector against a single entity label/id.
+  static bool _matchesPredicate(
+    Map<String, dynamic> selector,
+    _EntityMatch entity,
+  ) {
+    final op = _predicateOp(selector);
+    if (op.isEmpty) return false;
+    final value = (selector['value'] ?? selector['pattern'] ?? '').toString();
+    if (value.isEmpty) return false;
+
+    final field = (selector['field'] ?? 'name').toString().toLowerCase();
+    final subject = (field == 'id') ? entity.id : entity.label;
+
+    final caseSensitive = selector['case_sensitive'] == true;
+    final a = caseSensitive ? subject : subject.toLowerCase();
+    final b = caseSensitive ? value : value.toLowerCase();
+
+    switch (op) {
+      case 'ends_with':
+        return a.endsWith(b);
+      case 'starts_with':
+        return a.startsWith(b);
+      case 'contains':
+        return a.contains(b);
+      case 'equals':
+        return a == b;
+      case 'regex':
+        try {
+          return RegExp(
+            value,
+            caseSensitive: caseSensitive,
+          ).hasMatch(subject);
+        } catch (_) {
+          return false; // Invalid regex never matches — fail safe.
+        }
+      default:
+        return false;
+    }
+  }
+
+
   /// Operations that may target an existing entity collection in bulk. Create
   /// is intentionally absent — `create all X` is never a valid bulk op and is
   /// treated as ambiguous so the LLM/reflector can clarify.
@@ -444,11 +537,26 @@ class TargetResolver {
     // Already concrete (snapshot id known) — nothing to expand.
     if (seed.entityId.trim().isNotEmpty) return null;
 
+    final isPredicate = _isPredicateSelector(seed.selector);
     final isBulk =
-        _isBulkLabel(seed.entityLabel) || _isBulkSelector(seed.selector);
+        _isBulkLabel(seed.entityLabel) ||
+        _isBulkSelector(seed.selector) ||
+        isPredicate;
     if (!isBulk) return null;
 
-    final entities = _entities(snapshot, entityType);
+    final allEntities = _entities(snapshot, entityType);
+    if (allEntities.isEmpty) return null;
+
+    // Predicate selectors fan out only to entities the structured predicate
+    // matches (evaluated by the runtime against live snapshot state — the LLM
+    // never enumerates names). A predicate that matches nothing yields no
+    // targets, so the caller surfaces an honest empty-result rather than
+    // acting on a guessed entity.
+    final entities = isPredicate
+        ? allEntities
+              .where((e) => _matchesPredicate(seed.selector, e))
+              .toList(growable: false)
+        : allEntities;
     if (entities.isEmpty) return null;
 
     final originId = seed.subgoalId.isEmpty ? '__bulk_$index' : seed.subgoalId;
