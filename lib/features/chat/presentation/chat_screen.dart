@@ -341,17 +341,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : _buildReplyPayload(replyContext, text);
 
     if (enableAgentRuntimeV1) {
-      // Auto-compact if context threshold reached.
-      await _autoCompactIfNeeded();
-      // Manager persists user msg + final reply, listener reloads history.
-      final mgr = _ensureManager();
-      // Optimistically show the user message immediately.
+      // Optimistically show the user message immediately — it always lands
+      // in history regardless of context exhaustion.
       final userMsg = ChatMessage(role: 'user', content: messageText);
       setState(() => _messages.add(userMsg));
       _scrollToEnd();
-      // Send recent persisted messages (those with id) as context.
+
+      // Check context BEFORE calling the runtime. If the threshold was hit
+      // and auto-compact is off, surface a warning but DO NOT send the user
+      // message to the agent — there is no point because it will fail. The
+      // user message is already visible in the chat.
+      final blocked = await _autoCompactIfNeeded();
+      if (blocked) return;
+
+      // Manager persists user msg + final reply, listener reloads history.
+      final mgr = _ensureManager();
       final recent = _messages.where((m) => m.id != null).toList();
-      // Fire-and-forget — manager keeps running even if screen disposes.
       mgr.send(
         agentId: _activeAgentId,
         userMessage: messageText,
@@ -566,6 +571,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
         _messagesByAgent.remove(_activeAgentId);
         _fullyLoaded.remove(_activeAgentId);
+        OpenAiCompatibleClient.clearUsageRecords();
         setState(() {});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -579,8 +585,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case '/help':
         response = _buildCommandHelp(ref.read(llmDebugModeProvider));
       case '/reset':
-        // Reset context only — keep chat visible but AI forgets prior context.
-        response = '✓ Context reset. AI will treat next message as fresh.';
+        // Soft reset: clear context measurement so the next message is a fresh
+        // slate, but keep the visible chat history intact.
+        OpenAiCompatibleClient.clearUsageRecords();
+        response = '✓ Context reset — usage counters cleared. '
+            'AI will treat next message as a fresh session.';
       case '/model':
         final agents = ref.read(agentListProvider);
         final providers = ref.read(providerListProvider).value ?? [];
@@ -971,7 +980,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// Auto-compact if context exceeds 80% threshold.
-  Future<void> _autoCompactIfNeeded() async {
+  ///
+  /// Returns `true` when the send was BLOCKED (auto-compact off + context full),
+  /// and the caller should not proceed with the user's request.
+  Future<bool> _autoCompactIfNeeded() async {
     final agents = ref.read(agentListProvider);
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -982,11 +994,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       messages: _messages,
       maxContextLength: maxCtx,
     )) {
-      return;
+      return false;
+    }
+
+    if (agent?.autoCompact == false) {
+      final msg = ChatMessage(
+        role: 'assistant',
+        content: 'Context exhausted — conversation reached '
+            '${agent!.maxContextLength} token limit.\n'
+            '- Start a **new chat** for a clean slate\n'
+            '- **Increase context length** in agent settings\n'
+            '- **Enable auto-compact** in agent settings to '
+            'automatically summarize old messages',
+      );
+      setState(() => _messages.add(msg));
+      _persistMessage(msg);
+      return true;
     }
 
     final provider = _resolveProvider();
-    if (provider == null) return;
+    if (provider == null) return false;
 
     try {
       final llmConfig = LlmProviderConfig(
@@ -1022,9 +1049,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
       setState(() => _messages.add(infoMsg));
       _persistMessage(infoMsg);
+      return false;
     } catch (_) {
       // Silent fail for auto-compact — don't block the user's message.
     }
+    return false;
   }
 
   void _switchAgent(String agentId) {
@@ -1357,14 +1386,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                             _showMessageActions(current),
                                       ),
                                     );
-                                    final isUserMsg = current.role == 'user';
-                                    final alignedBubble = Align(
-                                      alignment: isUserMsg
-                                          ? Alignment.centerRight
-                                          : Alignment.centerLeft,
-                                      child: bubble,
-                                    );
-                                    if (!showDate) return alignedBubble;
+                                    if (!showDate) return bubble;
                                     return Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.stretch,
@@ -1373,7 +1395,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                           date: current.timestamp.toLocal(),
                                           isId: isId,
                                         ),
-                                        alignedBubble,
+                                        bubble,
                                       ],
                                     );
                                   }
@@ -1488,10 +1510,11 @@ class _Bubble extends StatelessWidget {
         ),
         border: isUser ? null : Border.all(color: extras.subtleBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: IntrinsicWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
           // Reply quote chip (WhatsApp-style).
           if (quoteText != null && quoteText.isNotEmpty) ...[
             Container(
@@ -1621,6 +1644,7 @@ class _Bubble extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
       ),
     );

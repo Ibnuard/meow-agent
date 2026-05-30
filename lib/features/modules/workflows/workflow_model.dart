@@ -79,7 +79,7 @@ class TriggerConfig {
     ),
     hour: json['hour'] as int?,
     minute: json['minute'] as int?,
-    daysOfWeek: (json['daysOfWeek'] as List?)?.cast<int>(),
+    daysOfWeek: _parseDaysOfWeek(json['daysOfWeek']),
     intervalMinutes: json['intervalMinutes'] as int?,
     eventKind: json['eventKind'] != null
         ? EventTriggerKind.values.firstWhere(
@@ -89,6 +89,35 @@ class TriggerConfig {
         : null,
     eventParams: (json['eventParams'] as Map<String, dynamic>?),
   );
+
+  /// Parse [daysOfWeek] from either ints (1=Mon..7=Sun) or day-name strings.
+  static const _dayNameToInt = {
+    'monday': 1, 'mon': 1, 'senin': 1, 'sen': 1,
+    'tuesday': 2, 'tue': 2, 'selasa': 2, 'sel': 2,
+    'wednesday': 3, 'wed': 3, 'rabu': 3, 'rab': 3,
+    'thursday': 4, 'thu': 4, 'kamis': 4, 'kam': 4,
+    'friday': 5, 'fri': 5, 'jumat': 5, 'jum': 5,
+    'saturday': 6, 'sat': 6, 'sabtu': 6, 'sab': 6,
+    'sunday': 7, 'sun': 7, 'minggu': 7, 'min': 7,
+  };
+
+  static List<int>? _parseDaysOfWeek(dynamic raw) {
+    if (raw == null) return null;
+    if (raw is List) {
+      final out = <int>[];
+      for (final item in raw) {
+        if (item is int) {
+          out.add(item);
+        } else if (item is String) {
+          final lower = item.trim().toLowerCase();
+          final mapped = _dayNameToInt[lower];
+          if (mapped != null) out.add(mapped);
+        }
+      }
+      return out.isNotEmpty ? out : null;
+    }
+    return null;
+  }
 
   /// Human-readable summary of the trigger.
   String get summary {

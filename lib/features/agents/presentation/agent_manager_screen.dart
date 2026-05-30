@@ -34,6 +34,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   String? _selectedProviderId;
   String _iconKey = kDefaultAgentIconKey;
   String _colorKey = kDefaultAgentColorKey;
+  bool _autoCompact = true;
   bool _saving = false;
   String? _existingId;
   String? _workspacePath;
@@ -61,6 +62,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _contextLengthController.text = existing.maxContextLength.toString();
       _iconKey = existing.iconKey;
       _colorKey = existing.colorKey;
+      _autoCompact = existing.autoCompact;
       _loadWorkspacePath(existing.id, agentName: existing.name);
     }
   }
@@ -95,6 +97,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
         name: _nameController.text.trim(),
         providerId: _selectedProviderId!,
         maxContextLength: maxCtx.clamp(512, 1000000),
+        autoCompact: _autoCompact,
         iconKey: _iconKey,
         colorKey: _colorKey,
       );
@@ -442,8 +445,48 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: 24),
 
-            const SizedBox(height: 32),
+            // Auto-Compact toggle.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.autoCompact,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          s.autoCompactDesc,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w400,
+                            color: cs.onSurfaceVariant,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Switch(
+                    value: _autoCompact,
+                    onChanged: (v) => setState(() => _autoCompact = v),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
 
             // Save button.
             Padding(

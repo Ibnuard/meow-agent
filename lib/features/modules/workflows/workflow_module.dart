@@ -28,12 +28,40 @@ class WorkflowModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'workflow.create',
       description:
-          'Create a scheduled, interval, or event-triggered workflow. Supports single-prompt or chained multi-step execution.',
+          'Create a scheduled, interval, or event-triggered workflow. The "prompt" '
+          'field (or each step\'s prompt) is the instruction that runs EVERY TIME '
+          'the workflow triggers — write it as a self-contained task for the '
+          'runtime agent, not as a meta-description of the workflow.\n\n'
+          'PROMPT WRITING RULES (follow these for every workflow):\n'
+          '1. Write the prompt as a direct command the agent should execute each '
+          'run. Example: "Create a note titled \'Morning Briefing - @date\' with '
+          'a reflection on the day ahead." NOT "This workflow creates a note."\n'
+          '2. ALWAYS use @date, @time, @day_name, or @datetime for any value that '
+          'should change per run (dates, greetings, time-based content). Never '
+          'hardcode today\'s date — the prompt runs on future days.\n'
+          '3. If the user asks for a specific action (create note, send message, '
+          'read data), describe THAT action with concrete parameters in the '
+          'prompt, not just the workflow\'s purpose.\n'
+          '4. Prefer a single-prompt workflow unless the user explicitly asks for '
+          'multiple sequential steps.\n\n'
+          'BUILT-IN VARIABLES (use @key in prompts — they resolve at runtime):\n'
+          '@date (YYYY-MM-DD), @time (HH:mm), @datetime, @day_name, '
+          '@date_long, @month_name, @year, @iso_timestamp\n'
+          '@agent_name, @user_name, @user_nickname (from profile)\n'
+          '@chat_session (chat target for chat.send), @chat_history (recent chat)\n'
+          '@prev (previous step output), @step1, @step2, ... (specific step output)\n'
+          '@notif, @notif_title, @notif_body, @notif_app, @notif_keyword\n'
+          '@app_package, @battery_level\n\n'
+          'USER VARIABLES: defined in "variables" field, accessed as {{key}} or @key.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
         'title': 'string (required)',
-        'prompt': 'string (required if steps not provided)',
+        'prompt':
+            'string (required if steps not provided) — the instruction the agent '
+            'executes EACH time this workflow triggers. Write it as a direct '
+            'command using @variables for dynamic values (e.g. "Create a note '
+            'titled \'Report @date\' with a summary of recent notifications.")',
         'agentId':
             'string (optional, defaults to caller agent; accepts agent UUID or display name to assign workflow to a specific agent)',
         'trigger':

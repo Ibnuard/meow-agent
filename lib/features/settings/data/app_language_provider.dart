@@ -84,6 +84,12 @@ class AppStrings {
   String get close => isId ? 'Tutup' : 'Close';
   String get add => isId ? 'Tambah' : 'Add';
   String get saving => isId ? 'Menyimpan...' : 'Saving...';
+  String get autoCompact => isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
+  String get autoCompactDesc => isId
+      ? 'Ringkas otomatis pesan lama saat batas konteks model hampir tercapai. '
+          'Jika dimatikan, agen akan berhenti dan memberi tahu kamu saat konteks penuh.'
+      : 'Automatically summarize old messages when the context window approaches '
+          'the model limit. When off, the agent stops and asks you how to proceed.';
 
   String get preferences => isId ? 'PREFERENSI' : 'PREFERENCES';
   String get providers => isId ? 'PROVIDER' : 'PROVIDERS';

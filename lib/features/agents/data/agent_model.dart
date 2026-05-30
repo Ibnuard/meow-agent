@@ -11,6 +11,7 @@ class AgentModel {
     required this.name,
     required this.providerId,
     this.maxContextLength = 8191,
+    this.autoCompact = true,
     String? iconKey,
     String? colorKey,
   })  : id = id ?? const Uuid().v4(),
@@ -26,6 +27,12 @@ class AgentModel {
   final String providerId;
   final int maxContextLength;
 
+  /// Whether the chat screen should auto-compact conversation history when
+  /// the context window approaches the provider's limit. When false and the
+  /// context is exhausted, the agent stops and asks the user to start a new
+  /// chat, increase the context length, or enable this toggle.
+  final bool autoCompact;
+
   /// Stable preset key for the avatar icon — see [kAgentIconOptions].
   final String iconKey;
 
@@ -39,6 +46,7 @@ class AgentModel {
     String? name,
     String? providerId,
     int? maxContextLength,
+    bool? autoCompact,
     String? iconKey,
     String? colorKey,
   }) {
@@ -47,6 +55,7 @@ class AgentModel {
       name: name ?? this.name,
       providerId: providerId ?? this.providerId,
       maxContextLength: maxContextLength ?? this.maxContextLength,
+      autoCompact: autoCompact ?? this.autoCompact,
       iconKey: iconKey ?? this.iconKey,
       colorKey: colorKey ?? this.colorKey,
     );
@@ -57,6 +66,7 @@ class AgentModel {
         'name': name,
         'providerId': providerId,
         'maxContextLength': maxContextLength,
+        'autoCompact': autoCompact,
         'iconKey': iconKey,
         'colorKey': colorKey,
       };
@@ -67,6 +77,7 @@ class AgentModel {
       name: (json['name'] as String?) ?? '',
       providerId: (json['providerId'] as String?) ?? '',
       maxContextLength: (json['maxContextLength'] as int?) ?? 8191,
+      autoCompact: json['autoCompact'] as bool? ?? true,
       iconKey: json['iconKey'] as String?,
       colorKey: json['colorKey'] as String?,
     );
