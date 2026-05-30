@@ -12,7 +12,6 @@ import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/context_report.dart';
-import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/workspace_file_service.dart';
 import '../../../services/llm/openai_compatible_client.dart';
@@ -340,60 +339,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? text
         : _buildReplyPayload(replyContext, text);
 
-    if (enableAgentRuntimeV1) {
-      // Optimistically show the user message immediately — it always lands
-      // in history regardless of context exhaustion.
-      final userMsg = ChatMessage(role: 'user', content: messageText);
-      setState(() => _messages.add(userMsg));
-      _scrollToEnd();
-
-      // Check context BEFORE calling the runtime. If the threshold was hit
-      // and auto-compact is off, surface a warning but DO NOT send the user
-      // message to the agent — there is no point because it will fail. The
-      // user message is already visible in the chat.
-      final blocked = await _autoCompactIfNeeded();
-      if (blocked) return;
-
-      // Manager persists user msg + final reply, listener reloads history.
-      final mgr = _ensureManager();
-      final recent = _messages.where((m) => m.id != null).toList();
-      mgr.send(
-        agentId: _activeAgentId,
-        userMessage: messageText,
-        recentMessages: recent,
-      );
-      return;
-    }
-
-    // Legacy direct LLM path.
-    final userMsg = ChatMessage(role: 'user', content: text);
+    // Optimistically show the user message immediately — it always lands
+    // in history regardless of context exhaustion.
+    final userMsg = ChatMessage(role: 'user', content: messageText);
     setState(() => _messages.add(userMsg));
-    _persistMessage(userMsg);
     _scrollToEnd();
 
-    try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-      );
-      final reply = await OpenAiCompatibleClient().chat(
-        config: llmConfig,
-        phase: 'legacy_chat',
-        messages: _buildHistory(),
-      );
-      if (!mounted) return;
-      final replyMsg = ChatMessage(role: 'assistant', content: reply);
-      setState(() => _messages.add(replyMsg));
-      _persistMessage(replyMsg);
-      _scrollToEnd();
-    } catch (e) {
-      if (!mounted) return;
-      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
-      setState(() => _messages.add(errorMsg));
-      _persistMessage(errorMsg);
-      _scrollToEnd();
-    }
+    // Check context BEFORE calling the runtime. If the threshold was hit
+    // and auto-compact is off, surface a warning but DO NOT send the user
+    // message to the agent — there is no point because it will fail. The
+    // user message is already visible in the chat.
+    final blocked = await _autoCompactIfNeeded();
+    if (blocked) return;
+
+    // Manager persists user msg + final reply, listener reloads history.
+    final mgr = _ensureManager();
+    final recent = _messages.where((m) => m.id != null).toList();
+    mgr.send(
+      agentId: _activeAgentId,
+      userMessage: messageText,
+      recentMessages: recent,
+    );
+    return;
   }
 
   /// Reload history from disk after manager persists a reply.
@@ -500,35 +467,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _deletePersistedMessage(int id) async {
     final service = ref.read(chatHistoryServiceProvider);
     await service.deleteMessage(id);
-  }
-
-  List<Map<String, String>> _buildHistory() {
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final name = agent?.name ?? 'Assistant';
-    final isFirstChat = _messages.where((m) => m.role == 'user').length <= 1;
-
-    final systemPrompt = StringBuffer()
-      ..write(PromptConstants.chatSystemPrompt(name));
-
-    if (isFirstChat) {
-      systemPrompt
-        ..writeln()
-        ..writeln()
-        ..write(PromptConstants.firstIntroductionRule);
-    }
-
-    // Only send the last 20 messages as context to save tokens.
-    final contextMessages = _messages.length > 20
-        ? _messages.sublist(_messages.length - 20)
-        : _messages;
-
-    return [
-      {'role': 'system', 'content': systemPrompt.toString().trim()},
-      ...contextMessages.map((m) => {'role': m.role, 'content': m.content}),
-    ];
   }
 
   void _scrollToEnd() {
@@ -1800,9 +1738,7 @@ class _ResultActionButton extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
-    final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
-    final label = isId ? action.labelId : action.label;
+    final label = action.label;
 
     return Material(
       color: cs.primary.withValues(alpha: 0.12),

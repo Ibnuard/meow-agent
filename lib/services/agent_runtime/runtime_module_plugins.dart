@@ -24,5 +24,10 @@ const List<ModulePlugin> runtimeModulePlugins = [
   ChatModulePlugin(),
 ];
 
+ModuleRegistry? _cachedRegistry;
+
+/// Returns a cached singleton [ModuleRegistry] built from
+/// [runtimeModulePlugins]. Multiple callers (ToolRouter, ToolCatalog) share
+/// the same instance, avoiding duplicate initialization and drift risk.
 ModuleRegistry buildRuntimeModuleRegistry() =>
-    ModuleRegistry(runtimeModulePlugins);
+    _cachedRegistry ??= ModuleRegistry.fromPlugins(runtimeModulePlugins);

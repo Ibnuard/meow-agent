@@ -1,0 +1,340 @@
+import 'tool_permission_policy.dart';
+
+/// Static permission requirement map for Meow Agent tools.
+///
+/// Each entry maps a tool name to its [ToolPermissionRequirement]:
+/// which module must be installed/enabled, and optionally which setting
+/// toggle must be on. Generated from module plugin metadata.
+///
+/// Extracted from [ToolPermissionPolicy] to keep the policy class focused
+/// on runtime checks rather than data declaration.
+const toolPermissionRequirements = <String, ToolPermissionRequirement>{
+  'clipboard.read': ToolPermissionRequirement(
+    moduleId: 'clipboard_ai',
+    actionLabel: 'read the clipboard',
+  ),
+  'clipboard.write': ToolPermissionRequirement(
+    moduleId: 'clipboard_ai',
+    actionLabel: 'write to the clipboard',
+  ),
+  'app.resolve': ToolPermissionRequirement(
+    moduleId: 'app_control',
+    actionLabel: 'find installed apps',
+  ),
+  'app.open': ToolPermissionRequirement(
+    moduleId: 'app_control',
+    actionLabel: 'open apps',
+  ),
+  'app.list_installed': ToolPermissionRequirement(
+    moduleId: 'app_control',
+    actionLabel: 'list installed apps',
+  ),
+  'settings.open': ToolPermissionRequirement(
+    moduleId: 'app_control',
+    settingKey: 'allow_system_settings',
+    settingLabel: 'Allow System Settings',
+    actionLabel: 'open Android settings',
+  ),
+  'intent.open_url': ToolPermissionRequirement(
+    moduleId: 'app_control',
+    settingKey: 'allow_url_intents',
+    settingLabel: 'Allow URL Intents',
+    actionLabel: 'open URLs',
+  ),
+  'device.battery': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_battery',
+    settingLabel: 'Battery Info',
+    actionLabel: 'read battery info',
+  ),
+  'device.network': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_network',
+    settingLabel: 'Network Info',
+    actionLabel: 'read network info',
+  ),
+  'device.storage': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_storage',
+    settingLabel: 'Storage Info',
+    actionLabel: 'read storage info',
+  ),
+  'device.time': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_time_locale',
+    settingLabel: 'Time & Locale',
+    actionLabel: 'read local time',
+  ),
+  'device.locale': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_time_locale',
+    settingLabel: 'Time & Locale',
+    actionLabel: 'read locale info',
+  ),
+  'device.summary': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    actionLabel: 'read device context',
+  ),
+  'device.foreground_app': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_foreground_app',
+    settingLabel: 'Foreground App Detection',
+    actionLabel: 'detect the foreground app',
+  ),
+  'device.usage_stats': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_foreground_app',
+    settingLabel: 'Foreground App Detection',
+    actionLabel: 'read app usage stats',
+  ),
+  'device.charging': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_charging',
+    settingLabel: 'Charging Info',
+    actionLabel: 'read charging info',
+  ),
+  'device.dnd': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_dnd',
+    settingLabel: 'Do Not Disturb Status',
+    actionLabel: 'read Do Not Disturb status',
+  ),
+  'device.bluetooth': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_bluetooth',
+    settingLabel: 'Bluetooth Status',
+    actionLabel: 'read Bluetooth status',
+  ),
+  'device.dnd.set': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_dnd',
+    settingLabel: 'Do Not Disturb Status',
+    actionLabel: 'change Do Not Disturb',
+  ),
+  'device.wifi.reconnect': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_network',
+    settingLabel: 'Network Info',
+    actionLabel: 'reconnect WiFi',
+  ),
+  'device.bluetooth.set': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_bluetooth',
+    settingLabel: 'Bluetooth Status',
+    actionLabel: 'change Bluetooth',
+  ),
+  'device.wifi': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_network',
+    settingLabel: 'Network Info',
+    actionLabel: 'read WiFi status',
+  ),
+  'device.cellular': ToolPermissionRequirement(
+    moduleId: 'device_context',
+    settingKey: 'allow_network',
+    settingLabel: 'Network Info',
+    actionLabel: 'read cellular status',
+  ),
+  'notification.status': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    actionLabel: 'check notification access',
+  ),
+  'notification.read_recent': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Notifications',
+    actionLabel: 'read notifications',
+  ),
+  'notification.summarize': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_summary',
+    settingLabel: 'Allow Notification Summaries',
+    actionLabel: 'summarize notifications',
+  ),
+  'notification.classify': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_classify',
+    settingLabel: 'Allow Importance Detection',
+    actionLabel: 'classify notifications',
+  ),
+  'notification.reply_suggestion': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_reply_suggestion',
+    settingLabel: 'Allow Reply Suggestions',
+    actionLabel: 'suggest notification replies',
+  ),
+  'notification.open_app': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_open_source_app',
+    settingLabel: 'Allow Open Source App',
+    actionLabel: 'open the notification source app',
+  ),
+  'notes.create': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'create notes',
+  ),
+  'notes.list_recent': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Notes',
+    actionLabel: 'list notes',
+  ),
+  'notes.read': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Notes',
+    actionLabel: 'read notes',
+  ),
+  'notes.search': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_search',
+    settingLabel: 'Allow Search Notes',
+    actionLabel: 'search notes',
+  ),
+  'notes.update': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'update notes',
+  ),
+  'notes.delete': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'delete notes',
+  ),
+  'notes.export': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_export',
+    settingLabel: 'Allow Export Notes',
+    actionLabel: 'export notes',
+  ),
+  'files.create': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Files',
+    actionLabel: 'create files',
+  ),
+  'files.read': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Files',
+    actionLabel: 'read files',
+  ),
+  'files.write': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_write',
+    settingLabel: 'Allow Write Files',
+    actionLabel: 'write files',
+  ),
+  'files.delete': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_delete',
+    settingLabel: 'Allow Delete Files',
+    actionLabel: 'delete files',
+  ),
+  'files.list': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Files',
+    actionLabel: 'list files',
+  ),
+  'files.move': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_organize',
+    settingLabel: 'Allow Organize Files',
+    actionLabel: 'move files',
+  ),
+  'files.mkdir': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Files',
+    actionLabel: 'create folders',
+  ),
+  'calendar.create': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Events',
+    actionLabel: 'create calendar events',
+  ),
+  'calendar.today': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Events',
+    actionLabel: 'read calendar events',
+  ),
+  'calendar.list': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Events',
+    actionLabel: 'list calendar events',
+  ),
+  'calendar.read': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Events',
+    actionLabel: 'read calendar events',
+  ),
+  'calendar.update': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_update',
+    settingLabel: 'Allow Update Events',
+    actionLabel: 'update calendar events',
+  ),
+  'calendar.delete': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_delete',
+    settingLabel: 'Allow Delete Events',
+    actionLabel: 'delete calendar events',
+  ),
+  'workflow.create': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Workflows',
+    actionLabel: 'create workflows',
+  ),
+  'workflow.create_from_template': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Workflows',
+    actionLabel: 'create workflows',
+  ),
+  'workflow.list_templates': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Workflows',
+    actionLabel: 'list workflow templates',
+  ),
+  'workflow.list': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Workflows',
+    actionLabel: 'list workflows',
+  ),
+  'workflow.read': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Workflows',
+    actionLabel: 'read workflows',
+  ),
+  'workflow.update': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_update',
+    settingLabel: 'Allow Update Workflows',
+    actionLabel: 'update workflows',
+  ),
+  'workflow.delete': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_delete',
+    settingLabel: 'Allow Delete Workflows',
+    actionLabel: 'delete workflows',
+  ),
+  'workflow.toggle': ToolPermissionRequirement(
+    moduleId: 'workflows',
+    settingKey: 'allow_update',
+    settingLabel: 'Allow Update Workflows',
+    actionLabel: 'enable or disable workflows',
+  ),
+};

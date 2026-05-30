@@ -1,0 +1,53 @@
+/// Context / misc prompt constants extracted from [PromptConstants].
+///
+/// Covers chat, context compaction, JSON repair, pending action, and memory
+/// context — smaller prompt sections that don't justify their own phase files.
+library;
+
+// ─── Chat (legacy direct LLM path) ──────────────────────────────────────────
+
+/// Base system prompt for the legacy chat path.
+String promptChatSystemPrompt(String agentName) =>
+    '''You are $agentName, an Android-native AI assistant.
+Be concise and helpful.
+Match the user's language; do not switch unless they ask.
+
+Behavior rules:
+- Keep responses concise and practical.
+- Avoid exaggerated futuristic language.
+- Ask before sensitive actions.''';
+
+/// First-chat introduction rule appended when user has no prior messages.
+const promptFirstIntroductionRule = '''FIRST INTRODUCTION RULE:
+This is the user's first message. Before handling their request, politely ask what name or nickname they'd like to be called. Keep it natural and brief. Reply in the user's language.''';
+
+// ─── Context Compactor ───────────────────────────────────────────────────────
+
+const promptCompactorSystemPrompt =
+    'You are a conversation summarizer. Summarize the following conversation history '
+    'into a concise paragraph that preserves: key facts, user preferences, names mentioned, '
+    'decisions made, and important context. Keep it under 200 words. '
+    "Write in the same language as the conversation.";
+
+// ─── JSON Repair ─────────────────────────────────────────────────────────────
+
+const promptJsonRepairIntro =
+    'The following text was supposed to be valid JSON but has errors.\n'
+    'Fix it and return ONLY the corrected valid JSON, nothing else:';
+
+// ─── Pending Action Context ──────────────────────────────────────────────────
+
+const promptPendingActionInstructions =
+    '''If the user refers to "the result", "that", "the previous one", "this" — they mean this pending action.
+If user asks to preview, show, or just see the result — set requires_tools to false and answer using the preview.
+If user rejects — set requires_tools to false.
+If user confirms — set requires_tools to true.''';
+
+// ─── Memory Context ──────────────────────────────────────────────────────────
+
+const promptMemoryInstructions =
+    'When the user references something ambiguous, prefer matching against the LAST relevant entry above. '
+    'Reuse IDs (noteId, package, notificationId, etc.) from these results instead of asking again.';
+
+const promptMemoryHeader =
+    'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';

@@ -9,7 +9,10 @@ import 'runtime_models.dart';
 /// and [ToolCatalog] consume it instead of hand-maintaining parallel copies,
 /// which removes the registry/dispatch/catalog sync hazard.
 class ModuleRegistry {
-  ModuleRegistry(this.plugins) {
+  factory ModuleRegistry.fromPlugins(List<ModulePlugin> plugins) =>
+      ModuleRegistry._(plugins);
+
+  ModuleRegistry._(this.plugins) {
     for (final plugin in plugins) {
       for (final def in plugin.toolDefinitions) {
         final existing = _pluginByTool[def.name];

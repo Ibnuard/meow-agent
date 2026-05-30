@@ -1,7 +1,6 @@
-import '../../features/chat/data/chat_history_service.dart';
+import 'package:uuid/uuid.dart';
 
-/// Feature flag for Agent Runtime v1.
-const bool enableAgentRuntimeV1 = true;
+import '../../features/chat/data/chat_history_service.dart';
 
 /// Runtime states for the agentic loop.
 enum AgentRuntimeState {
@@ -78,7 +77,7 @@ class AgentRuntimeResponse {
 /// A single event logged during runtime execution.
 class RuntimeEvent {
   RuntimeEvent({required this.type, required this.message, this.data})
-    : id = DateTime.now().microsecondsSinceEpoch.toString(),
+    : id = const Uuid().v4(),
       createdAt = DateTime.now();
 
   final String id;
@@ -118,18 +117,14 @@ class ToolCallRequest {
 class ResultAction {
   const ResultAction({
     required this.label,
-    required this.labelId,
     required this.icon,
     required this.type,
     required this.target,
     this.params = const {},
   });
 
-  /// English label.
+  /// Label (English canonical form — UI localizes via LanguageRegistry).
   final String label;
-
-  /// Indonesian label.
-  final String labelId;
 
   /// Material icon name (e.g., 'calendar_month_rounded').
   final String icon;
@@ -145,7 +140,6 @@ class ResultAction {
 
   Map<String, dynamic> toJson() => {
     'label': label,
-    'labelId': labelId,
     'icon': icon,
     'type': type,
     'target': target,
@@ -154,7 +148,6 @@ class ResultAction {
 
   factory ResultAction.fromJson(Map<String, dynamic> json) => ResultAction(
     label: json['label'] as String? ?? '',
-    labelId: json['labelId'] as String? ?? '',
     icon: json['icon'] as String? ?? '',
     type: json['type'] as String? ?? 'navigate',
     target: json['target'] as String? ?? '',

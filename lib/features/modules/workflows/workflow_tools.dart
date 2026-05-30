@@ -200,7 +200,6 @@ class WorkflowTools {
       actions: const [
         ResultAction(
           label: 'Open Workflows',
-          labelId: 'Buka Workflows',
           icon: 'schedule_rounded',
           type: 'navigate',
           target: '/modules/workflows',
@@ -515,7 +514,6 @@ class WorkflowTools {
       actions: [
         ResultAction(
           label: 'Open Workflows',
-          labelId: 'Buka Workflows',
           icon: 'schedule_rounded',
           type: 'navigate',
           target: '/modules/workflows',

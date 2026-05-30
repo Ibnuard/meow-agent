@@ -474,18 +474,27 @@ class AgentRuntimeEngine {
           pendingDecision = ConfirmationDecision.none;
           pendingClarification = null;
           effectiveUserMessage = request.userMessage;
+          activeTaskContext = '';
 
-          toolSelection = ToolCatalog.select(
-            userMessage: request.userMessage,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
+          // Re-narrow tools from the analyzer's tool_groups now that the
+          // active-task context is cleared. Without this the downstream phases
+          // see the full catalog, the reflector has no authoritative shortlist,
+          // and stale conversation history bleeds into the reflect prompt —
+          // causing it to produce a goal tree from a prior turn.
+          final groupsHint = (analysis['tool_groups'] as List?)
+              ?.map((e) => e.toString())
+              .toList();
+          final narrowed = ToolCatalog.fromGroups(groupsHint);
+          final narrowedAvailable = toolRouter.buildToolDescriptions(
+            narrowed.toolNames,
           );
-          analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
-            toolSelection.toolNames,
-          );
-          availableTools = toolRouter.buildToolDescriptions(
-            toolSelection.toolNames,
-          );
-          if (availableTools.isEmpty) {
+          if (narrowedAvailable.isNotEmpty) {
+            toolSelection = narrowed;
+            analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+              narrowed.toolNames,
+            );
+            availableTools = narrowedAvailable;
+          } else {
             analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
             availableTools = toolRouter.buildAllToolDescriptions();
           }
@@ -497,7 +506,9 @@ class AgentRuntimeEngine {
           logger.logStateChange(
             AgentRuntimeState.analyzing,
             'Active task scope archived (aborted) due to '
-            'new_task classification. Heads-up surfaced.',
+            'new_task classification. Tools re-narrowed to '
+            '${availableTools.length} from analyzer tool_groups. '
+            'Heads-up surfaced.',
           );
           emit(logger.events.last);
           logger.logNarrative('relation', headsUp);
@@ -743,8 +754,16 @@ class AgentRuntimeEngine {
                   'results or prior progress/narrative messages as evidence. '
                   'If the relevant result failed or is missing, say you cannot '
                   'verify it yet and ask for the exact target or next step.';
+        // Inject world-model awareness so the model knows it is Meow Agent
+        // (not a generic LLM) and has accurate knowledge of its own schema.
+        final worldModelBlock =
+            '\n\nMEOW AGENT WORLD MODEL:\n'
+            'You are an Android-native AI agent, NOT a generic LLM or '
+            'terminal-based assistant. Your workspace is a sandbox at '
+            'Documents/MeowAgent/, rooted at your agent folder.\n'
+            '${PromptConstants.systemMarkdownMap}';
         final baseSystem =
-            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$identityBlock$toolMemoryBlock';
+            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$identityBlock$worldModelBlock$toolMemoryBlock';
         final systemContent = pending != null
             ? '$baseSystem\n\n'
                   'PENDING ACTION (user was asked to confirm):\n'
@@ -3537,8 +3556,17 @@ class AgentRuntimeEngine {
 
   bool _isLastPlannedStep(Map<String, dynamic> plan, int currentStep) {
     final steps = plan['steps'];
-    if (steps is! List || steps.isEmpty) return true;
-    return currentStep >= steps.length;
+    if (steps is List && steps.isNotEmpty) {
+      return currentStep >= steps.length;
+    }
+    // Planner emits subgoals format (v2). Each tool execution advances one
+    // subgoal, so we're at the last step when currentStep >= subgoal count.
+    final subgoals = plan['subgoals'];
+    if (subgoals is List && subgoals.isNotEmpty) {
+      return currentStep >= subgoals.length;
+    }
+    // Neither format present — treat as single-step to avoid blocking.
+    return true;
   }
 
   bool _shouldAnswerFromToolResult({
@@ -3659,20 +3687,16 @@ class AgentRuntimeEngine {
         ? LanguageRegistry.phrase('permission_module_default', code)
         : moduleName;
 
-    // Action labels are still keyed by id/en in the policy data because that
-    // matches what the modules ship. We pick the user-language-friendly
-    // variant when available, otherwise default to the English variant
-    // since LanguageRegistry will wrap it in a properly localized sentence.
-    final actionRawKey = code == 'id' ? 'actionLabelId' : 'actionLabel';
+    // Action and setting labels: single canonical English form. LanguageRegistry
+    // wraps them in localized sentences per the user's language.
     final action =
-        ((data[actionRawKey] ?? data['actionLabel']) as String? ?? '').trim();
+        (data['actionLabel'] as String? ?? '').trim();
     final actionLabel = action.isEmpty
         ? LanguageRegistry.phrase('permission_action_default', code)
         : action;
 
-    final settingRawKey = code == 'id' ? 'settingLabelId' : 'settingLabel';
     final setting =
-        ((data[settingRawKey] ?? data['settingLabel']) as String? ?? '').trim();
+        (data['settingLabel'] as String? ?? '').trim();
 
     if (reason == ToolPermissionBlockReason.settingDisabled.name &&
         setting.isNotEmpty) {

@@ -75,7 +75,7 @@ void main() {
 
     test('ModuleRegistry rejects duplicate tool ownership', () {
       expect(
-        () => ModuleRegistry(const [NotesModulePlugin(), NotesModulePlugin()]),
+        () => ModuleRegistry.fromPlugins(const [NotesModulePlugin(), NotesModulePlugin()]),
         throwsStateError,
       );
     });

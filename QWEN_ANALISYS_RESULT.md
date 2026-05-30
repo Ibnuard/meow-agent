@@ -3,6 +3,7 @@
 **Date:** 2026-05-31
 **Scope:** Full codebase analysis (142 Dart source files, 24 test files)
 **Method:** Architecture review, pattern analysis, potential bug hunting
+**Status:** All 14 findings resolved — #1 remains as architectural note (deferred), #2–#14 fully addressed (see ✓ below)
 
 ---
 
@@ -36,44 +37,21 @@
 | Tool surface narrowing pipeline | `ToolSurfacePipeline` |
 | Execute loop orchestration | `ExecuteLoopRunner` |
 
-### 2. Duplicate `ModuleRegistry` Instances
+### 2. ~~Duplicate `ModuleRegistry` Instances~~ ✅ FIXED
 
-Two separate `ModuleRegistry` instances are created at startup from the same plugin list:
+> **Fix:** `buildRuntimeModuleRegistry()` now caches and returns a singleton via `_cachedRegistry ??=`. All callers (ToolRouter, ToolCatalog) share one instance.
 
-```dart
-// tool_router.dart — instance #1
-final ModuleRegistry _moduleRegistry = buildRuntimeModuleRegistry();
+**Original issue:** Two separate `ModuleRegistry` instances were created at startup from the same plugin list (`tool_router.dart` and `tool_catalog.dart` each called `buildRuntimeModuleRegistry()` independently), wasting memory and creating drift risk.
 
-// tool_catalog.dart — instance #2
-static final Map<String, Set<String>> groups = buildRuntimeModuleRegistry()
-    .buildCatalogGroups();
-```
+### 3. ~~Force-Unwrap Crash Risk in `tool_catalog.dart`~~ ✅ FIXED
 
-**Impact:** Wasted memory, potential drift between the two registries if they're ever constructed differently. Currently functionally identical, but a future refactor could desynchronize them without any compile-time error.
+> **Fix:** Changed `...groups['files']!` → `...?groups['files']` (null-aware spread). Same for `system`. Null groups now silently contribute nothing instead of crashing.
 
-**Fix:** Inject the same registry instance into both consumers, or make `buildRuntimeModuleRegistry()` return a cached singleton.
+**Original issue:** Force-unwrap `!` on `groups['files']` and `groups['system']` would throw if either catalog group key was ever missing from the registry. Fragile against future plugin refactors.
 
-### 3. Force-Unwrap Crash Risk in `tool_catalog.dart`
+### 4. ~~Hardcoded Indonesian Strings — Conflicts with "Language-Generic" Principle~~ ✅ FIXED
 
-```dart
-// tool_catalog.dart ~line 44-45
-if (pendingAction != null) {
-  return ToolCatalogSelection(
-    toolNames: {
-      pendingAction.toolName,
-      ...groups['files']!,   // 💥 crashes if 'files' group missing from catalog
-      ...groups['system']!,  // 💥 crashes if 'system' group missing
-    },
-    ...
-  );
-}
-```
-
-**Impact:** `Null check operator used on a null value` at runtime if any plugin rename/removal affects the `files` or `system` catalog groups. Currently safe because both plugins always exist in `runtimeModulePlugins`, but fragile against future refactors.
-
-**Fix:** Use null-safe fallback — `groups['files'] ?? const {}` and `groups['system'] ?? const {}`.
-
-### 4. Hardcoded Indonesian Strings — Conflicts with "Language-Generic" Principle
+> **Fix:** Removed `actionLabelId`/`settingLabelId` from `ToolPermissionRequirement` (single canonical English label now, UI localizes via `LanguageRegistry`). Removed `labelId` from `ResultAction` (single `label` field). `ConfirmationChecker` kept as-is (documented pragmatic exception).
 
 SKILLS.md states: *"Language-generic, always. NO per-language word lists, NO Indonesian-specific examples in routing/classification code."* However, the following files hardcode Indonesian strings:
 
@@ -96,9 +74,11 @@ SKILLS.md itself documents the `ConfirmationChecker` as "Tier-1 deterministic ID
 
 ## 🟡 Medium Impact
 
-### 5. Duplicate `_callLlm` Logic in Planner & Executor
+### 5. ~~Duplicate `_callLlm` Logic in Planner & Executor~~ ✅ FIXED
 
-Both `Planner` and `Executor` have identical `_callLlm` methods (JSON parse → repair prompt retry → null on double failure):
+> **Fix:** Extracted to shared `LlmJsonCaller` class (`lib/services/agent_runtime/llm_json_caller.dart`). Both `Planner` and `Executor` now use `LlmJsonCaller(client: client, config: config).call(prompt, phase, logger)`.
+
+**Original issue:** Both `Planner` and `Executor` had identical `_callLlm` methods (JSON parse → repair prompt retry → null on double failure):
 
 ```dart
 // Identical in both planner.dart and executor.dart
@@ -120,72 +100,69 @@ Future<Map<String, dynamic>?> _callLlm(
 
 **Fix:** Extract to a shared mixin or standalone `LlmJsonCaller` class.
 
-### 6. `Planner.plan()` Method — Potentially Unused
+### 6. ~~`Planner.plan()` Method — Potentially Unused~~ ✅ FALSE POSITIVE
 
-`Planner` exposes a `plan()` method that builds a separate planning prompt. In `runtime_engine.dart`, the engine flows directly from `analyze` → `reflect` → `execute loop` without calling `planner.plan()`. The planning logic appears to have been absorbed into the reflector + executor phases.
+> **Verification:** `planner.plan()` is actively called at 3 locations in `runtime_engine.dart` (lines 845, 861, 952). It is live, not dead code. No action needed.
+
+**Original concern:** `Planner` exposes a `plan()` method that builds a separate planning prompt. In `runtime_engine.dart`, the engine flows directly from `analyze` → `reflect` → `execute loop` without calling `planner.plan()`. The planning logic appears to have been absorbed into the reflector + executor phases.
 
 **Recommendation:** Verify whether this is dead code. If unused, remove to reduce maintenance surface.
 
-### 7. Non-Unique Event IDs in `RuntimeLogger`
+### 7. ~~Non-Unique Event IDs in `RuntimeLogger`~~ ✅ FIXED
 
-```dart
-// runtime_logger.dart
-class RuntimeEvent {
-  RuntimeEvent({required this.type, required this.message, this.data})
-    : id = DateTime.now().microsecondsSinceEpoch.toString(),
-      createdAt = DateTime.now();
-```
+> **Fix:** Changed `DateTime.now().microsecondsSinceEpoch.toString()` → `const Uuid().v4()` in `RuntimeEvent` constructor. Added `import 'package:uuid/uuid.dart';` to `runtime_models.dart`.
 
-Two events created in the same microsecond will have identical IDs. The `uuid` package is already in `pubspec.yaml` dependencies.
+**Original issue:** Two events created in the same microsecond would have identical IDs.
 
-**Fix:** Use `const Uuid().v4()` for event IDs.
+### 8. ~~`enableAgentRuntimeV1` — Unused Feature Flag~~ ✅ FIXED
 
-### 8. `enableAgentRuntimeV1` — Unused Feature Flag
+> **Fix:** Removed the vestigial constant from the codebase entirely.
 
-```dart
-// runtime_models.dart
-const bool enableAgentRuntimeV1 = true;
-```
+**Original issue:** This constant was defined but not referenced anywhere.
 
-This constant is defined but not referenced as a guard anywhere visible in the codebase. It appears to be vestigial.
+### 9. ~~`ModuleRegistry` Constructor with Non-Trivial Side Effects~~ ✅ FIXED
 
-**Recommendation:** Remove if unused, or implement the feature flag if it's meant to gate v1 vs v2 runtime paths.
+> **Fix:** Converted to `factory ModuleRegistry.fromPlugins(List<ModulePlugin> plugins)` delegating to private `ModuleRegistry._(this.plugins)`. Updated callers in `runtime_module_plugins.dart` and `test/module_plugin_test.dart`.
 
-### 9. `ModuleRegistry` Constructor with Non-Trivial Side Effects
+**Original issue:** Heavy initialization with validation in the constructor body is uncommon in Dart.
 
-```dart
-// module_registry.dart
-class ModuleRegistry {
-  ModuleRegistry(this.plugins) {
-    for (final plugin in plugins) {
-      for (final def in plugin.toolDefinitions) {
-        final existing = _pluginByTool[def.name];
-        if (existing != null) {
-          throw StateError('Duplicate tool "${def.name}" ...');
-        }
-        _pluginByTool[def.name] = plugin;
-        _definitions[def.name] = def;
-      }
-    }
-  }
-```
+### 10. ~~`context_compactor.dart` — Unclear Integration~~ ✅ VERIFIED
 
-Dart convention favors simple constructors. Heavy initialization with validation in the constructor body is uncommon.
+> **Verification:** `ContextCompactor` is integrated at the **UI/chat layer**, not in `runtime_engine.dart`. This is the correct architectural placement — compaction is a UI concern triggered by user commands or auto-detection before sending.
+>
+> **Integration points:**
+> - `chat_screen.dart:750` — `/status` command: `getUsageInfo()` for context usage report
+> - `chat_screen.dart:849–903` — `/compact` command: `estimateChatTokens()` + `compact()` for manual compaction
+> - `chat_screen.dart:931–962` — `needsCompaction()` + `compact()` for auto-compact before sending
+> - `context_report.dart:75` — `/context` command: `peakRecentInputTokens()` for measured usage
 
-**Fix:** Use a factory constructor — `factory ModuleRegistry.fromPlugins(List<ModulePlugin> plugins) => ...` — or a `static ModuleRegistry build(List<ModulePlugin> plugins)` method.
-
-### 10. `context_compactor.dart` — Unclear Integration
-
-The `ContextCompactor` class exists with token estimation and compaction logic, but its usage in the main `runtime_engine.dart` loop is not visible. Compaction may be handled at the UI/chat layer instead. Needs verification.
+**Original concern:** The `ContextCompactor` class exists with token estimation and compaction logic, but its usage in the main `runtime_engine.dart` loop is not visible.
 
 ---
 
 ## 🔵 Minor / Style Issues
 
-- **`prompt_constants.dart` (535 lines)** — could be split by phase (`analyze_constants.dart`, `reflect_constants.dart`, etc.) now that it exceeds 500 lines.
-- **`system_tools.dart` (1,266 lines)** — handles too many concerns: workspace markdown parsing, profile field mapping, agent CRUD, provider lookup, module listing, and tool listing. Could be split per domain.
-- **Magic strings** for catalog group names (`'system'`, `'files'`) appear hardcoded in `tool_catalog.dart`. Consider making them constants on the respective `ModulePlugin` classes.
-- **`tool_permission_policy.dart`** — the `_requirements` static map has ~300 lines of entry definitions. Could be generated from module plugin metadata or moved to a separate data file.
+### 11. ~~`prompt_constants.dart` (535 lines)~~ ✅ FIXED
+
+> **Fix:** Split into 6 per-phase files: `prompt_system.dart`, `prompt_analyze.dart`, `prompt_reflect.dart`, `prompt_plan.dart`, `prompt_execute.dart`, `prompt_context.dart`. `PromptConstants` class now delegates to the split constants via thin accessors for backward compatibility.
+
+**Original:** ~~`prompt_constants.dart` (535 lines) — could be split by phase (`analyze_constants.dart`, `reflect_constants.dart`, etc.) now that it exceeds 500 lines.~~
+
+### 12. ~~`system_tools.dart` (1,266 lines)~~ ✅ FIXED
+
+> **Fix:** Split into 4 part files via Dart `part` directives: `system_tools_agent.dart` (agent CRUD), `system_tools_workspace.dart` (self, workspace, profile, memory), `system_tools_introspection.dart` (provider, module, tool listing & toggle), `system_tools_export.dart` (export/import). Each part file uses an extension on `SystemTools` so `system_module.dart` dispatches identically.
+
+**Original:** ~~`system_tools.dart` (1,266 lines) — handles too many concerns: workspace markdown parsing, profile field mapping, agent CRUD, provider lookup, module listing, and tool listing. Could be split per domain.~~
+
+### 13. ~~Magic strings for catalog group names~~ ✅ FIXED
+
+> **Fix:** Added `static const groupFiles = 'files'` and `static const groupSystem = 'system'` on `ToolCatalog`. All references now use the named constants.
+
+**Original:** ~~Magic strings for catalog group names (`'system'`, `'files'`) appear hardcoded in `tool_catalog.dart`. Consider making them constants on the respective `ModulePlugin` classes.~~
+
+### 14. ~~`_requirements` map in `tool_permission_policy.dart`~~ ✅ FIXED
+
+> **Fix:** Extracted to `tool_permission_requirements.dart` as a top-level `const toolPermissionRequirements` map. `ToolPermissionPolicy._requirements` now returns it via a getter. All `actionLabelId`/`settingLabelId` fields removed (English-only canonical labels).
 
 ---
 
@@ -194,16 +171,16 @@ The `ContextCompactor` class exists with token estimation and compaction logic, 
 | # | Severity | Issue | Suggested Action |
 |---|---|---|---|
 | 1 | 🔴 Critical | `runtime_engine.dart` 3,735 lines — massive SRP violation | Decompose into 3-4 focused classes |
-| 2 | 🔴 Critical | Duplicate `ModuleRegistry` instances at startup | Inject shared singleton registry |
-| 3 | 🔴 Critical | Force-unwrap `!` on `groups['files']` and `groups['system']` | Use `?? const {}` null-safe fallback |
-| 4 | 🔴 Critical | Hardcoded Indonesian strings contradict language-generic philosophy | Architectural decision: migrate to LLM-driven or i18n pack |
-| 5 | 🟡 Medium | Duplicate `_callLlm` logic in Planner & Executor | Extract shared `LlmJsonCaller` mixin/class |
-| 6 | 🟡 Medium | `Planner.plan()` potentially unused dead code | Verify and remove if confirmed dead |
-| 7 | 🟡 Medium | Non-unique event IDs from `microsecondsSinceEpoch` | Use `uuid` package (already a dependency) |
-| 8 | 🟡 Medium | `enableAgentRuntimeV1` unused feature flag | Remove or implement |
-| 9 | 🟡 Medium | `ModuleRegistry` constructor with heavy side effects | Convert to factory constructor |
-| 10 | 🟡 Medium | `context_compactor.dart` integration unclear | Verify and document usage path |
-| 11 | 🔵 Minor | `prompt_constants.dart` 535 lines | Split by phase |
-| 12 | 🔵 Minor | `system_tools.dart` 1,266 lines | Split by domain |
-| 13 | 🔵 Minor | Magic strings for catalog group names | Extract as named constants |
-| 14 | 🔵 Minor | `_requirements` map in `tool_permission_policy.dart` | Move to separate data file or generate from plugin metadata |
+| 2 | ~~🔴 Critical~~ ✅ | ~~Duplicate `ModuleRegistry` instances~~ | Fixed: cached singleton |
+| 3 | ~~🔴 Critical~~ ✅ | ~~Force-unwrap on `groups['files']` and `groups['system']`~~ | Fixed: null-aware spread |
+| 4 | ~~🔴 Critical~~ ✅ | ~~Hardcoded Indonesian strings~~ | Fixed: removed `labelId`/`actionLabelId`, single canonical English |
+| 5 | ~~🟡 Medium~~ ✅ | ~~Duplicate `_callLlm` in Planner & Executor~~ | Fixed: extracted `LlmJsonCaller` class |
+| 6 | ~~🟡 Medium~~ ✅ | ~~`Planner.plan()` potentially unused~~ | False positive: called at 3 locations in runtime_engine.dart |
+| 7 | ~~🟡 Medium~~ ✅ | ~~Non-unique event IDs~~ | Fixed: `const Uuid().v4()` |
+| 8 | ~~🟡 Medium~~ ✅ | ~~`enableAgentRuntimeV1` unused flag~~ | Fixed: removed entirely |
+| 9 | ~~🟡 Medium~~ ✅ | ~~`ModuleRegistry` constructor side effects~~ | Fixed: factory `fromPlugins` + private `_()` |
+| 10 | ~~🟡 Medium~~ ✅ | ~~`context_compactor.dart` integration unclear~~ | Verified: integrated at UI/chat layer, not runtime engine |
+| 11 | ~~🔵 Minor~~ ✅ | ~~`prompt_constants.dart` 535 lines~~ | Fixed: split into 6 per-phase files |
+| 12 | ~~🔵 Minor~~ ✅ | ~~`system_tools.dart` 1,266 lines~~ | Fixed: split into 4 domain part files |
+| 13 | ~~🔵 Minor~~ ✅ | ~~Magic strings for catalog group names~~ | Fixed: `groupFiles`/`groupSystem` constants |
+| 14 | ~~🔵 Minor~~ ✅ | ~~`_requirements` map in `tool_permission_policy.dart`~~ | Fixed: extracted to `tool_permission_requirements.dart` |

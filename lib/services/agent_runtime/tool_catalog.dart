@@ -24,6 +24,11 @@ class ToolCatalogSelection {
 class ToolCatalog {
   ToolCatalog._();
 
+  /// Frequently referenced catalog group keys.
+  /// These match the [ModulePlugin.catalogGroup] values declared by each plugin.
+  static const groupFiles = 'files';
+  static const groupSystem = 'system';
+
   static final Map<String, Set<String>> groups = buildRuntimeModuleRegistry()
       .buildCatalogGroups();
 
@@ -54,10 +59,10 @@ class ToolCatalog {
       return ToolCatalogSelection(
         toolNames: {
           pendingAction.toolName,
-          ...groups['files']!,
-          ...groups['system']!,
+          ...?groups[groupFiles],
+          ...?groups[groupSystem],
         },
-        groups: {'pending', 'files', 'system'},
+        groups: {'pending', groupFiles, groupSystem},
         confidence: 0.9,
         reason: 'pending action follow-up',
       );
@@ -102,8 +107,8 @@ class ToolCatalog {
       toolNames.addAll(groups[g]!);
     }
     // System introspection often pivots into files (config dumps, agent specs).
-    if (valid.contains('system')) {
-      toolNames.addAll(groups['files'] ?? const {});
+    if (valid.contains(groupSystem)) {
+      toolNames.addAll(groups[groupFiles] ?? const {});
     }
 
     // Single confidently-named group → high confidence (enables fast paths).

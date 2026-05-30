@@ -1,8 +1,7 @@
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'goal_tree.dart';
-import 'json_utils.dart';
-import 'prompt_constants.dart';
+import 'llm_json_caller.dart';
 import 'prompt_templates.dart';
 import 'runtime_logger.dart';
 import 'runtime_models.dart';
@@ -13,6 +12,8 @@ class Executor {
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+
+  LlmJsonCaller get _caller => LlmJsonCaller(client: client, config: config);
 
   /// Select the next tool or decide final response.
   Future<Map<String, dynamic>?> selectTool({
@@ -37,7 +38,7 @@ class Executor {
       recentMessages: recentMessages,
     );
 
-    return _callLlm(prompt, 'selectTool', logger);
+    return _caller.call(prompt, 'selectTool', logger);
   }
 
   /// Review a tool result and decide next action.
@@ -61,48 +62,6 @@ class Executor {
       recentMessages: recentMessages,
     );
 
-    return _callLlm(prompt, 'review', logger);
-  }
-
-  /// Call LLM and parse JSON. Retries once with repair prompt.
-  Future<Map<String, dynamic>?> _callLlm(
-    String prompt,
-    String phase,
-    RuntimeLogger logger,
-  ) async {
-    final response = await client.chat(
-      config: config,
-      phase: phase,
-      messages: [
-        {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
-        {'role': 'user', 'content': prompt},
-      ],
-    );
-
-    var parsed = JsonUtils.tryParseObject(response);
-    if (parsed != null) {
-      logger.logLlmDecision(phase, parsed);
-      return parsed;
-    }
-
-    // Retry with repair.
-    logger.logError('JSON parse failed in $phase, attempting repair');
-    final repairPrompt = PromptTemplates.jsonRepairPrompt(response);
-    final repaired = await client.chat(
-      config: config,
-      phase: '$phase.repair',
-      messages: [
-        {'role': 'user', 'content': repairPrompt},
-      ],
-    );
-
-    parsed = JsonUtils.tryParseObject(repaired);
-    if (parsed != null) {
-      logger.logLlmDecision(phase, parsed);
-      return parsed;
-    }
-
-    logger.logError('JSON repair also failed in $phase');
-    return null;
+    return _caller.call(prompt, 'review', logger);
   }
 }

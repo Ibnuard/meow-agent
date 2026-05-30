@@ -137,7 +137,6 @@ class FilesTools {
         actions: [
           ResultAction(
             label: 'Open File Manager',
-            labelId: 'Buka File Manager',
             icon: 'folder_open_rounded',
             type: 'open_folder',
             target: agentName,
@@ -261,7 +260,6 @@ class FilesTools {
         actions: [
           ResultAction(
             label: 'Open File Manager',
-            labelId: 'Buka File Manager',
             icon: 'folder_open_rounded',
             type: 'open_folder',
             target: agentName,
@@ -513,7 +511,6 @@ class FilesTools {
         actions: [
           ResultAction(
             label: 'Open File Manager',
-            labelId: 'Buka File Manager',
             icon: 'folder_open_rounded',
             type: 'open_folder',
             target: agentName,

@@ -53,7 +53,6 @@ class NotesTools {
         actions: const [
           ResultAction(
             label: 'Open Notes',
-            labelId: 'Buka Notes',
             icon: 'note_outlined',
             type: 'navigate',
             target: '/notes',
@@ -231,7 +230,6 @@ class NotesTools {
         actions: [
           ResultAction(
             label: 'Open Notes',
-            labelId: 'Buka Notes',
             icon: 'note_outlined',
             type: 'navigate',
             target: '/notes',
@@ -463,7 +461,6 @@ class NotesTools {
         actions: [
           ResultAction(
             label: 'Open File Manager',
-            labelId: 'Buka File Manager',
             icon: 'folder_open_rounded',
             type: 'open_folder',
             target: agentName,
