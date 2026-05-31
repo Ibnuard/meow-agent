@@ -65,6 +65,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// active reply context. Cleared after send or when user taps the X.
   ChatMessage? _replyTo;
 
+  /// Attached files for the next send (synced from _ChatInput).
+  List<AttachedFile> _attachments = [];
+  final _chatInputKey = GlobalKey<_ChatInputState>();
+
   @override
   void initState() {
     super.initState();
@@ -350,9 +354,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? text
         : _buildReplyPayload(replyContext, text);
 
+    // Append attached file names so the chat bubble shows what was sent.
+    final attachmentNames = _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
+    final displayText = _attachments.isEmpty
+        ? messageText
+        : '$messageText\n\n📎 ${attachmentNames.map((a) => a.name).join(", ")}';
+
     // Optimistically show the user message immediately — it always lands
     // in history regardless of context exhaustion.
-    final userMsg = ChatMessage(role: 'user', content: messageText);
+    final userMsg = ChatMessage(role: 'user', content: displayText);
     setState(() => _messages.add(userMsg));
     _scrollToEnd();
 
@@ -370,7 +380,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       agentId: _activeAgentId,
       userMessage: messageText,
       recentMessages: recent,
+      attachments: _attachments,
     );
+    _attachments = [];
+    _chatInputKey.currentState?.clearAttachments();
     return;
   }
 
@@ -1396,6 +1409,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ),
                       ),
                       _ChatInput(
+                        key: _chatInputKey,
                         controller: _input,
                         sending: _sending,
                         debugMode: debugMode,
@@ -1403,6 +1417,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         onStop: _stop,
                         replyTo: _replyTo,
                         onCancelReply: _cancelReply,
+                        onAttachmentsChanged: (files) {
+                          setState(() => _attachments = files);
+                        },
                         s: s,
                       ),
                     ],
@@ -2054,6 +2071,7 @@ class _ChatEmptyState extends StatelessWidget {
 
 class _ChatInput extends StatefulWidget {
   const _ChatInput({
+    super.key,
     required this.controller,
     required this.sending,
     required this.debugMode,
@@ -2062,6 +2080,7 @@ class _ChatInput extends StatefulWidget {
     required this.s,
     this.replyTo,
     this.onCancelReply,
+    required this.onAttachmentsChanged,
   });
 
   final TextEditingController controller;
@@ -2072,6 +2091,7 @@ class _ChatInput extends StatefulWidget {
   final AppStrings s;
   final ChatMessage? replyTo;
   final VoidCallback? onCancelReply;
+  final void Function(List<AttachedFile>) onAttachmentsChanged;
 
   @override
   State<_ChatInput> createState() => _ChatInputState();
@@ -2099,8 +2119,26 @@ class _ChatInputState extends State<_ChatInput> {
 
   List<_SlashCommand> _filtered = [];
   bool _showSuggestions = false;
-  File? _attachedFile;
-  String? _attachedFileName;
+  final List<_AttachedFile> _attachments = [];
+  static const _maxFiles = 2;
+  static const _maxFileBytes = 5 * 1024 * 1024; // 5 MB
+
+  /// Returns a snapshot of attached files for the parent to pass to the runtime.
+  /// Uses sizes stored at pick time (never lengthSync, which would crash on
+  /// Android content URIs from file_picker).
+  List<AttachedFile> get _attachmentsSnapshot => [
+    for (final a in _attachments)
+      AttachedFile(path: a.file.path, name: a.name, sizeBytes: a.sizeBytes),
+  ];
+
+  void _notifyAttachments() => widget.onAttachmentsChanged(_attachmentsSnapshot);
+
+  /// Clear all attachments (called by parent after send).
+  void clearAttachments() {
+    if (_attachments.isEmpty) return;
+    setState(() => _attachments.clear());
+    _notifyAttachments();
+  }
 
   @override
   void initState() {
@@ -2115,41 +2153,65 @@ class _ChatInputState extends State<_ChatInput> {
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: false,
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.first;
-    if (file.path == null) return;
-
-    // 1MB limit.
-    final sizeBytes = file.size;
-    if (sizeBytes > 1024 * 1024) {
+    final remaining = _maxFiles - _attachments.length;
+    if (remaining <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('File too large. Max size is 1 MB.'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text('Max $_maxFiles files allowed. Remove one before adding more.'),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
       return;
     }
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: remaining > 1,
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) return;
 
-    setState(() {
-      _attachedFile = File(file.path!);
-      _attachedFileName = file.name;
-    });
+    final newFiles = <_AttachedFile>[];
+    for (final pf in result.files) {
+      if (pf.path == null) continue;
+      final sizeBytes = pf.size;
+      if (sizeBytes > _maxFileBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"${pf.name}" is too large. Max size is 5 MB.'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        continue;
+      }
+      // Prevent duplicates by name.
+      if (_attachments.any((a) => a.name == pf.name)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('"${pf.name}" is already attached.'),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        continue;
+      }
+      newFiles.add(_AttachedFile(file: File(pf.path!), name: pf.name, sizeBytes: pf.size));
+    }
+    if (newFiles.isEmpty) return;
+
+    // Cap at max.
+    final toAdd = newFiles.take(remaining).toList();
+    setState(() => _attachments.addAll(toAdd));
+    _notifyAttachments();
   }
 
-  void _removeFile() {
-    setState(() {
-      _attachedFile = null;
-      _attachedFileName = null;
-    });
+  void _removeFile(int index) {
+    setState(() => _attachments.removeAt(index));
+    _notifyAttachments();
   }
 
   void _onTextChanged() {
@@ -2345,37 +2407,53 @@ class _ChatInputState extends State<_ChatInput> {
               ),
             ),
           ),
-        // File preview chip.
-        if (_attachedFile != null)
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: extras.subtleBorder),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.attach_file_rounded, size: 18, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _attachedFileName ?? 'File',
-                    style: TextStyle(fontSize: 12, color: cs.onSurface),
-                    overflow: TextOverflow.ellipsis,
+        // File preview chips (up to 2, 5 MB each).
+        if (_attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+              children: List.generate(_attachments.length, (i) {
+                final a = _attachments[i];
+                  return Padding(
+                  padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: extras.card,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: extras.subtleBorder),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.attach_file_rounded, size: 16, color: cs.primary),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 200),
+                          child: Text(
+                            a.name,
+                            style: TextStyle(fontSize: 12, color: cs.onSurface),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _removeFile(i),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                GestureDetector(
-                  onTap: _removeFile,
-                  child: Icon(
-                    Icons.close_rounded,
-                    size: 18,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ],
+                );
+              }),
             ),
+          ),
           ),
 
         Padding(
@@ -2391,14 +2469,16 @@ class _ChatInputState extends State<_ChatInput> {
                   onSubmitted: (_) => widget.onSend(),
                   decoration: InputDecoration(
                     hintText: widget.s.typeMessage,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        Icons.attach_file_rounded,
-                        size: 20,
-                        color: cs.onSurfaceVariant,
-                      ),
-                      onPressed: _pickFile,
-                    ),
+                    suffixIcon: _attachments.length < _maxFiles
+                      ? IconButton(
+                          icon: Icon(
+                            Icons.attach_file_rounded,
+                            size: 20,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          onPressed: _pickFile,
+                        )
+                      : null,
                   ),
                 ),
               ),
@@ -2675,4 +2755,12 @@ class _DrawerUnreadChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Internal wrapper for a picked file.
+class _AttachedFile {
+  const _AttachedFile({required this.file, required this.name, this.sizeBytes = 0});
+  final File file;
+  final String name;
+  final int sizeBytes;
 }

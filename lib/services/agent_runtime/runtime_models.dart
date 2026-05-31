@@ -28,7 +28,6 @@ enum AgentRuntimeState {
 /// without a user in the loop (workflow).
 enum RequestSource { chat, workflow }
 
-/// Request to run the agent runtime.
 class AgentRuntimeRequest {
   const AgentRuntimeRequest({
     required this.agentId,
@@ -37,6 +36,7 @@ class AgentRuntimeRequest {
     this.recentMessages = const [],
     this.metadata = const {},
     this.source = RequestSource.chat,
+    this.attachments = const [],
   });
 
   final String agentId;
@@ -45,6 +45,19 @@ class AgentRuntimeRequest {
   final List<ChatMessage> recentMessages;
   final Map<String, dynamic> metadata;
   final RequestSource source;
+
+  /// File paths attached to this request (max 2, each ≤ 5 MB).
+  /// The runtime reads text files inline and notes non-text files so the
+  /// agent can use file.* tools to access them.
+  final List<AttachedFile> attachments;
+}
+
+/// A file attached to a user message.
+class AttachedFile {
+  const AttachedFile({required this.path, required this.name, this.sizeBytes = 0});
+  final String path;
+  final String name;
+  final int sizeBytes;
 }
 
 /// Response from the agent runtime.

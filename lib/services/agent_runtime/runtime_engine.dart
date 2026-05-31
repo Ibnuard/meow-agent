@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/modules/data/module_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -203,7 +205,16 @@ class AgentRuntimeEngine {
       else if (pending != null) { activeTaskContext = 'pending confirmation: ${pending.debugDescriptor}; summary: ${pending.userFacingSummary}'; }
       else if (pendingClarification != null) { activeTaskContext = 'pending clarification for: ${pendingClarification.originalMessage} (questions: ${pendingClarification.questions.join('; ')})'; }
       final mergedUserMessage = pendingClarification != null ? pendingClarification.mergedWith(request.userMessage) : request.userMessage;
-      var effectiveUserMessage = activeTaskContext.isNotEmpty ? request.userMessage : mergedUserMessage;
+      // Inject attachment context for the LLM.
+      final attachmentContext = _buildAttachmentContext(request.attachments);
+      final userMessageWithAttachments = attachmentContext != null
+          ? '$attachmentContext\n\nUser message: ${request.userMessage}'
+          : request.userMessage;
+      var effectiveUserMessage = activeTaskContext.isNotEmpty
+          ? (attachmentContext != null
+              ? '$attachmentContext\n\nUser message: ${request.userMessage}'
+              : request.userMessage)
+          : (pendingClarification != null ? mergedUserMessage : userMessageWithAttachments);
       var toolSelection = ToolCatalog.select(userMessage: request.userMessage, pendingAction: pending, isWorkflowAutoExecute: isWorkflowAutoExecute);
       var analyzerTools = activeTaskContext.isNotEmpty ? toolRouter.buildAllAnalyzerToolDescriptions() : toolRouter.buildAnalyzerToolDescriptions(toolSelection.toolNames);
       var availableTools = activeTaskContext.isNotEmpty ? toolRouter.buildAllToolDescriptions() : toolRouter.buildToolDescriptions(toolSelection.toolNames);
@@ -245,7 +256,7 @@ class AgentRuntimeEngine {
           final previousGoal = activeLedger?.mainGoal ?? pending?.userFacingSummary ?? pendingClarification?.originalMessage ?? 'the previous task';
           await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
           pending = null; pendingDecision = ConfirmationDecision.none; pendingClarification = null;
-          effectiveUserMessage = request.userMessage; activeTaskContext = '';
+          effectiveUserMessage = userMessageWithAttachments; activeTaskContext = '';
           final groupsHint = (analysis['tool_groups'] as List?)?.map((e) => e.toString()).toList();
           final narrowed = ToolCatalog.fromGroups(groupsHint);
           final narrowedAvailable = toolRouter.buildToolDescriptions(narrowed.toolNames);
@@ -508,9 +519,62 @@ class AgentRuntimeEngine {
     for (final op in destructiveOps) { if (intent.contains(op)) return true; }
     return false;
   }
-}
 
-/// Riverpod provider for the runtime engine.
+  /// Build a context string describing attached files so the LLM knows
+  /// what was provided. Text files under 512 KB are read inline.
+  String? _buildAttachmentContext(List<AttachedFile> attachments) {
+    if (attachments.isEmpty) return null;
+    final buf = StringBuffer()
+      ..writeln('[ATTACHED FILES]')
+      ..writeln('The user attached ${attachments.length} file(s) to their message:');
+    for (final a in attachments) {
+      final sizeFmt = a.sizeBytes >= 1024 * 1024
+          ? '${(a.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+          : '${(a.sizeBytes / 1024).toStringAsFixed(0)} KB';
+      buf.writeln('- ${a.name} ($sizeFmt) → path: ${a.path}');
+
+      // Read text contents inline for small text-ish files.
+      if (a.sizeBytes < 512 * 1024) {
+        final ext = a.name.toLowerCase();
+        final isTextLike = ext.endsWith('.txt') ||
+            ext.endsWith('.md') ||
+            ext.endsWith('.json') ||
+            ext.endsWith('.csv') ||
+            ext.endsWith('.log') ||
+            ext.endsWith('.xml') ||
+            ext.endsWith('.yaml') ||
+            ext.endsWith('.yml') ||
+            ext.endsWith('.toml') ||
+            ext.endsWith('.ini') ||
+            ext.endsWith('.cfg') ||
+            ext.endsWith('.env') ||
+            ext.endsWith('.dart') ||
+            ext.endsWith('.py') ||
+            ext.endsWith('.js') ||
+            ext.endsWith('.ts') ||
+            ext.endsWith('.html') ||
+            ext.endsWith('.css');
+        if (isTextLike) {
+          try {
+            final content = File(a.path).readAsStringSync();
+            final truncated = content.length > 4096
+                ? '${content.substring(0, 4096)}\n... [truncated, ${content.length} total chars]'
+                : content;
+            buf.writeln('  Contents:\n```\n$truncated\n```');
+          } catch (_) {
+            buf.writeln('  (could not read contents)');
+          }
+        } else {
+          buf.writeln('  (binary/non-text file — use file.* tools to access)');
+        }
+      } else {
+        buf.writeln('  (file too large to inline — use file.* tools to access)');
+      }
+    }
+    buf.writeln('[/ATTACHED FILES]');
+    return buf.toString();
+  }
+}
 final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
   final languagePref = ref.watch(appLanguageProvider);
   return AgentRuntimeEngine(

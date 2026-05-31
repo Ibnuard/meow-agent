@@ -152,6 +152,7 @@ class ChatRuntimeManager extends ChangeNotifier {
     required String agentId,
     required String userMessage,
     required List<ChatMessage> recentMessages,
+    List<AttachedFile> attachments = const [],
   }) async {
     final provider = await _resolveProvider(agentId);
 
@@ -230,6 +231,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           agentName: agentName,
           userMessage: userMessage,
           recentMessages: recentMessages,
+          attachments: attachments,
         ),
         provider: provider,
         onEvent: (event) {
