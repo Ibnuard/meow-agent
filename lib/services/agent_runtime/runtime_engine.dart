@@ -16,6 +16,7 @@ import 'language_registry.dart';
 import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
+import 'preflight_checker.dart';
 import 'post_execute_validator.dart';
 import 'prompt_constants.dart';
 import 'recovery_coordinator.dart';
@@ -23,9 +24,7 @@ import 'reflector.dart';
 import 'runtime_logger.dart';
 import 'runtime_memory.dart';
 import 'runtime_models.dart';
-import 'snapshot_target_resolver.dart';
 import 'target_resolution.dart';
-import 'target_reference_utils.dart';
 import 'task_ledger.dart';
 import 'tool_catalog.dart';
 import 'tool_permission_policy.dart';
@@ -53,7 +52,11 @@ class AgentRuntimeEngine {
     Future<EcosystemSnapshot> Function()? snapshotOverride,
   }) : ledgerDb = ledgerDb ?? TaskLedgerDatabase(),
        _client = llmClient ?? OpenAiCompatibleClient(),
-       _snapshotOverride = snapshotOverride;
+       _snapshotOverride = snapshotOverride {
+    _preflight = PreflightChecker(
+      snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
+    );
+  }
 
   final WorkspaceLoader workspaceLoader;
   final ToolRouter toolRouter;
@@ -81,6 +84,8 @@ class AgentRuntimeEngine {
   /// Optional test/override hook for the ecosystem snapshot. When set, it
   /// fully replaces [snapshotBuilder]/[agentLoader] snapshot construction.
   final Future<EcosystemSnapshot> Function()? _snapshotOverride;
+
+  late final PreflightChecker _preflight;
 
   static const int maxSteps = 5;
 
@@ -1870,7 +1875,7 @@ class AgentRuntimeEngine {
         // The reflector prompt is the primary path, but small models still
         // emit non-existent target names occasionally. Catching it here
         // prevents the user from confirming an action that will fail.
-        final preflight = await _preflightTargetCheck(
+        final preflight = await _preflight.check(
           tool: toolRequest,
           definition: definition,
           verbalizer: verbalizer,
@@ -3235,205 +3240,6 @@ class AgentRuntimeEngine {
     );
   }
 
-  /// Pre-flight deterministic check that catches typos / non-existent targets
-  /// before the confirmation gate fires.
-  ///
-  /// Inspects ToolDefinition runtime metadata and validates snapshot-backed
-  /// targets through [SnapshotTargetResolver]. Returns:
-  /// - null when the target resolves cleanly (or the tool is not entity-bound)
-  /// - a localized clarify/block message otherwise
-  ///
-  /// Generic across tools — driven by arg key heuristics + snapshot lookups,
-  /// no per-tool switch. Skipped silently when no snapshot is available.
-  Future<String?> _preflightTargetCheck({
-    required ToolCallRequest tool,
-    required ToolDefinition definition,
-    required ToolVerbalizer verbalizer,
-    required DetectedLanguage language,
-    required String userMessage,
-  }) async {
-    final operation = _operationForTool(definition, tool.name);
-    final entityType = _entityTypeForTool(definition, tool.name);
-    if (!_requiresExistingTargetPreflight(operation) && entityType != 'file') {
-      return null;
-    }
-
-    final snapshot = await _buildSnapshot();
-    if (snapshot.isEmpty) return null;
-
-    final embeddedReferenceCheck = await _preflightEmbeddedSnapshotReferences(
-      tool: tool,
-      definition: definition,
-      snapshot: snapshot,
-      verbalizer: verbalizer,
-      language: language,
-      userMessage: userMessage,
-    );
-    if (embeddedReferenceCheck != null) return embeddedReferenceCheck;
-
-    if (!_requiresExistingTargetPreflight(operation)) return null;
-    if (!SnapshotTargetResolver.isSnapshotBacked(entityType)) return null;
-
-    final labelSelector = _labelSelectorValue(tool, definition, entityType);
-    if (labelSelector == null) return null;
-
-    final match = SnapshotTargetResolver.resolve(
-      snapshot: snapshot,
-      entityType: entityType,
-      entityLabel: labelSelector.value,
-    );
-    if (match.isExact) return null;
-
-    return verbalizer.clarifyTarget(
-      entityType: entityType,
-      userTyped: labelSelector.value,
-      suggestion: match.isAmbiguous ? match.label : null,
-      available: match.suggestions,
-      language: language,
-    );
-  }
-
-  Future<String?> _preflightEmbeddedSnapshotReferences({
-    required ToolCallRequest tool,
-    required ToolDefinition definition,
-    required EcosystemSnapshot snapshot,
-    required ToolVerbalizer verbalizer,
-    required DetectedLanguage language,
-    required String userMessage,
-  }) async {
-    final entityType = _entityTypeForTool(definition, tool.name);
-    if (entityType != 'file' || snapshot.agents.isEmpty) return null;
-
-    for (final key in _selectorKeysFor(definition, entityType)) {
-      final raw = tool.args[key];
-      if (raw is! String || raw.trim().isEmpty) continue;
-      final peerPath = TargetReferenceUtils.parsePeerAgentPath(raw);
-      if (peerPath == null) continue;
-
-      final typedName = TargetReferenceUtils.displayNameFromWorkspaceSegment(
-        peerPath.agentSegment,
-      );
-      final candidates = SnapshotTargetResolver.candidates(
-        snapshot,
-        'agent',
-      ).map((candidate) => candidate.label).toList();
-      final match = SnapshotTargetResolver.resolve(
-        snapshot: snapshot,
-        entityType: 'agent',
-        entityLabel: typedName,
-      );
-
-      if (match.isExact) {
-        final userNamedExactAgent =
-            TargetReferenceUtils.messageMentionsExactAgent(
-              userMessage,
-              match.label,
-            );
-        if (!userNamedExactAgent) {
-          return verbalizer.clarifyTarget(
-            entityType: 'agent',
-            userTyped: typedName,
-            suggestion: match.label,
-            available: candidates,
-            language: language,
-          );
-        }
-        tool.args[key] = TargetReferenceUtils.canonicalPeerAgentPath(
-          peerPath,
-          match.label,
-        );
-        continue;
-      }
-
-      return verbalizer.clarifyTarget(
-        entityType: 'agent',
-        userTyped: typedName,
-        suggestion: match.isAmbiguous ? match.label : null,
-        available: match.suggestions.isNotEmpty
-            ? match.suggestions
-            : candidates,
-        language: language,
-      );
-    }
-
-    return null;
-  }
-
-  bool _requiresExistingTargetPreflight(String operation) {
-    switch (operation) {
-      case 'delete':
-      case 'update':
-      case 'rename':
-      case 'toggle':
-      case 'read':
-      case 'get':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  String _operationForTool(ToolDefinition definition, String toolName) {
-    if (definition.operation.isNotEmpty) return definition.operation;
-    final name = toolName.toLowerCase();
-    if (name.contains('.delete')) return 'delete';
-    if (name.contains('.update')) return 'update';
-    if (name.contains('.rename')) return 'rename';
-    if (name.contains('.toggle')) return 'toggle';
-    if (name.endsWith('.read')) return 'read';
-    if (name.endsWith('.get')) return 'get';
-    if (name.endsWith('.list')) return 'list';
-    if (name.contains('.create')) return 'create';
-    return '';
-  }
-
-  String _entityTypeForTool(ToolDefinition definition, String toolName) {
-    if (definition.targetEntity.isNotEmpty) return definition.targetEntity;
-    if (toolName.startsWith('system.agents.')) return 'agent';
-    if (toolName.startsWith('workflow.')) return 'workflow';
-    if (toolName.startsWith('system.providers.')) return 'provider';
-    if (toolName.startsWith('system.modules.')) return 'module';
-    return '';
-  }
-
-  _SelectorValue? _labelSelectorValue(
-    ToolCallRequest tool,
-    ToolDefinition definition,
-    String entityType,
-  ) {
-    for (final key in _selectorKeysFor(definition, entityType)) {
-      if (_isIdSelectorKey(key)) continue;
-      final value = tool.args[key];
-      if (value is String && value.trim().isNotEmpty) {
-        return _SelectorValue(value.trim());
-      }
-    }
-    return null;
-  }
-
-  List<String> _selectorKeysFor(ToolDefinition definition, String entityType) {
-    if (definition.selectorArgs.isNotEmpty) return definition.selectorArgs;
-    switch (entityType) {
-      case 'agent':
-        return const ['name', 'agentName', 'label', 'target'];
-      case 'workflow':
-        return const ['title', 'workflowName', 'label', 'target', 'id'];
-      case 'provider':
-        return const ['nickname', 'provider', 'providerName', 'label', 'id'];
-      case 'module':
-        return const ['id', 'module', 'moduleId', 'label'];
-      case 'file':
-        return const ['path', 'from', 'to'];
-      default:
-        return const ['name', 'title', 'label', 'target'];
-    }
-  }
-
-  bool _isIdSelectorKey(String key) {
-    final lower = key.toLowerCase();
-    return lower == 'id' || lower.endsWith('id') || lower.endsWith('_id');
-  }
-
   AgentRuntimeResponse _fail(String message, RuntimeLogger logger) {
     logger.logError(message);
     return AgentRuntimeResponse(
@@ -3712,12 +3518,6 @@ class AgentRuntimeEngine {
       'module': module,
     });
   }
-}
-
-class _SelectorValue {
-  const _SelectorValue(this.value);
-
-  final String value;
 }
 
 class _CompletionVerification {
