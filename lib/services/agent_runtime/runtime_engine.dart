@@ -1,4 +1,4 @@
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/modules/data/module_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -16,6 +16,7 @@ import 'language_registry.dart';
 import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
+import 'completion_verifier.dart';
 import 'preflight_checker.dart';
 import 'post_execute_validator.dart';
 import 'prompt_constants.dart';
@@ -56,6 +57,9 @@ class AgentRuntimeEngine {
     _preflight = PreflightChecker(
       snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
     );
+    _completionVerifier = CompletionVerifier(
+      agentLoader: agentLoader,
+    );
   }
 
   final WorkspaceLoader workspaceLoader;
@@ -67,7 +71,7 @@ class AgentRuntimeEngine {
   /// snapshot context (still useful for slot extraction).
   final EcosystemSnapshotBuilder? snapshotBuilder;
 
-  /// Loader for the current agent registry. Optional — reflection still works
+  /// Loader for the current agent registry. Optional â€” reflection still works
   /// without it but loses cross-reference detection.
   final List<AgentModel> Function()? agentLoader;
 
@@ -86,6 +90,7 @@ class AgentRuntimeEngine {
   final Future<EcosystemSnapshot> Function()? _snapshotOverride;
 
   late final PreflightChecker _preflight;
+  late final CompletionVerifier _completionVerifier;
 
   static const int maxSteps = 5;
 
@@ -105,7 +110,7 @@ class AgentRuntimeEngine {
     return '$base\n\n${PromptConstants.introductionGateRule}';
   }
 
-  /// Pending actions per agent (agentId → PendingAction).
+  /// Pending actions per agent (agentId â†’ PendingAction).
   final Map<String, PendingAction> _pendingActions = {};
 
   /// Agents whose in-flight task has been cancelled by the user.
@@ -221,7 +226,7 @@ class AgentRuntimeEngine {
 
     try {
       // Resume from a persisted ledger if the in-memory pending was lost
-      // (e.g. app was killed). Best-effort — unable-to-resume cases just
+      // (e.g. app was killed). Best-effort â€” unable-to-resume cases just
       // proceed normally and the next turn will plan from scratch.
       try {
         await _maybeRestorePendingFromLedger(request.agentId);
@@ -310,7 +315,7 @@ class AgentRuntimeEngine {
       // imply continuation: a user may send a completely new task instead of
       // confirming/rejecting the previous one.
       // Workflow runs are owned by the WorkflowRunner, not the engine. A
-      // workflow step must never resume from a workflow-scoped ledger —
+      // workflow step must never resume from a workflow-scoped ledger â€”
       // otherwise two steps sharing an agent collide on the same
       // (agentId, workflow) row and bleed state across steps. Chat keeps the
       // resume lookup.
@@ -420,14 +425,14 @@ class AgentRuntimeEngine {
         logger.logStateChange(
           AgentRuntimeState.analyzing,
           'Language refined by analyzer: ${detectedLang.code} '
-          '→ ${refined.code} (${refined.label})',
+          'â†’ ${refined.code} (${refined.label})',
         );
         emit(logger.events.last);
         detectedLang = refined;
       }
 
       // Narrow the downstream tool surface from the analyzer's tool_groups
-      // classification (language-agnostic — replaces keyword matching). The
+      // classification (language-agnostic â€” replaces keyword matching). The
       // analyzer saw the full slim catalog; now reflect/plan and the skip
       // conditions operate on the model-chosen groups. Skipped while an active
       // task context exists (the broad catalog is intentionally used there so a
@@ -484,7 +489,7 @@ class AgentRuntimeEngine {
           // Re-narrow tools from the analyzer's tool_groups now that the
           // active-task context is cleared. Without this the downstream phases
           // see the full catalog, the reflector has no authoritative shortlist,
-          // and stale conversation history bleeds into the reflect prompt —
+          // and stale conversation history bleeds into the reflect prompt â€”
           // causing it to produce a goal tree from a prior turn.
           final groupsHint = (analysis['tool_groups'] as List?)
               ?.map((e) => e.toString())
@@ -623,8 +628,8 @@ class AgentRuntimeEngine {
       // signal reflection would echo (no missing info, single tool group, not
       // bulk, not destructive), and the live snapshot shows no cross-entity
       // impact to reason about. Skipping removes one full LLM round-trip per
-      // simple turn. The two safety valves — a non-safe/destructive intent OR
-      // an ecosystem with cross-references — force reflection back on, so
+      // simple turn. The two safety valves â€” a non-safe/destructive intent OR
+      // an ecosystem with cross-references â€” force reflection back on, so
       // anything that could surprise the user still gets the deep-thinking pass.
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
@@ -696,7 +701,7 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
 
-        // Strategy: clarify — ask the user one short combined question.
+        // Strategy: clarify â€” ask the user one short combined question.
         if (reflection.strategy == ReflectionStrategy.clarify &&
             reflection.clarifyQuestions.isNotEmpty) {
           final question = reflection.clarifyQuestions.first;
@@ -714,7 +719,7 @@ class AgentRuntimeEngine {
           );
         }
 
-        // Strategy: block — polite refusal with reason.
+        // Strategy: block â€” polite refusal with reason.
         if (reflection.strategy == ReflectionStrategy.block) {
           final reason = reflection.blockReason.isNotEmpty
               ? reflection.blockReason
@@ -730,7 +735,7 @@ class AgentRuntimeEngine {
             events: logger.events,
           );
         }
-        // Strategy: auto_resolve and direct_execute — continue to planning.
+        // Strategy: auto_resolve and direct_execute â€” continue to planning.
         // Phase 4 will handle silent prep steps for auto_resolve.
       }
 
@@ -748,7 +753,7 @@ class AgentRuntimeEngine {
         // Build messages with pending action context if exists.
         // System rules are always enforced; SOUL.md is identity context only.
         final identityBlock =
-            'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
+            'Identity context (from SOUL.md â€” user-editable):\n${workspace.soul}';
         final recentToolMemory = _memory.formatForPrompt(request.agentId);
         final toolMemoryBlock = recentToolMemory.isEmpty
             ? ''
@@ -811,13 +816,13 @@ class AgentRuntimeEngine {
       // CRITICAL: never take the fast path when:
       // 1. The analyzer enumerated multiple subgoal_seeds (explicit "create
       //    3 agents X, Y, Z" pattern), OR
-      // 2. The reflector — including the deterministic bulk expander —
+      // 2. The reflector â€” including the deterministic bulk expander â€”
       //    produced a goal tree or target list with more than one entry
       //    (e.g. "delete all workflows" was fanned out from snapshot).
       //
       // A 1-step synthetic plan would short-circuit the loop before the
-      // remaining subgoals ever ran (the "buat 3 agen → 1 agen" bug, and
-      // the "set semua workflow → 1 update" bug).
+      // remaining subgoals ever ran (the "buat 3 agen â†’ 1 agen" bug, and
+      // the "set semua workflow â†’ 1 update" bug).
       final seeds = analysis['subgoal_seeds'];
       final hasMultiSeed = seeds is List && seeds.length > 1;
       final analyzerBulk = analysis['bulk_selector'] == true;
@@ -875,7 +880,7 @@ class AgentRuntimeEngine {
 
         if (plan == null) {
           // Pre-loop recovery: retry once with the full tool catalog before
-          // giving up. Mirrors the in-loop rethink behavior — broaden the
+          // giving up. Mirrors the in-loop rethink behavior â€” broaden the
           // tool set when the original selection didn't yield a plan.
           logger.logError(
             'Planner returned null on first attempt; retrying with broadened tools.',
@@ -907,7 +912,7 @@ class AgentRuntimeEngine {
       // Build the goal tree from the planner output. If the planner returned
       // a legacy flat plan or no subgoals, fall back to a single-subgoal tree
       // so the rest of the loop has a consistent shape to reason about.
-      // Reflection's goal tree wins when available — it has the most accurate
+      // Reflection's goal tree wins when available â€” it has the most accurate
       // slot extraction and impact-aware structure.
       final goalTree = reflection != null && reflection.goalTree.isNotEmpty
           ? reflection.goalTree
@@ -1216,7 +1221,7 @@ class AgentRuntimeEngine {
       }
 
       // Verbalizer generates the user-facing success message in the
-      // detected language. Generic across all tools — no per-tool switch.
+      // detected language. Generic across all tools â€” no per-tool switch.
       if (result.success) {
         // Resume path: when this confirmation interrupted a multi-subgoal
         // task, mark the active subgoal done and re-enter the execute loop
@@ -1287,7 +1292,7 @@ class AgentRuntimeEngine {
 
           // If the tree is now complete, finish with a holistic recap.
           if (goalTree.isComplete) {
-            final verificationBlocker = await _blockIfCompletionUnverified(
+            final verificationBlocker = await _completionVerifier.blockIfUnverified(
               request: resumedRequest,
               plan: plan,
               goalTree: goalTree,
@@ -1299,6 +1304,19 @@ class AgentRuntimeEngine {
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               logger: logger,
+              parkTask: (questions) => _parkTaskForUserInput(
+                request: resumedRequest,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                questions: questions,
+              ),
               lastToolName: pending.toolName,
             );
             if (verificationBlocker != null) return verificationBlocker;
@@ -1415,7 +1433,7 @@ class AgentRuntimeEngine {
       );
 
       // Failure path: let the reviewer LLM craft the human reply, but if it
-      // fails fall back to the verbalizer abort message — never a raw error.
+      // fails fall back to the verbalizer abort message â€” never a raw error.
       state = AgentRuntimeState.reviewing;
       logger.logStateChange(state, 'Reviewing tool result');
       emit(logger.events.last);
@@ -1523,7 +1541,7 @@ class AgentRuntimeEngine {
       return latest.map((m) => {'role': m.role, 'content': m.content}).toList();
     }();
 
-    // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3
+    // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxStepsÃ—3
     // for safety. Multi-target tasks need more headroom than the legacy 5.
     final adaptiveLimit = goalTree.isEmpty
         ? maxSteps
@@ -1563,7 +1581,7 @@ class AgentRuntimeEngine {
       if (selection == null) {
         // Hard-fail if we've already attempted a null-selection recovery
         // once. Otherwise we recurse forever in the
-        // "no tool found → rethink → no tool found" loop.
+        // "no tool found â†’ rethink â†’ no tool found" loop.
         if (nullSelectionRecoveryCount >= 1) {
           logger.logNarrative(
             'recovery',
@@ -1619,8 +1637,8 @@ class AgentRuntimeEngine {
         final finalResponse =
             selection['final_response'] as String? ?? 'Task completed.';
         // Reviewer/selector wants to wrap up. Honor it only when the goal
-        // tree agrees — otherwise it would short-circuit a multi-target task
-        // (the original "buat 3 agen → 1 agen" bug).
+        // tree agrees â€” otherwise it would short-circuit a multi-target task
+        // (the original "buat 3 agen â†’ 1 agen" bug).
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           final active = goalTree.nextActionable;
           if (active != null && _isAnswerOnlySubgoal(active)) {
@@ -1642,7 +1660,7 @@ class AgentRuntimeEngine {
           continue;
         }
 
-        final verificationBlocker = await _blockIfCompletionUnverified(
+        final verificationBlocker = await _completionVerifier.blockIfUnverified(
           request: request,
           plan: plan,
           goalTree: goalTree,
@@ -1654,6 +1672,19 @@ class AgentRuntimeEngine {
           autoApproveSensitive: autoApproveSensitive,
           isWorkflowAutoExecute: isWorkflowAutoExecute,
           logger: logger,
+          parkTask: (questions) => _parkTaskForUserInput(
+            request: request,
+            plan: plan,
+            goalTree: goalTree,
+            previousResults: previousResults,
+            currentStep: currentStep,
+            availableTools: availableTools,
+            memorySnapshot: memorySnapshot,
+            detectedLang: detectedLang,
+            autoApproveSensitive: autoApproveSensitive,
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            questions: questions,
+          ),
           lastToolName: previousResults.isEmpty
               ? null
               : previousResults.last['tool'] as String?,
@@ -1768,7 +1799,7 @@ class AgentRuntimeEngine {
             rePlanned = true;
             stuck.reset();
             logger.logError(
-              'Stuck loop detected (same call ×3). Forcing one re-plan.',
+              'Stuck loop detected (same call Ã—3). Forcing one re-plan.',
             );
             previousResults.add({
               'step': currentStep,
@@ -1778,7 +1809,7 @@ class AgentRuntimeEngine {
             currentStep++;
             continue;
           }
-          // Already re-planned and still stuck — try recovery before giving
+          // Already re-planned and still stuck â€” try recovery before giving
           // up. The recovery flow re-reflects with the failure context AND
           // broadens the tool set, which often unsticks loops caused by a
           // missing-tool blind spot.
@@ -1810,7 +1841,7 @@ class AgentRuntimeEngine {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
             );
           }
-          // No recovery possible — abort with a localized message.
+          // No recovery possible â€” abort with a localized message.
           final abortMsg =
               recovery?.giveUpMessage(detectedLang) ??
               await verbalizer.abort(
@@ -1959,7 +1990,7 @@ class AgentRuntimeEngine {
             if (active != null) {
               active.status = SubgoalStatus.inProgress;
             }
-            // Multi-subgoal scope — persist a ledger so the task survives the
+            // Multi-subgoal scope â€” persist a ledger so the task survives the
             // confirmation gate (and an app restart).
             if (goalTree.subgoals.length > 1) {
               final ledger = await _persistLedgerAtGate(
@@ -1995,7 +2026,7 @@ class AgentRuntimeEngine {
             };
           }
 
-          // Store as pending action — language is captured for follow-up turns.
+          // Store as pending action â€” language is captured for follow-up turns.
           final pending = PendingAction(
             toolName: toolRequest.name,
             toolArgs: toolRequest.args,
@@ -2195,16 +2226,16 @@ class AgentRuntimeEngine {
         //
         // CRITICAL: when goalTree has multiple subgoals, the loop must
         // continue through the reviewer so subgoal status advances. Skipping
-        // straight to verbalizer.success here was the "buat 3 agen → 1 agen"
-        // bug — we'd return after the first successful tool while sg2/sg3
+        // straight to verbalizer.success here was the "buat 3 agen â†’ 1 agen"
+        // bug â€” we'd return after the first successful tool while sg2/sg3
         // were still pending.
         //
         // EARLY-COMPLETION (Stage 1): a successful RETRIEVAL tool whose result
         // IS the answer can finalize without the redundant `review` round-trip
         // that caused the "back-and-forth reflecting" the user reported. This
         // only fires when the retrieval's subgoal is the SOLE remaining
-        // non-terminal one — so multi-target tasks (sg2/sg3 still pending) and
-        // multi-tool flows (e.g. app.resolve → app.open, where app.resolve is
+        // non-terminal one â€” so multi-target tasks (sg2/sg3 still pending) and
+        // multi-tool flows (e.g. app.resolve â†’ app.open, where app.resolve is
         // NOT a retrieval) keep going through review exactly as before. We mark
         // the active subgoal done first so the completion verifier sees a
         // consistent tree.
@@ -2224,7 +2255,7 @@ class AgentRuntimeEngine {
           if (retrievalCompletesTree) {
             shortCircuitActive.status = SubgoalStatus.done;
           }
-          final verificationBlocker = await _blockIfCompletionUnverified(
+          final verificationBlocker = await _completionVerifier.blockIfUnverified(
             request: request,
             plan: plan,
             goalTree: goalTree,
@@ -2236,6 +2267,19 @@ class AgentRuntimeEngine {
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             logger: logger,
+            parkTask: (questions) => _parkTaskForUserInput(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLang: detectedLang,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              questions: questions,
+            ),
             lastToolName: toolRequest.name,
           );
           if (verificationBlocker != null) return verificationBlocker;
@@ -2378,7 +2422,7 @@ class AgentRuntimeEngine {
               }
             }
           } else if (result.success) {
-            // No subgoal_update emitted but the tool succeeded — mark the
+            // No subgoal_update emitted but the tool succeeded â€” mark the
             // active subgoal done so progress is monotonic.
             final active = goalTree.nextActionable;
             if (active != null) active.status = SubgoalStatus.done;
@@ -2425,7 +2469,7 @@ class AgentRuntimeEngine {
                   language: detectedLang,
                 )
               : review['final_response'] as String? ?? 'Task completed.';
-          final verificationBlocker = await _blockIfCompletionUnverified(
+          final verificationBlocker = await _completionVerifier.blockIfUnverified(
             request: request,
             plan: plan,
             goalTree: goalTree,
@@ -2437,6 +2481,19 @@ class AgentRuntimeEngine {
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             logger: logger,
+            parkTask: (questions) => _parkTaskForUserInput(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLang: detectedLang,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              questions: questions,
+            ),
             lastToolName: toolRequest.name,
           );
           if (verificationBlocker != null) return verificationBlocker;
@@ -2648,7 +2705,7 @@ class AgentRuntimeEngine {
     final parts = <String>[];
     args.forEach((key, value) {
       final v = value?.toString() ?? '';
-      final truncated = v.length > 24 ? '${v.substring(0, 24)}…' : v;
+      final truncated = v.length > 24 ? '${v.substring(0, 24)}â€¦' : v;
       parts.add('$key=$truncated');
     });
     return parts.take(4).join(', ');
@@ -2727,7 +2784,7 @@ class AgentRuntimeEngine {
   }
 
   /// Resolve [ToolDefinition] objects for the given tool names. Names that
-  /// aren't in the registry are silently dropped — the reflector treats the
+  /// aren't in the registry are silently dropped â€” the reflector treats the
   /// result as best-effort.
   List<ToolDefinition> _toolDefinitionsFor(Set<String> names) {
     final out = <ToolDefinition>[];
@@ -2743,7 +2800,7 @@ class AgentRuntimeEngine {
   /// for the (agentId, source) scope it is updated in place; otherwise a
   /// new ledger row is inserted.
   ///
-  /// The ledger becomes the authoritative store for the task — `resumeContext`
+  /// The ledger becomes the authoritative store for the task â€” `resumeContext`
   /// only needs to carry a pointer (`ledger_id`) afterwards.
   Future<TaskLedger> _persistLedgerAtGate({
     required AgentRuntimeRequest request,
@@ -2768,7 +2825,7 @@ class AgentRuntimeEngine {
     );
 
     if (existing != null) {
-      // Update in place — the loop is mid-flight, just sync state.
+      // Update in place â€” the loop is mid-flight, just sync state.
       existing.goalTree = goalTree;
       existing.previousResults = List.of(previousResults);
       existing.currentStep = currentStep;
@@ -2855,7 +2912,7 @@ class AgentRuntimeEngine {
     DetectedLanguage language,
     ToolVerbalizer verbalizer,
   ) async {
-    // 1. Provider disambiguation — deterministic, no LLM needed.
+    // 1. Provider disambiguation â€” deterministic, no LLM needed.
     //    Structured data from system.agents.create.
     final providers = result.data?['providers'] as List?;
     if (providers != null && providers.isNotEmpty) {
@@ -2903,178 +2960,6 @@ class AgentRuntimeEngine {
     );
   }
 
-  Future<AgentRuntimeResponse?> _blockIfCompletionUnverified({
-    required AgentRuntimeRequest request,
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required List<Map<String, dynamic>> previousResults,
-    required int currentStep,
-    required List<String> availableTools,
-    required String memorySnapshot,
-    required DetectedLanguage detectedLang,
-    required bool autoApproveSensitive,
-    required bool isWorkflowAutoExecute,
-    required RuntimeLogger logger,
-    String? lastToolName,
-  }) async {
-    final verification = _verifyAgentRegistryCompletion(
-      plan: plan,
-      goalTree: goalTree,
-      previousResults: previousResults,
-      lastToolName: lastToolName,
-      language: detectedLang,
-    );
-    if (verification == null || verification.ok) return null;
-
-    for (final subgoal in goalTree.subgoals) {
-      final expected = _expectedAgentNameForSubgoal(subgoal);
-      if (expected != null &&
-          verification.missingNames.any(
-            (name) => name.toLowerCase() == expected.toLowerCase(),
-          )) {
-        subgoal.status = SubgoalStatus.inProgress;
-        subgoal.notes = 'Verification failed: agent registry state mismatch.';
-      }
-    }
-
-    await _parkTaskForUserInput(
-      request: request,
-      plan: plan,
-      goalTree: goalTree,
-      previousResults: previousResults,
-      currentStep: currentStep,
-      availableTools: availableTools,
-      memorySnapshot: memorySnapshot,
-      detectedLang: detectedLang,
-      autoApproveSensitive: autoApproveSensitive,
-      isWorkflowAutoExecute: isWorkflowAutoExecute,
-      questions: [verification.question],
-    );
-    logger.logFinalResponse(verification.message);
-    return AgentRuntimeResponse(
-      finalMessage: verification.message,
-      success: false,
-      state: AgentRuntimeState.askingUser,
-      events: logger.events,
-    );
-  }
-
-  _CompletionVerification? _verifyAgentRegistryCompletion({
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required List<Map<String, dynamic>> previousResults,
-    required DetectedLanguage language,
-    String? lastToolName,
-  }) {
-    final touchedAgentCreate =
-        lastToolName == 'system.agents.create' ||
-        previousResults.any((r) => r['tool'] == 'system.agents.create');
-    final touchedAgentDelete =
-        lastToolName == 'system.agents.delete' ||
-        previousResults.any((r) => r['tool'] == 'system.agents.delete');
-    if ((!touchedAgentCreate && !touchedAgentDelete) || goalTree.isEmpty) {
-      return null;
-    }
-
-    final loadAgents = agentLoader;
-    if (loadAgents == null) return null;
-    final existing = loadAgents()
-        .map((a) => a.name.trim().toLowerCase())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    if (existing.isEmpty) return null;
-
-    final targetGraph =
-        (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-        const {};
-    final graphTargets =
-        (targetGraph['targets'] as List?)
-            ?.whereType<Map>()
-            .map((m) => m.cast<String, dynamic>())
-            .toList() ??
-        const <Map<String, dynamic>>[];
-
-    final expectedCreates = graphTargets
-        .where(
-          (target) =>
-              target['entity_type'] == 'agent' &&
-              target['operation'] == 'create' &&
-              target['status'] != 'skipped',
-        )
-        .map((target) => (target['entity_label'] ?? '').toString().trim())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    final expectedDeletes = graphTargets
-        .where(
-          (target) =>
-              target['entity_type'] == 'agent' &&
-              target['operation'] == 'delete' &&
-              target['status'] == 'eligible',
-        )
-        .map((target) => (target['entity_label'] ?? '').toString().trim())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-
-    final expectedFromTree = goalTree.subgoals
-        .map(_expectedAgentNameForSubgoal)
-        .whereType<String>()
-        .where((name) => name.trim().isNotEmpty)
-        .toSet();
-    if (touchedAgentCreate && expectedCreates.isEmpty) {
-      expectedCreates.addAll(expectedFromTree);
-    }
-    if (expectedCreates.isEmpty && expectedDeletes.isEmpty) return null;
-
-    final missingCreates = expectedCreates
-        .where((name) => !existing.contains(name.toLowerCase()))
-        .toList(growable: false);
-    final stillPresentDeletes = expectedDeletes
-        .where((name) => existing.contains(name.toLowerCase()))
-        .toList(growable: false);
-    if (missingCreates.isEmpty && stillPresentDeletes.isEmpty) {
-      return const _CompletionVerification(ok: true);
-    }
-
-    final mismatchNames = [...missingCreates, ...stillPresentDeletes];
-    final entityList = mismatchNames.join(', ');
-    final message = LanguageRegistry.phrase(
-      'completion_unverified',
-      language.code,
-      {'entity': entityList.isEmpty ? 'agen yang diminta' : entityList},
-    );
-    return _CompletionVerification(
-      ok: false,
-      missingNames: mismatchNames,
-      message: message,
-      question: message,
-    );
-  }
-
-  String? _expectedAgentNameForSubgoal(Subgoal subgoal) {
-    for (final key in const [
-      'name',
-      'agentName',
-      'agent_name',
-      'targetName',
-      'target_name',
-    ]) {
-      final value = subgoal.requiredSlots[key];
-      if (value is String && value.trim().isNotEmpty) {
-        return value.trim();
-      }
-    }
-
-    final quoted = RegExp(
-      r'["“”]([^"“”]+)["“”]',
-    ).firstMatch(subgoal.label)?.group(1)?.trim();
-    if (quoted != null && quoted.isNotEmpty) return quoted;
-
-    final match = RegExp(
-      r'\b(?:agent|agen)\s+([A-Za-z0-9_-]{2,})\b',
-      caseSensitive: false,
-    ).firstMatch(subgoal.label);
-    return match?.group(1)?.trim();
-  }
 
   /// Auto-resume a [PendingAction] from a persisted ledger when the in-memory
   /// map for [agentId] is empty (e.g. after the app was killed mid-task).
@@ -3302,7 +3187,7 @@ class AgentRuntimeEngine {
   }
 
   /// True when the tool is a read-only lookup. For these tools, an empty
-  /// result IS the answer — there's no point retrying with different args.
+  /// result IS the answer â€” there's no point retrying with different args.
   static bool _isReadOnlyLookup(String toolName) {
     return toolName.endsWith('.search') ||
         toolName.endsWith('.list') ||
@@ -3371,7 +3256,7 @@ class AgentRuntimeEngine {
     if (subgoals is List && subgoals.isNotEmpty) {
       return currentStep >= subgoals.length;
     }
-    // Neither format present — treat as single-step to avoid blocking.
+    // Neither format present â€” treat as single-step to avoid blocking.
     return true;
   }
 
@@ -3390,7 +3275,7 @@ class AgentRuntimeEngine {
   /// True when the analyzer's intent is destructive/side-effecting enough that
   /// the deep-thinking reflection pass must run (impact + slot analysis), even
   /// for a high-confidence single-tool turn. Reads the analyzer's `risk` and
-  /// `intent`/`goal` operation hints — language-agnostic, no keyword lists.
+  /// `intent`/`goal` operation hints â€” language-agnostic, no keyword lists.
   bool _isDestructiveIntent(Map<String, dynamic> analysis) {
     final risk = (analysis['risk'] ?? '').toString().toLowerCase();
     if (risk == 'sensitive' || risk == 'dangerous') return true;
@@ -3518,20 +3403,6 @@ class AgentRuntimeEngine {
       'module': module,
     });
   }
-}
-
-class _CompletionVerification {
-  const _CompletionVerification({
-    required this.ok,
-    this.missingNames = const [],
-    this.message = '',
-    this.question = '',
-  });
-
-  final bool ok;
-  final List<String> missingNames;
-  final String message;
-  final String question;
 }
 
 /// Riverpod provider for the runtime engine.

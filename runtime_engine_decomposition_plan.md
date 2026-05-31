@@ -99,7 +99,9 @@ final preflight = await _preflight.check(
 
 ---
 
-## Phase 2: Extract `CompletionVerifier` (LOW RISK)
+## Phase 2: Extract `CompletionVerifier` ✅ DONE (31 May 2026)
+
+**Result:** `dart analyze` clean, `flutter test` 234/234 passed. Engine: 3,558 → 3,429 lines (−129). New file: `completion_verifier.dart` (202 lines).
 
 **Why second:** Also near-pure — reads `agentLoader` from engine, writes nothing. Small, self-contained.
 
