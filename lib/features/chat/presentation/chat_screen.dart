@@ -30,6 +30,7 @@ import '../data/chat_history_service.dart';
 import '../data/chat_runtime_log_service.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
+import 'chat_shimmer.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -374,8 +375,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   /// Reload history from disk after manager persists a reply.
-  /// Preserves the marker on the most recent assistant message when there's
-  /// an active pending tool so the action buttons keep rendering.
+  /// Full replacement of the 10 newest messages keeps order correct and
+  /// avoids duplicate-detection bugs from incremental append.
   Future<void> _reloadHistory(String agentId) async {
     final service = ref.read(chatHistoryServiceProvider);
     final history = await service.loadLatest(agentId);
@@ -481,19 +482,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      }
-      // Secondary scroll after markdown widgets finish layout.
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scroll.hasClients) {
-          _scroll.animateTo(
-            _scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-          );
-        }
-      });
+      if (!_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
     });
   }
 
@@ -1068,17 +1058,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     if (mounted) {
+      _initialLoading = false;
       setState(() {
         // Merge: prepend loaded history before any messages added during load.
         final live = _messagesByAgent[agentId] ?? [];
         _messagesByAgent[agentId] = [...cleaned, ...live];
-        _initialLoading = false;
       });
       if (cleaned.length < kMessagePageSize) {
         _fullyLoaded.add(agentId);
       }
-      _scrollToEnd();
+      // Multi-frame settle: ListView.builder needs several frames to finalize
+      // layout with variable-height markdown bubbles. We jumpTo the current
+      // maxExtent each frame until it stabilizes, then do one smooth animateTo.
+      _settleScrollToEnd();
     }
+  }
+
+  /// Repeatedly jump to the bottom over multiple frames until the layout
+  /// stabilizes (markdown bubbles have variable heights), then perform one
+  /// smooth animated scroll for final polish.
+  void _settleScrollToEnd({int attempt = 0}) {
+    const maxAttempts = 10;
+    if (attempt >= maxAttempts) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients || !mounted) return;
+      final extent = _scroll.position.maxScrollExtent;
+      final current = _scroll.position.pixels;
+      final atBottom = (extent - current).abs() < 1.0;
+      // Jump toward the bottom on every frame. Once we've been at the
+      // bottom for two consecutive frames (layout settled), finish with
+      // a smooth animateTo for polish.
+      if (atBottom && attempt > 2) {
+        _scroll.animateTo(
+          extent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+        return;
+      }
+      _scroll.jumpTo(extent);
+      _settleScrollToEnd(attempt: attempt + 1);
+    });
   }
 
   /// Load older messages when scrolling to the top.
@@ -1097,7 +1117,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() {}); // Show loading indicator.
 
     final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(_activeAgentId, beforeId: oldestId);
+    final older = await service.loadOlder(_activeAgentId, beforeId: oldestId, limit: 30);
 
     if (!mounted) return;
 
@@ -1255,15 +1275,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     children: [
                       Expanded(
                         child: _initialLoading
-                            ? const Center(
-                                child: SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
+                            ? const ChatShimmer()
                             : _messages.isEmpty && !_sending
                             ? _ChatEmptyState(s: s)
                             : ListView.builder(

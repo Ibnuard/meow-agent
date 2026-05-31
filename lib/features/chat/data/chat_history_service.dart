@@ -5,8 +5,9 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../services/agent_runtime/runtime_models.dart';
 
-/// Page size for paginated message loading.
-const int kMessagePageSize = 30;
+/// Page size for initial latest-message load (fast, lightweight).
+/// Older messages load at 30 per page when scrolling up.
+const int kMessagePageSize = 10;
 
 /// Persists chat messages per agent using SQLite with pagination support.
 class ChatHistoryService {
