@@ -242,111 +242,70 @@ class TaskScopeManager {
 
 ---
 
-## Phase 5: Extract `ExecuteLoopRunner` (HIGHEST RISK)
+## Phase 5: Extract `ExecuteLoopRunner` ✅ DONE (31 May 2026)
 
-**Why last:** The 1,150-line `_executeLoop()` is the core of the agent runtime. Deeply entangled with engine services. Must extract carefully.
+**Result:** `dart analyze lib/` clean, `flutter test` 234/234 passed. Engine: 3,122 → 533 lines (−2,589). New file: `execute_loop_runner.dart` (1,549 lines).
 
-**New file:** `lib/services/agent_runtime/execute_loop_runner.dart`
+**What was extracted:**
+- `_executeLoop()` (1,133 lines) → `ExecuteLoopRunner.run()`
+- `_maybeRecover()` (~58 lines) → `_maybeRecover()` (private)
+- `_summarizeArgs()` (~10 lines) → `_summarizeArgs()` (private)
+- `_fail()` → `fail()` (public, shared with engine's `run()` and `_executePendingTool`)
+- `_permissionDeniedResponseFor()` → `permissionDeniedResponseFor()` (public)
+- `_shouldAnswerFromToolResult()` → `shouldAnswerFromToolResult()` (public)
+- `_finalForCompletedTree()` → `finalForCompletedTree()` (public)
+- `_fallbackQuestionForToolFailure()` → `fallbackQuestionForToolFailure()` (public)
+- `_capabilityNotFoundMessage()` → `capabilityNotFoundMessage()` (public static)
+- `_isEffectivelyEmpty()` → `isEffectivelyEmpty()` (public static)
+- `_isReadOnlyLookup()` → `isReadOnlyLookup()` (public static)
+- `_deliveryDestinationKey()` → `deliveryDestinationKey()` (public static)
+- `_emptyResultMessage()` → `emptyResultMessage()` (public static)
+- `_isLastPlannedStep()` → private
+- `_isRetrievalTool()` → private
+- `_isAnswerOnlySubgoal()` → private
+- `_subgoalSlot()` → private
 
-**Extracted from `runtime_engine.dart`:**
-- `_executeLoop()` — L1460–L2570 (~1,110 lines)
-- `_maybeRecover()` — L2575–L2630 (~55 lines)
-- `_summarizeArgs()` — L2641–L2650 (~10 lines)
+**Constructor-injected services:** `ToolRouter`, `WorkspaceLoader`, `TaskScopeManager`, `PreflightChecker`, `CompletionVerifier`, `RuntimeMemory`, `languageCode`
 
-**This method depends on practically every service:**
-- `executor`, `verbalizer`, `toolRouter`, `workspaceLoader`
-- `_memory` (runtime memory)
-- `_taskScope` (cancellation check, ledger ops)
-- `_confirmation` (pending state)
-- `_preflight` (preflight checks)
-- `_completionVerifier` (completion verification)
-- `_client` (LLM)
-- `stuck` (StuckDetector — already local)
-- `recovery` (RecoveryCoordinator — passed as param)
-- `postExecuteValidator` (passed as param)
+**Stayed on engine:** `_executePendingTool`, `_directResponseRulesFor`, `_buildGoalTree`, `_buildSnapshot`, `_toolDefinitionsFor`, `_isDestructiveIntent`
 
-**Class design:**
-```dart
-class ExecuteLoopRunner {
-  ExecuteLoopRunner({
-    required Executor executor,
-    required ToolVerbalizer verbalizer,
-    required ToolRouter toolRouter,
-    required WorkspaceLoader workspaceLoader,
-    required RuntimeMemory memory,
-    required TaskScopeManager taskScope,
-    required ConfirmationManager confirmation,
-    required PreflightChecker preflight,
-    required CompletionVerifier completionVerifier,
-    required OpenAiCompatibleClient llmClient,
-  });
-
-  Future<AgentRuntimeResponse> run({
-    required AgentRuntimeRequest request,
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required DetectedLanguage detectedLang,
-    required List<String> availableTools,
-    required RuntimeLogger logger,
-    required void Function(RuntimeEvent) emit,
-    required String memorySnapshot,
-    RecoveryCoordinator? recovery,
-    PostExecuteValidator? postExecuteValidator,
-    Future<({Map<String, dynamic> plan, GoalTree goalTree})?> Function()? rethink,
-    bool autoApproveSensitive = false,
-    bool isWorkflowAutoExecute = false,
-    List<Map<String, dynamic>>? initialPreviousResults,
-    int initialStep = 1,
-  });
-}
-```
-
-**Key risk areas:**
-1. The `rethink` closure captures `reflector`, `planner`, `effectiveUserMessage`, `recentMsgs`, `logger` — all `run()` locals. Solution: pass as parameters to the runner or pre-build the rethink closure and pass it.
-
-2. The `_memory.record()` calls inside the loop. Solution: `RuntimeMemory` is passed via constructor.
-
-3. `_permissionDeniedResponseFor()` — this static-like method depends on `languageCode` field. Solution: either make it a static method (it's close) or keep it on the engine.
-
-4. `_isLastPlannedStep()`, `_shouldAnswerFromToolResult()`, `_fail()` — these are standalone helpers that can stay on the engine or become static methods on the runner.
-
-**Engine changes:**
-- `_executeLoop()` becomes: `return _loopRunner.run(...);`
-- `_maybeRecover()` moves to runner
-- `_summarizeArgs()` moves to runner
-
-**Verification:** `dart analyze lib/` + `flutter test` — **this is the gate where bugs surface.**
-
-**Estimated lines removed from engine:** ~1,175
+**Key design decisions:**
+- `_executePendingTool` stays on engine (calls `_loopRunner.*` for shared helpers)
+- `rethink` closure stays built in `run()` (captures engine-only methods)
+- `_pendingActions` write uses callback pattern (`attachPendingActionsCallback`)
+- Circular `_taskScope` ↔ `_confirmation` resolved in Phase 4
 
 ---
 
-## Phase 6: Cleanup & Polish
+## Phase 6: Cleanup & Polish ✅ DONE (31 May 2026)
 
-**Remaining in engine** after all extractions (~500 lines total):
+**Result:** `dart analyze lib/` clean, `flutter test` 234/234 passed. No behavioral changes.
 
+**What was done:**
+- Removed stale temp files (`.py`, `.awk`, `.tmp`, `_cleaned.dart`)
+- Removed unused imports from engine
+- Verified engine at 533 lines (−86% from 3,759)
+- All 6 phases complete — decomposition finished
+
+**Actual remaining in engine** (533 lines):
 | What stays | Lines |
 |---|---|
-| Constructor + fields (`_client`, `toolRouter`, `workspaceLoader`, etc.) | 40 |
-| `_directResponseRulesFor()`, `_fallbackLanguage()` | 25 |
-| `run()` — now ~100-150 lines (pure orchestration) | 150 |
-| `_buildGoalTree()`, `_buildSnapshot()`, `_toolDefinitionsFor()` | 80 |
-| `_finalForCompletedTree()`, `_fallbackQuestionForToolFailure()` | 120 |
-| `_isDestructiveIntent()`, `_isRetrievalTool()`, `_isAnswerOnlySubgoal()`, `_subgoalSlot()` | 80 |
-| `_permissionDeniedResponseFor()`, `_fail()`, `_capabilityNotFoundMessage()` | 50 |
-| `_isEffectivelyEmpty()` (static), `_isReadOnlyLookup()` (static), `_deliveryDestinationKey()` (static), `_emptyResultMessage()` | 50 |
-| `_isLastPlannedStep()`, `_shouldAnswerFromToolResult()` | 30 |
-| Riverpod provider | 20 |
-
-**Optional further extraction:** The static utility methods could move to a `RuntimeEngineUtils` class if desired. Not critical — they're small and self-contained.
+| Constructor + fields + 5 service inits | ~30 |
+| `_directResponseRulesFor()` | ~16 |
+| `run()` — pure orchestration | ~250 |
+| `executeConfirmed()` + `_executePendingTool()` | ~170 |
+| `_buildGoalTree()`, `_buildSnapshot()`, `_toolDefinitionsFor()` | ~50 |
+| `_isDestructiveIntent()` | ~15 |
+| Helpers (`_memory`, `_languageDetector`, getters) | ~25 |
+| Riverpod provider | ~20 |
 
 **Final verification checklist:**
-- [ ] `dart analyze lib/` — zero errors
-- [ ] `flutter test` — all existing tests pass
+- [x] `dart analyze lib/` — zero errors ✅
+- [x] `flutter test` — 234/234 passed ✅
 - [ ] Manual smoke test: "create agent TestBot" + "delete agent TestBot"
 - [ ] Manual smoke test: multi-subgoal task with confirmation gate
 - [ ] Manual smoke test: workflow auto-execute with sensitive actions
-- [ ] Git diff: verify `runtime_engine.dart` is ~500 lines (down from 3,759)
+- [x] Git diff: `runtime_engine.dart` 533 lines (down from 3,759) ✅
 
 ---
 
@@ -375,7 +334,9 @@ class ExecuteLoopRunner {
 | 2 | `completion_verifier.dart` | ~170 | 🟢 Low | No behavioral change |
 | 3 | `confirmation_manager.dart` | ~700 | 🟡 Medium | State ownership change |
 | 4 | `task_scope_manager.dart` | ~280 | 🟡 Medium | Ledger ownership change |
-| 5 | `execute_loop_runner.dart` | ~1,175 | 🔴 High | Core loop extraction |
-| 6 | Cleanup (no new files) | ~50 | 🟢 Low | Optional polish |
+| 5 | `execute_loop_runner.dart` | ~2,589 | 🔴 High | Core loop extraction |
+| 6 | Cleanup (no new files) | ~50 | 🟢 Low | Polish & verify |
 
-**Total engine reduction:** 3,759 → ~500 lines (−87%)
+**Total engine reduction:** 3,759 → 533 lines (−86%)
+
+**Extracted files:** 5 classes → 3,038 total lines of well-factored code
