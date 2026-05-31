@@ -35,6 +35,14 @@ const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
 
+TONE vs INTENT (CRITICAL — read first before analyzing any message):
+- The CURRENT user message ALWAYS takes priority over preceding conversation TONE.
+- If the CURRENT message contains a clear ACTION VERB + a clear TARGET (in any language): set requires_tools=true. This is true EVEN IF the preceding messages were casual greetings, friendly chat, or small talk.
+- Example: recent conversation is "Hello!" / "Hello, how can I help?" — then user says "delete all agents without a provider". The greeting does NOT make the delete request a chat — it is a destructive multi-target action → requires_tools=true.
+- Example: recent conversation is friendly banter — then user says "open the calendar". The banter does NOT make "open the calendar" a chat → requires_tools=true.
+- The presence of a greeting, name-calling, or casual phrasing in the current or preceding messages NEVER downgrades a clear action request to chat/requires_tools=false.
+- Only set requires_tools=false if the CURRENT message itself is genuinely ambiguous, purely conversational, or missing required details AFTER applying this rule.
+
 Conversation continuity rules:
 - Recent conversation is authoritative context, especially the immediately previous assistant question and current user reply.
 - If the previous assistant message asked clarifying questions, treat the current user message as answers to those questions.

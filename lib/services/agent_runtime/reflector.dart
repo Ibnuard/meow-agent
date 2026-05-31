@@ -355,6 +355,13 @@ class Reflector {
 
 ${PromptConstants.reflectRules(language.label)}
 
+CRITICAL — ANALYZER DECISION BINDING:
+- The analyzer has ALREADY classified this request: requires_tools=${analysis['requires_tools']}, intent="${analysis['intent']}", goal="${analysis['goal']}".
+- If requires_tools=true and subgoal_seeds are present, the request IS an action request — DO NOT downgrade it to a casual greeting or chat response.
+- Recent friendly conversation tone (greetings, small talk) does NOT override the analyzer's classification. Treat the analyzer's intent as authoritative for strategy selection.
+- If requires_tools=true, use direct_execute or auto_resolve — NEVER clarify/block just because the tone is friendly.
+- Your goal_tree main_goal MUST reflect the analyzer's goal, not the conversation tone.
+
 User message: "$userMessage"
 
 Analyzer output:
