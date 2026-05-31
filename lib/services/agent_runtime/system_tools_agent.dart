@@ -89,9 +89,20 @@ extension SystemToolsAgent on SystemTools {
 
       final maxContextLength =
           (args['maxContextLength'] as num?)?.toInt() ?? 8191;
+      final requestedModel = (args['model'] as String? ?? '').trim();
+      if (requestedModel.isNotEmpty &&
+          !provider.models.contains(requestedModel)) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'system.agents.create',
+          error: 'Model not found on provider: $requestedModel',
+          data: {'available': provider.models},
+        );
+      }
       final agent = AgentModel(
         name: name,
         providerId: provider.id,
+        model: provider.effectiveModel(requestedModel),
         maxContextLength: maxContextLength.clamp(512, 1000000).toInt(),
         iconKey: args['iconKey'] as String?,
         colorKey: args['colorKey'] as String?,
@@ -257,11 +268,13 @@ extension SystemToolsAgent on SystemTools {
 
       final newName = (args['newName'] as String? ?? '').trim();
       final newProviderRaw = (args['providerId'] as String? ?? '').trim();
+      final newModelRaw = (args['model'] as String? ?? '').trim();
       final newMaxContext = (args['maxContextLength'] as num?)?.toInt();
       final newIcon = args['iconKey'] as String?;
       final newColor = args['colorKey'] as String?;
 
       String? finalProviderId;
+      String? finalModel;
       if (newProviderRaw.isNotEmpty) {
         final providers = await loadProviders();
         final found = providers
@@ -279,11 +292,42 @@ extension SystemToolsAgent on SystemTools {
           );
         }
         finalProviderId = found.id;
+        if (newModelRaw.isNotEmpty && !found.models.contains(newModelRaw)) {
+          return ToolExecutionResult(
+            success: false,
+            toolName: 'system.agents.update',
+            error: 'Model not found on provider: $newModelRaw',
+            data: {'available': found.models},
+          );
+        }
+        finalModel = found.effectiveModel(newModelRaw);
+      } else if (newModelRaw.isNotEmpty) {
+        final providers = await loadProviders();
+        final currentProvider = providers
+            .where((p) => p.id == target.providerId)
+            .firstOrNull;
+        if (currentProvider == null) {
+          return ToolExecutionResult(
+            success: false,
+            toolName: 'system.agents.update',
+            error: 'Current provider not found for model update.',
+          );
+        }
+        if (!currentProvider.models.contains(newModelRaw)) {
+          return ToolExecutionResult(
+            success: false,
+            toolName: 'system.agents.update',
+            error: 'Model not found on provider: $newModelRaw',
+            data: {'available': currentProvider.models},
+          );
+        }
+        finalModel = currentProvider.effectiveModel(newModelRaw);
       }
 
       final updated = target.copyWith(
         name: newName.isEmpty ? null : newName,
         providerId: finalProviderId,
+        model: finalModel,
         maxContextLength: newMaxContext?.clamp(512, 1000000).toInt(),
         iconKey: newIcon,
         colorKey: newColor,
@@ -302,6 +346,7 @@ extension SystemToolsAgent on SystemTools {
           'changedFields': [
             if (newName.isNotEmpty) 'name',
             if (finalProviderId != null) 'providerId',
+            if (finalModel != null) 'model',
             if (newMaxContext != null) 'maxContextLength',
             if (newIcon != null) 'iconKey',
             if (newColor != null) 'colorKey',

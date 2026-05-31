@@ -148,6 +148,19 @@ class AppStrings {
       ? '⚠️ $count agen yang menggunakan provider ini akan kehilangan koneksi:'
       : '⚠️ $count agent(s) using this provider will lose their connection:';
   String get noProvidersYet => isId ? 'Belum ada provider' : 'No providers yet';
+
+  // Provider/model missing fallback — used in chat when agent's provider disappeared.
+  String get providerMissingTitle => isId
+      ? 'Provider tidak tersedia'
+      : 'Provider unavailable';
+  String providerMissingBody(String agentName) => isId
+      ? 'Agen "$agentName" memerlukan provider dan model yang valid. '
+          'Provider yang terhubung mungkin telah dihapus atau modelnya tidak lagi tersedia. '
+          'Silakan atur ulang di halaman Provider.'
+      : 'Agent "$agentName" needs a valid provider and model. '
+          'The linked provider may have been deleted or its model is no longer available. '
+          'Please reconfigure it in the Provider page.';
+  String get manageProvidersAction => isId ? 'Atur Provider' : 'Manage Providers';
   String get noProvidersTapAdd => isId
       ? 'Tap + untuk menambahkan provider LLM pertama.'
       : 'Tap + to add your first LLM provider.';

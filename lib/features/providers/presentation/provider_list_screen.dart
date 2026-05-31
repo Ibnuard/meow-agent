@@ -80,14 +80,12 @@ class ProviderListScreen extends ConsumerWidget {
             return ListView.separated(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 100),
               itemCount: providers.length,
-              separatorBuilder: (context, index) =>
-                  const SizedBox(height: 10),
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
               itemBuilder: (context, i) {
                 final provider = providers[i];
                 return _ProviderCard(
                   provider: provider,
-                  onTap: () =>
-                      context.push('/providers/${provider.id}/edit'),
+                  onTap: () => context.push('/providers/${provider.id}/edit'),
                 );
               },
             );
@@ -99,10 +97,7 @@ class ProviderListScreen extends ConsumerWidget {
 }
 
 class _ProviderCard extends StatelessWidget {
-  const _ProviderCard({
-    required this.provider,
-    required this.onTap,
-  });
+  const _ProviderCard({required this.provider, required this.onTap});
 
   final ProviderConfig provider;
   final VoidCallback onTap;
@@ -151,7 +146,7 @@ class _ProviderCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      provider.model,
+                      '${provider.models.length} model${provider.models.length == 1 ? '' : 's'} · default ${provider.model}',
                       style: TextStyle(
                         fontSize: 12,
                         color: cs.onSurfaceVariant,

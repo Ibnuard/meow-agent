@@ -27,10 +27,12 @@ class AddProviderScreen extends ConsumerStatefulWidget {
 class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nicknameController = TextEditingController();
-  final _baseUrlController =
-      TextEditingController(text: 'https://api.openai.com/v1');
+  final _baseUrlController = TextEditingController(
+    text: 'https://api.openai.com/v1',
+  );
   final _apiKeyController = TextEditingController();
-  final _modelController = TextEditingController(text: 'gpt-4.1-mini');
+  final _modelInputController = TextEditingController();
+  final List<String> _models = [];
 
   bool _obscureKey = true;
   bool _testing = false;
@@ -54,13 +56,17 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   Future<void> _loadExisting() async {
     final providers = ref.read(providerListProvider).value ?? [];
-    final existing = providers.where((p) => p.id == widget.providerId).firstOrNull;
+    final existing = providers
+        .where((p) => p.id == widget.providerId)
+        .firstOrNull;
     if (existing != null) {
       _existingId = existing.id;
       _nicknameController.text = existing.nickname;
       _baseUrlController.text = existing.baseUrl;
       _apiKeyController.text = existing.apiKey;
-      _modelController.text = existing.model;
+      _models
+        ..clear()
+        ..addAll(existing.models);
       if (mounted) setState(() {});
     }
   }
@@ -70,17 +76,36 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     _nicknameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
-    _modelController.dispose();
+    _modelInputController.dispose();
     super.dispose();
   }
 
   ProviderConfig _buildConfig() => ProviderConfig(
-        id: _existingId,
-        nickname: _nicknameController.text.trim(),
-        baseUrl: _baseUrlController.text.trim(),
-        apiKey: _apiKeyController.text.trim(),
-        model: _modelController.text.trim(),
-      );
+    id: _existingId,
+    nickname: _nicknameController.text.trim(),
+    baseUrl: _baseUrlController.text.trim(),
+    apiKey: _apiKeyController.text.trim(),
+    model: _models.firstOrNull ?? '',
+    models: _models,
+  );
+
+  void _addModel() {
+    final model = _modelInputController.text.trim();
+    if (model.isEmpty || _models.contains(model)) return;
+    setState(() {
+      _models.add(model);
+      _modelInputController.clear();
+    });
+    // Re-validate so the model error clears after adding a model.
+    _formKey.currentState?.validate();
+  }
+
+  void _removeModel(String model) {
+    if (_models.isEmpty) return;
+    setState(() => _models.remove(model));
+    // Re-validate so the model error appears if the list became empty.
+    _formKey.currentState?.validate();
+  }
 
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
@@ -92,9 +117,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final config = _buildConfig();
     final client = OpenAiCompatibleClient();
     // Reuse the existing LlmProviderConfig-compatible test.
-    final ok = await client.testConnection(
-      _toLlmConfig(config),
-    );
+    final ok = await client.testConnection(_toLlmConfig(config));
     if (!mounted) return;
     setState(() {
       _testing = false;
@@ -119,20 +142,22 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   Future<void> _confirmDelete() async {
     final agents = ref.read(agentListProvider);
-    final affectedAgents =
-        agents.where((a) => a.providerId == widget.providerId).toList();
+    final affectedAgents = agents
+        .where((a) => a.providerId == widget.providerId)
+        .toList();
     final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
 
     final affectedWarning = affectedAgents.isNotEmpty
         ? '\n\n${s.affectedAgentsWarning(affectedAgents.length)}\n'
-            '${affectedAgents.map((a) => '• ${a.name}').join('\n')}'
+              '${affectedAgents.map((a) => '• ${a.name}').join('\n')}'
         : '';
 
     final confirmed = await showMeowConfirmDialog(
       context,
       isId: isId,
       title: s.deleteProvider,
-      message: '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
+      message:
+          '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
       confirmLabel: s.delete,
       cancelLabel: s.cancel,
     );
@@ -278,16 +303,12 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         },
                       ),
                       const SizedBox(height: 18),
-                      MeowInput(
-                        controller: _modelController,
-                        label: s.model,
-                        hint: 'gpt-4.1-mini',
-                        validator: (v) {
-                          if ((v ?? '').trim().isEmpty) {
-                            return s.modelRequired;
-                          }
-                          return null;
-                        },
+                      _ModelListEditor(
+                        models: _models,
+                        controller: _modelInputController,
+                        isId: s.isId,
+                        onAdd: _addModel,
+                        onRemove: _removeModel,
                       ),
                     ],
                   ),
@@ -299,7 +320,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: (_testSuccess ?? false)
                             ? extras.success.withValues(alpha: 0.1)
@@ -348,8 +371,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                           label: _testing ? s.testing : s.test,
                           icon: Icons.bolt_rounded,
                           loading: _testing,
-                          onPressed:
-                              _testing || _saving ? null : _testConnection,
+                          onPressed: _testing || _saving
+                              ? null
+                              : _testConnection,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -380,7 +404,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delete_outline_rounded, size: 18, color: cs.error),
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: cs.error,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             s.deleteProvider,
@@ -404,9 +432,132 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   }
 }
 
-/// Bridge to the existing OpenAI client which expects LlmProviderConfig.
-LlmProviderConfig _toLlmConfig(ProviderConfig p) => LlmProviderConfig(
-      baseUrl: p.baseUrl,
-      apiKey: p.apiKey,
-      model: p.model,
+class _ModelListEditor extends FormField<List<String>> {
+  _ModelListEditor({
+    required List<String> models,
+    required TextEditingController controller,
+    required bool isId,
+    required VoidCallback onAdd,
+    required ValueChanged<String> onRemove,
+  }) : super(
+          initialValue: models,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          validator: (_) {
+            if (models.isEmpty) {
+              return isId ? 'Model wajib diisi' : 'Model is required';
+            }
+            return null;
+          },
+          builder: (state) {
+            final extras = state.context.extras;
+            final hasError = state.hasError;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MeowInput(
+                  controller: controller,
+                  label: isId ? 'Model Tersedia' : 'Available Models',
+                  hint: 'deepseek-v4-flash',
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => onAdd(),
+                  errorText: hasError ? state.errorText : null,
+                  suffixIcon: Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Center(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      child: IconButton.filledTonal(
+                        onPressed: onAdd,
+                        icon: const Icon(Icons.add_rounded, size: 18),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(36, 36),
+                          maximumSize: const Size(36, 36),
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final model in models)
+                      _ModelChip(
+                        model: model,
+                        canRemove: true,
+                        onRemove: () => onRemove(model),
+                      ),
+                  ],
+                ),
+                Text(
+                  isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: extras.subtleText,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+}
+
+class _ModelChip extends StatelessWidget {
+  const _ModelChip({
+    required this.model,
+    required this.canRemove,
+    required this.onRemove,
+  });
+
+  final String model;
+  final bool canRemove;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Container(
+      padding: const EdgeInsets.only(left: 10, right: 6, top: 7, bottom: 7),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            model,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
+          if (canRemove) ...[
+            const SizedBox(width: 4),
+            InkWell(
+              borderRadius: BorderRadius.circular(999),
+              onTap: onRemove,
+              child: Padding(
+                padding: const EdgeInsets.all(2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 14,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
+  }
+}
+
+/// Bridge to the existing OpenAI client which expects LlmProviderConfig.
+LlmProviderConfig _toLlmConfig(ProviderConfig p) =>
+    LlmProviderConfig(baseUrl: p.baseUrl, apiKey: p.apiKey, model: p.model);

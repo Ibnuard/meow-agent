@@ -100,8 +100,7 @@ class SystemModulePlugin extends ModulePlugin {
     ),
     ToolDefinition(
       name: 'system.agents.list',
-      description:
-          'List all configured agents and their public provider info.',
+      description: 'List all configured agents and their public provider info.',
       risk: 'safe',
       requiresConfirmation: false,
       operation: 'list',
@@ -118,6 +117,8 @@ class SystemModulePlugin extends ModulePlugin {
         'name': 'string (required)',
         'providerId':
             'string (optional if exactly one provider exists; otherwise required)',
+        'model':
+            'string (optional; one of the selected provider models, defaults to provider default)',
         'maxContextLength': 'int (optional, default 8191)',
         'iconKey': 'string (optional)',
         'colorKey': 'string (optional)',
@@ -220,6 +221,8 @@ class SystemModulePlugin extends ModulePlugin {
         'newName': 'string (optional)',
         'providerId':
             'string (optional, provider id or nickname for re-binding)',
+        'model':
+            'string (optional; select a model from the current/new provider)',
         'maxContextLength': 'int (optional)',
         'iconKey': 'string (optional)',
         'colorKey': 'string (optional)',

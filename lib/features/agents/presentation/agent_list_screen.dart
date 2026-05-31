@@ -39,7 +39,7 @@ class AgentListScreen extends ConsumerWidget {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Error: $e')),
                 data: (providers) => ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 100),
                   itemCount: agents.length,
                   itemBuilder: (context, i) {
                     final agent = agents[i];
@@ -50,8 +50,7 @@ class AgentListScreen extends ConsumerWidget {
                       agent: agent,
                       provider: provider,
                       s: s,
-                      onTap: () =>
-                          context.push('/agents/${agent.id}/edit'),
+                      onTap: () => context.push('/agents/${agent.id}/edit'),
                     );
                   },
                 ),
@@ -79,28 +78,23 @@ class _AgentCard extends StatelessWidget {
     final cs = context.cs;
     final extras = context.extras;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Material(
         color: extras.card,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(18),
               border: Border.all(color: extras.subtleBorder),
             ),
             child: Row(
               children: [
-                MeowAgentIcon(
-                  agent: agent,
-                  size: 48,
-                  radius: 14,
-                  iconSize: 22,
-                ),
-                const SizedBox(width: 14),
+                MeowAgentIcon(agent: agent, size: 42, radius: 13, iconSize: 20),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -113,13 +107,13 @@ class _AgentCard extends StatelessWidget {
                           color: cs.onSurface,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 3),
                       Text(
                         provider != null
-                            ? '${provider!.nickname}  ·  ${provider!.model}'
+                            ? '${provider!.nickname}  ·  ${provider!.effectiveModel(agent.model)}'
                             : s.providerNotFound,
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11.5,
                           color: cs.onSurfaceVariant,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -129,6 +123,7 @@ class _AgentCard extends StatelessWidget {
                 ),
                 Icon(
                   Icons.chevron_right_rounded,
+                  size: 20,
                   color: cs.onSurfaceVariant,
                 ),
               ],
@@ -172,10 +167,7 @@ class _EmptyState extends StatelessWidget {
             Text(
               s.noAgentsCreate,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: cs.onSurfaceVariant,
-              ),
+              style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(

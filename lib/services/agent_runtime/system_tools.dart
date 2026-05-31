@@ -111,7 +111,7 @@ class SystemTools {
     if (query.isNotEmpty) {
       for (final provider in providers) {
         if (provider.nickname.toLowerCase() == query ||
-            provider.model.toLowerCase() == query) {
+            provider.models.any((model) => model.toLowerCase() == query)) {
           return provider;
         }
       }
@@ -377,4 +377,3 @@ This file stores persistent memory and context that carries across sessions.
     return joined.endsWith('\n') ? joined : '$joined\n';
   }
 }
-

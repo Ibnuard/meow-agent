@@ -10,21 +10,23 @@ class AgentModel {
     String? id,
     required this.name,
     required this.providerId,
+    this.model = '',
     this.maxContextLength = 8191,
     this.autoCompact = true,
     String? iconKey,
     String? colorKey,
-  })  : id = id ?? const Uuid().v4(),
-        iconKey = (iconKey == null || iconKey.isEmpty)
-            ? kDefaultAgentIconKey
-            : iconKey,
-        colorKey = (colorKey == null || colorKey.isEmpty)
-            ? kDefaultAgentColorKey
-            : colorKey;
+  }) : id = id ?? const Uuid().v4(),
+       iconKey = (iconKey == null || iconKey.isEmpty)
+           ? kDefaultAgentIconKey
+           : iconKey,
+       colorKey = (colorKey == null || colorKey.isEmpty)
+           ? kDefaultAgentColorKey
+           : colorKey;
 
   final String id;
   final String name;
   final String providerId;
+  final String model;
   final int maxContextLength;
 
   /// Whether the chat screen should auto-compact conversation history when
@@ -39,12 +41,12 @@ class AgentModel {
   /// Stable preset key for the avatar tint — see [kAgentColorOptions].
   final String colorKey;
 
-  bool get isComplete =>
-      name.trim().isNotEmpty && providerId.trim().isNotEmpty;
+  bool get isComplete => name.trim().isNotEmpty && providerId.trim().isNotEmpty;
 
   AgentModel copyWith({
     String? name,
     String? providerId,
+    String? model,
     int? maxContextLength,
     bool? autoCompact,
     String? iconKey,
@@ -54,6 +56,7 @@ class AgentModel {
       id: id,
       name: name ?? this.name,
       providerId: providerId ?? this.providerId,
+      model: model ?? this.model,
       maxContextLength: maxContextLength ?? this.maxContextLength,
       autoCompact: autoCompact ?? this.autoCompact,
       iconKey: iconKey ?? this.iconKey,
@@ -62,20 +65,22 @@ class AgentModel {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'providerId': providerId,
-        'maxContextLength': maxContextLength,
-        'autoCompact': autoCompact,
-        'iconKey': iconKey,
-        'colorKey': colorKey,
-      };
+    'id': id,
+    'name': name,
+    'providerId': providerId,
+    'model': model,
+    'maxContextLength': maxContextLength,
+    'autoCompact': autoCompact,
+    'iconKey': iconKey,
+    'colorKey': colorKey,
+  };
 
   static AgentModel fromJson(Map<String, dynamic> json) {
     return AgentModel(
       id: json['id'] as String,
       name: (json['name'] as String?) ?? '',
       providerId: (json['providerId'] as String?) ?? '',
+      model: (json['model'] as String?) ?? '',
       maxContextLength: (json['maxContextLength'] as int?) ?? 8191,
       autoCompact: json['autoCompact'] as bool? ?? true,
       iconKey: json['iconKey'] as String?,

@@ -21,9 +21,11 @@ class MeowInput extends StatefulWidget {
     this.textInputAction,
     this.validator,
     this.onChanged,
+    this.onSubmitted,
     this.suffixIcon,
     this.maxLines = 1,
     this.autofocus = false,
+    this.errorText,
   });
 
   final TextEditingController? controller;
@@ -35,9 +37,14 @@ class MeowInput extends StatefulWidget {
   final TextInputAction? textInputAction;
   final String? Function(String?)? validator;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final Widget? suffixIcon;
   final int maxLines;
   final bool autofocus;
+
+  /// External error text from a parent FormField. Renders with the
+  /// theme's error style and activates the error border on the field.
+  final String? errorText;
 
   @override
   State<MeowInput> createState() => _MeowInputState();
@@ -68,6 +75,9 @@ class _MeowInputState extends State<MeowInput> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final theme = Theme.of(context);
+    final errorStyle = theme.inputDecorationTheme.errorStyle ??
+        TextStyle(fontSize: 12, color: theme.colorScheme.error);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -95,6 +105,7 @@ class _MeowInputState extends State<MeowInput> {
           textInputAction: widget.textInputAction,
           validator: widget.validator,
           onChanged: widget.onChanged,
+          onFieldSubmitted: widget.onSubmitted,
           maxLines: widget.maxLines,
           autofocus: widget.autofocus,
           style: TextStyle(
@@ -108,6 +119,10 @@ class _MeowInputState extends State<MeowInput> {
             suffixIcon: widget.suffixIcon,
             filled: true,
             fillColor: extras.inputFill,
+            // Drive error border + inline error from external errorText.
+            errorText: widget.errorText,
+            errorMaxLines: 2,
+            errorStyle: errorStyle,
           ),
         ),
 

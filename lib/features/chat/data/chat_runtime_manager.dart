@@ -140,22 +140,60 @@ class ChatRuntimeManager extends ChangeNotifier {
         agents.where((a) => a.id == agentId).firstOrNull ??
         (agents.isNotEmpty ? agents.first : null);
     if (agent == null) return null;
-    return providers.where((p) => p.id == agent.providerId).firstOrNull;
+    final provider = providers
+        .where((p) => p.id == agent.providerId)
+        .firstOrNull;
+    if (provider == null) return null;
+    return provider.copyWith(model: provider.effectiveModel(agent.model));
   }
 
-  /// Send user message + run runtime. Persists user msg and final reply
-  /// to history unconditionally.
   Future<void> send({
     required String agentId,
     required String userMessage,
     required List<ChatMessage> recentMessages,
   }) async {
     final provider = await _resolveProvider(agentId);
-    if (provider == null) return;
 
     // Persist user message immediately.
     final userMsg = ChatMessage(role: 'user', content: userMessage);
     await history.addMessage(agentId, userMsg);
+
+    if (provider == null || !provider.isComplete) {
+      // Fallback: agent's provider disappeared mid-flight → surface with action.
+      final agents = ref.read(agentListProvider);
+      final agent = agents.where((a) => a.id == agentId).firstOrNull;
+      final agentName = agent?.name ?? agentId;
+      final lang = _languageForUserMessage(userMessage);
+      final isId = lang == 'id';
+      final fallbackMsg = ChatMessage(
+        role: 'assistant',
+        content: isId
+            ? '⚠️ Agen "$agentName" memerlukan provider dan model. '
+                'Provider mungkin telah dihapus. Silakan atur ulang di halaman Provider.'
+            : '⚠️ Agent "$agentName" needs a valid provider and model. '
+                'The provider may have been removed. Please reconfigure in the Provider page.',
+        actions: [
+          ResultAction(
+            label: isId ? 'Atur Provider' : 'Manage Providers',
+            icon: 'dns_outlined',
+            type: 'navigate',
+            target: '/providers',
+          ),
+        ],
+      );
+      await history.addMessage(agentId, fallbackMsg);
+      await UnreadService.instance.increment(agentId);
+      _set(
+        agentId,
+        sessionFor(agentId).copyWith(
+          isRunning: false,
+          debugMessages: [],
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
+      return;
+    }
 
     // Reset cancellation flag from any previous send.
     _cancelledSends.remove(agentId);
@@ -307,14 +345,43 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
-  /// Approve a pending sensitive tool.
   Future<void> confirm(String agentId) async {
     final s = sessionFor(agentId);
     final tool = s.pendingTool;
     if (tool == null) return;
 
     final provider = await _resolveProvider(agentId);
-    if (provider == null) return;
+    if (provider == null || !provider.isComplete) {
+      // Fallback: provider disappeared after confirmation was requested.
+      final lang = engine.languageCode;
+      final isId = lang == 'id';
+      final fallbackMsg = ChatMessage(
+        role: 'assistant',
+        content: isId
+            ? '⚠️ Provider tidak tersedia — aksi dibatalkan. Silakan atur ulang di halaman Provider.'
+            : '⚠️ Provider unavailable — action cancelled. Please reconfigure in the Provider page.',
+        actions: [
+          ResultAction(
+            label: isId ? 'Atur Provider' : 'Manage Providers',
+            icon: 'dns_outlined',
+            type: 'navigate',
+            target: '/providers',
+          ),
+        ],
+      );
+      await history.addMessage(agentId, fallbackMsg);
+      _set(
+        agentId,
+        s.copyWith(
+          isRunning: false,
+          debugMessages: [],
+          clearPending: true,
+          lastReplyAt: DateTime.now(),
+          clearNarrative: true,
+        ),
+      );
+      return;
+    }
 
     _set(
       agentId,

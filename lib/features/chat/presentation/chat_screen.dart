@@ -8,6 +8,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
@@ -143,8 +144,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     if (agent == null) return null;
 
-    // Find the provider.
-    return providers.where((p) => p.id == agent!.providerId).firstOrNull;
+    // Find the provider and apply the model selected on the agent.
+    final provider = providers
+        .where((p) => p.id == agent!.providerId)
+        .firstOrNull;
+    if (provider == null) return null;
+    return provider.copyWith(model: provider.effectiveModel(agent.model));
   }
 
   /// Whether the runtime is currently working on this agent's request.
@@ -301,13 +306,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
 
     final provider = _resolveProvider();
-    if (provider == null) {
+    if (provider == null || !provider.isComplete) {
+      final agents = ref.read(agentListProvider);
+      final agent = _activeAgentId == 'default'
+          ? (agents.isNotEmpty ? agents.first : null)
+          : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+      final agentName = agent?.name ?? _activeAgentId;
       final userMsg = ChatMessage(role: 'user', content: text);
       final botMsg = ChatMessage(
         role: 'assistant',
-        content:
-            'No provider connected. Please check your agent settings — '
-            'the linked provider may have been removed.',
+        content: '⚠️ ${s.providerMissingBody(agentName)}',
+        actions: [
+          ResultAction(
+            label: s.manageProvidersAction,
+            icon: 'dns_outlined',
+            type: 'navigate',
+            target: AppRoutes.providerList,
+          ),
+        ],
       );
       setState(() {
         _messages.add(userMsg);
@@ -317,12 +333,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _persistMessage(userMsg);
       _persistMessage(botMsg);
       _scrollToEnd();
-      return;
-    }
-    if (!provider.isComplete) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Provider configuration is incomplete.')),
-      );
       return;
     }
 
@@ -526,7 +536,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Soft reset: clear context measurement so the next message is a fresh
         // slate, but keep the visible chat history intact.
         OpenAiCompatibleClient.clearUsageRecords();
-        response = '✓ Context reset — usage counters cleared. '
+        response =
+            '✓ Context reset — usage counters cleared. '
             'AI will treat next message as a fresh session.';
       case '/model':
         final agents = ref.read(agentListProvider);
@@ -541,7 +552,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           response =
               '🤖 Model Info:\n'
               '• Provider: ${provider.nickname}\n'
-              '• Model: ${provider.model}\n'
+              '• Model: ${provider.effectiveModel(agent?.model)}\n'
               '• Endpoint: ${provider.baseUrl}';
         } else {
           response = '⚠️ No provider connected to this agent.';
@@ -938,7 +949,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (agent?.autoCompact == false) {
       final msg = ChatMessage(
         role: 'assistant',
-        content: 'Context exhausted — conversation reached '
+        content:
+            'Context exhausted — conversation reached '
             '${agent!.maxContextLength} token limit.\n'
             '- Start a **new chat** for a clean slate\n'
             '- **Increase context length** in agent settings\n'
@@ -1124,7 +1136,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final provider = agent != null
         ? providers.where((p) => p.id == agent.providerId).firstOrNull
         : null;
-    final modelName = provider?.model;
+    final modelName = provider?.effectiveModel(agent?.model);
+    final modelIsOverride = agent != null && agent.model.isNotEmpty && provider != null && provider.effectiveModel(agent.model) == agent.model;
 
     return PopScope(
       canPop: false,
@@ -1142,14 +1155,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(agentName),
-              if (modelName != null) ...[
+              if (modelName != null && modelName.isNotEmpty) ...[
                 const SizedBox(height: 3),
                 Text(
                   modelName,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
-                    color: cs.onSurfaceVariant,
+                    color: modelIsOverride
+                        ? cs.primary
+                        : cs.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1439,151 +1454,165 @@ class _Bubble extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-        color: isUser ? cs.primary : extras.card,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(isUser ? 16 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 16),
+          color: isUser ? cs.primary : extras.card,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular(isUser ? 16 : 4),
+            bottomRight: Radius.circular(isUser ? 4 : 16),
+          ),
+          border: isUser ? null : Border.all(color: extras.subtleBorder),
         ),
-        border: isUser ? null : Border.all(color: extras.subtleBorder),
-      ),
-      child: IntrinsicWidth(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-          // Reply quote chip (WhatsApp-style).
-          if (quoteText != null && quoteText.isNotEmpty) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? Colors.white.withValues(alpha: 0.18)
-                    : cs.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border(
-                  left: BorderSide(
-                    color: isUser ? Colors.white70 : cs.primary,
-                    width: 3,
+        child: IntrinsicWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Reply quote chip (WhatsApp-style).
+              if (quoteText != null && quoteText.isNotEmpty) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
                   ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    quoteRole ?? '',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isUser ? Colors.white : cs.primary,
+                  decoration: BoxDecoration(
+                    color: isUser
+                        ? Colors.white.withValues(alpha: 0.18)
+                        : cs.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border(
+                      left: BorderSide(
+                        color: isUser ? Colors.white70 : cs.primary,
+                        width: 3,
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    quoteText,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isUser ? Colors.white70 : cs.onSurfaceVariant,
-                      height: 1.3,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        quoteRole ?? '',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: isUser ? Colors.white : cs.primary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        quoteText,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isUser ? Colors.white70 : cs.onSurfaceVariant,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            ),
-          ],
-          if (isUser)
-            Text(
-              displayContent,
-              style: TextStyle(color: cs.onPrimary, fontSize: 14, height: 1.4),
-            )
-          else
-            MarkdownBody(
-              data: displayContent,
-              selectable: true,
-              shrinkWrap: true,
-              styleSheet: MarkdownStyleSheet(
-                p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.4),
-                strong: TextStyle(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-                em: TextStyle(color: cs.onSurface, fontStyle: FontStyle.italic),
-                code: TextStyle(
-                  color: cs.primary,
-                  backgroundColor: cs.primary.withValues(alpha: 0.08),
-                  fontSize: 13,
-                ),
-                listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
-              ),
-            ),
-          // Confirmation action buttons.
-          if (isConfirmation && onConfirmAction != null) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _ConfirmButton(
-                  label: 'Accept',
-                  icon: Icons.check_rounded,
-                  color: cs.primary,
-                  onTap: () => onConfirmAction!('accept'),
-                ),
-                _ConfirmButton(
-                  label: 'Always',
-                  icon: Icons.done_all_rounded,
-                  color: Colors.green,
-                  onTap: () => onConfirmAction!('always_accept'),
-                ),
-                _ConfirmButton(
-                  label: 'Reject',
-                  icon: Icons.close_rounded,
-                  color: Colors.redAccent,
-                  onTap: () => onConfirmAction!('reject'),
                 ),
               ],
-            ),
-          ],
-          // Contextual result actions (e.g., "Open Calendar").
-          if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: msg.actions
-                  .map(
-                    (a) => _ResultActionButton(
-                      action: a,
-                      onTap: () => onActionTap!(a),
+              if (isUser)
+                Text(
+                  displayContent,
+                  style: TextStyle(
+                    color: cs.onPrimary,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                )
+              else
+                MarkdownBody(
+                  data: displayContent,
+                  selectable: true,
+                  shrinkWrap: true,
+                  styleSheet: MarkdownStyleSheet(
+                    p: TextStyle(
+                      color: cs.onSurface,
+                      fontSize: 14,
+                      height: 1.4,
                     ),
-                  )
-                  .toList(),
-            ),
-          ],
-          // Timestamp (WhatsApp-style, bottom-aligned). Respects the system
-          // 24H/12H clock preference.
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              _formatBubbleTime(context, msg.timestamp),
-              style: TextStyle(
-                fontSize: 10,
-                color: isUser
-                    ? Colors.white.withValues(alpha: 0.7)
-                    : cs.onSurfaceVariant.withValues(alpha: 0.7),
+                    strong: TextStyle(
+                      color: cs.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    em: TextStyle(
+                      color: cs.onSurface,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    code: TextStyle(
+                      color: cs.primary,
+                      backgroundColor: cs.primary.withValues(alpha: 0.08),
+                      fontSize: 13,
+                    ),
+                    listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
+                  ),
+                ),
+              // Confirmation action buttons.
+              if (isConfirmation && onConfirmAction != null) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    _ConfirmButton(
+                      label: 'Accept',
+                      icon: Icons.check_rounded,
+                      color: cs.primary,
+                      onTap: () => onConfirmAction!('accept'),
+                    ),
+                    _ConfirmButton(
+                      label: 'Always',
+                      icon: Icons.done_all_rounded,
+                      color: Colors.green,
+                      onTap: () => onConfirmAction!('always_accept'),
+                    ),
+                    _ConfirmButton(
+                      label: 'Reject',
+                      icon: Icons.close_rounded,
+                      color: Colors.redAccent,
+                      onTap: () => onConfirmAction!('reject'),
+                    ),
+                  ],
+                ),
+              ],
+              // Contextual result actions (e.g., "Open Calendar").
+              if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: msg.actions
+                      .map(
+                        (a) => _ResultActionButton(
+                          action: a,
+                          onTap: () => onActionTap!(a),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+              // Timestamp (WhatsApp-style, bottom-aligned). Respects the system
+              // 24H/12H clock preference.
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  _formatBubbleTime(context, msg.timestamp),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isUser
+                        ? Colors.white.withValues(alpha: 0.7)
+                        : cs.onSurfaceVariant.withValues(alpha: 0.7),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
-      ),
+        ),
       ),
     );
 

@@ -32,6 +32,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   final _nameController = TextEditingController();
   final _contextLengthController = TextEditingController(text: '8191');
   String? _selectedProviderId;
+  String? _selectedModel;
   String _iconKey = kDefaultAgentIconKey;
   String _colorKey = kDefaultAgentColorKey;
   bool _autoCompact = true;
@@ -59,6 +60,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _existingId = existing.id;
       _nameController.text = existing.name;
       _selectedProviderId = existing.providerId;
+      _selectedModel = existing.model.isEmpty ? null : existing.model;
       _contextLengthController.text = existing.maxContextLength.toString();
       _iconKey = existing.iconKey;
       _colorKey = existing.colorKey;
@@ -96,6 +98,9 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
         id: _existingId,
         name: _nameController.text.trim(),
         providerId: _selectedProviderId!,
+        model: _resolvedSelectedModel(
+          ref.read(providerListProvider).value ?? [],
+        ),
         maxContextLength: maxCtx.clamp(512, 1000000),
         autoCompact: _autoCompact,
         iconKey: _iconKey,
@@ -116,8 +121,56 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   Future<void> _goAddProvider() async {
     final result = await context.push<String>(AppRoutes.addProvider);
     if (result != null && mounted) {
-      setState(() => _selectedProviderId = result);
+      final providers = ref.read(providerListProvider).value ?? [];
+      final providerExists = providers.any((p) => p.id == result);
+      setState(() {
+        _selectedProviderId = providerExists ? result : _selectedProviderId;
+        _selectedModel = null;
+      });
     }
+  }
+
+  String? _selectedModelFor(List<ProviderConfig> providers) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return null;
+    final selected = (_selectedModel ?? '').trim();
+    if (selected.isNotEmpty && provider.models.contains(selected)) {
+      return selected;
+    }
+    return null;
+  }
+
+  List<MeowDropdownOption<String>> _modelOptionsFor(
+    List<ProviderConfig> providers,
+  ) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return const [];
+    return provider.models
+        .map((model) => MeowDropdownOption<String>(value: model, label: model))
+        .toList();
+  }
+
+  String _resolvedSelectedModel(List<ProviderConfig> providers) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return _selectedModel ?? '';
+    final selected = (_selectedModel ?? '').trim();
+    return provider.models.contains(selected) ? selected : '';
+  }
+
+  String _modelHintFor(List<ProviderConfig> providers, AppStrings s) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return s.isId ? 'Pilih model' : 'Choose model';
+    final def = provider.model;
+    if (def.isEmpty) return s.isId ? 'Pilih model' : 'Choose model';
+    return s.isId ? 'Default: $def' : 'Default: $def';
   }
 
   Future<void> _confirmDelete() async {
@@ -353,140 +406,46 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                             (p) => MeowDropdownOption<String>(
                               value: p.id,
                               label: p.nickname,
-                              subtitle: p.model,
+                              subtitle: s.isId
+                                  ? '${p.models.length} model'
+                                  : '${p.models.length} models',
                             ),
                           )
                           .toList(),
-                      onChanged: (v) => setState(() => _selectedProviderId = v),
+                      onChanged: (v) {
+                        setState(() {
+                          _selectedProviderId = v;
+                          _selectedModel = null;
+                        });
+                      },
                     ),
+                    const SizedBox(height: 14),
+                    MeowDropdown<String>(
+                      label: s.model,
+                      hint: _modelHintFor(providers, s),
+                      sheetTitle: s.model,
+                      value: _selectedModelFor(providers),
+                      options: _modelOptionsFor(providers),
+                      onChanged: (v) => setState(() => _selectedModel = v),
+                    ),
+                    if (_selectedModelFor(providers) == null) ...[
+                      const SizedBox(height: 6),
+                      _ModelDefaultHint(providers: providers, selectedProviderId: _selectedProviderId, s: s),
+                    ],
                   ],
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
-            // Max Context Length section.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.isId ? 'Konteks Maksimum' : 'Max Context Length',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurface,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    s.isId
-                        ? 'Batas token konteks untuk model ini. Sesuaikan dengan spesifikasi model yang dipakai.'
-                        : 'Token context limit for this model. Adjust based on your model specs.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w400,
-                      color: cs.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Single-source-of-border: TextFormField uses theme decoration only.
-                  TextFormField(
-                    controller: _contextLengthController,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: cs.onSurface,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: '8191',
-                      hintStyle: TextStyle(
-                        color: extras.subtleText,
-                        fontSize: 15,
-                      ),
-                      suffixText: 'tokens',
-                      suffixStyle: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurfaceVariant,
-                      ),
-                      filled: true,
-                      fillColor: extras.inputFill,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputBorder),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputBorder),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputFocusBorder),
-                      ),
-                    ),
-                    validator: (v) {
-                      final n = int.tryParse(v ?? '');
-                      if (n == null || n < 512) {
-                        return s.isId
-                            ? 'Minimal 512 tokens'
-                            : 'Minimum 512 tokens';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-              ),
+            // Advanced settings stay collapsed so the core setup flow breathes.
+            _AdvancedAgentSettings(
+              contextLengthController: _contextLengthController,
+              autoCompact: _autoCompact,
+              isId: s.isId,
+              onAutoCompactChanged: (v) => setState(() => _autoCompact = v),
             ),
-            const SizedBox(height: 24),
-
-            // Auto-Compact toggle.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          s.autoCompact,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: cs.onSurface,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          s.autoCompactDesc,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w400,
-                            color: cs.onSurfaceVariant,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Switch(
-                    value: _autoCompact,
-                    onChanged: (v) => setState(() => _autoCompact = v),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Save button.
             Padding(
@@ -638,10 +597,244 @@ class _ProviderEmptyState extends StatelessWidget {
   }
 }
 
-/// Collapsible "Personalize Agent" card — keeps the form clean by hiding
-/// the icon/color picker behind a tap-to-expand affordance. The header
-/// always shows the live avatar so the user sees their current selection
-/// without expanding.
+class _AdvancedAgentSettings extends StatefulWidget {
+  const _AdvancedAgentSettings({
+    required this.contextLengthController,
+    required this.autoCompact,
+    required this.isId,
+    required this.onAutoCompactChanged,
+  });
+
+  final TextEditingController contextLengthController;
+  final bool autoCompact;
+  final bool isId;
+  final ValueChanged<bool> onAutoCompactChanged;
+
+  @override
+  State<_AdvancedAgentSettings> createState() => _AdvancedAgentSettingsState();
+}
+
+class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final extras = context.extras;
+    final title = widget.isId ? 'Lanjutan' : 'Advanced';
+    final subtitle = widget.isId
+        ? 'Konteks ${widget.contextLengthController.text} token, auto-compact ${widget.autoCompact ? 'aktif' : 'mati'}'
+        : '${widget.contextLengthController.text} token context, auto-compact ${widget.autoCompact ? 'on' : 'off'}';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          Icons.tune_rounded,
+                          size: 18,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Divider(height: 1, color: extras.subtleBorder),
+                          const SizedBox(height: 16),
+                          _AdvancedLabel(
+                            title: widget.isId
+                                ? 'Konteks Maksimum'
+                                : 'Max Context Length',
+                            subtitle: widget.isId
+                                ? 'Batas token untuk model ini.'
+                                : 'Token limit for this model.',
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: widget.contextLengthController,
+                            keyboardType: TextInputType.number,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: cs.onSurface,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: '8191',
+                              suffixText: 'tokens',
+                              filled: true,
+                              fillColor: extras.inputFill,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputBorder,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputBorder,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputFocusBorder,
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              final n = int.tryParse(v ?? '');
+                              if (n == null || n < 512) {
+                                return widget.isId
+                                    ? 'Minimal 512 tokens'
+                                    : 'Minimum 512 tokens';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _AdvancedLabel(
+                                  title: widget.isId
+                                      ? 'Auto-Compact Konteks'
+                                      : 'Auto-Compact Context',
+                                  subtitle: widget.isId
+                                      ? 'Ringkas pesan lama saat konteks hampir penuh.'
+                                      : 'Summarize older messages near the limit.',
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Switch(
+                                value: widget.autoCompact,
+                                onChanged: widget.onAutoCompactChanged,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdvancedLabel extends StatelessWidget {
+  const _AdvancedLabel({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12,
+            color: cs.onSurfaceVariant,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Collapsible "Personalize Agent" card keeps the form clean by hiding the
+/// icon/color picker behind a tap-to-expand affordance.
 class _AppearanceSection extends StatefulWidget {
   const _AppearanceSection({
     required this.iconKey,
@@ -838,8 +1031,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                                 return GestureDetector(
                                   onTap: () => widget.onColorChanged(opt.key),
                                   child: AnimatedContainer(
-                                    duration:
-                                        const Duration(milliseconds: 150),
+                                    duration: const Duration(milliseconds: 150),
                                     width: 40,
                                     height: 40,
                                     alignment: Alignment.center,
@@ -894,6 +1086,45 @@ class _PickerLabel extends StatelessWidget {
         color: cs.onSurfaceVariant,
         letterSpacing: 0.4,
       ),
+    );
+  }
+}
+
+/// Inline hint when an agent has no explicit model selected — shows which
+/// provider default model will be used as fallback.
+class _ModelDefaultHint extends StatelessWidget {
+  const _ModelDefaultHint({
+    required this.providers,
+    required this.selectedProviderId,
+    required this.s,
+  });
+
+  final List<ProviderConfig> providers;
+  final String? selectedProviderId;
+  final AppStrings s;
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = selectedProviderId != null
+        ? providers.where((p) => p.id == selectedProviderId).firstOrNull
+        : null;
+    if (provider == null) return const SizedBox.shrink();
+    final def = provider.model;
+    if (def.isEmpty) return const SizedBox.shrink();
+    final cs = context.cs;
+    return Row(
+      children: [
+        Icon(Icons.info_outline_rounded, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+        const SizedBox(width: 6),
+        Text(
+          s.isId ? 'Default provider: $def' : 'Provider default: $def',
+          style: TextStyle(
+            fontSize: 11,
+            color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ],
     );
   }
 }

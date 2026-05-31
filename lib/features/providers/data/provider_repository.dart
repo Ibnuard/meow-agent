@@ -6,15 +6,15 @@ import 'provider_config.dart';
 
 /// CRUD repository for LLM providers.
 ///
-/// Public fields (nickname, baseUrl, model) are stored as a JSON array in
+/// Public fields (nickname, baseUrl, models) are stored as a JSON array in
 /// shared_preferences. API keys are stored individually in secure storage
 /// keyed by provider id.
 class ProviderRepository {
   ProviderRepository({
     required LocalStorageService local,
     required SecureStorageService secure,
-  })  : _local = local,
-        _secure = secure;
+  }) : _local = local,
+       _secure = secure;
 
   static const _kProviders = 'meow.providers_json';
   static const _kApiKeyPrefix = 'meow.provider_key.';
@@ -68,7 +68,8 @@ final providerRepositoryProvider = Provider<ProviderRepository>((ref) {
 });
 
 /// Reactive list of all saved providers.
-class ProviderListNotifier extends StateNotifier<AsyncValue<List<ProviderConfig>>> {
+class ProviderListNotifier
+    extends StateNotifier<AsyncValue<List<ProviderConfig>>> {
   ProviderListNotifier(this._repo) : super(const AsyncValue.loading()) {
     load();
   }
@@ -96,6 +97,7 @@ class ProviderListNotifier extends StateNotifier<AsyncValue<List<ProviderConfig>
 }
 
 final providerListProvider =
-    StateNotifierProvider<ProviderListNotifier, AsyncValue<List<ProviderConfig>>>(
-  (ref) => ProviderListNotifier(ref.watch(providerRepositoryProvider)),
-);
+    StateNotifierProvider<
+      ProviderListNotifier,
+      AsyncValue<List<ProviderConfig>>
+    >((ref) => ProviderListNotifier(ref.watch(providerRepositoryProvider)));
