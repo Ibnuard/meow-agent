@@ -59,6 +59,7 @@ String promptReviewRulesFor(String language) =>
 - If the successful tool only retrieved information (read/list/search/status), you do NOT need to craft the full answer here — the runtime synthesizes the grounded answer from the tool data. Just decide the status and keep final_response to a short confirmation. Never claim the tool only "opened" or "read" something as if that were the answer.
 - If failed, explain what went wrong in plain language and suggest a next step.
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
+- If failed because the requested capability/tool/action is unavailable, return status="failed". Do NOT ask the user for missing action details (song name, contact, target, etc.) because more details cannot create a missing capability.
 
 CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - A tool that ran SUCCESSFULLY but returned zero matches (e.g. count: 0, empty list, no rows) IS the answer. It is NOT a failure. Return status="done" and tell the user the answer is "none / not found / nothing matches" in their language.

@@ -481,6 +481,274 @@ void main() {
   // the analyzer reports detected_language="es", and the runtime refines the
   // turn language so the final answer is produced in Spanish. Proves the
   // engine is language-generic without per-language word lists.
+  // ── Scenario 12: bulk predicate delete ─────────────────────────────────
+  // "delete all notes with 'draft' in the title" — the analyzer emits
+  // bulk_selector:true; the reflection target carries a predicate selector;
+  // the tool dispatches once per matched entity (2 drafts).
+  test('S12 bulk predicate delete — delete all notes matching a pattern', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"notes.delete","goal":"delete notes with draft in title",'
+            '"requires_tools":true,"risk":"sensitive","tool_groups":["notes"],'
+            '"missing_info":[],"bulk_selector":true,'
+            '"subgoal_seeds":["delete draft notes"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      'reflect': [
+        '{"strategy":"direct_execute","goal_tree":{"main_goal":"delete draft notes",'
+            '"completion_criteria":["draft notes deleted"],"subgoals":[{"id":"sg1",'
+            '"label":"delete draft notes","required_slots":{},"missing_slots":[],'
+            '"status":"pending"}]},"targets":[{"subgoal_id":"sg1","operation":"delete",'
+            '"entity_type":"note","selector":{"scope":"predicate","field":"title",'
+            '"op":"contains","value":"draft","case_sensitive":false}}],"narrative":""}',
+      ],
+      'plan': [
+        '{"main_goal":"delete draft notes","completion_criteria":["draft notes deleted"],'
+            '"subgoals":[{"id":"sg1","label":"delete draft notes","required_slots":{},'
+            '"missing_slots":[],"status":"pending"}],"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"notes.delete",'
+            '"args":{"scope":"predicate","field":"title","op":"contains","value":"draft"},'
+            '"risk":"sensitive","requires_confirmation":true},"narrative":""}',
+      ],
+      'verbalize.confirm': ['Delete 2 notes matching "draft" in title?'],
+      'verbalize.preview': ['Would delete: draft1.md, draft2.md'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'notes.delete': const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.delete',
+          data: {
+            'deleted': 2,
+            'matched': ['draft1.md', 'draft2.md'],
+          },
+        ),
+      },
+    );
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('delete all notes with draft in the title'),
+      provider: provider(),
+    );
+
+    // Bulk delete with two drafts → parks for confirmation (sensitive tool).
+    expect(res.state, AgentRuntimeState.waitingConfirmation);
+    expect(res.pendingTool, 'notes.delete');
+    expect(res.finalMessage, contains('Delete'));
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  // ── Scenario 13: impact analysis on deletion ───────────────────────────
+  // Deleting agent "Coder" that is used by workflow "Code Review" — the
+  // reflector surfaces impact and either auto_resolves or asks.
+  test('S13 impact analysis — deleting agent used by a workflow', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"system.agents.delete","goal":"delete agent Coder",'
+            '"requires_tools":true,"risk":"sensitive","tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["delete Coder"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      'reflect': [
+        '{"strategy":"auto_resolve","goal_tree":{"main_goal":"delete Coder",'
+            '"completion_criteria":["Coder deleted"],"subgoals":[{"id":"sg1",'
+            '"label":"delete Coder","required_slots":{},"missing_slots":[],'
+            '"status":"pending"}]},'
+            '"impacts":[{"entity_type":"workflow","entity_id":"wf_cr",'
+            '"entity_label":"Code Review","relation":"uses agent Coder",'
+            '"severity":"high","auto_resolvable":true,'
+            '"resolution_hint":"reassign to Writer"}],'
+            '"narrative":""}',
+      ],
+      'plan': [
+        '{"main_goal":"delete Coder","completion_criteria":["Coder deleted"],'
+            '"subgoals":[{"id":"sg1","label":"delete Coder","required_slots":{},'
+            '"missing_slots":[],"status":"pending"}],"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.agents.delete",'
+            '"args":{"name":"Coder"},"risk":"sensitive",'
+            '"requires_confirmation":true},"narrative":""}',
+      ],
+      'verbalize.confirm': [
+        'Delete agent Coder? This will affect the Code Review workflow.',
+      ],
+      'verbalize.preview': [
+        'Coder is used by Code Review workflow. It will need a new agent.',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.agents.delete': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.agents.delete',
+          data: {'agentId': 'coder_id', 'deleted': true},
+        ),
+      },
+    );
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('delete agent Coder'),
+      provider: provider(),
+    );
+
+    expect(res.state, AgentRuntimeState.waitingConfirmation);
+    expect(res.pendingTool, 'system.agents.delete');
+    expect(res.finalMessage.toLowerCase(), contains('workflow'));
+    expect(llm.countOf('reflect'), 1);
+  });
+
+  // ── Scenario 16: retrieval terminal short-circuit ──────────────────────
+  // system.agents.list is a retrieval tool — the engine skips review phase
+  // and goes directly to answer_from_tool_result verbalization.
+  test('S16 retrieval tool short-circuits review', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"system.agents.list","goal":"list agents",'
+            '"requires_tools":true,"risk":"safe","tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["list agents"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      // system + single group + safe → reflect skipped.
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.agents.list",'
+            '"args":{},"risk":"safe","requires_confirmation":false},'
+            '"narrative":""}',
+      ],
+      'verbalize.answer_from_tool_result': [
+        'You have 2 agents: Mina Chan (assistant) and Kai (productivity).',
+      ],
+      'verbalize.success': ['Listed.'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.agents.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.agents.list',
+          data: {
+            'agents': [
+              {'id': 'a1', 'name': 'Mina Chan', 'role': 'assistant'},
+              {'id': 'a2', 'name': 'Kai', 'role': 'productivity'},
+            ],
+            'count': 2,
+          },
+        ),
+      },
+    );
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('what agents do I have?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    // Retrieval tool: answer must be grounded in canned data.
+    expect(res.finalMessage, contains('Mina'));
+    expect(res.finalMessage, contains('Kai'));
+    expect(router.dispatchCountOf('system.agents.list'), 1);
+    // Review phase was skipped (retrieval terminal short-circuit).
+    expect(llm.countOf('review'), 0);
+  });
+
+  test('S17 capability list is grounded in registered tools', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"system.tools.list","goal":"list current capabilities",'
+            '"requires_tools":true,"risk":"safe","tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["list tools"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.tools.list",'
+            '"args":{},"risk":"safe","requires_confirmation":false},'
+            '"narrative":""}',
+      ],
+      'verbalize.answer_from_tool_result': [
+        'Aku bisa membuka aplikasi, membaca status baterai, dan mengelola catatan. Aku belum punya tool kontrol media.',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.tools.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.tools.list',
+          data: {
+            'count': 3,
+            'availableCount': 3,
+            'tools': [
+              {
+                'name': 'app.resolve',
+                'description': 'Resolve a friendly app name.',
+                'available': true,
+              },
+              {
+                'name': 'device.battery',
+                'description': 'Read current battery level.',
+                'available': true,
+              },
+              {
+                'name': 'notes.create',
+                'description': 'Create a note.',
+                'available': true,
+              },
+            ],
+          },
+        ),
+      },
+    );
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('sebagai agent kamu bisa ngapain aja?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(router.dispatchSequence, ['system.tools.list']);
+    expect(
+      res.finalMessage.toLowerCase(),
+      contains('belum punya tool kontrol media'),
+    );
+  });
+
+  test('S18 unavailable capability cannot turn into follow-up question', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"media.play","goal":"play a song","requires_tools":true,'
+            '"risk":"safe","tool_groups":["app"],"missing_info":[],'
+            '"subgoal_seeds":["play song"],"task_relation":"none",'
+            '"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"app.resolve",'
+            '"args":{"query":"music player"},"risk":"safe",'
+            '"requires_confirmation":false},"narrative":""}',
+      ],
+      'review': [
+        '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
+            '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+            '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'app.resolve': const ToolExecutionResult(
+          success: false,
+          toolName: 'app.resolve',
+          error: 'media control unavailable: no tool can play songs',
+        ),
+      },
+    );
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('coba play lagu katanya bisa'),
+      provider: provider(),
+    );
+
+    expect(res.success, false);
+    expect(res.state, AgentRuntimeState.failed);
+    expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
+    expect(router.dispatchSequence, ['app.resolve']);
+  });
+
   test('S10 analyzer detected_language refines the reply language', () async {
     final llm = ScriptedLlmClient({
       'analyze': [

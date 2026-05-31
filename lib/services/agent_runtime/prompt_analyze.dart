@@ -28,7 +28,8 @@ const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set true for phrases like: "open [app]", "launch [app]", "go to [url]"
 - Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update for SOUL.md User Identity.
 - Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
-- Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "where is your workspace?"
+- Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "what can you do?", "what are your capabilities?", "where is your workspace?"
+- Capability/ability questions MUST use system.tools.list. Never answer from memory or generic assistant knowledge.
 - Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.

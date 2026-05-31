@@ -400,7 +400,7 @@ class ExecuteLoopRunner {
         if (validationError != null) {
           logger.logError(validationError);
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          return fail(validationError, logger);
+          return fail(_capabilityNotFoundMessage(detectedLang), logger);
         }
 
         final definition = _toolRouter.getDefinition(toolRequest.name)!;
@@ -1016,32 +1016,40 @@ class ExecuteLoopRunner {
         }
 
         if (reviewStatus == 'ask_user') {
-          final question =
-              review['question'] as String? ??
-              await fallbackQuestionForToolFailure(
-                result,
-                detectedLang,
-                verbalizer,
-              );
-          await _taskScope.parkForUserInput(
-            request: request,
-            plan: plan,
-            goalTree: goalTree,
-            previousResults: previousResults,
-            currentStep: currentStep,
-            availableTools: availableTools,
-            memorySnapshot: memorySnapshot,
-            detectedLangCode: detectedLang.code,
-            autoApproveSensitive: autoApproveSensitive,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            questions: [question],
-          );
-          return AgentRuntimeResponse(
-            finalMessage: question,
-            success: true,
-            state: AgentRuntimeState.askingUser,
-            events: logger.events,
-          );
+          if (!result.success && !_failedToolCanAskUser(result)) {
+            if (_isCapabilityBoundaryFailure(result)) {
+              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+              return fail(_capabilityNotFoundMessage(detectedLang), logger);
+            }
+            reviewStatus = 'failed';
+          } else {
+            final question =
+                review['question'] as String? ??
+                await fallbackQuestionForToolFailure(
+                  result,
+                  detectedLang,
+                  verbalizer,
+                );
+            await _taskScope.parkForUserInput(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLangCode: detectedLang.code,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              questions: [question],
+            );
+            return AgentRuntimeResponse(
+              finalMessage: question,
+              success: true,
+              state: AgentRuntimeState.askingUser,
+              events: logger.events,
+            );
+          }
         }
 
         if (reviewStatus == 'failed') {
@@ -1530,6 +1538,30 @@ class ExecuteLoopRunner {
     if (isNotes) return 'No notes match that criteria.';
     if (isCal) return 'No events match that criteria.';
     return 'No results match.';
+  }
+
+  bool _failedToolCanAskUser(ToolExecutionResult result) {
+    final data = result.data;
+    if (data != null) {
+      final available = data['available'];
+      if (available is List && available.isNotEmpty) return true;
+      final providers = data['providers'];
+      if (providers is List && providers.isNotEmpty) return true;
+    }
+    final error = (result.error ?? '').toLowerCase();
+    return error.contains('required') || error.contains('missing');
+  }
+
+  bool _isCapabilityBoundaryFailure(ToolExecutionResult result) {
+    final text = '${result.error ?? ''} ${result.toolName}'.toLowerCase();
+    return text.contains('tool not found') ||
+        text.contains('unknown tool') ||
+        text.contains('not registered') ||
+        text.contains('no implementation') ||
+        text.contains('no tool') ||
+        text.contains('capability') ||
+        text.contains('unavailable') ||
+        text.contains('unsupported');
   }
 
   // ---------------------------------------------------------------------------
