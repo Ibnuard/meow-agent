@@ -133,26 +133,23 @@ class CompletionVerifier {
 
 ---
 
-## Phase 3: Extract `ConfirmationManager` (MEDIUM RISK)
+## Phase 3: Extract `ConfirmationManager` ✅ DONE (31 May 2026)
+
+**Result:** `dart analyze` clean, `flutter test` 234/234 passed. Engine: 3,429 → 3,086 lines (−343). New file: `confirmation_manager.dart` (257 lines).
 
 **Why third:** Owns mutable pending-action state. First extraction that touches engine fields. The pending-action fields (`_pendingActions`, `_pendingClarifications`) move out of the engine.
 
 **New file:** `lib/services/agent_runtime/confirmation_manager.dart`
 
 **Extracted from `runtime_engine.dart`:**
-- Fields: `_pendingActions`, `_pendingClarifications`
-- `getPendingAction()` — L136
-- `clearPendingAction()` — L138
-- `clearPendingClarification()` — L140
-- `_handlePendingDecision()` — L1311–L1405 (~95 lines)
-- `_executePendingTool()` — L1407–L1880 (~473 lines)
-- `executeConfirmed()` — L1237–L1309 (~73 lines)
-- `_maybeRestorePendingFromLedger()` — L3108–L3160 (~53 lines)
+- Fields: `_pendingActions`, `_pendingClarifications` → now getters delegating to `_confirmation`
+- `getPendingAction()`, `clearPendingAction()`, `clearPendingClarification()` → thin delegates
+- `_handlePendingDecision()` → `ConfirmationManager.handleDecision()`
+- `executeConfirmed()` body → `ConfirmationManager.executeConfirmed()` (engine keeps thin wrapper)
+- `_maybeRestorePendingFromLedger()` → `ConfirmationManager.maybeRestoreFromLedger()`
+- `_fallbackLanguage()` → inlined into manager
 
-**Dependencies needed from engine (passed via constructor or method args):**
-- `toolRouter`, `workspaceLoader`, `ledgerDb` (for `_maybeRestorePendingFromLedger`)
-- `_client` (LLM client — passed via constructor)
-- `_memory` (pass via reference or have engine pass it)
+**Stayed on engine:** `_executePendingTool()` — deeply entangled with engine methods (`_executeLoop`, `_finalForCompletedTree`, `_parkTaskForUserInput`, `_archiveLedgerForRequest`, `_fail`). Manager calls it via `onExecutePendingTool` callback.
 
 **Class design:**
 ```dart
@@ -161,36 +158,35 @@ class ConfirmationManager {
   final Map<String, PendingClarification> _pendingClarifications = {};
 
   ConfirmationManager({
-    required ToolRouter toolRouter,
-    required WorkspaceLoader workspaceLoader,
     required TaskLedgerDatabase ledgerDb,
-    required OpenAiCompatibleClient llmClient,
+    required String languageCode,
+    required ExecutePendingToolCallback onExecutePendingTool,
+    required FinishTaskScopeCallback onFinishTaskScope,
+    OpenAiCompatibleClient? llmClient,
   });
 
   PendingAction? getPending(String agentId);
   void clearPending(String agentId);
   void clearClarification(String agentId);
+  Map<String, PendingAction> get pendingActions;
+  Map<String, PendingClarification> get pendingClarifications;
 
-  /// Process a pending action decision (deterministic or LLM-classified).
   Future<AgentRuntimeResponse?> handleDecision({...});
-
-  /// Execute a tool the user confirmed via button tap.
   Future<AgentRuntimeResponse> executeConfirmed({...});
-
-  /// Try to restore pending from ledger after app restart.
   Future<void> maybeRestoreFromLedger(String agentId);
 }
 ```
 
 **Engine changes:**
-- Remove `_pendingActions`, `_pendingClarifications`, their accessors
-- Add `final ConfirmationManager _confirmation;`
-- In `run()`, replace ~80 lines of pending flow with delegation to `_confirmation.handleDecision(...)`
-- `executeConfirmed()` becomes a thin wrapper or the UI calls `_confirmation.executeConfirmed()` directly
+- `_pendingActions` / `_pendingClarifications` become getters delegating to `_confirmation`
+- Added `late final ConfirmationManager _confirmation;` initialized in constructor body
+- `run()` delegates to `_confirmation.handleDecision(...)` and `_confirmation.maybeRestoreFromLedger(...)`
+- `executeConfirmed()` becomes a thin wrapper delegating to `_confirmation.executeConfirmed(...)`
+- Removed `_handlePendingDecision()`, `_maybeRestorePendingFromLedger()`, `_fallbackLanguage()`
 
-**Verification:** `dart analyze lib/` + `flutter test`
+**Verification:** `dart analyze lib/` + `flutter test` ✅
 
-**Estimated lines removed from engine:** ~700
+**Estimated lines removed from engine:** ~700 (planned) → actual: −343 (`_executePendingTool` stayed on engine)
 
 ---
 

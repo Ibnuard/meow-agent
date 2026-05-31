@@ -17,6 +17,7 @@ import 'pending_action.dart';
 import 'pending_clarification.dart';
 import 'planner.dart';
 import 'completion_verifier.dart';
+import 'confirmation_manager.dart';
 import 'preflight_checker.dart';
 import 'post_execute_validator.dart';
 import 'prompt_constants.dart';
@@ -60,6 +61,30 @@ class AgentRuntimeEngine {
     _completionVerifier = CompletionVerifier(
       agentLoader: agentLoader,
     );
+    _confirmation = ConfirmationManager(
+      ledgerDb: this.ledgerDb,
+      languageCode: languageCode,
+      llmClient: _client,
+      onExecutePendingTool: ({
+        required AgentRuntimeRequest request,
+        required PendingAction pending,
+        required Executor executor,
+        required ToolVerbalizer verbalizer,
+        required DetectedLanguage detectedLang,
+        required RuntimeLogger logger,
+        required void Function(RuntimeEvent) emit,
+      }) => _executePendingTool(
+        request: request,
+        pending: pending,
+        executor: executor,
+        verbalizer: verbalizer,
+        detectedLang: detectedLang,
+        logger: logger,
+        emit: emit,
+      ),
+      onFinishTaskScope: (request, terminal) =>
+          _finishTaskScopeForRequest(request, terminal),
+    );
   }
 
   final WorkspaceLoader workspaceLoader;
@@ -91,6 +116,7 @@ class AgentRuntimeEngine {
 
   late final PreflightChecker _preflight;
   late final CompletionVerifier _completionVerifier;
+  late final ConfirmationManager _confirmation;
 
   static const int maxSteps = 5;
 
@@ -110,17 +136,20 @@ class AgentRuntimeEngine {
     return '$base\n\n${PromptConstants.introductionGateRule}';
   }
 
-  /// Pending actions per agent (agentId â†’ PendingAction).
-  final Map<String, PendingAction> _pendingActions = {};
+  /// Pending actions per agent (agentId → PendingAction).
+  /// Owned by [ConfirmationManager]; kept here as a convenience getter for
+  /// engine methods that reference the map directly.
+  Map<String, PendingAction> get _pendingActions => _confirmation.pendingActions;
 
   /// Agents whose in-flight task has been cancelled by the user.
   /// Checked cooperatively inside [_executeLoop] to bail out early.
   final Set<String> _cancelledAgents = {};
 
   /// Pending clarification per agent.
-  /// Used when analyzer asked missing-info questions. The next user message is
-  /// merged with the original request before analysis.
-  final Map<String, PendingClarification> _pendingClarifications = {};
+  /// Owned by [ConfirmationManager]; kept here as a convenience getter for
+  /// engine methods that reference the map directly.
+  Map<String, PendingClarification> get _pendingClarifications =>
+      _confirmation.pendingClarifications;
 
   /// Per-agent scratchpad: remembers recent tool calls + structured results.
   /// Persists across turns so the planner can reference prior tool output
@@ -130,24 +159,17 @@ class AgentRuntimeEngine {
   /// Per-turn user-message language detector. Drives every user-facing string.
   final LanguageDetector _languageDetector = LanguageDetector();
 
-  /// Build a [DetectedLanguage] for the engine's fallback code.
-  /// Used when the engine has no real user message (e.g. executeConfirmed).
-  DetectedLanguage _fallbackLanguage() => DetectedLanguage(
-    code: languageCode,
-    label: LanguageDetector.labelForCode(languageCode),
-    script: 'Latin',
-    confidence: 0.4,
-  );
-
   /// Get pending action for an agent.
-  PendingAction? getPendingAction(String agentId) => _pendingActions[agentId];
+  PendingAction? getPendingAction(String agentId) =>
+      _confirmation.getPending(agentId);
 
   /// Clear pending action for an agent.
-  void clearPendingAction(String agentId) => _pendingActions.remove(agentId);
+  void clearPendingAction(String agentId) =>
+      _confirmation.clearPending(agentId);
 
   /// Clear pending clarification for an agent.
   void clearPendingClarification(String agentId) =>
-      _pendingClarifications.remove(agentId);
+      _confirmation.clearClarification(agentId);
 
   /// Abort the current chat task scope for an agent.
   ///
@@ -229,7 +251,7 @@ class AgentRuntimeEngine {
       // (e.g. app was killed). Best-effort â€” unable-to-resume cases just
       // proceed normally and the next turn will plan from scratch.
       try {
-        await _maybeRestorePendingFromLedger(request.agentId);
+        await _confirmation.maybeRestoreFromLedger(request.agentId);
       } catch (e) {
         logger.logError('Ledger auto-resume failed; continuing fresh', e);
       }
@@ -253,7 +275,7 @@ class AgentRuntimeEngine {
         );
         emit(logger.events.last);
 
-        final pendingResponse = await _handlePendingDecision(
+        final pendingResponse = await _confirmation.handleDecision(
           request: request,
           pending: pending,
           decision: pendingDecision,
@@ -573,7 +595,7 @@ class AgentRuntimeEngine {
             '${pendingDecision.name}',
           );
           emit(logger.events.last);
-          final pendingResponse = await _handlePendingDecision(
+          final pendingResponse = await _confirmation.handleDecision(
             request: request,
             pending: pending,
             decision: pendingDecision,
@@ -1026,139 +1048,24 @@ class AgentRuntimeEngine {
   }
 
   /// Execute a confirmed tool (after user approval via button).
+  ///
+  /// Delegates to [ConfirmationManager.executeConfirmed] which creates the
+  /// executor/verbalizer, builds the pending action, and calls back into
+  /// [_executePendingTool] for the actual execution.
   Future<AgentRuntimeResponse> executeConfirmed(
     AgentRuntimeRequest request, {
     required ProviderConfig provider,
     required String toolName,
     required Map<String, dynamic> toolArgs,
     RuntimeEventCallback? onEvent,
-  }) async {
-    final logger = RuntimeLogger();
-
-    void emit(RuntimeEvent event) {
-      onEvent?.call(event);
-    }
-
-    // Capture the pending action BEFORE clearing so we can use its
-    // resumeContext to continue a multi-subgoal task.
-    final priorPending = _pendingActions[request.agentId];
-    _pendingActions.remove(request.agentId);
-
-    final llmConfig = LlmProviderConfig(
-      baseUrl: provider.baseUrl,
-      apiKey: provider.apiKey,
-      model: provider.model,
-    );
-    final client = _client;
-    final executor = Executor(client: client, config: llmConfig);
-
-    // Confirmed-button taps don't carry a user message. Reuse the language
-    // captured at the time the pending action was created (or fall back to
-    // the engine's default).
-    final detectedLang = priorPending != null
-        ? DetectedLanguage(
-            code: priorPending.languageCode,
-            label: LanguageDetector.labelForCode(priorPending.languageCode),
-            script: 'Latin',
-            confidence: 0.5,
-          )
-        : _fallbackLanguage();
-    final verbalizer = ToolVerbalizer(client: client, config: llmConfig);
-    verbalizer.resetTurn();
-
-    final pending = PendingAction(
+  }) {
+    return _confirmation.executeConfirmed(
+      request,
+      provider: provider,
       toolName: toolName,
       toolArgs: toolArgs,
-      userFacingSummary: 'Confirmed by user',
-      languageCode: detectedLang.code,
-      resumeContext: priorPending?.resumeContext,
+      onEvent: onEvent,
     );
-
-    return _executePendingTool(
-      request: request,
-      pending: pending,
-      executor: executor,
-      verbalizer: verbalizer,
-      detectedLang: detectedLang,
-      logger: logger,
-      emit: emit,
-    );
-  }
-
-  Future<AgentRuntimeResponse?> _handlePendingDecision({
-    required AgentRuntimeRequest request,
-    required PendingAction pending,
-    required ConfirmationDecision decision,
-    required Executor executor,
-    required ToolVerbalizer verbalizer,
-    required DetectedLanguage detectedLang,
-    required RuntimeLogger logger,
-    required void Function(RuntimeEvent) emit,
-  }) async {
-    switch (decision) {
-      case ConfirmationDecision.confirmed:
-        _pendingActions.remove(request.agentId);
-        return _executePendingTool(
-          request: request,
-          pending: pending,
-          executor: executor,
-          verbalizer: verbalizer,
-          detectedLang: detectedLang,
-          logger: logger,
-          emit: emit,
-        );
-
-      case ConfirmationDecision.rejected:
-        await _finishTaskScopeForRequest(request, LedgerStatus.aborted);
-        logger.logStateChange(
-          AgentRuntimeState.done,
-          'User rejected pending action',
-        );
-        emit(logger.events.last);
-        final cancelMsg = await verbalizer.cancel(
-          tool: ToolCallRequest(
-            name: pending.toolName,
-            args: pending.toolArgs,
-            risk: 'sensitive',
-            requiresConfirmation: true,
-          ),
-          language: detectedLang,
-        );
-        return AgentRuntimeResponse(
-          finalMessage: cancelMsg,
-          success: true,
-          state: AgentRuntimeState.done,
-          events: logger.events,
-        );
-
-      case ConfirmationDecision.previewOnly:
-        logger.logStateChange(
-          AgentRuntimeState.done,
-          'User requested preview only',
-        );
-        emit(logger.events.last);
-        final previewMsg = pending.userFacingPreview.isNotEmpty
-            ? pending.userFacingPreview
-            : await verbalizer.preview(
-                tool: ToolCallRequest(
-                  name: pending.toolName,
-                  args: pending.toolArgs,
-                  risk: 'sensitive',
-                  requiresConfirmation: true,
-                ),
-                language: detectedLang,
-              );
-        return AgentRuntimeResponse(
-          finalMessage: previewMsg,
-          success: true,
-          state: AgentRuntimeState.done,
-          events: logger.events,
-        );
-
-      case ConfirmationDecision.unclear:
-      case ConfirmationDecision.none:
-        return null;
-    }
   }
 
   /// Execute a pending tool (after confirmation).
@@ -2960,48 +2867,6 @@ class AgentRuntimeEngine {
     );
   }
 
-
-  /// Auto-resume a [PendingAction] from a persisted ledger when the in-memory
-  /// map for [agentId] is empty (e.g. after the app was killed mid-task).
-  ///
-  /// Only fires when the ledger was last persisted at a confirmation gate
-  /// (i.e. it has both [TaskLedger.pendingToolName] and
-  /// [TaskLedger.pendingToolArgs]). Lossy/early-stage ledgers stay dormant
-  /// and the next user turn will plan from scratch.
-  Future<void> _maybeRestorePendingFromLedger(String agentId) async {
-    if (_pendingActions.containsKey(agentId)) return;
-    final ledger = await ledgerDb.findActive(
-      agentId: agentId,
-      source: LedgerSource.chat,
-    );
-    if (ledger == null) return;
-    final toolName = ledger.pendingToolName;
-    final toolArgs = ledger.pendingToolArgs;
-    if (toolName == null || toolArgs == null) return;
-
-    _pendingActions[agentId] = PendingAction(
-      toolName: toolName,
-      toolArgs: toolArgs,
-      userFacingSummary: 'Resuming the task from where we left off.',
-      languageCode: ledger.languageCode,
-      resumeContext: {
-        'ledger_id': ledger.id,
-        'plan': ledger.plan ?? const {'steps': []},
-        'goal_tree': ledger.goalTree.toJson(),
-        'previous_results': ledger.previousResults,
-        'current_step': ledger.currentStep,
-        'available_tools': ledger.availableTools,
-        'memory_snapshot': ledger.memorySnapshot,
-        'auto_approve_sensitive': ledger.autoApproveSensitive,
-        'is_workflow_auto_execute': ledger.isWorkflowAutoExecute,
-        'language_code': ledger.languageCode,
-        'language_label': LanguageDetector.labelForCode(ledger.languageCode),
-        'language_script': 'Latin',
-        'language_confidence': 0.6,
-        'user_message': ledger.originalUserMessage,
-      },
-    );
-  }
 
   LedgerSource _ledgerSourceFor(RequestSource source) =>
       source == RequestSource.workflow
