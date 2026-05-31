@@ -74,6 +74,9 @@ class UnreadService extends ChangeNotifier {
     }
   }
 
+  /// Whether [agentId] is currently the active (in-foreground) chat.
+  bool isActive(String agentId) => _activeAgentId == agentId;
+
   /// Increment unread for [agentId]. Skipped silently when the agent's chat
   /// is currently in the foreground.
   Future<void> increment(String agentId) async {

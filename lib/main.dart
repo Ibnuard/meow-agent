@@ -9,6 +9,7 @@ import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
 import 'features/agents/data/agent_repository.dart';
+import 'features/chat/data/chat_notification_service.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
 import 'features/modules/workflows/workflow_log_detail_screen.dart';
@@ -94,6 +95,7 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       await WorkflowNotificationService.initialize(
         onTap: _handleNotificationTap,
       );
+      ChatNotificationService.instance.ensureChannel();
       await WorkflowScheduler.initialize();
       await WorkflowScheduler.rescheduleAll();
       // Start the in-app workflow runner with dynamic scheduling.
@@ -105,10 +107,22 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     }
   }
 
-  /// Handle notification tap — navigate to workflow log detail.
+  /// Handle notification tap — navigate to workflow log detail or chat.
   void _handleNotificationTap(NotificationResponse response) async {
     final payload = response.payload;
-    if (payload == null || !payload.startsWith('workflow:')) return;
+    if (payload == null) return;
+
+    // Chat notification: "chat:<agentId>"
+    if (payload.startsWith('chat:')) {
+      final agentId = payload.replaceFirst('chat:', '');
+      if (agentId.isEmpty) return;
+      final router = ref.read(goRouterProvider);
+      router.go('/agents/$agentId/chat');
+      return;
+    }
+
+    // Workflow notification: "workflow:<workflowId>"
+    if (!payload.startsWith('workflow:')) return;
 
     final workflowId = payload.replaceFirst('workflow:', '');
     if (workflowId.isEmpty) return;

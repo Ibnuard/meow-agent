@@ -11,6 +11,7 @@ import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import 'chat_history_service.dart';
+import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
 import 'unread_service.dart';
 
@@ -295,6 +296,7 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       await history.addMessage(agentId, replyMsg);
       await UnreadService.instance.increment(agentId);
+      _maybeNotify(agentId: agentId, agentName: agentName, reply: replyMsg);
 
       _set(
         agentId,
@@ -475,6 +477,14 @@ class ChatRuntimeManager extends ChangeNotifier {
         ),
       );
       await UnreadService.instance.increment(agentId);
+      _maybeNotify(
+        agentId: agentId,
+        agentName: agentName,
+        reply: ChatMessage(
+          role: 'assistant',
+          content: response.finalMessage,
+        ),
+      );
 
       _set(
         agentId,
@@ -607,6 +617,33 @@ class ChatRuntimeManager extends ChangeNotifier {
       fallbackCode: engine.languageCode,
     );
     return detected.confidence >= 0.5 ? detected.code : engine.languageCode;
+  }
+
+  /// Fire a local notification for a new agent reply, but ONLY when the user
+  /// is NOT currently viewing that agent's chat screen.
+  void _maybeNotify({
+    required String agentId,
+    required String agentName,
+    required ChatMessage reply,
+  }) {
+    if (UnreadService.instance.isActive(agentId)) return;
+    final body = _stripMarkdown(reply.content);
+    final preview = body.length > 120 ? '${body.substring(0, 120)}…' : body;
+    ChatNotificationService.instance.show(
+      agentId: agentId,
+      agentName: agentName,
+      preview: preview,
+    );
+  }
+
+  /// Strip basic markdown for notification body preview.
+  static String _stripMarkdown(String text) {
+    return text
+        .replaceAll(RegExp(r'#+\s*'), '')
+        .replaceAll(RegExp(r'[*_~`]'), '')
+        .replaceAll('\n', ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 }
 
