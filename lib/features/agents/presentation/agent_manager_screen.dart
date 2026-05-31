@@ -122,10 +122,12 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
     final result = await context.push<String>(AppRoutes.addProvider);
     if (result != null && mounted) {
       final providers = ref.read(providerListProvider).value ?? [];
-      final providerExists = providers.any((p) => p.id == result);
+      final selectedProvider = providers
+          .where((p) => p.id == result)
+          .firstOrNull;
       setState(() {
-        _selectedProviderId = providerExists ? result : _selectedProviderId;
-        _selectedModel = null;
+        _selectedProviderId = selectedProvider != null ? result : _selectedProviderId;
+        _selectedModel = selectedProvider?.models.firstOrNull;
       });
     }
   }
@@ -161,16 +163,6 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
     if (provider == null) return _selectedModel ?? '';
     final selected = (_selectedModel ?? '').trim();
     return provider.models.contains(selected) ? selected : '';
-  }
-
-  String _modelHintFor(List<ProviderConfig> providers, AppStrings s) {
-    final provider = providers
-        .where((p) => p.id == _selectedProviderId)
-        .firstOrNull;
-    if (provider == null) return s.isId ? 'Pilih model' : 'Choose model';
-    final def = provider.model;
-    if (def.isEmpty) return s.isId ? 'Pilih model' : 'Choose model';
-    return s.isId ? 'Default: $def' : 'Default: $def';
   }
 
   Future<void> _confirmDelete() async {
@@ -413,25 +405,24 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                           )
                           .toList(),
                       onChanged: (v) {
+                        final selectedProvider = providers
+                            .where((p) => p.id == v)
+                            .firstOrNull;
                         setState(() {
                           _selectedProviderId = v;
-                          _selectedModel = null;
+                          _selectedModel = selectedProvider?.models.firstOrNull;
                         });
                       },
                     ),
                     const SizedBox(height: 14),
                     MeowDropdown<String>(
                       label: s.model,
-                      hint: _modelHintFor(providers, s),
+                      hint: s.isId ? 'Pilih model' : 'Choose model',
                       sheetTitle: s.model,
                       value: _selectedModelFor(providers),
                       options: _modelOptionsFor(providers),
                       onChanged: (v) => setState(() => _selectedModel = v),
                     ),
-                    if (_selectedModelFor(providers) == null) ...[
-                      const SizedBox(height: 6),
-                      _ModelDefaultHint(providers: providers, selectedProviderId: _selectedProviderId, s: s),
-                    ],
                   ],
                 ],
               ),
@@ -1086,45 +1077,6 @@ class _PickerLabel extends StatelessWidget {
         color: cs.onSurfaceVariant,
         letterSpacing: 0.4,
       ),
-    );
-  }
-}
-
-/// Inline hint when an agent has no explicit model selected — shows which
-/// provider default model will be used as fallback.
-class _ModelDefaultHint extends StatelessWidget {
-  const _ModelDefaultHint({
-    required this.providers,
-    required this.selectedProviderId,
-    required this.s,
-  });
-
-  final List<ProviderConfig> providers;
-  final String? selectedProviderId;
-  final AppStrings s;
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = selectedProviderId != null
-        ? providers.where((p) => p.id == selectedProviderId).firstOrNull
-        : null;
-    if (provider == null) return const SizedBox.shrink();
-    final def = provider.model;
-    if (def.isEmpty) return const SizedBox.shrink();
-    final cs = context.cs;
-    return Row(
-      children: [
-        Icon(Icons.info_outline_rounded, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
-        const SizedBox(width: 6),
-        Text(
-          s.isId ? 'Default provider: $def' : 'Provider default: $def',
-          style: TextStyle(
-            fontSize: 11,
-            color: cs.onSurfaceVariant.withValues(alpha: 0.7),
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      ],
     );
   }
 }

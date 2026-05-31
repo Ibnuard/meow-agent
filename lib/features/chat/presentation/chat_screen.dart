@@ -549,10 +549,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? providers.where((p) => p.id == agent.providerId).firstOrNull
             : null;
         if (provider != null) {
+          final agentModel = agent?.model ?? '';
+          final modelInfo = agentModel.isNotEmpty
+              ? '\n• Model: ${provider.effectiveModel(agentModel)}'
+              : '\n• Model: (provider default)';
           response =
               '🤖 Model Info:\n'
-              '• Provider: ${provider.nickname}\n'
-              '• Model: ${provider.effectiveModel(agent?.model)}\n'
+              '• Provider: ${provider.nickname}$modelInfo\n'
               '• Endpoint: ${provider.baseUrl}';
         } else {
           response = '⚠️ No provider connected to this agent.';
@@ -1136,8 +1139,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final provider = agent != null
         ? providers.where((p) => p.id == agent.providerId).firstOrNull
         : null;
-    final modelName = provider?.effectiveModel(agent?.model);
-    final modelIsOverride = agent != null && agent.model.isNotEmpty && provider != null && provider.effectiveModel(agent.model) == agent.model;
+    final modelName = agent?.model.isNotEmpty == true
+        ? provider?.effectiveModel(agent!.model)
+        : null;
+    final modelIsOverride = modelName != null;
 
     return PopScope(
       canPop: false,

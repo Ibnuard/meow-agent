@@ -110,7 +110,9 @@ class _AgentCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         provider != null
-                            ? '${provider!.nickname}  ·  ${provider!.effectiveModel(agent.model)}'
+                            ? (agent.model.isNotEmpty
+                                ? '${provider!.nickname}  ·  ${provider!.effectiveModel(agent.model)}'
+                                : provider!.nickname)
                             : s.providerNotFound,
                         style: TextStyle(
                           fontSize: 11.5,
