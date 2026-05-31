@@ -190,7 +190,9 @@ class ConfirmationManager {
 
 ---
 
-## Phase 4: Extract `TaskScopeManager` (MEDIUM RISK)
+## Phase 4: Extract `TaskScopeManager` ✅ DONE (31 May 2026)
+
+**Result:** `dart analyze` clean, `flutter test` 234/234 passed. Engine: 3,086 → 3,122 lines (+36 net: prefix overhead at 45+ call sites). New file: `task_scope_manager.dart` (252 lines).
 
 **Why fourth:** Owns ledger lifecycle and cancellation state. Clear responsibility boundary.
 

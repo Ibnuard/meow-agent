@@ -19,6 +19,7 @@ import 'planner.dart';
 import 'completion_verifier.dart';
 import 'confirmation_manager.dart';
 import 'preflight_checker.dart';
+import 'task_scope_manager.dart';
 import 'post_execute_validator.dart';
 import 'prompt_constants.dart';
 import 'recovery_coordinator.dart';
@@ -61,6 +62,9 @@ class AgentRuntimeEngine {
     _completionVerifier = CompletionVerifier(
       agentLoader: agentLoader,
     );
+    _taskScope = TaskScopeManager(
+      ledgerDb: this.ledgerDb,
+    );
     _confirmation = ConfirmationManager(
       ledgerDb: this.ledgerDb,
       languageCode: languageCode,
@@ -83,8 +87,9 @@ class AgentRuntimeEngine {
         emit: emit,
       ),
       onFinishTaskScope: (request, terminal) =>
-          _finishTaskScopeForRequest(request, terminal),
+          _taskScope.finishScopeForRequest(request, terminal),
     );
+    _taskScope.attachConfirmation(_confirmation);
   }
 
   final WorkspaceLoader workspaceLoader;
@@ -116,6 +121,7 @@ class AgentRuntimeEngine {
 
   late final PreflightChecker _preflight;
   late final CompletionVerifier _completionVerifier;
+  late final TaskScopeManager _taskScope;
   late final ConfirmationManager _confirmation;
 
   static const int maxSteps = 5;
@@ -141,9 +147,6 @@ class AgentRuntimeEngine {
   /// engine methods that reference the map directly.
   Map<String, PendingAction> get _pendingActions => _confirmation.pendingActions;
 
-  /// Agents whose in-flight task has been cancelled by the user.
-  /// Checked cooperatively inside [_executeLoop] to bail out early.
-  final Set<String> _cancelledAgents = {};
 
   /// Pending clarification per agent.
   /// Owned by [ConfirmationManager]; kept here as a convenience getter for
@@ -179,14 +182,7 @@ class AgentRuntimeEngine {
   Future<void> abortActiveTask(
     String agentId, {
     RequestSource source = RequestSource.chat,
-  }) async {
-    _cancelledAgents.add(agentId);
-    await _finishTaskScope(
-      agentId: agentId,
-      source: source,
-      terminal: LedgerStatus.aborted,
-    );
-  }
+  }) => _taskScope.abortActive(agentId, source: source);
 
   /// Run the full agentic loop for a request.
   ///
@@ -200,7 +196,7 @@ class AgentRuntimeEngine {
     bool autoApproveSensitive = false,
   }) async {
     // Clear any prior cancellation flag for this agent.
-    _cancelledAgents.remove(request.agentId);
+    _taskScope.clearCancellation(request.agentId);
     final logger = RuntimeLogger();
 
     void emit(RuntimeEvent event) {
@@ -345,7 +341,9 @@ class AgentRuntimeEngine {
           ? null
           : await ledgerDb.findActive(
               agentId: request.agentId,
-              source: _ledgerSourceFor(request.source),
+              source: request.source == RequestSource.workflow
+                  ? LedgerSource.workflow
+                  : LedgerSource.chat,
             );
       String activeTaskContext = '';
       if (activeLedger != null) {
@@ -420,7 +418,7 @@ class AgentRuntimeEngine {
       emit(logger.events.last);
 
       if (analysis == null) {
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return _fail('Failed to analyze request.', logger);
       }
 
@@ -501,7 +499,7 @@ class AgentRuntimeEngine {
               pending?.userFacingSummary ??
               pendingClarification?.originalMessage ??
               'the previous task';
-          await _finishTaskScopeForRequest(request, LedgerStatus.aborted);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
           pending = null;
           pendingDecision = ConfirmationDecision.none;
           pendingClarification = null;
@@ -561,7 +559,7 @@ class AgentRuntimeEngine {
           );
           emit(logger.events.last);
           if (analysis == null) {
-            await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
             return _fail('Failed to analyze clarified request.', logger);
           }
         }
@@ -920,7 +918,7 @@ class AgentRuntimeEngine {
         }
 
         if (plan == null) {
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _fail('Failed to create execution plan.', logger);
         }
 
@@ -1042,7 +1040,7 @@ class AgentRuntimeEngine {
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
-      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+      await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
       return _fail('Runtime error: $e', logger);
     }
   }
@@ -1109,7 +1107,7 @@ class AgentRuntimeEngine {
 
       final permissionFinal = _permissionDeniedResponseFor(result);
       if (permissionFinal != null) {
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
         await workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -1211,7 +1209,7 @@ class AgentRuntimeEngine {
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               logger: logger,
-              parkTask: (questions) => _parkTaskForUserInput(
+              parkTask: (questions) => _taskScope.parkForUserInput(
                 request: resumedRequest,
                 plan: plan,
                 goalTree: goalTree,
@@ -1219,7 +1217,7 @@ class AgentRuntimeEngine {
                 currentStep: currentStep,
                 availableTools: availableTools,
                 memorySnapshot: memorySnapshot,
-                detectedLang: detectedLang,
+                detectedLangCode: detectedLang.code,
                 autoApproveSensitive: autoApproveSensitive,
                 isWorkflowAutoExecute: isWorkflowAutoExecute,
                 questions: questions,
@@ -1259,7 +1257,7 @@ class AgentRuntimeEngine {
               lastTool: pending.toolName,
               lastResult: 'success',
             );
-            await _archiveLedgerForRequest(request, LedgerStatus.completed);
+            await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
             return AgentRuntimeResponse(
               finalMessage: successMsg,
               success: true,
@@ -1373,7 +1371,7 @@ class AgentRuntimeEngine {
 
       final reviewMessage = review?['final_response'] as String?;
       if (reviewMessage != null && reviewMessage.isNotEmpty) {
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(reviewMessage);
         return AgentRuntimeResponse(
           finalMessage: reviewMessage,
@@ -1387,7 +1385,7 @@ class AgentRuntimeEngine {
         reason: result.error ?? 'tool failed',
         language: detectedLang,
       );
-      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+      await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
       logger.logFinalResponse(fallbackMsg);
       return AgentRuntimeResponse(
         finalMessage: fallbackMsg,
@@ -1397,7 +1395,7 @@ class AgentRuntimeEngine {
       );
     } catch (e) {
       logger.logError('Runtime exception', e);
-      await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+      await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
       return _fail('Runtime error: $e', logger);
     }
   }
@@ -1459,8 +1457,8 @@ class AgentRuntimeEngine {
 
     for (var i = 0; i < adaptiveLimit; i++) {
       // Cooperative cancellation check.
-      if (_cancelledAgents.contains(request.agentId)) {
-        _cancelledAgents.remove(request.agentId);
+      if (_taskScope.isCancelled(request.agentId)) {
+        _taskScope.clearCancellation(request.agentId);
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,
@@ -1494,7 +1492,7 @@ class AgentRuntimeEngine {
             'recovery',
             'Repeated null tool selection. Aborting to prevent infinite loop.',
           );
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _fail(_capabilityNotFoundMessage(detectedLang), logger);
         }
         final recoveryDecision = await _maybeRecover(
@@ -1524,7 +1522,7 @@ class AgentRuntimeEngine {
             nullSelectionRecoveryCount: nullSelectionRecoveryCount + 1,
           );
         }
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return _fail(
           recovery?.giveUpMessage(detectedLang) ??
               _capabilityNotFoundMessage(detectedLang),
@@ -1579,7 +1577,7 @@ class AgentRuntimeEngine {
           autoApproveSensitive: autoApproveSensitive,
           isWorkflowAutoExecute: isWorkflowAutoExecute,
           logger: logger,
-          parkTask: (questions) => _parkTaskForUserInput(
+          parkTask: (questions) => _taskScope.parkForUserInput(
             request: request,
             plan: plan,
             goalTree: goalTree,
@@ -1587,7 +1585,7 @@ class AgentRuntimeEngine {
             currentStep: currentStep,
             availableTools: availableTools,
             memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
+            detectedLangCode: detectedLang.code,
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             questions: questions,
@@ -1651,7 +1649,7 @@ class AgentRuntimeEngine {
             isWorkflowAutoExecute: isWorkflowAutoExecute,
           );
         }
-        await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return _fail(
           recovery?.giveUpMessage(detectedLang) ??
               (selection['error'] as String? ?? 'Runtime failed.'),
@@ -1688,7 +1686,7 @@ class AgentRuntimeEngine {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
             );
           }
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _fail(
             recovery?.giveUpMessage(detectedLang) ??
                 'Tool selection returned no tool data.',
@@ -1755,7 +1753,7 @@ class AgentRuntimeEngine {
                 reason: 'agent looped on ${toolRequest.name} after retry',
                 language: detectedLang,
               );
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(abortMsg);
           return AgentRuntimeResponse(
             finalMessage: abortMsg,
@@ -1768,7 +1766,7 @@ class AgentRuntimeEngine {
         final validationError = toolRouter.validate(toolRequest);
         if (validationError != null) {
           logger.logError(validationError);
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _fail(validationError, logger);
         }
 
@@ -1799,7 +1797,7 @@ class AgentRuntimeEngine {
           final finalResponse =
               _permissionDeniedResponseFor(permissionDenied) ??
               (permissionDenied.error ?? 'Permission denied.');
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
@@ -1852,7 +1850,7 @@ class AgentRuntimeEngine {
               '${toolRequest.name}',
             );
             emit(logger.events.last);
-            await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
             return AgentRuntimeResponse(
               finalMessage: '',
               success: false,
@@ -1900,7 +1898,7 @@ class AgentRuntimeEngine {
             // Multi-subgoal scope â€” persist a ledger so the task survives the
             // confirmation gate (and an app restart).
             if (goalTree.subgoals.length > 1) {
-              final ledger = await _persistLedgerAtGate(
+              final ledger = await _taskScope.persistLedgerAtGate(
                 request: request,
                 plan: plan,
                 goalTree: goalTree,
@@ -1908,7 +1906,7 @@ class AgentRuntimeEngine {
                 currentStep: currentStep,
                 availableTools: availableTools,
                 memorySnapshot: memorySnapshot,
-                detectedLang: detectedLang,
+                detectedLangCode: detectedLang.code,
                 autoApproveSensitive: autoApproveSensitive,
                 isWorkflowAutoExecute: isWorkflowAutoExecute,
                 pendingTool: toolRequest,
@@ -2000,7 +1998,7 @@ class AgentRuntimeEngine {
               lastTool: priorTool.name,
               lastResult: 'success',
             );
-            await _archiveLedgerForRequest(request, LedgerStatus.completed);
+            await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
             return AgentRuntimeResponse(
               finalMessage: finalMsg,
               success: true,
@@ -2050,7 +2048,7 @@ class AgentRuntimeEngine {
 
         final permissionFinal = _permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(permissionFinal);
           await workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
@@ -2113,7 +2111,7 @@ class AgentRuntimeEngine {
                   isWorkflowAutoExecute: isWorkflowAutoExecute,
                 );
               }
-              await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
               final unverifiedMessage = verification.userFacingMessage(
                 detectedLang,
               );
@@ -2174,7 +2172,7 @@ class AgentRuntimeEngine {
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             logger: logger,
-            parkTask: (questions) => _parkTaskForUserInput(
+            parkTask: (questions) => _taskScope.parkForUserInput(
               request: request,
               plan: plan,
               goalTree: goalTree,
@@ -2182,7 +2180,7 @@ class AgentRuntimeEngine {
               currentStep: currentStep,
               availableTools: availableTools,
               memorySnapshot: memorySnapshot,
-              detectedLang: detectedLang,
+              detectedLangCode: detectedLang.code,
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               questions: questions,
@@ -2219,7 +2217,7 @@ class AgentRuntimeEngine {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
-          await _archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -2340,7 +2338,7 @@ class AgentRuntimeEngine {
         }
 
         if (review == null) {
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _fail('Review phase failed.', logger);
         }
 
@@ -2388,7 +2386,7 @@ class AgentRuntimeEngine {
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             logger: logger,
-            parkTask: (questions) => _parkTaskForUserInput(
+            parkTask: (questions) => _taskScope.parkForUserInput(
               request: request,
               plan: plan,
               goalTree: goalTree,
@@ -2396,7 +2394,7 @@ class AgentRuntimeEngine {
               currentStep: currentStep,
               availableTools: availableTools,
               memorySnapshot: memorySnapshot,
-              detectedLang: detectedLang,
+              detectedLangCode: detectedLang.code,
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               questions: questions,
@@ -2435,7 +2433,7 @@ class AgentRuntimeEngine {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
-          await _archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
           return AgentRuntimeResponse(
             finalMessage: completedFinal,
             success: true,
@@ -2453,7 +2451,7 @@ class AgentRuntimeEngine {
                 detectedLang,
                 verbalizer,
               );
-          await _parkTaskForUserInput(
+          await _taskScope.parkForUserInput(
             request: request,
             plan: plan,
             goalTree: goalTree,
@@ -2461,7 +2459,7 @@ class AgentRuntimeEngine {
             currentStep: currentStep,
             availableTools: availableTools,
             memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
+            detectedLangCode: detectedLang.code,
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             questions: [question],
@@ -2502,7 +2500,7 @@ class AgentRuntimeEngine {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
             );
           }
-          await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           final giveUp =
               recovery?.giveUpMessage(detectedLang) ??
               (review['error'] as String? ?? 'Unrecoverable error.');
@@ -2530,7 +2528,7 @@ class AgentRuntimeEngine {
       }
     }
 
-    await _finishTaskScopeForRequest(request, LedgerStatus.failed);
+    await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
     return _fail(
       'Maximum runtime steps ($adaptiveLimit) reached without completion.',
       logger,
@@ -2702,117 +2700,6 @@ class AgentRuntimeEngine {
     return out;
   }
 
-  /// Persist the current loop state to a [TaskLedger] when the confirmation
-  /// gate fires for a multi-subgoal task. If an active ledger already exists
-  /// for the (agentId, source) scope it is updated in place; otherwise a
-  /// new ledger row is inserted.
-  ///
-  /// The ledger becomes the authoritative store for the task â€” `resumeContext`
-  /// only needs to carry a pointer (`ledger_id`) afterwards.
-  Future<TaskLedger> _persistLedgerAtGate({
-    required AgentRuntimeRequest request,
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required List<Map<String, dynamic>> previousResults,
-    required int currentStep,
-    required List<String> availableTools,
-    required String memorySnapshot,
-    required DetectedLanguage detectedLang,
-    required bool autoApproveSensitive,
-    required bool isWorkflowAutoExecute,
-    ToolCallRequest? pendingTool,
-  }) async {
-    final source = request.source == RequestSource.workflow
-        ? LedgerSource.workflow
-        : LedgerSource.chat;
-
-    final existing = await ledgerDb.findActive(
-      agentId: request.agentId,
-      source: source,
-    );
-
-    if (existing != null) {
-      // Update in place â€” the loop is mid-flight, just sync state.
-      existing.goalTree = goalTree;
-      existing.previousResults = List.of(previousResults);
-      existing.currentStep = currentStep;
-      existing.plan = plan;
-      existing.targetGraph =
-          (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-          existing.targetGraph;
-      existing.pendingToolName = pendingTool?.name;
-      existing.pendingToolArgs = pendingTool?.args;
-      return ledgerDb.upsert(existing);
-    }
-
-    final ledger = TaskLedger(
-      id:
-          'lg_${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}'
-          '_${request.agentId.hashCode.toUnsigned(16).toRadixString(16)}',
-      agentId: request.agentId,
-      source: source,
-      sourceRef: source == LedgerSource.workflow ? request.userMessage : null,
-      mainGoal: goalTree.mainGoal,
-      languageCode: detectedLang.code,
-      originalUserMessage: request.userMessage,
-      goalTree: goalTree,
-      completionCriteria: goalTree.completionCriteria,
-      previousResults: List.of(previousResults),
-      targetGraph:
-          (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-          const {},
-      currentStep: currentStep,
-      availableTools: availableTools,
-      memorySnapshot: memorySnapshot,
-      autoApproveSensitive: autoApproveSensitive,
-      isWorkflowAutoExecute: isWorkflowAutoExecute,
-      plan: plan,
-      pendingToolName: pendingTool?.name,
-      pendingToolArgs: pendingTool?.args,
-    );
-    return ledgerDb.upsert(ledger);
-  }
-
-  Future<void> _parkTaskForUserInput({
-    required AgentRuntimeRequest request,
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required List<Map<String, dynamic>> previousResults,
-    required int currentStep,
-    required List<String> availableTools,
-    required String memorySnapshot,
-    required DetectedLanguage detectedLang,
-    required bool autoApproveSensitive,
-    required bool isWorkflowAutoExecute,
-    required List<String> questions,
-  }) async {
-    final cleanQuestions = questions
-        .map((q) => q.trim())
-        .where((q) => q.isNotEmpty)
-        .toList(growable: false);
-    if (cleanQuestions.isEmpty) return;
-
-    _pendingClarifications[request.agentId] = PendingClarification(
-      originalMessage: request.userMessage,
-      questions: cleanQuestions,
-      createdAt: DateTime.now(),
-    );
-
-    if (goalTree.isNotEmpty && !goalTree.isComplete) {
-      await _persistLedgerAtGate(
-        request: request,
-        plan: plan,
-        goalTree: goalTree,
-        previousResults: previousResults,
-        currentStep: currentStep,
-        availableTools: availableTools,
-        memorySnapshot: memorySnapshot,
-        detectedLang: detectedLang,
-        autoApproveSensitive: autoApproveSensitive,
-        isWorkflowAutoExecute: isWorkflowAutoExecute,
-      );
-    }
-  }
 
   Future<String> _fallbackQuestionForToolFailure(
     ToolExecutionResult result,
@@ -2868,65 +2755,6 @@ class AgentRuntimeEngine {
   }
 
 
-  LedgerSource _ledgerSourceFor(RequestSource source) =>
-      source == RequestSource.workflow
-      ? LedgerSource.workflow
-      : LedgerSource.chat;
-
-  Future<void> _finishTaskScopeForRequest(
-    AgentRuntimeRequest request,
-    LedgerStatus terminal,
-  ) {
-    return _finishTaskScope(
-      agentId: request.agentId,
-      source: request.source,
-      terminal: terminal,
-    );
-  }
-
-  Future<void> _finishTaskScope({
-    required String agentId,
-    required RequestSource source,
-    required LedgerStatus terminal,
-  }) async {
-    _pendingActions.remove(agentId);
-    _pendingClarifications.remove(agentId);
-
-    // Workflow run state lives in the WorkflowRunner's run ledger, not here.
-    if (source == RequestSource.workflow) return;
-
-    final active = await ledgerDb.findActive(
-      agentId: agentId,
-      source: _ledgerSourceFor(source),
-    );
-    if (active == null) return;
-    if (terminal == LedgerStatus.failed) {
-      await ledgerDb.delete(active.id);
-    } else {
-      await ledgerDb.archive(active.id, terminal);
-    }
-  }
-
-  /// Archive a ledger as completed when the goal tree finishes successfully.
-  /// No-op when no ledger exists for the (agentId, source) scope.
-  Future<void> _archiveLedgerForRequest(
-    AgentRuntimeRequest request,
-    LedgerStatus terminal,
-  ) async {
-    // Workflow runs do not use the engine's resume ledger.
-    if (request.source == RequestSource.workflow) return;
-    final active = await ledgerDb.findActive(
-      agentId: request.agentId,
-      source: _ledgerSourceFor(request.source),
-    );
-    if (active == null) return;
-    if (terminal == LedgerStatus.failed) {
-      // Soft-delete failed ledgers so retry isn't polluted by stale state.
-      await ledgerDb.delete(active.id);
-    } else {
-      await ledgerDb.archive(active.id, terminal);
-    }
-  }
 
   /// Build the final user-facing message when the goal tree completes.
   ///
