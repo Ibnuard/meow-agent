@@ -27,6 +27,7 @@ class AddProviderScreen extends ConsumerStatefulWidget {
 class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nicknameController = TextEditingController();
+  final _codenameController = TextEditingController();
   final _baseUrlController = TextEditingController(
     text: 'https://api.openai.com/v1',
   );
@@ -64,6 +65,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     if (existing != null) {
       _existingId = existing.id;
       _nicknameController.text = existing.nickname;
+      _codenameController.text = existing.codename ?? '';
       _baseUrlController.text = existing.baseUrl;
       _apiKeyController.text = existing.apiKey;
       _models
@@ -79,6 +81,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   @override
   void dispose() {
     _nicknameController.dispose();
+    _codenameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
     _modelInputController.dispose();
@@ -88,6 +91,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   ProviderConfig _buildConfig() => ProviderConfig(
     id: _existingId,
     nickname: _nicknameController.text.trim(),
+    codename: _codenameController.text.trim().isEmpty ? null : _codenameController.text.trim().toUpperCase(),
     baseUrl: _baseUrlController.text.trim(),
     apiKey: _apiKeyController.text.trim(),
     model: _models.firstOrNull ?? '',
@@ -294,6 +298,20 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                           if ((v ?? '').trim().isEmpty) {
                             return s.nicknameRequired;
                           }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      MeowInput(
+                        controller: _codenameController,
+                        label: s.codename,
+                        hint: s.codenameHint,
+                        helper: s.codenameHelper,
+                        maxLength: 4,
+                        textCapitalization: TextCapitalization.characters,
+                        validator: (v) {
+                          final val = v?.trim() ?? '';
+                          if (val.length > 4) return s.codenameTooLong;
                           return null;
                         },
                       ),

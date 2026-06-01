@@ -123,6 +123,14 @@ class AppStrings {
       : 'Shown in the agent provider dropdown.';
   String get nicknameRequired =>
       isId ? 'Nama panggilan wajib diisi' : 'Nickname is required';
+  String get codename => isId ? 'Kode Provider' : 'Provider Code';
+  String get codenameHint =>
+      isId ? 'Maks 4 karakter, opsional' : 'Max 4 chars, optional';
+  String get codenameHelper => isId
+      ? 'Kode pendek akan ditampilkan di header chat.'
+      : 'Short code shown in the chat header.';
+  String get codenameTooLong =>
+      isId ? 'Maksimal 4 karakter' : 'Max 4 characters';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';

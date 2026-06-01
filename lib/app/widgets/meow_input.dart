@@ -10,7 +10,7 @@ import '../theme.dart';
 /// - Subtle border change on focus (no glow).
 /// - Helper text below.
 class MeowInput extends StatefulWidget {
-  const MeowInput({
+const MeowInput({
     super.key,
     this.controller,
     this.label,
@@ -26,6 +26,9 @@ class MeowInput extends StatefulWidget {
     this.maxLines = 1,
     this.autofocus = false,
     this.errorText,
+    this.maxLength,
+    this.textCapitalization,
+    this.showCounter = false,
   });
 
   final TextEditingController? controller;
@@ -41,10 +44,10 @@ class MeowInput extends StatefulWidget {
   final Widget? suffixIcon;
   final int maxLines;
   final bool autofocus;
-
-  /// External error text from a parent FormField. Renders with the
-  /// theme's error style and activates the error border on the field.
   final String? errorText;
+  final int? maxLength;
+  final TextCapitalization? textCapitalization;
+  final bool showCounter;
 
   @override
   State<MeowInput> createState() => _MeowInputState();
@@ -103,6 +106,8 @@ class _MeowInputState extends State<MeowInput> {
           obscureText: widget.obscureText,
           keyboardType: widget.keyboardType,
           textInputAction: widget.textInputAction,
+          textCapitalization: widget.textCapitalization ?? TextCapitalization.none,
+          maxLength: widget.maxLength,
           validator: widget.validator,
           onChanged: widget.onChanged,
           onFieldSubmitted: widget.onSubmitted,
@@ -114,15 +119,15 @@ class _MeowInputState extends State<MeowInput> {
             color: cs.onSurface,
             height: 1.4,
           ),
-          decoration: InputDecoration(
+decoration: InputDecoration(
             hintText: widget.hint,
             suffixIcon: widget.suffixIcon,
             filled: true,
             fillColor: extras.inputFill,
-            // Drive error border + inline error from external errorText.
             errorText: widget.errorText,
             errorMaxLines: 2,
             errorStyle: errorStyle,
+            counter: widget.showCounter ? null : const SizedBox.shrink(),
           ),
         ),
 

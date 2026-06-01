@@ -14,6 +14,7 @@ class ProviderConfig {
     required this.model,
     List<String>? models,
     List<String>? visionModels,
+    this.codename,
   }) : id = id ?? const Uuid().v4(),
        models = _normalizeModels(model, models),
        visionModels = _normalizeVisionModels(
@@ -28,6 +29,12 @@ class ProviderConfig {
   final String model;
   final List<String> models;
   final List<String> visionModels;
+  final String? codename;
+
+  String get displayCode =>
+      (codename != null && codename!.trim().isNotEmpty)
+          ? codename!.trim().toUpperCase()
+          : nickname.replaceAll(RegExp(r'\s+'), '').substring(0, nickname.length < 4 ? nickname.length : 4).toUpperCase();
 
   bool get isComplete =>
       nickname.trim().isNotEmpty &&
@@ -54,6 +61,7 @@ class ProviderConfig {
     String? model,
     List<String>? models,
     List<String>? visionModels,
+    String? codename,
   }) {
     return ProviderConfig(
       id: id,
@@ -63,6 +71,7 @@ class ProviderConfig {
       model: model ?? this.model,
       models: models ?? this.models,
       visionModels: visionModels ?? this.visionModels,
+      codename: codename ?? this.codename,
     );
   }
 
@@ -74,6 +83,7 @@ class ProviderConfig {
     'model': model,
     'models': models,
     'visionModels': visionModels,
+    if (codename != null && codename!.trim().isNotEmpty) 'codename': codename!.trim(),
   };
 
   static ProviderConfig fromPublicJson(
@@ -90,6 +100,7 @@ class ProviderConfig {
       visionModels: (json['visionModels'] as List?)
           ?.map((e) => e.toString())
           .toList(),
+      codename: (json['codename'] as String?)?.trim(),
     );
   }
 

@@ -1268,6 +1268,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final modelSupportsVision = modelName != null
         ? provider?.visionModels.contains(modelName) ?? false
         : false;
+    final providerCode = provider?.displayCode ?? '';
+    final displayModelName = modelName != null && modelName.isNotEmpty
+        ? '$providerCode${providerCode.isNotEmpty ? ' • ' : ''}$modelName'
+        : null;
 
     return PopScope(
       canPop: false,
@@ -1291,7 +1295,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      modelName,
+                      displayModelName!,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w400,
