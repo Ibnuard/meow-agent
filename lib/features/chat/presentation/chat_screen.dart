@@ -605,7 +605,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } else {
           response = '⚠️ No provider connected to this agent.';
         }
-      case '/models':
+      case '/set-model':
         await _showModelsCommandBubble();
         return;
       case '/compact':
@@ -688,8 +688,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ..writeln('- /status - Show agent & context info')
       ..writeln('- /context - Show token/context breakdown')
       ..writeln('- /reset - Reset context only')
-      ..writeln('- /model - Show current model info')
-      ..writeln('- /models - Choose model for this agent')
+..writeln('- /model - Show current model info')
+       ..writeln('- /set-model - Choose model for this agent')
       ..writeln('- /compact - Compact context window')
       ..write('- /cron - Show scheduled tasks');
     if (debugMode) {
@@ -1265,6 +1265,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? provider?.effectiveModel(agent!.model)
         : null;
     final modelIsOverride = modelName != null;
+    final modelSupportsVision = modelName != null
+        ? provider?.visionModels.contains(modelName) ?? false
+        : false;
 
     return PopScope(
       canPop: false,
@@ -1284,13 +1287,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               Text(agentName),
               if (modelName != null && modelName.isNotEmpty) ...[
                 const SizedBox(height: 3),
-                Text(
-                  modelName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      modelName,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w400,
+                        color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
+                      ),
+                    ),
+                    if (modelSupportsVision) ...[
+                      const SizedBox(width: 4),
+                      Icon(Icons.visibility_rounded, size: 12, color: cs.primary),
+                    ],
+                  ],
                 ),
               ],
             ],
@@ -2197,7 +2209,7 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/context', 'Show token/context breakdown'),
     _SlashCommand('/reset', 'Reset context only'),
     _SlashCommand('/model', 'Show current model info'),
-    _SlashCommand('/models', 'Choose model for this agent'),
+    _SlashCommand('/set-model', 'Choose model for this agent'),
     _SlashCommand('/compact', 'Compact context window'),
     _SlashCommand('/cron', 'Show scheduled tasks'),
   ];
