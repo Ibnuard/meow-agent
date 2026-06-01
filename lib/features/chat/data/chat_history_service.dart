@@ -118,6 +118,25 @@ class ChatHistoryService {
     });
   }
 
+  Future<void> updateMessage(ChatMessage message) async {
+    final id = message.id;
+    if (id == null) return;
+    final db = await _database;
+    await db.update(
+      'messages',
+      {
+        'role': message.role,
+        'content': message.content,
+        'timestamp': message.timestamp.toIso8601String(),
+        'actions': message.actions.isEmpty
+            ? null
+            : jsonEncode(message.actions.map((a) => a.toJson()).toList()),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   /// Append multiple messages at once.
   Future<void> addMessages(String agentId, List<ChatMessage> messages) async {
     final db = await _database;

@@ -355,7 +355,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         : _buildReplyPayload(replyContext, text);
 
     // Append attached file names so the chat bubble shows what was sent.
-    final attachmentNames = _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
+    final attachmentNames =
+        _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
     final displayText = _attachments.isEmpty
         ? messageText
         : '$messageText\n\n📎 ${attachmentNames.map((a) => a.name).join(", ")}';
@@ -457,8 +458,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  Future<void> _handleResultAction(ResultAction action) async {
+  Future<void> _handleResultAction(
+    ResultAction action, [
+    ChatMessage? sourceMessage,
+  ]) async {
     switch (action.type) {
+      case 'select_model':
+        await _handleSelectModelAction(action, sourceMessage);
+        break;
       case 'navigate':
         // Special-case screens not in the router → push directly.
         if (action.target == '/modules/calendar') {
@@ -484,6 +491,55 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case 'open_url':
         // Reserved for future use.
         break;
+    }
+  }
+
+  Future<void> _handleSelectModelAction(
+    ResultAction action,
+    ChatMessage? sourceMessage,
+  ) async {
+    final model = action.target.trim();
+    if (model.isEmpty) return;
+    final agents = ref.read(agentListProvider);
+    final providers = ref.read(providerListProvider).value ?? [];
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    if (agent == null) return;
+    final provider = providers
+        .where((p) => p.id == agent.providerId)
+        .firstOrNull;
+    if (provider == null || !provider.models.contains(model)) return;
+
+    await ref
+        .read(agentListProvider.notifier)
+        .save(agent.copyWith(model: model));
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    final fixed = ChatMessage(
+      id: sourceMessage?.id,
+      role: 'assistant',
+      timestamp: sourceMessage?.timestamp,
+      content: isId
+          ? 'Model aktif sudah diperbarui.\n\n'
+                '• Provider: ${provider.nickname}\n'
+                '• Model: $model'
+          : 'Active model updated.\n\n'
+                '• Provider: ${provider.nickname}\n'
+                '• Model: $model',
+    );
+    if (!mounted) return;
+    setState(() {
+      final idx = sourceMessage == null
+          ? -1
+          : _messages.indexWhere(
+              (m) => identical(m, sourceMessage) || m.id == sourceMessage.id,
+            );
+      if (idx >= 0) {
+        _messages[idx] = fixed;
+      }
+    });
+    if (fixed.id != null) {
+      await ref.read(chatHistoryServiceProvider).updateMessage(fixed);
     }
   }
 
@@ -563,6 +619,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         } else {
           response = '⚠️ No provider connected to this agent.';
         }
+      case '/models':
+        await _showModelsCommandBubble();
+        return;
       case '/compact':
         await _performCompaction();
         return;
@@ -585,7 +644,58 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final botMsg = ChatMessage(role: 'assistant', content: response);
     setState(() => _messages.add(botMsg));
-    if (shouldPersist) _persistMessage(botMsg);
+    if (shouldPersist) await _persistMessage(botMsg);
+    _scrollToEnd();
+  }
+
+  Future<void> _showModelsCommandBubble() async {
+    final agents = ref.read(agentListProvider);
+    final providers = ref.read(providerListProvider).value ?? [];
+    final agent = _activeAgentId == 'default'
+        ? (agents.isNotEmpty ? agents.first : null)
+        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
+    final provider = agent == null
+        ? null
+        : providers.where((p) => p.id == agent.providerId).firstOrNull;
+    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+
+    final ChatMessage botMsg;
+    if (agent == null || provider == null || provider.models.isEmpty) {
+      botMsg = ChatMessage(
+        role: 'assistant',
+        content: isId
+            ? 'Provider atau model untuk agent ini belum tersedia.'
+            : 'No provider or models are available for this agent.',
+      );
+    } else {
+      final selected = provider.effectiveModel(agent.model);
+      botMsg = ChatMessage(
+        role: 'assistant',
+        content: isId
+            ? 'Pilih model yang ingin dipakai agent ini.\n\nModel aktif sekarang: **$selected**'
+            : 'Choose the model this agent should use.\n\nCurrent model: **$selected**',
+        actions: [
+          for (final model in provider.models)
+            ResultAction(
+              label: model == selected ? '$model ✓' : model,
+              icon: provider.visionModels.contains(model)
+                  ? 'visibility_rounded'
+                  : 'memory_rounded',
+              type: 'select_model',
+              target: model,
+              params: {'providerId': provider.id},
+            ),
+        ],
+      );
+    }
+
+    setState(() => _messages.add(botMsg));
+    final persisted = await _persistMessage(botMsg);
+    if (!mounted) return;
+    setState(() {
+      final idx = _messages.indexWhere((m) => identical(m, botMsg));
+      if (idx >= 0) _messages[idx] = persisted;
+    });
     _scrollToEnd();
   }
 
@@ -598,6 +708,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ..writeln('- /context - Show token/context breakdown')
       ..writeln('- /reset - Reset context only')
       ..writeln('- /model - Show current model info')
+      ..writeln('- /models - Choose model for this agent')
       ..writeln('- /compact - Compact context window')
       ..write('- /cron - Show scheduled tasks');
     if (debugMode) {
@@ -1130,7 +1241,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     setState(() {}); // Show loading indicator.
 
     final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(_activeAgentId, beforeId: oldestId, limit: 30);
+    final older = await service.loadOlder(
+      _activeAgentId,
+      beforeId: oldestId,
+      limit: 30,
+    );
 
     if (!mounted) return;
 
@@ -1147,10 +1262,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  Future<void> _persistMessage(ChatMessage message) async {
-    await ref
+  Future<ChatMessage> _persistMessage(ChatMessage message) async {
+    final id = await ref
         .read(chatHistoryServiceProvider)
         .addMessage(_activeAgentId, message);
+    return ChatMessage(
+      id: id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+      actions: message.actions,
+    );
   }
 
   /// True when [a] and [b] fall on the same calendar day (local time).
@@ -1200,9 +1322,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w400,
-                    color: modelIsOverride
-                        ? cs.primary
-                        : cs.onSurfaceVariant,
+                    color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1440,7 +1560,8 @@ class _Bubble extends StatelessWidget {
   });
   final ChatMessage msg;
   final void Function(String action)? onConfirmAction;
-  final void Function(ResultAction action)? onActionTap;
+  final void Function(ResultAction action, ChatMessage sourceMessage)?
+  onActionTap;
   final VoidCallback? onLongPress;
 
   @override
@@ -1623,7 +1744,7 @@ class _Bubble extends StatelessWidget {
                       .map(
                         (a) => _ResultActionButton(
                           action: a,
-                          onTap: () => onActionTap!(a),
+                          onTap: () => onActionTap!(a, msg),
                         ),
                       )
                       .toList(),
@@ -1846,6 +1967,10 @@ class _ResultActionButton extends ConsumerWidget {
         return Icons.open_in_new_rounded;
       case 'schedule_rounded':
         return Icons.schedule_rounded;
+      case 'visibility_rounded':
+        return Icons.visibility_rounded;
+      case 'memory_rounded':
+        return Icons.memory_rounded;
       default:
         return Icons.arrow_forward_rounded;
     }
@@ -2105,6 +2230,7 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/context', 'Show token/context breakdown'),
     _SlashCommand('/reset', 'Reset context only'),
     _SlashCommand('/model', 'Show current model info'),
+    _SlashCommand('/models', 'Choose model for this agent'),
     _SlashCommand('/compact', 'Compact context window'),
     _SlashCommand('/cron', 'Show scheduled tasks'),
   ];
@@ -2131,7 +2257,8 @@ class _ChatInputState extends State<_ChatInput> {
       AttachedFile(path: a.file.path, name: a.name, sizeBytes: a.sizeBytes),
   ];
 
-  void _notifyAttachments() => widget.onAttachmentsChanged(_attachmentsSnapshot);
+  void _notifyAttachments() =>
+      widget.onAttachmentsChanged(_attachmentsSnapshot);
 
   /// Clear all attachments (called by parent after send).
   void clearAttachments() {
@@ -2158,7 +2285,9 @@ class _ChatInputState extends State<_ChatInput> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Max $_maxFiles files allowed. Remove one before adding more.'),
+            content: Text(
+              'Max $_maxFiles files allowed. Remove one before adding more.',
+            ),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -2199,7 +2328,9 @@ class _ChatInputState extends State<_ChatInput> {
         }
         continue;
       }
-      newFiles.add(_AttachedFile(file: File(pf.path!), name: pf.name, sizeBytes: pf.size));
+      newFiles.add(
+        _AttachedFile(file: File(pf.path!), name: pf.name, sizeBytes: pf.size),
+      );
     }
     if (newFiles.isEmpty) return;
 
@@ -2262,13 +2393,17 @@ class _ChatInputState extends State<_ChatInput> {
         if (_showSuggestions)
           Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+            ),
             decoration: BoxDecoration(
               color: extras.card,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: extras.subtleBorder),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
               children: _filtered.map((cmd) {
                 return InkWell(
                   borderRadius: BorderRadius.circular(14),
@@ -2414,46 +2549,56 @@ class _ChatInputState extends State<_ChatInput> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
-              children: List.generate(_attachments.length, (i) {
-                final a = _attachments[i];
+                children: List.generate(_attachments.length, (i) {
+                  final a = _attachments[i];
                   return Padding(
-                  padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: extras.card,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: extras.subtleBorder),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.attach_file_rounded, size: 16, color: cs.primary),
-                        const SizedBox(width: 6),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 200),
-                          child: Text(
-                            a.name,
-                            style: TextStyle(fontSize: 12, color: cs.onSurface),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        GestureDetector(
-                          onTap: () => _removeFile(i),
-                          child: Icon(
-                            Icons.close_rounded,
+                    padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: extras.card,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: extras.subtleBorder),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.attach_file_rounded,
                             size: 16,
-                            color: cs.onSurfaceVariant,
+                            color: cs.primary,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 200),
+                            child: Text(
+                              a.name,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurface,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          GestureDetector(
+                            onTap: () => _removeFile(i),
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              }),
+                  );
+                }),
+              ),
             ),
-          ),
           ),
 
         Padding(
@@ -2470,15 +2615,15 @@ class _ChatInputState extends State<_ChatInput> {
                   decoration: InputDecoration(
                     hintText: widget.s.typeMessage,
                     suffixIcon: _attachments.length < _maxFiles
-                      ? IconButton(
-                          icon: Icon(
-                            Icons.attach_file_rounded,
-                            size: 20,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          onPressed: _pickFile,
-                        )
-                      : null,
+                        ? IconButton(
+                            icon: Icon(
+                              Icons.attach_file_rounded,
+                              size: 20,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            onPressed: _pickFile,
+                          )
+                        : null,
                   ),
                 ),
               ),
@@ -2759,7 +2904,11 @@ class _DrawerUnreadChip extends StatelessWidget {
 
 /// Internal wrapper for a picked file.
 class _AttachedFile {
-  const _AttachedFile({required this.file, required this.name, this.sizeBytes = 0});
+  const _AttachedFile({
+    required this.file,
+    required this.name,
+    this.sizeBytes = 0,
+  });
   final File file;
   final String name;
   final int sizeBytes;
