@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../features/settings/data/app_language_provider.dart';
 import '../theme.dart';
 
 enum MeowDropdownPresentation { sheet, menu }
@@ -55,6 +56,7 @@ class MeowDropdown<T> extends StatelessWidget {
     this.enabled = true,
     this.searchable = true,
     this.dense = false,
+    this.isId = true,
   });
 
   final List<MeowDropdownOption<T>> options;
@@ -74,6 +76,7 @@ class MeowDropdown<T> extends StatelessWidget {
   final bool enabled;
   final bool searchable;
   final bool dense;
+  final bool isId;
 
   MeowDropdownOption<T>? _selectedOption() {
     for (final option in options) {
@@ -88,19 +91,21 @@ class MeowDropdown<T> extends StatelessWidget {
     String? subtitle,
     required List<MeowDropdownOption<T>> options,
     T? selectedValue,
-    String searchHint = 'Search',
-    String emptyText = 'No results',
+    String? searchHint,
+    String? emptyText,
     bool searchable = true,
     bool useRootNavigator = false,
+    bool isId = true,
   }) async {
+    final s = AppStrings(isId ? 'id' : 'en');
     final selection = await _showSheetSelection<T>(
       context,
       title: title,
       subtitle: subtitle,
       options: options,
       selectedValue: selectedValue,
-      searchHint: searchHint,
-      emptyText: emptyText,
+      searchHint: searchHint ?? s.dropdownSearch,
+      emptyText: emptyText ?? s.dropdownNoResults,
       searchable: searchable,
       useRootNavigator: useRootNavigator,
     );
@@ -151,13 +156,14 @@ class MeowDropdown<T> extends StatelessWidget {
 
   Future<void> _showSheetPicker(BuildContext context) async {
     final selected = _selectedOption();
+    final s = AppStrings(isId ? 'id' : 'en');
 
     final picked = await MeowDropdown._showSheetSelection<T>(
       context,
       title: sheetTitle ?? label ?? '',
       subtitle: sheetSubtitle,
-      searchHint: searchHint ?? 'Search',
-      emptyText: emptyText ?? 'No results',
+      searchHint: searchHint ?? s.dropdownSearch,
+      emptyText: emptyText ?? s.dropdownNoResults,
       options: options,
       selectedValue: selected?.value,
       searchable: searchable,

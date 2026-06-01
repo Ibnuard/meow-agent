@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../features/settings/data/app_language_provider.dart';
 import '../theme.dart';
 
 /// Show a generic, reusable destructive confirmation dialog.
@@ -21,19 +22,15 @@ Future<bool> showMeowConfirmDialog(
 }) async {
   final cs = Theme.of(context).colorScheme;
   final extras = Theme.of(context).extension<MeowExtras>()!;
+  final s = AppStrings(isId ? 'id' : 'en');
 
   final accent = destructive ? cs.error : cs.primary;
   final resolvedTitle = title ??
-      (isId
-          ? (destructive ? 'Hapus Item?' : 'Konfirmasi')
-          : (destructive ? 'Delete Item?' : 'Confirm'));
-  final resolvedMessage = message ??
-      (isId
-          ? 'Tindakan ini tidak dapat dibatalkan. Lanjutkan?'
-          : 'This action cannot be undone. Continue?');
+      (destructive ? s.confirmDefaultTitle : s.confirmDefaultConfirm);
+  final resolvedMessage = message ?? s.confirmDefaultBody;
   final resolvedConfirm = confirmLabel ??
-      (isId ? (destructive ? 'Hapus' : 'Lanjutkan') : (destructive ? 'Delete' : 'Continue'));
-  final resolvedCancel = cancelLabel ?? (isId ? 'Batal' : 'Cancel');
+      (destructive ? s.confirmDefaultDelete : s.confirmDefaultContinue);
+  final resolvedCancel = cancelLabel ?? s.cancel;
 
   final result = await showDialog<bool>(
     context: context,

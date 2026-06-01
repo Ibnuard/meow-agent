@@ -106,7 +106,7 @@ class _ClipboardProcessScreenState
         .firstOrNull;
     if (agent == null || provider == null || !provider.isComplete) {
       setState(() {
-        _result = '⚠️ Provider not configured for selected agent.';
+        _result = s.clipboardNoProvider;
         _processing = false;
       });
       return;
@@ -176,9 +176,7 @@ class _ClipboardProcessScreenState
 
     if (agents.isEmpty || _selectedAgentId == null) {
       setState(() {
-        _result =
-            '⚠️ No agent configured. '
-            'Please set up an agent with a provider first.';
+        _result = s.clipboardNoAgentConf;
         _processing = false;
       });
       return;
@@ -187,7 +185,7 @@ class _ClipboardProcessScreenState
     final agent = agents.where((a) => a.id == _selectedAgentId).firstOrNull;
     if (agent == null) {
       setState(() {
-        _result = '⚠️ Selected agent not found.';
+        _result = s.clipboardProcessAgentNotFound;
         _processing = false;
       });
       return;

@@ -714,7 +714,6 @@ class AppStrings {
   String get noteDetailUnpin => isId ? 'Unpin' : 'Unpin';
   String noteDetailCreated(String date) => isId ? 'Dibuat: $date' : 'Created: $date';
   String noteDetailUpdated(String date) => isId ? 'Diperbarui: $date' : 'Updated: $date';
-  String get noteDetailSource => isId ? 'Sumber: ${/*filled at call site*/ ""}' : 'Source: ${/*filled at call site*/ ""}';
   String noteDetailSourceLabel(String source) => isId ? 'Sumber: $source' : 'Source: $source';
   String get noteDetailEmptyContent => isId ? '_Tidak ada konten_' : '_No content_';
 
@@ -738,4 +737,53 @@ class AppStrings {
   String get wdOpenFileManager => isId ? 'Buka di File Manager' : 'Open in File Manager';
   String get wdSaved => isId ? 'Tersimpan' : 'Saved';
   String get wdErrorSaving => isId ? 'Gagal menyimpan: ' : 'Error saving: ';
+
+  // --- Setup ---
+  String get setupNewAgentTitle => isId ? 'New Agent' : 'New Agent';
+  String get setupApiBaseUrlHint => 'https://api.openai.com/v1';
+  String get setupApiKeyHint => 'sk-...';
+  String get setupModelHint => 'gpt-4.1-mini';
+
+  // --- Confirm dialog defaults ---
+  String get confirmDefaultTitle => isId ? 'Hapus Item?' : 'Delete Item?';
+  String get confirmDefaultConfirm => isId ? 'Konfirmasi' : 'Confirm';
+  String get confirmDefaultBody => isId
+      ? 'Tindakan ini tidak dapat dibatalkan. Lanjutkan?'
+      : 'This action cannot be undone. Continue?';
+  String get confirmDefaultDelete => isId ? 'Hapus' : 'Delete';
+  String get confirmDefaultContinue => isId ? 'Lanjutkan' : 'Continue';
+
+  // --- Dropdown defaults ---
+  String get dropdownSearch => isId ? 'Cari' : 'Search';
+  String get dropdownNoResults => isId ? 'Tidak ada hasil' : 'No results';
+
+  // --- Clipboard process ---
+  String get clipboardNoProvider => isId
+      ? '⚠️ Provider tidak dikonfigurasi untuk agen yang dipilih.'
+      : '⚠️ Provider not configured for selected agent.';
+  String get clipboardNoAgentConf => isId
+      ? '⚠️ Tidak ada agen terkonfigurasi. Silakan siapkan agen dengan provider terlebih dahulu.'
+      : '⚠️ No agent configured. Please set up an agent with a provider first.';
+  String get clipboardProcessAgentNotFound => isId
+      ? '⚠️ Agen yang dipilih tidak ditemukan.'
+      : '⚠️ Selected agent not found.';
+
+  // --- Provider list ---
+  String get providerListError => isId ? 'Gagal memuat provider' : 'Failed to load providers';
+
+  // --- Calendar ---
+  String get calendarTitle => isId ? 'Kalender' : 'Calendar';
+  String get calendarNewEvent => isId ? 'Buat Event' : 'New Event';
+
+  // --- Calendar event editor ---
+  String get calendarEventTitleRequired => isId ? 'Judul tidak boleh kosong' : 'Title cannot be empty';
+
+  // --- Home ---
+  String get homeBrandName => 'MEOW AGENT';
+  String get homeModuleSubtitle => isId
+      ? 'Akses cepat untuk agenmu'
+      : 'Quick access for your agent';
+
+  // --- Settings ---
+  String get aboutTitle => isId ? 'Tentang Meow Agent' : 'About Meow Agent';
 }
