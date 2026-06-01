@@ -398,9 +398,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                             (p) => MeowDropdownOption<String>(
                               value: p.id,
                               label: p.nickname,
-                              subtitle: s.isId
-                                  ? '${p.models.length} model'
-                                  : '${p.models.length} models',
+                              subtitle: s.providerModelsCount(p.models.length),
                             ),
                           )
                           .toList(),
@@ -417,7 +415,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                     const SizedBox(height: 14),
                     MeowDropdown<String>(
                       label: s.model,
-                      hint: s.isId ? 'Pilih model' : 'Choose model',
+                      hint: s.chooseModel,
                       sheetTitle: s.model,
                       value: _selectedModelFor(providers),
                       options: _modelOptionsFor(providers),
@@ -610,12 +608,14 @@ class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings(widget.isId ? 'id' : 'en');
     final cs = context.cs;
     final extras = context.extras;
-    final title = widget.isId ? 'Lanjutan' : 'Advanced';
-    final subtitle = widget.isId
-        ? 'Konteks ${widget.contextLengthController.text} token, auto-compact ${widget.autoCompact ? 'aktif' : 'mati'}'
-        : '${widget.contextLengthController.text} token context, auto-compact ${widget.autoCompact ? 'on' : 'off'}';
+    final title = s.advanced;
+    final subtitle = s.advancedSubtitle(
+      widget.contextLengthController.text,
+      widget.autoCompact,
+    );
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -704,12 +704,8 @@ class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
                           Divider(height: 1, color: extras.subtleBorder),
                           const SizedBox(height: 16),
                           _AdvancedLabel(
-                            title: widget.isId
-                                ? 'Konteks Maksimum'
-                                : 'Max Context Length',
-                            subtitle: widget.isId
-                                ? 'Batas token untuk model ini.'
-                                : 'Token limit for this model.',
+                            title: s.maxContextLength,
+                            subtitle: s.tokenLimitHint,
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
@@ -751,9 +747,7 @@ class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
                             validator: (v) {
                               final n = int.tryParse(v ?? '');
                               if (n == null || n < 512) {
-                                return widget.isId
-                                    ? 'Minimal 512 tokens'
-                                    : 'Minimum 512 tokens';
+                                return s.minTokens;
                               }
                               return null;
                             },
@@ -763,12 +757,8 @@ class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
                             children: [
                               Expanded(
                                 child: _AdvancedLabel(
-                                  title: widget.isId
-                                      ? 'Auto-Compact Konteks'
-                                      : 'Auto-Compact Context',
-                                  subtitle: widget.isId
-                                      ? 'Ringkas pesan lama saat konteks hampir penuh.'
-                                      : 'Summarize older messages near the limit.',
+                                  title: s.autoCompactContext,
+                                  subtitle: s.autoCompactContextDesc,
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -850,6 +840,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings(widget.isId ? 'id' : 'en');
     final cs = context.cs;
     final extras = context.extras;
     final selectedColor = resolveAgentColor(widget.colorKey);
@@ -898,9 +889,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              widget.isId
-                                  ? 'Personalisasi Agent'
-                                  : 'Personalize Agent',
+                              s.personalizeAgent,
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -910,9 +899,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              widget.isId
-                                  ? 'Pilih ikon dan warna'
-                                  : 'Choose icon and color',
+                              s.chooseIconAndColor,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w400,
@@ -952,7 +939,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
                           // Icon picker.
                           _PickerLabel(
-                            label: widget.isId ? 'Ikon' : 'Icon',
+                            label: s.iconLabel,
                             cs: cs,
                           ),
                           const SizedBox(height: 8),
@@ -1005,7 +992,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
                           // Color picker — no glow; selection ring only.
                           _PickerLabel(
-                            label: widget.isId ? 'Warna' : 'Color',
+                            label: s.colorLabel,
                             cs: cs,
                           ),
                           const SizedBox(height: 8),

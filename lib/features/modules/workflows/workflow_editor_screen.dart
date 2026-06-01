@@ -140,11 +140,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   Future<void> _save() async {
     final isId = Localizations.localeOf(context).languageCode == 'id';
+    final sSave = AppStrings(isId ? 'id' : 'en');
     if (_selectedAgentId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.',
+            sSave.workflowSelectAgentFirst,
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -289,18 +290,16 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (picked != null) setState(() => _time = picked);
   }
 
-  Future<void> _confirmDelete(bool isId) async {
+  Future<void> _confirmDelete(AppStrings s) async {
     if (widget.workflow == null) return;
     final wf = widget.workflow!;
     final confirm = await showMeowConfirmDialog(
       context,
-      isId: isId,
-      title: isId ? 'Hapus Workflow?' : 'Delete Workflow?',
-      message: isId
-          ? 'Workflow "${wf.title}" akan dihapus permanen. Lanjutkan?'
-          : 'Workflow "${wf.title}" will be permanently deleted. Continue?',
-      confirmLabel: isId ? 'Hapus' : 'Delete',
-      cancelLabel: isId ? 'Batal' : 'Cancel',
+      isId: s.isId,
+      title: s.workflowDeleteTitle,
+      message: s.workflowDeleteMessage(wf.title),
+      confirmLabel: s.workflowDelete,
+      cancelLabel: s.workflowCancel,
     );
     if (!confirm) return;
     await WorkflowScheduler.cancel(wf);
@@ -377,6 +376,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
     final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(isId ? 'id' : 'en');
     final agents = ref.watch(agentListProvider);
 
     if (_selectedAgentId == null && agents.isNotEmpty) {
@@ -388,9 +388,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            _isEdit
-                ? (isId ? 'Edit Workflow' : 'Edit Workflow')
-                : (isId ? 'Buat Workflow' : 'New Workflow'),
+            _isEdit ? s.workflowEditTitle : s.workflowNewTitle,
           ),
           actions: [
             if (_isEdit)
@@ -399,8 +397,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   Icons.delete_outline_rounded,
                   color: Colors.redAccent,
                 ),
-                tooltip: isId ? 'Hapus' : 'Delete',
-                onPressed: () => _confirmDelete(isId),
+                tooltip: s.workflowDeleteTooltip,
+                onPressed: () => _confirmDelete(s),
               ),
           ],
         ),
@@ -415,49 +413,49 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (_steps.isEmpty) ...[
-                _sectionLabel(isId ? 'Agent' : 'Agent', cs),
+                _sectionLabel(s.workflowSectionAgent, cs),
                 const SizedBox(height: 8),
-                _buildAgentPicker(agents, isId),
+                _buildAgentPicker(agents, s),
               ] else ...[
-                _multiAgentInfoCard(cs, extras, isId),
+                _multiAgentInfoCard(cs, extras, s),
               ],
               const SizedBox(height: 20),
 
-              _sectionLabel(isId ? 'Judul' : 'Title', cs),
+              _sectionLabel(s.workflowSectionTitle, cs),
               const SizedBox(height: 8),
               _buildInput(
                 _titleCtrl,
-                isId ? 'Nama workflow' : 'Workflow name',
+                s.workflowTitleHint,
                 cs,
                 extras,
               ),
               const SizedBox(height: 20),
 
-              _sectionLabel(isId ? 'Trigger' : 'Trigger', cs),
+              _sectionLabel(s.workflowSectionTrigger, cs),
               const SizedBox(height: 8),
-              _buildTriggerSelector(cs, isId),
+              _buildTriggerSelector(cs, s),
               const SizedBox(height: 16),
 
               if (_triggerType == TriggerType.schedule) ...[
-                _buildTimePicker(cs, extras, isId),
+                _buildTimePicker(cs, extras, s),
                 const SizedBox(height: 12),
                 _buildDaySelector(cs, isId),
               ] else if (_triggerType == TriggerType.interval) ...[
                 _buildIntervalPicker(cs, isId),
               ] else ...[
-                _buildEventTriggerConfig(cs, extras, isId),
+                _buildEventTriggerConfig(cs, extras, s),
               ],
               const SizedBox(height: 24),
 
               // Mode toggle: single prompt vs chained steps.
               Row(
                 children: [
-                  _sectionLabel(isId ? 'Mode' : 'Mode', cs),
+                  _sectionLabel(s.workflowSectionMode, cs),
                   const Spacer(),
                   Text(
                     _steps.isEmpty
-                        ? (isId ? 'Single Prompt' : 'Single Prompt')
-                        : '${_steps.length} ${isId ? "langkah" : "steps"}',
+                        ? s.workflowSinglePrompt
+                        : s.workflowStepsCount(_steps.length),
                     style: TextStyle(
                       fontSize: 11,
                       color: cs.primary,
@@ -479,7 +477,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   cs,
                   extras,
                   maxLines: 4,
-                  isId: isId,
+                  s: s,
                 ),
                 const SizedBox(height: 12),
                 TextButton.icon(
@@ -492,32 +490,32 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   ),
                 ),
               ] else ...[
-                ..._buildStepList(cs, extras, isId, agents),
+                ..._buildStepList(cs, extras, s, agents),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: _addStep,
                   icon: const Icon(Icons.add_rounded, size: 16),
-                  label: Text(isId ? 'Tambah Langkah' : 'Add Step'),
+                  label: Text(s.workflowAddStep),
                 ),
               ],
               const SizedBox(height: 24),
 
               // ─── Variables (moved above Trigger) ───────────────────
-              _buildVariablesSection(cs, extras, isId),
+              _buildVariablesSection(cs, extras, s),
               const SizedBox(height: 24),
 
-              _buildAdvancedSettings(cs, extras, isId),
+              _buildAdvancedSettings(cs, extras, s),
               const SizedBox(height: 20),
 
               _buildToggle(
-                isId ? 'Kirim hasil ke chat' : 'Send result to chat',
+                s.workflowSendToChat,
                 _sendToChat,
                 (v) => setState(() => _sendToChat = v),
                 cs,
               ),
               const SizedBox(height: 14),
               _buildToggleWithDesc(
-                isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions',
+                s.workflowAllowSensitive,
                 isId
                     ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi.'
                     : 'Auto-approve actions that normally require confirmation.',
@@ -540,9 +538,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                     ),
                   ),
                   child: Text(
-                    _isEdit
-                        ? (isId ? 'Simpan' : 'Save')
-                        : (isId ? 'Buat Workflow' : 'Create'),
+                    _isEdit ? s.workflowSave : s.workflowCreate,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -554,7 +550,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return Container(
       decoration: BoxDecoration(
         color: extras.card,
@@ -576,7 +572,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      isId ? 'Pengaturan Lainnya' : 'More settings',
+                      s.workflowMoreSettings,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -585,7 +581,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                     ),
                   ),
                   Text(
-                    '${_notifLabel(_notifStyle, isId)} · ${_priorityLabel(_priority, isId)} · ${_timeoutLabel(_timeoutSeconds)}',
+                    '${_notifLabel(_notifStyle, s)} · ${_priorityLabel(_priority, s)} · ${_timeoutLabel(_timeoutSeconds)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -618,17 +614,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 children: [
                   Divider(color: extras.subtleBorder, height: 1),
                   const SizedBox(height: 14),
-                  _sectionLabel(isId ? 'Notifikasi' : 'Notification', cs),
+                  _sectionLabel(s.workflowNotification, cs),
                   const SizedBox(height: 8),
-                  _buildNotifSelector(cs, isId),
+                  _buildNotifSelector(cs, s),
                   const SizedBox(height: 18),
-                  _sectionLabel(isId ? 'Prioritas' : 'Priority', cs),
+                  _sectionLabel(s.workflowPriority, cs),
                   const SizedBox(height: 8),
-                  _buildPrioritySelector(cs, isId),
+                  _buildPrioritySelector(cs, s),
                   const SizedBox(height: 18),
-                  _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
+                  _sectionLabel(s.workflowTimeout, cs),
                   const SizedBox(height: 8),
-                  _buildTimeoutSelector(cs, isId),
+                  _buildTimeoutSelector(cs, s),
                 ],
               ),
             ),
@@ -650,7 +646,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return '${seconds}s';
   }
 
-  Widget _multiAgentInfoCard(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _multiAgentInfoCard(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -668,7 +664,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isId ? 'Mode multi-agent' : 'Multi-agent mode',
+                  s.workflowMultiAgent,
                   style: TextStyle(
                     fontSize: 12,
                     color: cs.onSurface,
@@ -677,7 +673,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  isId
+                  s.isId
                       ? 'Setiap langkah wajib punya agent. Semua langkah otomatis memakai agent default dulu, lalu bisa diganti per langkah.'
                       : 'Each step requires an agent. Steps use the default agent first, then can be changed per step.',
                   style: TextStyle(
@@ -699,7 +695,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   List<Widget> _buildStepList(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
     List<AgentModel> agents,
   ) {
     return List.generate(_steps.length, (i) {
@@ -737,7 +733,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    isId ? 'Langkah ${i + 1}' : 'Step ${i + 1}',
+                    s.workflowStepLabel(i),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -757,18 +753,18 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            _buildStepAgentPicker(step, i, agents, isId),
+            _buildStepAgentPicker(step, i, agents, s),
             const SizedBox(height: 10),
             _buildVariableAwareInput(
               _stepPromptController(step),
-              isId
+              s.isId
                   ? 'Apa yang harus dilakukan di langkah ini?'
                   : 'What should happen in this step?',
               cs,
               extras,
               maxLines: 4,
               minLines: 3,
-              isId: isId,
+              s: s,
               onChanged: (v) {
                 _updateStep(
                   i,
@@ -787,7 +783,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             // Condition preset dropdown.
             if (i > 0) ...[
               Text(
-                isId
+                s.isId
                     ? 'Kapan langkah ini berjalan?'
                     : 'When does this step run?',
                 style: TextStyle(
@@ -797,13 +793,13 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              _buildConditionDropdown(step, i, cs, extras, isId),
+              _buildConditionDropdown(step, i, cs, extras, s),
               const SizedBox(height: 10),
             ],
             Row(
               children: [
                 Text(
-                  isId ? 'Jika gagal:' : 'On failure:',
+                  s.workflowOnFailure,
                   style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(width: 8),
@@ -839,7 +835,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           ),
                         ),
                         child: Text(
-                          _failureActionLabel(a, isId),
+                          _failureActionLabel(a, s),
                           style: TextStyle(
                             fontSize: 10,
                             color: step.onFailure == a
@@ -864,7 +860,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     WorkflowStep step,
     int index,
     List<AgentModel> agents,
-    bool isId,
+    AppStrings s,
   ) {
     final fallbackAgentId = _selectedAgentId ?? agents.firstOrNull?.id;
     final effectiveAgentId = step.agentId ?? fallbackAgentId;
@@ -890,12 +886,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return MeowDropdown<String>(
       value: effectiveAgentId,
       presentation: MeowDropdownPresentation.sheet,
-      sheetTitle: isId ? 'Pilih agent langkah' : 'Choose step agent',
-      sheetSubtitle: isId
+      sheetTitle: s.workflowChooseStepAgent,
+      sheetSubtitle: s.isId
           ? 'Langkah ini akan dijalankan oleh agent yang dipilih.'
           : 'This step will run using the selected agent.',
-      searchHint: isId ? 'Cari agent...' : 'Search agents...',
-      emptyText: isId ? 'Agent belum tersedia' : 'No agents available',
+      searchHint: s.workflowSearchAgent,
+      emptyText: s.workflowNoAgents,
       searchable: agents.length > 6,
       dense: true,
       options: agents
@@ -903,9 +899,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             (agent) => MeowDropdownOption<String>(
               value: agent.id,
               label: agent.name.trim().isEmpty
-                  ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
+                  ? s.workflowUntitledAgent
                   : agent.name.trim(),
-              subtitle: isId
+              subtitle: s.isId
                   ? 'Agent untuk langkah ini'
                   : 'Agent for this step',
               prefix: MeowAgentIcon(agent: agent),
@@ -930,14 +926,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _failureActionLabel(StepFailureAction a, bool isId) {
+  String _failureActionLabel(StepFailureAction a, AppStrings s) {
     switch (a) {
       case StepFailureAction.stop:
-        return isId ? 'Hentikan' : 'Stop';
+        return s.workflowFailureStop;
       case StepFailureAction.skip:
-        return isId ? 'Lewati' : 'Skip';
+        return s.workflowFailureSkip;
       case StepFailureAction.retry:
-        return isId ? 'Coba lagi' : 'Retry';
+        return s.workflowFailureRetry;
     }
   }
 
@@ -946,9 +942,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     int index,
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
-    final presets = _ConditionPreset.all(isId);
+    final presets = _ConditionPreset.all(s);
     final currentValue = step.condition;
     final selected = presets.firstWhere(
       (p) => p.value == currentValue,
@@ -983,8 +979,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Variables Section ──────────────────────────────────────────────────────
 
-  Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, bool isId) {
-    final langCode = isId ? 'id' : 'en';
+  Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, AppStrings s) {
+    final langCode = s.code;
     final visibleVars = _visibleBuiltIns();
     final previewVars = visibleVars.take(6).toList();
 
@@ -994,15 +990,15 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         Row(
           children: [
             _sectionLabel(
-              isId ? 'Variabel Built-in' : 'Built-in Variables',
+              s.workflowBuiltinVars,
               cs,
             ),
             const Spacer(),
             TextButton.icon(
-              onPressed: () => _showBuiltInVariableSheet(cs, extras, langCode),
+              onPressed: () => _showBuiltInVariableSheet(cs, extras, s),
               icon: const Icon(Icons.auto_awesome_rounded, size: 14),
               label: Text(
-                isId ? 'Lihat Semua' : 'View All',
+                s.workflowViewAll,
                 style: const TextStyle(fontSize: 12),
               ),
             ),
@@ -1010,7 +1006,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          isId
+          s.isId
               ? 'Tap variabel untuk menyisipkan ke prompt. Nilainya otomatis diisi saat workflow berjalan.'
               : 'Tap a variable to insert it. Values are filled automatically when the workflow runs.',
           style: TextStyle(
@@ -1039,7 +1035,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               if (visibleVars.length > previewVars.length) ...[
                 const SizedBox(height: 10),
                 InkWell(
-                  onTap: () => _showBuiltInVariableSheet(cs, extras, langCode),
+                  onTap: () => _showBuiltInVariableSheet(cs, extras, s),
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1052,7 +1048,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          isId
+                          s.isId
                               ? '+${visibleVars.length - previewVars.length} variabel lain'
                               : '+${visibleVars.length - previewVars.length} more variables',
                           style: TextStyle(
@@ -1149,7 +1145,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Future<void> _showBuiltInVariableSheet(
     ColorScheme cs,
     MeowExtras extras,
-    String langCode,
+    AppStrings s,
   ) async {
     final vars = _visibleBuiltIns();
     final grouped = <BuiltInCategory, List<BuiltInVariable>>{};
@@ -1196,7 +1192,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               ),
               const SizedBox(height: 14),
               Text(
-                langCode == 'id' ? 'Variabel Built-in' : 'Built-in Variables',
+                s.workflowBuiltinVars,
                 style: TextStyle(
                   fontSize: 16,
                   color: cs.onSurface,
@@ -1205,7 +1201,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                langCode == 'id'
+                s.isId
                     ? 'Tap untuk menyisipkan ke prompt utama.'
                     : 'Tap to insert into the main prompt.',
                 style: TextStyle(
@@ -1227,7 +1223,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         tilePadding: EdgeInsets.zero,
                         childrenPadding: const EdgeInsets.only(bottom: 8),
                         title: Text(
-                          entry.key.labelFor(langCode),
+                          entry.key.labelFor(s.code),
                           style: TextStyle(
                             fontSize: 13,
                             color: cs.onSurface,
@@ -1235,7 +1231,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           ),
                         ),
                         children: entry.value
-                            .map((v) => _builtInSheetRow(v, cs, langCode))
+                            .map((v) => _builtInSheetRow(v, cs, s.code))
                             .toList(),
                       ),
                     );
@@ -1296,12 +1292,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Trigger Builders ───────────────────────────────────────────────────────
 
-  Widget _buildTriggerSelector(ColorScheme cs, bool isId) {
+  Widget _buildTriggerSelector(ColorScheme cs, AppStrings s) {
     return Wrap(
       spacing: 8,
       children: [
         _chip(
-          isId ? 'Jadwal' : 'Schedule',
+          s.workflowSchedule,
           _triggerType == TriggerType.schedule,
           () => setState(() => _triggerType = TriggerType.schedule),
           cs,
@@ -1313,7 +1309,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           cs,
         ),
         _chip(
-          isId ? 'Event' : 'Event',
+          s.workflowEvent,
           _triggerType == TriggerType.event,
           () => setState(() => _triggerType = TriggerType.event),
           cs,
@@ -1325,30 +1321,30 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Widget _buildEventTriggerConfig(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionLabel(isId ? 'Jenis Event' : 'Event Type', cs),
+        _sectionLabel(s.workflowEventType, cs),
         const SizedBox(height: 8),
         MeowDropdown<EventTriggerKind>(
           value: _eventKind,
           presentation: MeowDropdownPresentation.sheet,
-          sheetTitle: isId ? 'Pilih jenis event' : 'Choose event type',
-          sheetSubtitle: isId
+          sheetTitle: s.workflowChooseEventType,
+          sheetSubtitle: s.isId
               ? 'Workflow akan berjalan otomatis saat event ini terjadi.'
               : 'Workflow runs automatically when this event happens.',
-          searchHint: isId ? 'Cari event...' : 'Search events...',
-          emptyText: isId ? 'Event tidak ditemukan' : 'No events found',
+          searchHint: s.workflowSearchEvent,
+          emptyText: s.workflowNoEvents,
           searchable: true,
           dense: true,
           options: EventTriggerKind.values
               .map(
                 (kind) => MeowDropdownOption<EventTriggerKind>(
                   value: kind,
-                  label: _eventKindLabel(kind, isId),
-                  subtitle: _eventKindSubtitle(kind, isId),
+                  label: _eventKindLabel(kind, s),
+                  subtitle: _eventKindSubtitle(kind, s),
                   searchText: _eventKindSearchText(kind),
                 ),
               )
@@ -1358,16 +1354,16 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         ),
         const SizedBox(height: 12),
         if (_eventKind == EventTriggerKind.notificationKeyword) ...[
-          _sectionLabel(isId ? 'Kata Kunci' : 'Keyword', cs),
+          _sectionLabel(s.workflowKeyword, cs),
           const SizedBox(height: 8),
           _buildInput(
             _keywordCtrl,
-            isId ? 'mis: urgent, meeting' : 'e.g. urgent, meeting',
+            s.workflowKeywordHint,
             cs,
             extras,
           ),
           const SizedBox(height: 10),
-          _notificationTriggerInfoCard(cs, extras, isId),
+          _notificationTriggerInfoCard(cs, extras, s),
         ],
       ],
     );
@@ -1376,7 +1372,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Widget _notificationTriggerInfoCard(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1393,7 +1389,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               Icon(Icons.info_outline_rounded, size: 16, color: cs.primary),
               const SizedBox(width: 8),
               Text(
-                isId ? 'Agar trigger berjalan' : 'Required for this trigger',
+                s.workflowTriggerRequired,
                 style: TextStyle(
                   fontSize: 12,
                   color: cs.onSurface,
@@ -1404,14 +1400,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           ),
           const SizedBox(height: 10),
           _infoBullet(
-            isId
+            s.isId
                 ? 'Pastikan permission akses notifikasi sudah diizinkan.'
                 : 'Make sure notification access permission is allowed.',
             cs,
           ),
           const SizedBox(height: 7),
           _infoBullet(
-            isId
+            s.isId
                 ? 'Pastikan module Notifikasi aktif di halaman Modules.'
                 : 'Make sure the Notification module is enabled in Modules.',
             cs,
@@ -1449,65 +1445,65 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _eventKindLabel(EventTriggerKind k, bool isId) {
+  String _eventKindLabel(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+        return s.isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
       case EventTriggerKind.batteryAbove:
-        return isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
+        return s.isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
       case EventTriggerKind.batteryFull:
-        return isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
+        return s.isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
       case EventTriggerKind.chargingStart:
-        return isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
+        return s.isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
       case EventTriggerKind.chargingStop:
-        return isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
+        return s.isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
       case EventTriggerKind.notificationKeyword:
-        return isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
+        return s.isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
       case EventTriggerKind.appOpened:
-        return isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
+        return s.isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
       case EventTriggerKind.wifiConnected:
-        return isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
+        return s.isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
       case EventTriggerKind.wifiDisconnected:
-        return isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+        return s.isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
     }
   }
 
-  String _eventKindSubtitle(EventTriggerKind k, bool isId) {
+  String _eventKindSubtitle(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return isId
+        return s.isId
             ? 'Jalan saat baterai turun melewati 50%.'
             : 'Runs when battery drops past 50%.';
       case EventTriggerKind.batteryAbove:
-        return isId
+        return s.isId
             ? 'Jalan saat baterai naik melewati 50%.'
             : 'Runs when battery rises past 50%.';
       case EventTriggerKind.batteryFull:
-        return isId
+        return s.isId
             ? 'Jalan saat baterai mencapai 100%.'
             : 'Runs when battery reaches 100%.';
       case EventTriggerKind.chargingStart:
-        return isId
+        return s.isId
             ? 'Jalan saat perangkat mulai di-charge.'
             : 'Runs when device starts charging.';
       case EventTriggerKind.chargingStop:
-        return isId
+        return s.isId
             ? 'Jalan saat perangkat berhenti di-charge.'
             : 'Runs when device stops charging.';
       case EventTriggerKind.notificationKeyword:
-        return isId
+        return s.isId
             ? 'Jalan saat notifikasi mengandung kata kunci.'
             : 'Runs when a notification contains a keyword.';
       case EventTriggerKind.appOpened:
-        return isId
+        return s.isId
             ? 'Jalan saat aplikasi tertentu dibuka.'
             : 'Runs when a specific app is opened.';
       case EventTriggerKind.wifiConnected:
-        return isId
+        return s.isId
             ? 'Jalan saat WiFi tersambung.'
             : 'Runs when WiFi connects.';
       case EventTriggerKind.wifiDisconnected:
-        return isId
+        return s.isId
             ? 'Jalan saat WiFi terputus.'
             : 'Runs when WiFi disconnects.';
     }
@@ -1536,12 +1532,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     }
   }
 
-  Widget _buildPrioritySelector(ColorScheme cs, bool isId) {
+  Widget _buildPrioritySelector(ColorScheme cs, AppStrings s) {
     return Wrap(
       spacing: 8,
       children: WorkflowPriority.values.map((p) {
         return _chip(
-          _priorityLabel(p, isId),
+          _priorityLabel(p, s),
           _priority == p,
           () => setState(() => _priority = p),
           cs,
@@ -1550,20 +1546,20 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _priorityLabel(WorkflowPriority p, bool isId) {
+  String _priorityLabel(WorkflowPriority p, AppStrings s) {
     switch (p) {
       case WorkflowPriority.low:
-        return isId ? 'Rendah' : 'Low';
+        return s.workflowPriorityLow;
       case WorkflowPriority.normal:
         return 'Normal';
       case WorkflowPriority.high:
-        return isId ? 'Tinggi' : 'High';
+        return s.workflowPriorityHigh;
       case WorkflowPriority.critical:
-        return isId ? 'Kritis' : 'Critical';
+        return s.workflowPriorityCritical;
     }
   }
 
-  Widget _buildTimeoutSelector(ColorScheme cs, bool isId) {
+  Widget _buildTimeoutSelector(ColorScheme cs, AppStrings s) {
     final options = [180, 300, 600, 900];
     final labels = ['3m', '5m', '10m', '15m'];
     return Wrap(
@@ -1629,9 +1625,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     int maxLines = 1,
     int? minLines,
     ValueChanged<String>? onChanged,
-    required bool isId,
+    required AppStrings s,
   }) {
-    final langCode = isId ? 'id' : 'en';
+    final langCode = s.code;
 
     return StatefulBuilder(
       builder: (context, localSetState) {
@@ -1709,7 +1705,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isId ? 'Sisipkan variabel' : 'Insert variable',
+                      s.workflowInsertVariable,
                       style: TextStyle(
                         fontSize: 11,
                         color: cs.onSurfaceVariant,
@@ -1864,7 +1860,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAgentPicker(List<AgentModel> agents, bool isId) {
+  Widget _buildAgentPicker(List<AgentModel> agents, AppStrings s) {
     final selectedValue = agents.any((a) => a.id == _selectedAgentId)
         ? _selectedAgentId
         : null;
@@ -1873,17 +1869,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       value: selectedValue,
       enabled: agents.isNotEmpty,
       hint: agents.isEmpty
-          ? (isId ? 'Belum ada agen' : 'No agents yet')
-          : (isId ? 'Pilih agen' : 'Choose agent'),
-      sheetTitle: isId ? 'Pilih Agen' : 'Choose Agent',
-      searchHint: isId ? 'Cari agen' : 'Search agents',
-      emptyText: isId ? 'Agen tidak ditemukan' : 'No agents found',
+          ? s.workflowNoAgentsYet
+          : s.workflowChooseAgent,
+      sheetTitle: s.workflowChooseAgentTitle,
+      searchHint: s.workflowSearchAgentsLong,
+      emptyText: s.workflowNoAgentsFound,
       options: agents
           .map(
             (agent) => MeowDropdownOption<String>(
               value: agent.id,
               label: agent.name.trim().isEmpty
-                  ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
+                  ? s.workflowUntitledAgent
                   : agent.name.trim(),
               prefix: MeowAgentIcon(agent: agent),
               searchText: '${agent.providerId} ${agent.maxContextLength}',
@@ -1897,7 +1893,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildTimePicker(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildTimePicker(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return GestureDetector(
       onTap: _pickTime,
       child: Container(
@@ -1917,7 +1913,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             ),
             const Spacer(),
             Text(
-              isId ? 'Ubah' : 'Change',
+              s.workflowChange,
               style: TextStyle(fontSize: 12, color: cs.primary),
             ),
           ],
@@ -2011,10 +2007,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _notifLabel(NotifStyle style, bool isId) {
+  String _notifLabel(NotifStyle style, AppStrings s) {
     switch (style) {
       case NotifStyle.silent:
-        return isId ? 'Senyap' : 'Silent';
+        return s.workflowSilent;
       case NotifStyle.normal:
         return 'Normal';
       case NotifStyle.alarm:
@@ -2022,11 +2018,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     }
   }
 
-  Widget _buildNotifSelector(ColorScheme cs, bool isId) {
+  Widget _buildNotifSelector(ColorScheme cs, AppStrings s) {
     return Row(
       children: [
         _chip(
-          isId ? 'Senyap' : 'Silent',
+          s.workflowSilent,
           _notifStyle == NotifStyle.silent,
           () => setState(() => _notifStyle = NotifStyle.silent),
           cs,
@@ -2154,44 +2150,44 @@ class _ConditionPreset {
   final String label;
   final String? value;
 
-  static List<_ConditionPreset> all(bool isId) {
+  static List<_ConditionPreset> all(AppStrings s) {
     return [
       _ConditionPreset(
-        label: isId ? 'Selalu jalan' : 'Always run',
+        label: s.workflowAlwaysRun,
         value: null,
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? 'Hanya jika langkah sebelumnya berhasil'
             : 'Only if previous step succeeded',
         value: 'prev.isNotEmpty',
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? 'Hanya jika langkah sebelumnya kosong'
             : 'Only if previous step is empty',
         value: 'prev.isEmpty',
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? 'Jika hasil sebelumnya pendek (< 50 karakter)'
             : 'If previous result is short (< 50 chars)',
         value: 'prev.length < 50',
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? 'Jika hasil sebelumnya panjang (> 200 karakter)'
             : 'If previous result is long (> 200 chars)',
         value: 'prev.length > 200',
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? "Jika hasil mengandung 'sukses'"
             : "If result contains 'success'",
         value: "prev.contains('sukses')",
       ),
       _ConditionPreset(
-        label: isId
+        label: s.isId
             ? "Jika hasil mengandung 'error'"
             : "If result contains 'error'",
         value: "prev.contains('error')",

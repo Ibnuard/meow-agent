@@ -568,9 +568,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         setState(() {});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Chat history and context cleared.'),
-              duration: Duration(seconds: 2),
+            SnackBar(
+              content: Text(s.chatHistoryCleared),
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -581,9 +581,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         // Soft reset: clear context measurement so the next message is a fresh
         // slate, but keep the visible chat history intact.
         OpenAiCompatibleClient.clearUsageRecords();
-        response =
-            '✓ Context reset — usage counters cleared. '
-            'AI will treat next message as a fresh session.';
+        response = s.contextReset;
       case '/model':
         final agents = ref.read(agentListProvider);
         final providers = ref.read(providerListProvider).value ?? [];
@@ -603,7 +601,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               '• Provider: ${provider.nickname}$modelInfo\n'
               '• Endpoint: ${provider.baseUrl}';
         } else {
-          response = '⚠️ No provider connected to this agent.';
+          response = s.noProviderConnected;
         }
       case '/set-model':
         await _showModelsCommandBubble();
@@ -616,16 +614,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       case '/context':
         response = await _buildContextReport();
       case '/cron':
-        response =
-            '📋 Scheduled Tasks (HEARTBEAT.md):\n'
-            'No active cron jobs configured.\n'
-            'Edit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
+        response = s.cronNoJobs;
       case '/log':
         response = await _buildRuntimeLogReport();
       case '/clearlog':
         response = await _clearRuntimeLog();
       default:
-        response = 'Unknown command: $cmd\nType /help for available commands.';
+        response = s.unknownCommand(cmd);
     }
 
     final botMsg = ChatMessage(role: 'assistant', content: response);
@@ -680,37 +675,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToEnd();
   }
 
-  String _buildCommandHelp(bool debugMode) {
+String _buildCommandHelp(bool debugMode) {
     final buffer = StringBuffer()
-      ..writeln('Available commands:')
-      ..writeln('- /clear - Clear chat history & context')
-      ..writeln('- /help - Show this list')
-      ..writeln('- /status - Show agent & context info')
-      ..writeln('- /context - Show token/context breakdown')
-      ..writeln('- /reset - Reset context only')
-..writeln('- /model - Show current model info')
-       ..writeln('- /set-model - Choose model for this agent')
-      ..writeln('- /compact - Compact context window')
-      ..write('- /cron - Show scheduled tasks');
+      ..writeln(s.helpAvailableCommands)
+      ..writeln('- /clear - ${s.helpSlashClear}')
+      ..writeln('- /help - ${s.helpSlashHelp}')
+      ..writeln('- /status - ${s.helpSlashStatus}')
+      ..writeln('- /context - ${s.helpSlashContext}')
+      ..writeln('- /reset - ${s.helpSlashReset}')
+      ..writeln('- /model - ${s.helpSlashModel}')
+      ..writeln('- /set-model - ${s.helpSlashSetModel}')
+      ..writeln('- /compact - ${s.helpSlashCompact}')
+      ..write('- /cron - ${s.helpSlashCron}');
     if (debugMode) {
       buffer
         ..writeln()
-        ..writeln('- /log - Show the last runtime debug log')
-        ..write('- /clearlog - Clear the last runtime debug log');
+        ..writeln('- /log - ${s.helpSlashLog}')
+        ..write('- /clearlog - ${s.helpSlashClearlog}');
     }
     return buffer.toString();
   }
 
   Future<String> _buildRuntimeLogReport() async {
     if (!ref.read(llmDebugModeProvider)) {
-      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /log.';
+      return s.debugOffForLog;
     }
 
     final events = await ref
         .read(chatRuntimeLogServiceProvider)
         .loadLast(_activeAgentId);
     if (events.isEmpty) {
-      return 'No runtime log recorded for the last command.';
+      return s.noRuntimeLog;
     }
 
     String? userMessage;
@@ -723,7 +718,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     }
 
-    final buffer = StringBuffer('Runtime log (last command)');
+    final buffer = StringBuffer(s.runtimeLogHeader);
     if (userMessage != null && userMessage.trim().isNotEmpty) {
       buffer
         ..writeln()
@@ -733,7 +728,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (stepEvents.isEmpty) {
       buffer
         ..writeln()
-        ..write('No runtime steps have been recorded yet.');
+        ..write(s.noRuntimeSteps);
       return buffer.toString();
     }
 
@@ -755,11 +750,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<String> _clearRuntimeLog() async {
     if (!ref.read(llmDebugModeProvider)) {
-      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /clearlog.';
+      return s.debugOffForClearlog;
     }
 
     await ref.read(chatRuntimeLogServiceProvider).clear(_activeAgentId);
-    return 'Runtime debug log cleared.';
+    return s.runtimeLogCleared;
   }
 
   String _formatRuntimeLogLine(ChatRuntimeLogEvent event) {
@@ -830,7 +825,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? (agents.isNotEmpty ? agents.first : null)
         : agents.where((a) => a.id == _activeAgentId).firstOrNull;
     if (agent == null) {
-      return 'No active agent.';
+      return s.noActiveAgent;
     }
 
     final languagePref = ref.read(appLanguageProvider);
@@ -870,48 +865,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? s.usageMeasured(pct, maxCtx, usage.chatTokens)
         : s.usageEstimated(usage.chatTokens, pct, maxCtx);
 
-    final buf = StringBuffer();
-    if (s.isId) {
-      buf
-        ..writeln('📊 Status Agen — ${agent?.name ?? "default"}')
-        ..writeln()
-        ..writeln(
-          'Agent terhubung ke provider ${provider?.nickname ?? "—"} '
-          'dengan model ${provider?.model ?? "—"}.',
-        )
-        ..writeln()
-        ..writeln('Detail:')
-        ..writeln()
-        ..writeln('- Aplikasi: Meow Agent v1.0.0')
-        ..writeln('- Agen aktif: ${agent?.name ?? "default"}')
-        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
-        ..writeln('- Model: ${provider?.model ?? "—"}')
-        ..writeln('- Pesan tersimpan: ${_messages.length}')
-        ..writeln()
-        ..writeln(usageLine)
-        ..writeln()
-        ..writeln(compactNote);
-    } else {
-      buf
-        ..writeln('📊 Agent Status — ${agent?.name ?? "default"}')
-        ..writeln()
-        ..writeln(
-          'Connected to provider ${provider?.nickname ?? "—"} '
-          'using model ${provider?.model ?? "—"}.',
-        )
-        ..writeln()
-        ..writeln('Details:')
-        ..writeln()
-        ..writeln('- App: Meow Agent v1.0.0')
-        ..writeln('- Active agent: ${agent?.name ?? "default"}')
-        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
-        ..writeln('- Model: ${provider?.model ?? "—"}')
-        ..writeln('- Stored messages: ${_messages.length}')
-        ..writeln()
-        ..writeln(usageLine)
-        ..writeln()
-        ..writeln(compactNote);
-    }
+    final agentName = agent?.name ?? 'default';
+    final providerName = provider?.nickname ?? '—';
+    final providerModel = provider?.model ?? '—';
+
+    final buf = StringBuffer()
+      ..writeln(s.statusAgentTitle(agentName))
+      ..writeln()
+      ..writeln(s.statusConnected(providerName, providerModel))
+      ..writeln()
+      ..writeln(s.statusDetails)
+      ..writeln()
+      ..writeln('- ${s.statusApp}')
+      ..writeln('- ${s.statusActiveAgent(agentName)}')
+      ..writeln('- ${s.statusProvider(providerName)}')
+      ..writeln('- ${s.statusModel(providerModel)}')
+      ..writeln('- ${s.statusMessages(_messages.length)}')
+      ..writeln()
+      ..writeln(usageLine)
+      ..writeln()
+      ..writeln(compactNote);
 
     return buf.toString().trim();
   }
@@ -922,7 +895,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (provider == null) {
       final msg = ChatMessage(
         role: 'assistant',
-        content: '⚠️ Cannot compact: no provider connected.',
+        content: s.cannotCompact,
       );
       setState(() => _messages.add(msg));
       _persistMessage(msg);
@@ -939,9 +912,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_messages.length <= 8) {
       final msg = ChatMessage(
         role: 'assistant',
-        content:
-            '✓ Context sudah ringkas (${_messages.length} pesan, '
-            '~${ContextCompactor.estimateChatTokens(_messages)} tokens / $maxCtx max).',
+        content: s.contextAlreadyCompact(
+          _messages.length,
+          ContextCompactor.estimateChatTokens(_messages),
+          maxCtx,
+        ),
       );
       setState(() => _messages.add(msg));
       _persistMessage(msg);
@@ -952,7 +927,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Show compacting indicator.
     final loadingMsg = ChatMessage(
       role: 'assistant',
-      content: '⏳ Compacting context...',
+      content: s.compacting,
     );
     setState(() => _messages.add(loadingMsg));
     _scrollToEnd();
@@ -993,9 +968,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
       final doneMsg = ChatMessage(
         role: 'assistant',
-        content:
-            '✓ Context compacted: ${compacted.length} pesan '
-            '(~${ContextCompactor.estimateChatTokens(compacted)} tokens).',
+        content: s.contextCompacted(
+          compacted.length,
+          ContextCompactor.estimateChatTokens(compacted),
+        ),
       );
       setState(() => _messages.add(doneMsg));
       _persistMessage(doneMsg);
@@ -1004,7 +980,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       setState(() => _messages.remove(loadingMsg));
       final errMsg = ChatMessage(
         role: 'assistant',
-        content: '⚠️ Compact failed: $e',
+        content: s.compactFailed(e.toString()),
       );
       setState(() => _messages.add(errMsg));
       _persistMessage(errMsg);
@@ -1033,13 +1009,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (agent?.autoCompact == false) {
       final msg = ChatMessage(
         role: 'assistant',
-        content:
-            'Context exhausted — conversation reached '
-            '${agent!.maxContextLength} token limit.\n'
-            '- Start a **new chat** for a clean slate\n'
-            '- **Increase context length** in agent settings\n'
-            '- **Enable auto-compact** in agent settings to '
-            'automatically summarize old messages',
+        content: s.contextExhausted(agent!.maxContextLength),
       );
       setState(() => _messages.add(msg));
       _persistMessage(msg);
@@ -1077,9 +1047,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Notify user.
       final infoMsg = ChatMessage(
         role: 'assistant',
-        content:
-            '🔄 Context auto-compacted (threshold 80% reached). '
-            '${compacted.length} pesan tersisa.',
+        content: s.autoCompacted(compacted.length),
       );
       setState(() => _messages.add(infoMsg));
       _persistMessage(infoMsg);
@@ -1462,6 +1430,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     final bubble = RepaintBoundary(
                                       child: _Bubble(
                                         msg: current,
+                                        isId: isId,
                                         onConfirmAction: (action) =>
                                             _handleConfirmation(
                                               action,
@@ -1490,6 +1459,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                     return RepaintBoundary(
                                       child: _Bubble(
                                         msg: debugBubbles[debugIdx],
+                                        isId: isId,
                                       ),
                                     );
                                   }
@@ -1540,15 +1510,18 @@ class _Bubble extends StatelessWidget {
     this.onConfirmAction,
     this.onActionTap,
     this.onLongPress,
+    this.isId = false,
   });
   final ChatMessage msg;
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action, ChatMessage sourceMessage)?
   onActionTap;
   final VoidCallback? onLongPress;
+  final bool isId;
 
   @override
   Widget build(BuildContext context) {
+    final s = AppStrings(isId ? 'id' : 'en');
     final cs = context.cs;
     final extras = context.extras;
     final isUser = msg.role == 'user';
@@ -1697,19 +1670,19 @@ class _Bubble extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     _ConfirmButton(
-                      label: 'Accept',
+                      label: s.accept,
                       icon: Icons.check_rounded,
                       color: cs.primary,
                       onTap: () => onConfirmAction!('accept'),
                     ),
                     _ConfirmButton(
-                      label: 'Always',
+                      label: s.always,
                       icon: Icons.done_all_rounded,
                       color: Colors.green,
                       onTap: () => onConfirmAction!('always_accept'),
                     ),
                     _ConfirmButton(
-                      label: 'Reject',
+                      label: s.reject,
                       icon: Icons.close_rounded,
                       color: Colors.redAccent,
                       onTap: () => onConfirmAction!('reject'),
@@ -1808,12 +1781,13 @@ class _DateSeparator extends StatelessWidget {
   }
 
   String _label() {
+    final s = AppStrings(isId ? 'id' : 'en');
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(date.year, date.month, date.day);
     final diff = today.difference(that).inDays;
-    if (diff == 0) return isId ? 'Hari ini' : 'Today';
-    if (diff == 1) return isId ? 'Kemarin' : 'Yesterday';
+    if (diff == 0) return s.today;
+    if (diff == 1) return s.yesterday;
 
     const monthsId = [
       'Jan',
@@ -2206,24 +2180,24 @@ class _ChatInput extends StatefulWidget {
 }
 
 class _ChatInputState extends State<_ChatInput> {
-  static const _baseCommands = [
-    _SlashCommand('/clear', 'Clear chat history & context'),
-    _SlashCommand('/help', 'Show available commands'),
-    _SlashCommand('/status', 'Show agent & context info'),
-    _SlashCommand('/context', 'Show token/context breakdown'),
-    _SlashCommand('/reset', 'Reset context only'),
-    _SlashCommand('/model', 'Show current model info'),
-    _SlashCommand('/set-model', 'Choose model for this agent'),
-    _SlashCommand('/compact', 'Compact context window'),
-    _SlashCommand('/cron', 'Show scheduled tasks'),
+  List<_SlashCommand> get _baseCommands => [
+    _SlashCommand('/clear', widget.s.helpSlashClear),
+    _SlashCommand('/help', widget.s.helpSlashHelp),
+    _SlashCommand('/status', widget.s.helpSlashStatus),
+    _SlashCommand('/context', widget.s.helpSlashContext),
+    _SlashCommand('/reset', widget.s.helpSlashReset),
+    _SlashCommand('/model', widget.s.helpSlashModel),
+    _SlashCommand('/set-model', widget.s.helpSlashSetModel),
+    _SlashCommand('/compact', widget.s.helpSlashCompact),
+    _SlashCommand('/cron', widget.s.helpSlashCron),
   ];
-  static const _debugCommands = [
-    _SlashCommand('/log', 'Show last runtime debug log'),
-    _SlashCommand('/clearlog', 'Clear last runtime debug log'),
+  List<_SlashCommand> get _debugCommands => [
+    _SlashCommand('/log', widget.s.helpSlashLog),
+    _SlashCommand('/clearlog', widget.s.helpSlashClearlog),
   ];
 
   List<_SlashCommand> get _commands => widget.debugMode
-      ? const [..._baseCommands, ..._debugCommands]
+      ? [..._baseCommands, ..._debugCommands]
       : _baseCommands;
 
   List<_SlashCommand> _filtered = [];
@@ -2268,9 +2242,7 @@ class _ChatInputState extends State<_ChatInput> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              'Max $_maxFiles files allowed. Remove one before adding more.',
-            ),
+            content: Text(widget.s.maxFilesExceeded(_maxFiles)),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -2292,7 +2264,7 @@ class _ChatInputState extends State<_ChatInput> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('"${pf.name}" is too large. Max size is 5 MB.'),
+              content: Text(widget.s.fileTooLarge(pf.name)),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -2304,7 +2276,7 @@ class _ChatInputState extends State<_ChatInput> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('"${pf.name}" is already attached.'),
+              content: Text(widget.s.fileAlreadyAttached(pf.name)),
               duration: const Duration(seconds: 2),
             ),
           );
@@ -2461,10 +2433,10 @@ class _ChatInputState extends State<_ChatInput> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(
-                                    widget.replyTo!.role == 'user'
-                                        ? 'You'
-                                        : 'Agent',
+Text(
+                                      widget.replyTo!.role == 'user'
+                                          ? widget.s.you
+                                          : widget.s.agentLabel,
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
@@ -2720,7 +2692,7 @@ class _AgentDrawer extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'No agents yet',
+                            s.noAgentsYet,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,

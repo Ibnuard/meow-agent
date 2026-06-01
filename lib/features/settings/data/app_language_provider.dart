@@ -131,6 +131,141 @@ class AppStrings {
       : 'Short code shown in the chat header.';
   String get codenameTooLong =>
       isId ? 'Maksimal 4 karakter' : 'Max 4 characters';
+  String get modelListLabel =>
+      isId ? 'Model Tersedia' : 'Available Models';
+  String get modelListHint => 'deepseek-v4-flash';
+  String get modelListRequired =>
+      isId ? 'Model wajib diisi' : 'Model is required';
+  String get modelListHelper => isId
+      ? 'Tambahkan model satu per satu. Support vision dicek otomatis lewat API.'
+      : 'Add models one by one. Vision support is checked automatically through the API.';
+
+  // --- Agent manager ---
+  String providerModelsCount(int count) => isId
+      ? '$count model' : '$count models';
+  String get chooseModel => isId ? 'Pilih model' : 'Choose model';
+  String get advanced => isId ? 'Lanjutan' : 'Advanced';
+  String advancedSubtitle(String tokens, bool autoCompact) => isId
+      ? 'Konteks $tokens token, auto-compact ${autoCompact ? 'aktif' : 'mati'}'
+      : '$tokens token context, auto-compact ${autoCompact ? 'on' : 'off'}';
+  String get maxContextLength => isId ? 'Konteks Maksimum' : 'Max Context Length';
+  String get tokenLimitHint => isId
+      ? 'Batas token untuk model ini.'
+      : 'Token limit for this model.';
+  String get minTokens => isId ? 'Minimal 512 tokens' : 'Minimum 512 tokens';
+  String get autoCompactContext => isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
+  String get autoCompactContextDesc => isId
+      ? 'Ringkas pesan lama saat konteks hampir penuh.'
+      : 'Summarize older messages near the limit.';
+  String get personalizeAgent => isId ? 'Personalisasi Agent' : 'Personalize Agent';
+  String get chooseIconAndColor => isId ? 'Pilih ikon dan warna' : 'Choose icon and color';
+  String get iconLabel => isId ? 'Ikon' : 'Icon';
+  String get colorLabel => isId ? 'Warna' : 'Color';
+
+  // --- Workflow editor ---
+  String get workflowSelectAgentFirst =>
+      isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.';
+  String get workflowDeleteTitle =>
+      isId ? 'Hapus Workflow?' : 'Delete Workflow?';
+  String workflowDeleteMessage(String title) => isId
+      ? 'Hapus "$title"?\n\nLangkah dan pengaturan workflow akan dihapus permanen.'
+      : 'Delete "$title"?\n\nWorkflow steps and settings will be permanently removed.';
+  String get workflowDelete => isId ? 'Hapus' : 'Delete';
+  String get workflowCancel => isId ? 'Batal' : 'Cancel';
+  String get workflowEditTitle => isId ? 'Edit Workflow' : 'Edit Workflow';
+  String get workflowNewTitle => isId ? 'Buat Workflow' : 'New Workflow';
+  String get workflowDeleteTooltip => isId ? 'Hapus' : 'Delete';
+  String get workflowSectionAgent => isId ? 'Agent' : 'Agent';
+  String get workflowSectionTitle => isId ? 'Judul' : 'Title';
+  String get workflowSectionTrigger => isId ? 'Trigger' : 'Trigger';
+  String get workflowSectionMode => isId ? 'Mode' : 'Mode';
+  String get workflowTitleHint => isId ? 'Nama workflow' : 'Workflow name';
+  String get workflowSinglePrompt => isId ? 'Single Prompt' : 'Single Prompt';
+  String workflowStepsCount(int count) =>
+      isId ? '$count langkah' : '$count steps';
+  String get workflowAddStep => isId ? 'Tambah Langkah' : 'Add Step';
+  String get workflowSendToChat => isId ? 'Kirim hasil ke chat' : 'Send result to chat';
+  String get workflowAllowSensitive => isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions';
+  String get workflowSave => isId ? 'Simpan' : 'Save';
+  String get workflowCreate => isId ? 'Buat Workflow' : 'Create';
+  String get workflowMoreSettings => isId ? 'Pengaturan Lainnya' : 'More settings';
+  String get workflowNotification => isId ? 'Notifikasi' : 'Notification';
+  String get workflowPriority => isId ? 'Prioritas' : 'Priority';
+  String get workflowTimeout => isId ? 'Timeout' : 'Timeout';
+  String get workflowMultiAgent => isId ? 'Mode multi-agent' : 'Multi-agent mode';
+  String workflowStepLabel(int i) => isId ? 'Langkah ${i + 1}' : 'Step ${i + 1}';
+  String get workflowOnFailure => isId ? 'Jika gagal:' : 'On failure:';
+  String get workflowFailureStop => isId ? 'Hentikan' : 'Stop';
+  String get workflowFailureSkip => isId ? 'Lewati' : 'Skip';
+  String get workflowFailureRetry => isId ? 'Coba lagi' : 'Retry';
+  String get workflowChooseStepAgent => isId ? 'Pilih agent langkah' : 'Choose step agent';
+  String get workflowChooseStepAgentDesc => isId
+      ? 'Agent ini yang akan menjalankan langkah.'
+      : 'This agent will execute the step.';
+  String get workflowSearchAgent => isId ? 'Cari agent...' : 'Search agents...';
+  String get workflowNoAgents => isId ? 'Agent belum tersedia' : 'No agents available';
+  String get workflowUntitledAgent => isId ? 'Agen tanpa nama' : 'Untitled agent';
+  String get workflowBuiltinVars => isId ? 'Variabel Built-in' : 'Built-in Variables';
+  String get workflowViewAll => isId ? 'Lihat Semua' : 'View All';
+  String get workflowInsertVariable => isId ? 'Sisipkan variabel' : 'Insert variable';
+  String get workflowSchedule => isId ? 'Jadwal' : 'Schedule';
+  String get workflowEvent => isId ? 'Event' : 'Event';
+  String get workflowEventType => isId ? 'Jenis Event' : 'Event Type';
+  String get workflowChooseEventType => isId ? 'Pilih jenis event' : 'Choose event type';
+  String get workflowChooseEventTypeDesc => isId
+      ? 'Pilih pemicu event untuk workflow ini.'
+      : 'Choose an event trigger for this workflow.';
+  String get workflowSearchEvent => isId ? 'Cari event...' : 'Search events...';
+  String get workflowNoEvents => isId ? 'Event tidak ditemukan' : 'No events found';
+  String get workflowKeyword => isId ? 'Kata Kunci' : 'Keyword';
+  String get workflowKeywordHint => isId ? 'mis: urgent, meeting' : 'e.g. urgent, meeting';
+  String get workflowTriggerRequired => isId ? 'Agar trigger berjalan' : 'Required for this trigger';
+  String get workflowPriorityLow => isId ? 'Rendah' : 'Low';
+  String get workflowPriorityHigh => isId ? 'Tinggi' : 'High';
+  String get workflowPriorityCritical => isId ? 'Kritis' : 'Critical';
+  String get workflowSilent => isId ? 'Senyap' : 'Silent';
+  String get workflowAlwaysRun => isId ? 'Selalu jalan' : 'Always run';
+  String get workflowChange => isId ? 'Ubah' : 'Change';
+  String get workflowScheduleDesc => isId
+      ? 'Workflow berjalan otomatis sesuai jadwal.'
+      : 'Workflow runs automatically on a schedule.';
+  String get workflowEventDesc => isId
+      ? 'Workflow dipicu oleh event sistem.'
+      : 'Workflow is triggered by system events.';
+  String get workflowSensitiveDesc => isId
+      ? 'Izinkan workflow menjalankan aksi sistem (hapus file, kirim notifikasi, dll).'
+      : 'Allow workflow to perform system actions (delete files, send notifications, etc.).';
+  String get workflowChooseAgent => isId ? 'Pilih agen' : 'Choose agent';
+  String get workflowChooseAgentTitle => isId ? 'Pilih Agen' : 'Choose Agent';
+  String get workflowNoAgentsYet => isId ? 'Belum ada agen' : 'No agents yet';
+  String get workflowSearchAgentsLong => isId ? 'Cari agen' : 'Search agents';
+  String get workflowNoAgentsFound => isId ? 'Agen tidak ditemukan' : 'No agents found';
+
+  // --- Module detail ---
+  String get openLabel => isId ? 'Buka' : 'Open';
+  String get uninstallTooltip => isId ? 'Hapus modul' : 'Uninstall';
+  String get moduleEnabled => isId ? 'Modul Aktif' : 'Module Enabled';
+  String get openNotes => isId ? 'Buka Catatan' : 'Open Notes';
+  String get openCalendar => isId ? 'Buka Kalender' : 'Open Calendar';
+  String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
+  String get featurePermission => isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
+  String get notificationPermissionRequired => isId
+      ? 'Izin notifikasi diperlukan.' : 'Notification permission required.';
+  String get overlayPermissionRequired => isId
+      ? 'Izinkan "Tampil di atas aplikasi lain" untuk menggunakan bubble.'
+      : 'Allow "Display over other apps" to use the bubble.';
+  String get urlIntentsEnabled => isId
+      ? 'URL intents diaktifkan. AI sekarang dapat membuka URL.'
+      : 'URL intents enabled. AI can now open URLs.';
+  String get alarmsPermissionRequired => isId
+      ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
+      : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.';
+  String moduleUninstallDialog(String name) => isId
+      ? 'Hapus $name? Pengaturan dan izin akan dilepas.'
+      : 'Remove $name? Settings and permissions will be detached.';
+  String get moduleEnabledDesc => isId
+      ? 'Nyalakan untuk mengaktifkan modul ini.'
+      : 'Turn on to activate this module.';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';
@@ -346,4 +481,117 @@ class AppStrings {
   String usageEstimated(int tokens, String pct, int max) => isId
       ? 'Belum ada panggilan LLM tercatat. Estimasi histori chat: $tokens token ($pct% dari $max max).'
       : 'No LLM call recorded yet. Chat history estimate: $tokens tokens ($pct% of $max max).';
+
+  // --- Chat slash command responses ---
+  String get chatHistoryCleared =>
+      isId ? 'Riwayat chat dan konteks dibersihkan.' : 'Chat history and context cleared.';
+  String get contextReset => isId
+      ? '✓ Konteks direset — counter penggunaan dihapus. AI akan menganggap pesan berikutnya sebagai sesi baru.'
+      : '✓ Context reset — usage counters cleared. AI will treat next message as a fresh session.';
+  String get noProviderConnected =>
+      isId ? '⚠️ Tidak ada provider terhubung ke agen ini.' : '⚠️ No provider connected to this agent.';
+  String unknownCommand(String cmd) => isId
+      ? 'Perintah tidak dikenal: $cmd\nKetik /help untuk daftar perintah yang tersedia.'
+      : 'Unknown command: $cmd\nType /help for available commands.';
+  String get cronNoJobs => isId
+      ? '📋 Tugas Terjadwal (HEARTBEAT.md):\nTidak ada cron job aktif.\nEdit HEARTBEAT.md di workspace agen untuk menambahkan tugas terjadwal.'
+      : '📋 Scheduled Tasks (HEARTBEAT.md):\nNo active cron jobs configured.\nEdit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
+  String get debugOffForLog => isId
+      ? 'Debug LLM (Dev) mati. Nyalakan di Pengaturan untuk menggunakan /log.'
+      : 'Debug LLM (Dev) is off. Turn it on in Settings to use /log.';
+  String get noRuntimeLog => isId
+      ? 'Tidak ada runtime log untuk perintah terakhir.'
+      : 'No runtime log recorded for the last command.';
+  String get runtimeLogHeader => isId ? 'Runtime log (perintah terakhir)' : 'Runtime log (last command)';
+  String get noRuntimeSteps => isId
+      ? 'Belum ada langkah runtime tercatat.'
+      : 'No runtime steps have been recorded yet.';
+  String get debugOffForClearlog => isId
+      ? 'Debug LLM (Dev) mati. Nyalakan di Pengaturan untuk menggunakan /clearlog.'
+      : 'Debug LLM (Dev) is off. Turn it on in Settings to use /clearlog.';
+  String get runtimeLogCleared => isId
+      ? 'Runtime debug log dibersihkan.'
+      : 'Runtime debug log cleared.';
+
+  // --- Status report (/status) ---
+  String statusAgentTitle(String name) =>
+      isId ? '📊 Status Agen — $name' : '📊 Agent Status — $name';
+  String statusConnected(String provider, String model) => isId
+      ? 'Agent terhubung ke provider $provider dengan model $model.'
+      : 'Connected to provider $provider using model $model.';
+  String get statusDetails => isId ? 'Detail:' : 'Details:';
+  String get statusApp => isId ? 'Aplikasi: Meow Agent v1.0.0' : 'App: Meow Agent v1.0.0';
+  String statusActiveAgent(String name) => isId ? 'Agen aktif: $name' : 'Active agent: $name';
+  String statusProvider(String provider) =>
+      isId ? 'Provider: $provider' : 'Provider: $provider';
+  String statusModel(String model) => isId ? 'Model: $model' : 'Model: $model';
+  String statusMessages(int count) =>
+      isId ? 'Pesan tersimpan: $count' : 'Stored messages: $count';
+  String get noActiveAgent =>
+      isId ? 'Tidak ada agen aktif.' : 'No active agent.';
+
+  // --- Compact ---
+  String get cannotCompact => isId
+      ? '⚠️ Tidak bisa compact: tidak ada provider terhubung.'
+      : '⚠️ Cannot compact: no provider connected.';
+  String contextAlreadyCompact(int count, int tokens, int max) => isId
+      ? '✓ Konteks sudah ringkas ($count pesan, ~$tokens tokens / $max max).'
+      : '✓ Context already compact ($count messages, ~$tokens tokens / $max max).';
+  String get compacting => isId ? '⏳ Mengompresi konteks...' : '⏳ Compacting context...';
+  String contextCompacted(int count, int tokens) => isId
+      ? '✓ Konteks dikompresi: $count pesan (~$tokens tokens).'
+      : '✓ Context compacted: $count messages (~$tokens tokens).';
+  String compactFailed(String error) => isId
+      ? '⚠️ Kompresi gagal: $error'
+      : '⚠️ Compact failed: $error';
+  String contextExhausted(int limit) => isId
+      ? 'Konteks penuh — percakapan mencapai batas $limit token.\n'
+          '- Mulai **chat baru** untuk memulai ulang\n'
+          '- **Tambah panjang konteks** di pengaturan agen\n'
+          '- **Aktifkan auto-compact** di pengaturan agen untuk merangkum otomatis pesan lama'
+      : 'Context exhausted — conversation reached $limit token limit.\n'
+          '- Start a **new chat** for a clean slate\n'
+          '- **Increase context length** in agent settings\n'
+          '- **Enable auto-compact** in agent settings to automatically summarize old messages';
+  String autoCompacted(int count) => isId
+      ? '🔄 Konteks auto-compact (threshold 80% tercapai). $count pesan tersisa.'
+      : '🔄 Context auto-compacted (threshold 80% reached). $count messages remaining.';
+
+  // --- Confirm buttons ---
+  String get accept => isId ? 'Terima' : 'Accept';
+  String get always => isId ? 'Selalu' : 'Always';
+  String get reject => isId ? 'Tolak' : 'Reject';
+
+  // --- Date separator ---
+  String get today => isId ? 'Hari ini' : 'Today';
+  String get yesterday => isId ? 'Kemarin' : 'Yesterday';
+
+  // --- Reply quote ---
+  String get you => isId ? 'Kamu' : 'You';
+  String get agentLabel => isId ? 'Agen' : 'Agent';
+
+  // --- File attachment ---
+  String maxFilesExceeded(int max) => isId
+      ? 'Maks $max file. Hapus satu sebelum menambah.'
+      : 'Max $max files allowed. Remove one before adding more.';
+  String fileTooLarge(String name) => isId
+      ? '"$name" terlalu besar. Maks 5 MB.'
+      : '"$name" is too large. Max size is 5 MB.';
+  String fileAlreadyAttached(String name) => isId
+      ? '"$name" sudah dilampirkan.'
+      : '"$name" is already attached.';
+
+  // --- Help / slash command descriptions ---
+  String get helpAvailableCommands => isId ? 'Perintah tersedia:' : 'Available commands:';
+  String get helpSlashClear => isId ? 'Bersihkan riwayat chat & konteks' : 'Clear chat history & context';
+  String get helpSlashHelp => isId ? 'Tampilkan daftar ini' : 'Show this list';
+  String get helpSlashStatus => isId ? 'Tampilkan info agen & konteks' : 'Show agent & context info';
+  String get helpSlashContext => isId ? 'Tampilkan rincian token/konteks' : 'Show token/context breakdown';
+  String get helpSlashReset => isId ? 'Reset konteks saja' : 'Reset context only';
+  String get helpSlashModel => isId ? 'Tampilkan info model saat ini' : 'Show current model info';
+  String get helpSlashSetModel => isId ? 'Pilih model untuk agen ini' : 'Choose model for this agent';
+  String get helpSlashCompact => isId ? 'Kompresi jendela konteks' : 'Compact context window';
+  String get helpSlashCron => isId ? 'Tampilkan tugas terjadwal' : 'Show scheduled tasks';
+  String get helpSlashLog => isId ? 'Tampilkan runtime debug log terakhir' : 'Show last runtime debug log';
+  String get helpSlashClearlog => isId ? 'Bersihkan runtime debug log terakhir' : 'Clear last runtime debug log';
 }

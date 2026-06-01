@@ -88,9 +88,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           if (!granted) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notification permission required.'),
-                  duration: Duration(seconds: 2),
+                SnackBar(
+                  content: Text(s.notificationPermissionRequired),
+                  duration: const Duration(seconds: 2),
                 ),
               );
             }
@@ -109,9 +109,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           if (!notifGranted) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notification permission required.'),
-                  duration: Duration(seconds: 2),
+                SnackBar(
+                  content: Text(s.notificationPermissionRequired),
+                  duration: const Duration(seconds: 2),
                 ),
               );
             }
@@ -122,11 +122,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           if (!canDraw) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Allow "Display over other apps" to use the bubble.',
-                  ),
-                  duration: Duration(seconds: 3),
+                SnackBar(
+                  content: Text(s.overlayPermissionRequired),
+                  duration: const Duration(seconds: 3),
                 ),
               );
             }
@@ -148,9 +146,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       if (value && key == 'allow_url_intents') {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('URL intents enabled. AI can now open URLs.'),
-              duration: Duration(seconds: 2),
+            SnackBar(
+              content: Text(s.urlIntentsEnabled),
+              duration: const Duration(seconds: 2),
             ),
           );
         }
@@ -361,13 +359,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              s.isId
-                  ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
-                  : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.',
-            ),
+            content: Text(s.alarmsPermissionRequired),
             action: SnackBarAction(
-              label: s.isId ? 'Buka' : 'Open',
+              label: s.openLabel,
               onPressed: _openAlarmSettings,
             ),
           ),
@@ -416,9 +410,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       context,
       isId: s.isId,
       title: s.uninstallModule,
-      message: s.isId
-          ? 'Hapus ${_module?.name ?? 'modul ini'}? Pengaturan dan izin akan dilepas.'
-          : 'Remove ${_module?.name ?? 'this module'}? Settings and permissions will be detached.',
+      message: s.moduleUninstallDialog(_module?.name ?? 'modul ini'),
       confirmLabel: s.uninstall,
       cancelLabel: s.cancel,
     );
@@ -455,7 +447,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         actions: [
           IconButton(
             icon: Icon(Icons.delete_outline_rounded, color: cs.error),
-            tooltip: isId ? 'Hapus modul' : 'Uninstall',
+            tooltip: s.uninstallTooltip,
             onPressed: _uninstall,
           ),
         ],
@@ -532,7 +524,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                isId ? 'Modul Aktif' : 'Module Enabled',
+                s.moduleEnabled,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -540,9 +532,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               ),
               subtitle: Text(
-                isId
-                    ? 'Nyalakan untuk mengaktifkan modul ini.'
-                    : 'Turn on to activate this module.',
+                s.moduleEnabledDesc,
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
               value: module.enabled,
@@ -577,7 +567,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     Icon(Icons.note_outlined, size: 18, color: cs.primary),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Catatan' : 'Open Notes',
+                      s.openNotes,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -619,7 +609,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Kalender' : 'Open Calendar',
+                      s.openCalendar,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -657,7 +647,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     Icon(Icons.schedule_rounded, size: 18, color: cs.primary),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Workflows' : 'Open Workflows',
+                      s.openWorkflows,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -673,7 +663,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
           if (module.enabled) ...[
             Text(
-              isId ? 'Fitur & Izin Agen' : 'Feature & Permission',
+              s.featurePermission,
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,

@@ -501,11 +501,12 @@ class _ModelListEditor extends FormField<List<String>> {
          autovalidateMode: AutovalidateMode.onUserInteraction,
          validator: (_) {
            if (models.isEmpty) {
-             return isId ? 'Model wajib diisi' : 'Model is required';
+             return AppStrings(isId ? 'id' : 'en').modelListRequired;
            }
            return null;
          },
          builder: (state) {
+           final s = AppStrings(isId ? 'id' : 'en');
            final extras = state.context.extras;
            final hasError = state.hasError;
            return Column(
@@ -513,8 +514,8 @@ class _ModelListEditor extends FormField<List<String>> {
              children: [
                MeowInput(
                  controller: controller,
-                 label: isId ? 'Model Tersedia' : 'Available Models',
-                 hint: 'deepseek-v4-flash',
+                 label: s.modelListLabel,
+                 hint: s.modelListHint,
                  textInputAction: TextInputAction.done,
                  onSubmitted: (_) => onAdd(),
                  errorText: hasError ? state.errorText : null,
@@ -556,10 +557,8 @@ class _ModelListEditor extends FormField<List<String>> {
                  ],
                ),
                const SizedBox(height: 8),
-               Text(
-                 isId
-                     ? 'Tambahkan model satu per satu. Support vision dicek otomatis lewat API.'
-                     : 'Add models one by one. Vision support is checked automatically through the API.',
+Text(
+                  s.modelListHelper,
                  style: TextStyle(
                    fontSize: 12,
                    color: extras.subtleText,
