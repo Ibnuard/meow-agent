@@ -99,7 +99,7 @@ class SettingsScreen extends ConsumerWidget {
                     showDialog(
                       context: context,
                       builder: (dialogCtx) => AlertDialog(
-                        title: const Text('Meow Agent'),
+                        title: Text(strings.aboutTitle),
                         content: Text(strings.aboutBody),
                         actions: [
                           TextButton(

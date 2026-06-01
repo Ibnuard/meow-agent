@@ -100,11 +100,11 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isId ? 'Kalender' : 'Calendar'),
+        title: Text(s.calendarTitle),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => context.pop(),
@@ -112,7 +112,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.add_rounded),
-            tooltip: isId ? 'Buat Event' : 'New Event',
+            tooltip: s.calendarNewEvent,
             onPressed: () => _openEditor(initialDate: _selectedDate),
           ),
         ],
@@ -120,7 +120,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
       body: SafeArea(
         child: Localizations.override(
           context: context,
-          locale: Locale(isId ? 'id' : 'en'),
+          locale: Locale(s.isId ? 'id' : 'en'),
           child: SfCalendar(
           controller: _calendarController,
           view: CalendarView.month,

@@ -43,7 +43,7 @@ class ProviderListScreen extends ConsumerWidget {
       body: SafeArea(
         child: providersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) => Center(child: Text('${s.providerListError}: $e')),
           data: (providers) {
             if (providers.isEmpty) {
               return Center(

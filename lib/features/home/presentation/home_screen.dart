@@ -97,7 +97,7 @@ class _LogoHeader extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'MEOW AGENT',
+              s.homeBrandName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -168,9 +168,7 @@ class _ModulesSection extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      s.isId
-                          ? 'Akses cepat untuk agenmu'
-                          : 'Quick access for your agent',
+                      s.homeModuleSubtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../settings/data/app_language_provider.dart';
 import 'calendar_event_model.dart';
 import 'calendar_screen.dart';
 
@@ -108,8 +109,9 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
+      final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Judul tidak boleh kosong')),
+        SnackBar(content: Text(s.calendarEventTitleRequired)),
       );
       return;
     }
