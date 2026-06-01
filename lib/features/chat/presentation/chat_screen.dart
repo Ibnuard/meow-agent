@@ -183,7 +183,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Show long-press action sheet for a chat bubble.
   void _showMessageActions(ChatMessage msg) {
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
@@ -208,7 +207,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             const SizedBox(height: 12),
             ListTile(
               leading: const Icon(Icons.reply_rounded),
-              title: Text(isId ? 'Balas' : 'Reply'),
+              title: Text(s.reply),
               onTap: () {
                 Navigator.pop(ctx);
                 _handleReply(msg);
@@ -216,7 +215,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.copy_rounded),
-              title: Text(isId ? 'Salin teks' : 'Copy text'),
+              title: Text(s.copyText),
               onTap: () {
                 Navigator.pop(ctx);
                 _handleCopy(msg);
@@ -232,11 +231,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _handleCopy(ChatMessage msg) {
     final text = _cleanContent(msg.content);
     Clipboard.setData(ClipboardData(text: text));
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isId ? 'Disalin ke clipboard' : 'Copied to clipboard'),
+          content: Text(s.copiedToClipboard),
           duration: const Duration(seconds: 1),
           behavior: SnackBarBehavior.floating,
         ),
@@ -247,14 +245,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void _handleReply(ChatMessage msg) {
     final clean = _cleanContent(msg.content);
     if (clean.isEmpty) {
-      final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            isId
-                ? 'Tidak bisa membalas pesan kosong.'
-                : 'Cannot reply to an empty message.',
-          ),
+          content: Text(s.cannotReplyEmpty),
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
@@ -514,18 +507,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await ref
         .read(agentListProvider.notifier)
         .save(agent.copyWith(model: model));
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     final fixed = ChatMessage(
       id: sourceMessage?.id,
       role: 'assistant',
       timestamp: sourceMessage?.timestamp,
-      content: isId
-          ? 'Model aktif sudah diperbarui.\n\n'
-                '• Provider: ${provider.nickname}\n'
-                '• Model: $model'
-          : 'Active model updated.\n\n'
-                '• Provider: ${provider.nickname}\n'
-                '• Model: $model',
+      content: s.modelUpdated(provider.nickname, model),
     );
     if (!mounted) return;
     setState(() {
@@ -657,23 +643,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final provider = agent == null
         ? null
         : providers.where((p) => p.id == agent.providerId).firstOrNull;
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
 
     final ChatMessage botMsg;
     if (agent == null || provider == null || provider.models.isEmpty) {
       botMsg = ChatMessage(
         role: 'assistant',
-        content: isId
-            ? 'Provider atau model untuk agent ini belum tersedia.'
-            : 'No provider or models are available for this agent.',
+        content: s.noProviderOrModel,
       );
     } else {
       final selected = provider.effectiveModel(agent.model);
       botMsg = ChatMessage(
         role: 'assistant',
-        content: isId
-            ? 'Pilih model yang ingin dipakai agent ini.\n\nModel aktif sekarang: **$selected**'
-            : 'Choose the model this agent should use.\n\nCurrent model: **$selected**',
+        content: s.chooseModelPrompt(selected),
         actions: [
           for (final model in provider.models)
             ResultAction(
@@ -880,31 +861,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       maxContextLength: maxCtx,
     );
 
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     final pct = usage.percentage.toStringAsFixed(1);
     final compactNote = usage.needsCompact
-        ? (isId
-              ? 'Threshold auto-compact tercapai — pertimbangkan jalankan /compact.'
-              : 'Auto-compact threshold reached — consider running /compact.')
-        : (isId
-              ? 'Auto-compact aman, belum perlu dijalankan.'
-              : 'Auto-compact OK, no action needed.');
+        ? s.autoCompactThresholdNote
+        : s.autoCompactOkNote;
 
     final usageLine = usage.source == 'measured'
-        ? (isId
-              ? 'Pemakaian aktual (puncak ${usage.peakMeasured} token dari LLM call terakhir): '
-                    '$pct% dari $maxCtx max. Histori chat sendiri ~${usage.chatTokens} token.'
-              : 'Actual usage (peak ${usage.peakMeasured} tokens from recent LLM calls): '
-                    '$pct% of $maxCtx max. Chat history alone is ~${usage.chatTokens} tokens.')
-        : (isId
-              ? 'Belum ada panggilan LLM tercatat. Estimasi histori chat: '
-                    '${usage.chatTokens} token ($pct% dari $maxCtx max).'
-              : 'No LLM call recorded yet. Chat history estimate: '
-                    '${usage.chatTokens} tokens ($pct% of $maxCtx max).');
+        ? s.usageMeasured(pct, maxCtx, usage.chatTokens)
+        : s.usageEstimated(usage.chatTokens, pct, maxCtx);
 
     final buf = StringBuffer();
-
-    if (isId) {
+    if (s.isId) {
       buf
         ..writeln('📊 Status Agen — ${agent?.name ?? "default"}')
         ..writeln()

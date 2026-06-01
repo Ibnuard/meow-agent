@@ -305,4 +305,37 @@ class AppStrings {
   String get clipboardActionGrammar =>
       isId ? 'Perbaiki Tata Bahasa' : 'Fix Grammar';
   String get clipboardActionReply => isId ? 'Susun Balasan' : 'Draft Reply';
+
+  // Chat action strings (moved from inline isId checks)
+  String get reply => isId ? 'Balas' : 'Reply';
+  String get copyText => isId ? 'Salin teks' : 'Copy text';
+  String get cannotReplyEmpty =>
+      isId ? 'Tidak bisa membalas pesan kosong.' : 'Cannot reply to an empty message.';
+
+  String modelUpdated(String provider, String model) => isId
+      ? 'Model aktif sudah diperbarui.\n\n• Provider: $provider\n• Model: $model'
+      : 'Active model updated.\n\n• Provider: $provider\n• Model: $model';
+
+  String get noProviderOrModel => isId
+      ? 'Provider atau model untuk agent ini belum tersedia.'
+      : 'No provider or models are available for this agent.';
+
+  String chooseModelPrompt(String selected) => isId
+      ? 'Pilih model yang ingin dipakai agent ini.\n\nModel aktif sekarang: **$selected**'
+      : 'Choose the model this agent should use.\n\nCurrent model: **$selected**';
+
+  String get autoCompactThresholdNote => isId
+      ? 'Threshold auto-compact tercapai — pertimbangkan jalankan /compact.'
+      : 'Auto-compact threshold reached — consider running /compact.';
+  String get autoCompactOkNote => isId
+      ? 'Auto-compact aman, belum perlu dijalankan.'
+      : 'Auto-compact OK, no action needed.';
+
+  String usageMeasured(String pct, int max, int tokens) => isId
+      ? 'Pemakaian aktual (puncak token dari LLM call terakhir): $pct% dari $max max. Histori chat sendiri ~$tokens token.'
+      : 'Actual usage (peak tokens from recent LLM calls): $pct% of $max max. Chat history alone is ~$tokens tokens.';
+
+  String usageEstimated(int tokens, String pct, int max) => isId
+      ? 'Belum ada panggilan LLM tercatat. Estimasi histori chat: $tokens token ($pct% dari $max max).'
+      : 'No LLM call recorded yet. Chat history estimate: $tokens tokens ($pct% of $max max).';
 }
