@@ -594,4 +594,148 @@ class AppStrings {
   String get helpSlashCron => isId ? 'Tampilkan tugas terjadwal' : 'Show scheduled tasks';
   String get helpSlashLog => isId ? 'Tampilkan runtime debug log terakhir' : 'Show last runtime debug log';
   String get helpSlashClearlog => isId ? 'Bersihkan runtime debug log terakhir' : 'Clear last runtime debug log';
+
+  // --- Activity ---
+  String activityForAgent(String name) => isId ? 'untuk agent $name' : 'for agent $name';
+  String get activityFromAll => isId ? 'dari semua agent' : 'from all agents';
+  String get activityClearTitle => isId ? 'Bersihkan Aktivitas?' : 'Clear Activity?';
+  String activityClearBody(String scopeLabel) => isId
+      ? 'Semua riwayat eksekusi $scopeLabel akan dihapus permanen. Lanjutkan?'
+      : 'All execution history $scopeLabel will be permanently deleted. Continue?';
+  String get activityClear => isId ? 'Bersihkan' : 'Clear';
+  String activityCleared(int removed) => isId
+      ? '$removed riwayat dibersihkan' : '$removed entries cleared';
+  String get activityOptions => isId ? 'Opsi' : 'Options';
+  String get activityClearAll => isId ? 'Bersihkan Semua' : 'Clear All';
+  String get activityAllAgents => isId ? 'Semua Agent' : 'All Agents';
+  String get activityEmptyDesc => isId
+      ? 'Riwayat eksekusi workflow akan muncul di sini'
+      : 'Workflow execution history will appear here';
+  String get activitySuccess => isId ? 'Berhasil' : 'Success';
+  String get activityFailed => isId ? 'Gagal' : 'Failed';
+  String get activityRetry => isId ? 'Coba Lagi' : 'Retry';
+
+  // --- Workflow list ---
+  String get wfListDeleteTitle => isId ? 'Hapus Workflow?' : 'Delete Workflows?';
+  String wfListDeleteMessage(int count) => isId
+      ? '$count workflow akan dihapus permanen. Lanjutkan?'
+      : '$count workflows will be permanently deleted. Continue?';
+  String get wfListTemplates => isId ? 'Template' : 'Templates';
+  String get wfListSelect => isId ? 'Pilih' : 'Select';
+  String wfListSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
+  String get wfListDeselectAll => isId ? 'Batal pilih semua' : 'Deselect all';
+  String get wfListSelectAll => isId ? 'Pilih semua' : 'Select all';
+  String get wfListEmpty => isId ? 'Belum ada workflow' : 'No workflows yet';
+  String get wfListEmptyDesc => isId
+      ? 'Buat workflow untuk menjalankan tugas otomatis'
+      : 'Create workflows to run automated tasks';
+  String get wfListPickTemplate => isId ? 'Pilih dari Template' : 'Pick a Template';
+  String get wfListLastRun => isId ? 'Terakhir:' : 'Last run:';
+  String get wfListAlarm => isId ? 'Alarm' : 'Alarm';
+  String get wfListNormal => isId ? 'Normal' : 'Normal';
+
+  // --- Workflow log detail ---
+  String get wfLogDetailTitle => isId ? 'Detail Log' : 'Log Detail';
+  String get wfLogSuccess => isId ? 'Berhasil dijalankan' : 'Successfully executed';
+  String get wfLogFailed => isId ? 'Gagal dijalankan' : 'Execution failed';
+  String get wfLogInformation => isId ? 'Informasi' : 'Information';
+  String get wfLogExecutedAt => isId ? 'Waktu Eksekusi' : 'Executed At';
+  String get wfLogDuration => isId ? 'Durasi' : 'Duration';
+  String get wfLogOpenWorkflow => isId ? 'Buka Workflow' : 'Open Workflow';
+  String get wfLogCollapse => isId ? 'Sembunyikan' : 'Collapse';
+  String get wfLogShowMore => isId ? 'Lihat selengkapnya' : 'Show more';
+  String get wfLogNoRuntimeDetails => isId ? 'Tidak ada detail runtime.' : 'No runtime details.';
+  String get wfLogDeleted => isId ? 'Workflow sudah dihapus.' : 'Workflow has been deleted.';
+  String get wfLogProcessLabel => isId ? 'PROSES' : 'PROCESS';
+  String get wfLogStepLabel => isId ? 'LANGKAH' : 'STEP';
+  String get wfLogHandoffLabel => isId ? 'DATA MASUK' : 'HANDOFF';
+  String get wfLogSkippedLabel => isId ? 'DILEWATI' : 'SKIPPED';
+  String get wfLogRetryLabel => isId ? 'ULANG' : 'RETRY';
+  String get wfLogContinueLabel => isId ? 'LANJUT' : 'CONTINUE';
+  String get wfLogStoppedLabel => isId ? 'BERHENTI' : 'STOPPED';
+  String get wfLogFailedLabel => isId ? 'GAGAL' : 'FAILED';
+  String get wfLogDoneLabel => isId ? 'SELESAI' : 'DONE';
+  String wfLogStartingStep(int num, String name) => isId
+      ? 'Memulai langkah $num: $name'
+      : 'Starting step $num: $name';
+  String wfLogProcessStopped(int num) => isId
+      ? 'Proses berhenti di langkah $num karena gagal.'
+      : 'Process stopped at step $num due to failure.';
+
+  // --- Workflow templates ---
+  String get wfTemplatesTitle => isId ? 'Template Workflow' : 'Workflow Templates';
+  String get wfTemplatesAll => isId ? 'Semua' : 'All';
+  String get wfTemplatesProductivity => isId ? 'Produktivitas' : 'Productivity';
+  String get wfTemplatesCommunication => isId ? 'Komunikasi' : 'Communication';
+  String get wfTemplatesAutomation => isId ? 'Otomatisasi' : 'Automation';
+  String get wfTemplatesHealth => isId ? 'Kesehatan' : 'Health';
+
+  // --- Notes list ---
+  String get notesExportNoAgent => isId ? 'Tidak ada agent tersedia untuk ekspor.' : 'No agent available for export.';
+  String notesExportedCount(int count, String agentName) => isId
+      ? '$count note diekspor ke Documents/MeowAgent/Agents/$agentName/notes/'
+      : '$count notes exported to Documents/MeowAgent/Agents/$agentName/notes/';
+  String get notesExportTitle => isId ? 'Pilih workspace agent' : 'Choose agent workspace';
+  String get notesTitle => isId ? 'Notes' : 'Notes';
+  String notesSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
+  String get notesExportToWorkspace => isId ? 'Export ke workspace' : 'Export to workspace';
+  String get notesSelectMultiple => isId ? 'Pilih beberapa' : 'Select multiple';
+  String get notesNewNote => isId ? 'Buat Note' : 'New Note';
+  String get notesSearch => isId ? 'Cari note...' : 'Search notes...';
+  String get notesSelectHint => isId ? 'Pilih note untuk diekspor atau dihapus.' : 'Select notes to export or delete.';
+  String get notesNoResults => isId ? 'Tidak ada hasil' : 'No results';
+  String get notesEmpty => isId ? 'Belum ada note' : 'No notes yet';
+  String get notesEmptyTryKeyword => isId ? 'Coba kata kunci lain.' : 'Try a different keyword.';
+  String get notesEmptyCreateFirst => isId
+      ? 'Buat note pertamamu atau minta agen mencatat sesuatu.'
+      : 'Create your first note or ask your agent to jot something down.';
+  String get notesDeleteTitle => isId ? 'Hapus Note?' : 'Delete Notes?';
+  String notesDeleteMessage(int count) => isId
+      ? '$count note akan dihapus permanen. Lanjutkan?'
+      : '$count notes will be permanently deleted. Continue?';
+  String notesDeletedCount(int count) => isId
+      ? '$count note dihapus' : '$count notes deleted';
+
+  // --- Note editor ---
+  String get noteEditorTitleRequired => isId ? 'Judul wajib diisi' : 'Title is required';
+  String get noteEditorEditTitle => isId ? 'Edit Note' : 'Edit Note';
+  String get noteEditorNewTitle => isId ? 'Note Baru' : 'New Note';
+  String get noteEditorTitleHint => isId ? 'Judul note' : 'Note title';
+  String get noteEditorTagsHint => isId ? 'Tag (pisahkan dengan koma)' : 'Tags (comma separated)';
+  String get noteEditorContentHint => isId ? 'Tulis konten markdown di sini...' : 'Write markdown content here...';
+
+  // --- Note detail ---
+  String get noteDetailDeleteTitle => isId ? 'Hapus Note?' : 'Delete Note?';
+  String get noteDetailDeleteMessage => isId
+      ? 'Note ini akan dihapus permanen. Lanjutkan?'
+      : 'This note will be permanently deleted. Continue?';
+  String get noteDetailNotFound => isId ? 'Note tidak ditemukan' : 'Note not found';
+  String get noteDetailPin => isId ? 'Pin' : 'Pin';
+  String get noteDetailUnpin => isId ? 'Unpin' : 'Unpin';
+  String noteDetailCreated(String date) => isId ? 'Dibuat: $date' : 'Created: $date';
+  String noteDetailUpdated(String date) => isId ? 'Diperbarui: $date' : 'Updated: $date';
+  String get noteDetailSource => isId ? 'Sumber: ${/*filled at call site*/ ""}' : 'Source: ${/*filled at call site*/ ""}';
+  String noteDetailSourceLabel(String source) => isId ? 'Sumber: $source' : 'Source: $source';
+  String get noteDetailEmptyContent => isId ? '_Tidak ada konten_' : '_No content_';
+
+  // --- Workspace directory ---
+  String get wdSkillsDesc => isId
+      ? 'Tools dan modul yang bisa digunakan agen ini'
+      : 'Tools and modules this agent can use';
+  String get wdSoulDesc => isId
+      ? 'Kepribadian, system prompt, dan mode keamanan'
+      : 'Personality, system prompt, and safety mode';
+  String get wdHeartbeatDesc => isId
+      ? 'Tugas terjadwal dan pemicu event'
+      : 'Scheduled tasks and event triggers';
+  String get wdMemoryDesc => isId
+      ? 'Memori persisten antar sesi'
+      : 'Persistent memory across sessions';
+  String get wdDefaultFileDesc => isId ? 'File workspace' : 'Workspace file';
+  String get wdCannotOpenFileManager => isId
+      ? 'Tidak bisa membuka file manager.'
+      : 'Could not open file manager.';
+  String get wdOpenFileManager => isId ? 'Buka di File Manager' : 'Open in File Manager';
+  String get wdSaved => isId ? 'Tersimpan' : 'Saved';
+  String get wdErrorSaving => isId ? 'Gagal menyimpan: ' : 'Error saving: ';
 }

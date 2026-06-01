@@ -87,11 +87,16 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
   Future<void> _exportSelected() async {
     if (_selectedIds.isEmpty) return;
 
+    final langPref = ref.read(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
+
     final agents = ref.read(agentListProvider);
     if (agents.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No agent available for export.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.notesExportNoAgent)),
+        );
+      }
       return;
     }
 
@@ -100,7 +105,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
     if (agents.length == 1) {
       agentName = agents.first.name;
     } else {
-      agentName = await _pickAgent(agents.map((a) => a.name).toList());
+      agentName = await _pickAgent(agents.map((a) => a.name).toList(), s);
       if (agentName == null) return;
     }
 
@@ -125,23 +130,23 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '$exported note diekspor ke Documents/MeowAgent/Agents/$agentName/notes/',
-          ),
+          content: Text(s.notesExportedCount(exported, agentName)),
         ),
       );
     }
   }
 
-  Future<void> _deleteSelected(bool isId) async {
+  Future<void> _deleteSelected() async {
     if (_selectedIds.isEmpty) return;
+
+    final langPref = ref.read(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
+
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
-      title: isId ? 'Hapus Note?' : 'Delete Notes?',
-      message: isId
-          ? '${_selectedIds.length} note akan dihapus permanen. Lanjutkan?'
-          : '${_selectedIds.length} notes will be permanently deleted. Continue?',
+      isId: s.isId,
+      title: s.notesDeleteTitle,
+      message: s.notesDeleteMessage(_selectedIds.length),
     );
     if (!confirmed) return;
 
@@ -158,18 +163,16 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
     ref.invalidate(notesListProvider);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(isId
-            ? '$count note dihapus'
-            : '$count notes deleted'),
+        content: Text(s.notesDeletedCount(count)),
       ),
     );
   }
 
-  Future<String?> _pickAgent(List<String> names) async {
+  Future<String?> _pickAgent(List<String> names, AppStrings s) async {
     return showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Pilih workspace agent'),
+        title: Text(s.notesExportTitle),
         children: names
             .map((n) => SimpleDialogOption(
                   child: Text(n),
@@ -191,8 +194,8 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_selectionMode
-            ? '${_selectedIds.length} dipilih'
-            : 'Notes'),
+            ? s.notesSelectedCount(_selectedIds.length)
+            : s.notesTitle),
         leading: _selectionMode
             ? IconButton(
                 icon: const Icon(Icons.close_rounded),
@@ -203,24 +206,24 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
           if (_selectionMode) ...[
             IconButton(
               icon: const Icon(Icons.ios_share_rounded),
-              tooltip: s.isId ? 'Export ke workspace' : 'Export to workspace',
+              tooltip: s.notesExportToWorkspace,
               onPressed: _selectedIds.isEmpty ? null : _exportSelected,
             ),
             IconButton(
               icon: Icon(Icons.delete_outline_rounded, color: cs.error),
-              tooltip: s.isId ? 'Hapus' : 'Delete',
+              tooltip: s.delete,
               onPressed:
-                  _selectedIds.isEmpty ? null : () => _deleteSelected(s.isId),
+                  _selectedIds.isEmpty ? null : _deleteSelected,
             ),
           ] else ...[
             IconButton(
               icon: const Icon(Icons.checklist_rounded),
-              tooltip: s.isId ? 'Pilih beberapa' : 'Select multiple',
+              tooltip: s.notesSelectMultiple,
               onPressed: _toggleSelection,
             ),
             IconButton(
               icon: const Icon(Icons.add_rounded),
-              tooltip: s.isId ? 'Buat Note' : 'New Note',
+              tooltip: s.notesNewNote,
               onPressed: () async {
                 await context.push('/notes/new');
                 ref.invalidate(notesListProvider);
@@ -247,7 +250,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                     onChanged: _search,
                     style: TextStyle(fontSize: 14, color: cs.onSurface),
                     decoration: InputDecoration(
-                      hintText: s.isId ? 'Cari note...' : 'Search notes...',
+                      hintText: s.notesSearch,
                       hintStyle: TextStyle(
                         fontSize: 14,
                         color: cs.onSurfaceVariant,
@@ -257,7 +260,6 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                         size: 20,
                         color: cs.onSurfaceVariant,
                       ),
-                      // Single source of fill+border: the wrapping Container.
                       filled: false,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
@@ -290,9 +292,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        s.isId
-                            ? 'Pilih note untuk diekspor atau dihapus.'
-                            : 'Select notes to export or delete.',
+                        s.notesSelectHint,
                         style: TextStyle(fontSize: 12, color: cs.primary),
                       ),
                     ),
@@ -342,8 +342,8 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
               const SizedBox(height: 12),
               Text(
                 _searchResults != null
-                    ? (s.isId ? 'Tidak ada hasil' : 'No results')
-                    : (s.isId ? 'Belum ada note' : 'No notes yet'),
+                    ? s.notesNoResults
+                    : s.notesEmpty,
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
@@ -353,12 +353,8 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
               const SizedBox(height: 6),
               Text(
                 _searchResults != null
-                    ? (s.isId
-                        ? 'Coba kata kunci lain.'
-                        : 'Try a different keyword.')
-                    : (s.isId
-                        ? 'Buat note pertamamu atau minta agen mencatat sesuatu.'
-                        : 'Create your first note or ask your agent to jot something down.'),
+                    ? s.notesEmptyTryKeyword
+                    : s.notesEmptyCreateFirst,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
               ),

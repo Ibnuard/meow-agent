@@ -36,6 +36,7 @@ class _WorkflowLogDetailScreenState
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
     final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(isId ? 'id' : 'en');
     final agents = ref.watch(agentListProvider);
     final agent = agents.where((a) => a.id == execution.agentId).firstOrNull;
     final isDevMode = ref.watch(llmDebugModeProvider);
@@ -43,7 +44,7 @@ class _WorkflowLogDetailScreenState
     final isSuccess = execution.status == 'success';
 
     return Scaffold(
-      appBar: AppBar(title: Text(isId ? 'Detail Log' : 'Log Detail')),
+      appBar: AppBar(title: Text(s.wfLogDetailTitle)),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(
@@ -95,12 +96,8 @@ class _WorkflowLogDetailScreenState
                           const SizedBox(height: 2),
                           Text(
                             isSuccess
-                                ? (isId
-                                      ? 'Berhasil dijalankan'
-                                      : 'Successfully executed')
-                                : (isId
-                                      ? 'Gagal dijalankan'
-                                      : 'Execution failed'),
+                                ? s.wfLogSuccess
+                                : s.wfLogFailed,
                             style: TextStyle(
                               fontSize: 13,
                               color: isSuccess ? Colors.green : Colors.red,
@@ -115,24 +112,24 @@ class _WorkflowLogDetailScreenState
               const SizedBox(height: 20),
 
               // Metadata section.
-              _sectionLabel(isId ? 'Informasi' : 'Information', cs),
+              _sectionLabel(s.wfLogInformation, cs),
               const SizedBox(height: 10),
               _infoCard(extras, [
                 _infoRow(
                   Icons.smart_toy_outlined,
-                  isId ? 'Agent' : 'Agent',
+                  'Agent',
                   agent?.name ?? execution.agentId,
                   cs,
                 ),
                 _infoRow(
                   Icons.schedule_rounded,
-                  isId ? 'Waktu Eksekusi' : 'Executed At',
+                  s.wfLogExecutedAt,
                   _formatDateTime(execution.executedAt, isId),
                   cs,
                 ),
                 _infoRow(
                   Icons.timer_outlined,
-                  isId ? 'Durasi' : 'Duration',
+                  s.wfLogDuration,
                   _formatDuration(execution.durationMs ?? 0),
                   cs,
                 ),
@@ -143,10 +140,10 @@ class _WorkflowLogDetailScreenState
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _openWorkflow(context, isId),
+                  onPressed: () => _openWorkflow(context, s),
                   icon: const Icon(Icons.edit_note_rounded, size: 20),
                   label: Text(
-                    isId ? 'Buka Workflow' : 'Open Workflow',
+                    s.wfLogOpenWorkflow,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
@@ -163,24 +160,22 @@ class _WorkflowLogDetailScreenState
 
               // Result section — formatted with step separators + expand/collapse.
               _sectionLabel(
-                isSuccess
-                    ? (isId ? 'Hasil' : 'Result')
-                    : (isId ? 'Error' : 'Error'),
+                isSuccess ? s.result : 'Error',
                 cs,
               ),
               const SizedBox(height: 10),
-              _buildResultCard(cs, extras, isId),
+              _buildResultCard(cs, extras, s),
               const SizedBox(height: 24),
 
               // Runtime timeline section.
               if (execution.events.isNotEmpty) ...[
-                _sectionLabel(isId ? 'Runtime' : 'Runtime', cs),
+                _sectionLabel('Runtime', cs),
                 const SizedBox(height: 10),
                 _buildTimelineSection(
                   execution.events,
                   extras,
                   cs,
-                  isId,
+                  s,
                   isDevMode,
                 ),
                 const SizedBox(height: 12),
@@ -196,7 +191,7 @@ class _WorkflowLogDetailScreenState
 
   /// Build a formatted result card that shows step results with separators.
   /// Includes expand/collapse when content is long.
-  Widget _buildResultCard(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildResultCard(ColorScheme cs, MeowExtras extras, AppStrings s) {
     final formattedResult = _formatStepResults();
     final isLong = formattedResult.length > _resultPreviewLength;
     final displayText = (!_resultExpanded && isLong)
@@ -273,8 +268,8 @@ class _WorkflowLogDetailScreenState
                   const SizedBox(width: 4),
                   Text(
                     _resultExpanded
-                        ? (isId ? 'Sembunyikan' : 'Collapse')
-                        : (isId ? 'Lihat selengkapnya' : 'Show more'),
+                        ? s.wfLogCollapse
+                        : s.wfLogShowMore,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -326,7 +321,7 @@ class _WorkflowLogDetailScreenState
     List<WorkflowExecutionEvent> events,
     MeowExtras extras,
     ColorScheme cs,
-    bool isId,
+    AppStrings s,
     bool isDevMode,
   ) {
     final filtered = isDevMode ? events : _filterHumanEvents(events);
@@ -341,7 +336,7 @@ class _WorkflowLogDetailScreenState
           border: Border.all(color: extras.subtleBorder),
         ),
         child: Text(
-          isId ? 'Tidak ada detail runtime.' : 'No runtime details.',
+          s.wfLogNoRuntimeDetails,
           style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
         ),
       );
@@ -363,6 +358,7 @@ class _WorkflowLogDetailScreenState
               i == filtered.length - 1,
               cs,
               extras,
+              s,
               isDevMode,
             ),
         ],
@@ -393,16 +389,17 @@ class _WorkflowLogDetailScreenState
     bool isLast,
     ColorScheme cs,
     MeowExtras extras,
+    AppStrings s,
     bool isDevMode,
   ) {
     final accent = _eventColor(event.type, cs);
     // In non-dev mode, show friendlier labels.
     final label = isDevMode
         ? _eventLabel(event.type)
-        : _friendlyLabel(event.type);
+        : _friendlyLabel(event.type, s);
     final icon = isDevMode ? _eventIcon(event.type) : _friendlyIcon(event.type);
     // In non-dev mode, strip technical prefixes like "[Step 1]".
-    final message = isDevMode ? event.message : _humanizeMessage(event);
+    final message = isDevMode ? event.message : _humanizeMessage(event, s);
 
     return IntrinsicHeight(
       child: Row(
@@ -578,26 +575,26 @@ class _WorkflowLogDetailScreenState
     }
   }
 
-  String _friendlyLabel(String type) {
+  String _friendlyLabel(String type, AppStrings s) {
     switch (type) {
       case 'narrative':
-        return 'PROSES';
+        return s.wfLogProcessLabel;
       case 'step_start':
-        return 'LANGKAH';
+        return s.wfLogStepLabel;
       case 'step_handoff':
-        return 'DATA MASUK';
+        return s.wfLogHandoffLabel;
       case 'step_skipped':
-        return 'DILEWATI';
+        return s.wfLogSkippedLabel;
       case 'step_retry':
-        return 'ULANG';
+        return s.wfLogRetryLabel;
       case 'step_failure_skipped':
-        return 'LANJUT';
+        return s.wfLogContinueLabel;
       case 'chain_stopped':
-        return 'BERHENTI';
+        return s.wfLogStoppedLabel;
       case 'error':
-        return 'GAGAL';
+        return s.wfLogFailedLabel;
       case 'final_response':
-        return 'SELESAI';
+        return s.wfLogDoneLabel;
       default:
         return type.toUpperCase();
     }
@@ -605,7 +602,7 @@ class _WorkflowLogDetailScreenState
 
   /// Make event messages more human-friendly by stripping technical prefixes
   /// and reformatting step references.
-  String _humanizeMessage(WorkflowExecutionEvent event) {
+  String _humanizeMessage(WorkflowExecutionEvent event, AppStrings s) {
     var msg = event.message;
     // Strip "[Step N] " prefix.
     msg = msg.replaceAll(RegExp(r'^\[Step \d+\]\s*'), '');
@@ -614,12 +611,13 @@ class _WorkflowLogDetailScreenState
     // Reformat "Starting step N: id" to friendlier form.
     final startMatch = RegExp(r'^Starting step (\d+): (.+)$').firstMatch(msg);
     if (startMatch != null) {
-      return 'Memulai langkah ${startMatch.group(1)}: ${startMatch.group(2)}';
+      final num = int.parse(startMatch.group(1)!);
+      return s.wfLogStartingStep(num, startMatch.group(2)!);
     }
     // Reformat chain stopped.
     if (msg.contains('Chain stopped at step')) {
       final stepNum = RegExp(r'step (\d+)').firstMatch(msg)?.group(1) ?? '?';
-      return 'Proses berhenti di langkah $stepNum karena gagal.';
+      return s.wfLogProcessStopped(int.parse(stepNum));
     }
     return msg;
   }
@@ -727,16 +725,14 @@ class _WorkflowLogDetailScreenState
     return '${minutes.toStringAsFixed(1)}m';
   }
 
-  Future<void> _openWorkflow(BuildContext context, bool isId) async {
+  Future<void> _openWorkflow(BuildContext context, AppStrings s) async {
     final repo = WorkflowRepository();
     final workflow = await repo.read(execution.workflowId);
     if (!context.mounted) return;
     if (workflow == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            isId ? 'Workflow sudah dihapus.' : 'Workflow has been deleted.',
-          ),
+          content: Text(s.wfLogDeleted),
         ),
       );
       return;

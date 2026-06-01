@@ -54,24 +54,21 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
   }
 
   Future<void> _clearAll(bool isId, List<AgentModel> agents) async {
+    final s = AppStrings(isId ? 'id' : 'en');
     final scopedAgent = _selectedAgentId == null
         ? null
         : agents.where((a) => a.id == _selectedAgentId).firstOrNull;
     final scopeLabel = scopedAgent != null
-        ? (isId
-              ? 'untuk agent ${scopedAgent.name}'
-              : 'for agent ${scopedAgent.name}')
-        : (isId ? 'dari semua agent' : 'from all agents');
+        ? s.activityForAgent(scopedAgent.name)
+        : s.activityFromAll;
 
     final confirmed = await showMeowConfirmDialog(
       context,
       isId: isId,
-      title: isId ? 'Bersihkan Aktivitas?' : 'Clear Activity?',
-      message: isId
-          ? 'Semua riwayat eksekusi $scopeLabel akan dihapus permanen. Lanjutkan?'
-          : 'All execution history $scopeLabel will be permanently deleted. Continue?',
-      confirmLabel: isId ? 'Bersihkan' : 'Clear',
-      cancelLabel: isId ? 'Batal' : 'Cancel',
+      title: s.activityClearTitle,
+      message: s.activityClearBody(scopeLabel),
+      confirmLabel: s.activityClear,
+      cancelLabel: s.cancel,
     );
     if (!confirmed) return;
 
@@ -82,9 +79,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          isId ? '$removed riwayat dibersihkan' : '$removed entries cleared',
-        ),
+        content: Text(s.activityCleared(removed)),
       ),
     );
   }
@@ -95,15 +90,16 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
     final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(isId ? 'id' : 'en');
     final agents = ref.watch(agentListProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isId ? 'Aktivitas' : 'Activity'),
+        title: Text(s.activity),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert_rounded),
-            tooltip: isId ? 'Opsi' : 'Options',
+            tooltip: s.activityOptions,
             enabled: _history.isNotEmpty,
             onSelected: (v) {
               if (v == 'clear') _clearAll(isId, agents);
@@ -120,7 +116,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      isId ? 'Bersihkan Semua' : 'Clear All',
+                      s.activityClearAll,
                       style: TextStyle(color: cs.error),
                     ),
                   ],
@@ -144,7 +140,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                 options: [
                   MeowDropdownOption<String>(
                     value: _allAgentsFilter,
-                    label: isId ? 'Semua Agent' : 'All Agents',
+                    label: s.activityAllAgents,
                     prefix: const MeowAgentIcon(size: 22, radius: 8),
                   ),
                   ...agents.map(
@@ -186,6 +182,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
   }
 
   Widget _buildEmpty(ColorScheme cs, bool isId) {
+    final s = AppStrings(isId ? 'id' : 'en');
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -197,7 +194,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            isId ? 'Belum ada aktivitas' : 'No activity yet',
+            s.noActivityYet,
             style: TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -206,9 +203,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            isId
-                ? 'Riwayat eksekusi workflow akan muncul di sini'
-                : 'Workflow execution history will appear here',
+            s.activityEmptyDesc,
             style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
           ),
         ],
@@ -375,13 +370,14 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
   }
 
   String _statusLabel(String status, bool isId) {
+    final s = AppStrings(isId ? 'id' : 'en');
     switch (status) {
       case 'success':
-        return isId ? 'Berhasil' : 'Success';
+        return s.activitySuccess;
       case 'failed':
-        return isId ? 'Gagal' : 'Failed';
+        return s.activityFailed;
       case 'retry':
-        return 'Retry';
+        return s.activityRetry;
       default:
         return status;
     }

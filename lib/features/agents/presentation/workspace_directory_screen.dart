@@ -74,27 +74,29 @@ class _WorkspaceDirectoryScreenState extends ConsumerState<WorkspaceDirectoryScr
     }
   }
 
-  String _fileDescription(String name) {
+  String _fileDescription(String name, AppStrings s) {
     switch (name) {
       case 'SKILLS.md':
-        return 'Tools and modules this agent can use';
+        return s.wdSkillsDesc;
       case 'SOUL.md':
-        return 'Personality, system prompt, and safety mode';
+        return s.wdSoulDesc;
       case 'HEARTBEAT.md':
-        return 'Scheduled tasks and event triggers';
+        return s.wdHeartbeatDesc;
       case 'MEMORY.md':
-        return 'Persistent memory across sessions';
+        return s.wdMemoryDesc;
       default:
-        return 'Workspace file';
+        return s.wdDefaultFileDesc;
     }
   }
 
   Future<void> _openInFileManager() async {
+    final langPref = ref.read(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
     final ws = ref.read(workspaceServiceProvider);
     final opened = await ws.openInFileManager(widget.agentName);
     if (!opened && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open file manager.')),
+        SnackBar(content: Text(s.wdCannotOpenFileManager)),
       );
     }
   }
@@ -103,6 +105,8 @@ class _WorkspaceDirectoryScreenState extends ConsumerState<WorkspaceDirectoryScr
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       appBar: AppBar(
@@ -127,7 +131,7 @@ class _WorkspaceDirectoryScreenState extends ConsumerState<WorkspaceDirectoryScr
                         final file = _files[i];
                         final name = _fileName(file);
                         final icon = _fileIcon(name);
-                        final desc = _fileDescription(name);
+                        final desc = _fileDescription(name, s);
 
                         return Material(
                           color: extras.card,
@@ -216,7 +220,7 @@ class _WorkspaceDirectoryScreenState extends ConsumerState<WorkspaceDirectoryScr
                       child: OutlinedButton.icon(
                         onPressed: _openInFileManager,
                         icon: const Icon(Icons.folder_open_rounded, size: 18),
-                        label: const Text('Buka di File Manager'),
+                        label: Text(s.wdOpenFileManager),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: cs.primary,
                           side: BorderSide(
@@ -284,19 +288,23 @@ class _WorkspaceFileEditorScreenState extends ConsumerState<WorkspaceFileEditorS
     try {
       await File(widget.filePath).writeAsString(_controller.text);
       if (mounted) {
+        final langPref = ref.read(appLanguageProvider);
+        final s = AppStrings(resolveLanguageCode(langPref));
         setState(() {
           _saving = false;
           _hasChanges = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Saved')),
+          SnackBar(content: Text(s.wdSaved)),
         );
       }
     } catch (e) {
       if (mounted) {
+        final langPref = ref.read(appLanguageProvider);
+        final s = AppStrings(resolveLanguageCode(langPref));
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving: $e')),
+          SnackBar(content: Text('${s.wdErrorSaving}$e')),
         );
       }
     }
@@ -313,6 +321,8 @@ class _WorkspaceFileEditorScreenState extends ConsumerState<WorkspaceFileEditorS
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final langPref = ref.watch(appLanguageProvider);
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return Scaffold(
       appBar: AppBar(
@@ -331,7 +341,7 @@ class _WorkspaceFileEditorScreenState extends ConsumerState<WorkspaceFileEditorS
                       height: 16,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : Text(AppStrings(resolveLanguageCode(ref.watch(appLanguageProvider))).save),
+                  : Text(s.save),
             ),
         ],
       ),
