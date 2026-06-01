@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/modules/data/module_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -225,6 +228,22 @@ class AgentRuntimeEngine {
       toolRouter.agentName = wsName;
       toolRouter.agentId = request.agentId;
       toolRouter.attachments = request.attachments;
+      toolRouter.modelSupportsVision = provider.supportsVisionFor(
+        provider.model,
+      );
+      toolRouter.currentUserMessage = request.userMessage;
+      toolRouter.describeImage =
+          ({required AttachedFile image, required String prompt}) async {
+            final bytes = await File(image.path).readAsBytes();
+            final mime = _mimeTypeForImage(image.name);
+            final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+            return client.chatWithImage(
+              config: llmConfig,
+              prompt: prompt,
+              imageDataUrl: dataUrl,
+              phase: 'attachment_vision',
+            );
+          };
       await workspaceLoader.ensureWorkspace(wsName);
       if (detectedLang.isHighConfidence) {
         await workspaceLoader.maybeFillPreferredLanguage(
@@ -1262,6 +1281,16 @@ class AgentRuntimeEngine {
     }
     buf.writeln('[/ATTACHED FILES]');
     return buf.toString();
+  }
+
+  String _mimeTypeForImage(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.bmp')) return 'image/bmp';
+    if (lower.endsWith('.heic')) return 'image/heic';
+    return 'image/png';
   }
 }
 

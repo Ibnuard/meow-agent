@@ -13,8 +13,13 @@ class ProviderConfig {
     required this.apiKey,
     required this.model,
     List<String>? models,
+    List<String>? visionModels,
   }) : id = id ?? const Uuid().v4(),
-       models = _normalizeModels(model, models);
+       models = _normalizeModels(model, models),
+       visionModels = _normalizeVisionModels(
+         _normalizeModels(model, models),
+         visionModels,
+       );
 
   final String id;
   final String nickname;
@@ -22,6 +27,7 @@ class ProviderConfig {
   final String apiKey;
   final String model;
   final List<String> models;
+  final List<String> visionModels;
 
   bool get isComplete =>
       nickname.trim().isNotEmpty &&
@@ -35,12 +41,19 @@ class ProviderConfig {
     return model.trim().isNotEmpty ? model.trim() : models.first;
   }
 
+  bool supportsVisionFor(String? selectedModel) {
+    final selected = (selectedModel ?? '').trim();
+    if (selected.isEmpty) return false;
+    return visionModels.contains(selected);
+  }
+
   ProviderConfig copyWith({
     String? nickname,
     String? baseUrl,
     String? apiKey,
     String? model,
     List<String>? models,
+    List<String>? visionModels,
   }) {
     return ProviderConfig(
       id: id,
@@ -49,6 +62,7 @@ class ProviderConfig {
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
       models: models ?? this.models,
+      visionModels: visionModels ?? this.visionModels,
     );
   }
 
@@ -59,6 +73,7 @@ class ProviderConfig {
     'baseUrl': baseUrl,
     'model': model,
     'models': models,
+    'visionModels': visionModels,
   };
 
   static ProviderConfig fromPublicJson(
@@ -72,6 +87,9 @@ class ProviderConfig {
       apiKey: apiKey,
       model: (json['model'] as String?) ?? '',
       models: (json['models'] as List?)?.map((e) => e.toString()).toList(),
+      visionModels: (json['visionModels'] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
     );
   }
 
@@ -86,6 +104,20 @@ class ProviderConfig {
     add(model);
     for (final item in models ?? const <String>[]) {
       add(item);
+    }
+    return out;
+  }
+
+  static List<String> _normalizeVisionModels(
+    List<String> models,
+    List<String>? visionModels,
+  ) {
+    final valid = models.toSet();
+    final out = <String>[];
+    for (final item in visionModels ?? const <String>[]) {
+      final trimmed = item.trim();
+      if (trimmed.isEmpty || !valid.contains(trimmed)) continue;
+      if (!out.contains(trimmed)) out.add(trimmed);
     }
     return out;
   }

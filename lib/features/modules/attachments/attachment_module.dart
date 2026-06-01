@@ -47,6 +47,19 @@ class AttachmentModulePlugin extends ModulePlugin {
       },
       isRetrieval: true,
     ),
+    ToolDefinition(
+      name: 'attachment.describe_image',
+      description:
+          'Describe or answer questions about one attached image from the current user message. Requires the active model to support vision.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'index': 'number (optional, zero-based attachment index)',
+        'name': 'string (optional, attached file name)',
+        'prompt': 'string (optional, question to answer about the image)',
+      },
+      isRetrieval: true,
+    ),
   ];
 
   @override
@@ -56,9 +69,11 @@ class AttachmentModulePlugin extends ModulePlugin {
   ) async {
     switch (request.name) {
       case 'attachment.list':
-        return _list(request.name, ctx.attachments);
+        return _list(request.name, ctx.attachments, ctx.modelSupportsVision);
       case 'attachment.read_text':
-        return _readText(request, ctx.attachments);
+        return _readText(request, ctx.attachments, ctx.modelSupportsVision);
+      case 'attachment.describe_image':
+        return _describeImage(request, ctx);
       default:
         return ToolExecutionResult(
           success: false,
@@ -68,7 +83,11 @@ class AttachmentModulePlugin extends ModulePlugin {
     }
   }
 
-  ToolExecutionResult _list(String toolName, List<AttachedFile> attachments) {
+  ToolExecutionResult _list(
+    String toolName,
+    List<AttachedFile> attachments,
+    bool modelSupportsVision,
+  ) {
     return ToolExecutionResult(
       success: true,
       toolName: toolName,
@@ -76,9 +95,9 @@ class AttachmentModulePlugin extends ModulePlugin {
         'count': attachments.length,
         'attachments': [
           for (var i = 0; i < attachments.length; i++)
-            _metadata(i, attachments[i]),
+            _metadata(i, attachments[i], modelSupportsVision),
         ],
-        'visionSupported': false,
+        'visionSupported': modelSupportsVision,
       },
     );
   }
@@ -86,6 +105,7 @@ class AttachmentModulePlugin extends ModulePlugin {
   Future<ToolExecutionResult> _readText(
     ToolCallRequest request,
     List<AttachedFile> attachments,
+    bool modelSupportsVision,
   ) async {
     final selected = _selectAttachment(request.args, attachments);
     if (selected.error != null) {
@@ -101,15 +121,24 @@ class AttachmentModulePlugin extends ModulePlugin {
     final index = selected.index!;
     final kind = _kindFor(attachment.name);
     if (kind == 'image') {
+      final message = modelSupportsVision
+          ? 'The selected attachment is an image and the active model declares vision support. Image handoff is not implemented in this text reader tool.'
+          : 'The selected attachment is an image, but the active model does not support vision. Switch this agent to a vision-capable model and try again.';
       return ToolExecutionResult(
         success: false,
         toolName: request.name,
-        error:
-            'The selected attachment is an image. Vision input is not available for the current runtime yet.',
+        error: message,
         data: {
-          ..._metadata(index, attachment),
+          ..._metadata(index, attachment, modelSupportsVision),
+          'errorCode': modelSupportsVision
+              ? 'attachment_image_reader_not_applicable'
+              : 'vision_model_unsupported',
+          if (!modelSupportsVision) ...{
+            'failureKind': 'capability_boundary',
+            'messageKey': 'runtime_vision_model_unsupported',
+          },
           'visionRequired': true,
-          'visionSupported': false,
+          'visionSupported': modelSupportsVision,
         },
       );
     }
@@ -119,7 +148,7 @@ class AttachmentModulePlugin extends ModulePlugin {
         success: false,
         toolName: request.name,
         error: 'The selected attachment is not a supported text file.',
-        data: _metadata(index, attachment),
+        data: _metadata(index, attachment, modelSupportsVision),
       );
     }
 
@@ -130,7 +159,7 @@ class AttachmentModulePlugin extends ModulePlugin {
           success: false,
           toolName: request.name,
           error: 'The attached file is no longer available on this device.',
-          data: _metadata(index, attachment),
+          data: _metadata(index, attachment, modelSupportsVision),
         );
       }
 
@@ -144,7 +173,7 @@ class AttachmentModulePlugin extends ModulePlugin {
         success: true,
         toolName: request.name,
         data: {
-          ..._metadata(index, attachment),
+          ..._metadata(index, attachment, modelSupportsVision),
           'content': content,
           'truncated': truncated,
           'readBytes': contentBytes.length,
@@ -156,14 +185,90 @@ class AttachmentModulePlugin extends ModulePlugin {
         success: false,
         toolName: request.name,
         error: 'The selected attachment is not valid UTF-8 text.',
-        data: _metadata(index, attachment),
+        data: _metadata(index, attachment, modelSupportsVision),
       );
     } catch (e) {
       return ToolExecutionResult(
         success: false,
         toolName: request.name,
         error: 'Failed to read the attached file: $e',
-        data: _metadata(index, attachment),
+        data: _metadata(index, attachment, modelSupportsVision),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> _describeImage(
+    ToolCallRequest request,
+    ModuleToolContext ctx,
+  ) async {
+    final selected = _selectAttachment(request.args, ctx.attachments);
+    if (selected.error != null) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error: selected.error,
+        data: {'available': _available(ctx.attachments)},
+      );
+    }
+
+    final attachment = selected.attachment!;
+    final index = selected.index!;
+    if (_kindFor(attachment.name) != 'image') {
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error: 'The selected attachment is not an image.',
+        data: _metadata(index, attachment, ctx.modelSupportsVision),
+      );
+    }
+
+    if (!ctx.modelSupportsVision) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error:
+            'The active model does not support image input. Switch this agent to a vision-capable model and try again.',
+        data: {
+          ..._metadata(index, attachment, ctx.modelSupportsVision),
+          'errorCode': 'vision_model_unsupported',
+          'failureKind': 'capability_boundary',
+          'messageKey': 'runtime_vision_model_unsupported',
+          'visionRequired': true,
+          'visionSupported': false,
+        },
+      );
+    }
+
+    final describeImage = ctx.describeImage;
+    if (describeImage == null) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error: 'Image input is not available in this runtime session.',
+        data: _metadata(index, attachment, ctx.modelSupportsVision),
+      );
+    }
+
+    try {
+      final prompt = (request.args['prompt'] as String?)?.trim();
+      final description = await describeImage(
+        image: attachment,
+        prompt: prompt?.isNotEmpty == true ? prompt! : ctx.currentUserMessage,
+      );
+      return ToolExecutionResult(
+        success: true,
+        toolName: request.name,
+        data: {
+          ..._metadata(index, attachment, ctx.modelSupportsVision),
+          'description': description,
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error: 'Failed to process the attached image: $e',
+        data: _metadata(index, attachment, ctx.modelSupportsVision),
       );
     }
   }
@@ -212,6 +317,9 @@ class AttachmentModulePlugin extends ModulePlugin {
               'More than one attachment has that name. Use the attachment index.',
         );
       }
+      if (attachments.length == 1) {
+        return (attachment: attachments.first, index: 0, error: null);
+      }
       return (
         attachment: null,
         index: null,
@@ -235,7 +343,11 @@ class AttachmentModulePlugin extends ModulePlugin {
     for (var i = 0; i < attachments.length; i++) _metadata(i, attachments[i]),
   ];
 
-  Map<String, dynamic> _metadata(int index, AttachedFile attachment) {
+  Map<String, dynamic> _metadata(
+    int index,
+    AttachedFile attachment, [
+    bool modelSupportsVision = false,
+  ]) {
     final kind = _kindFor(attachment.name);
     return {
       'index': index,
@@ -244,7 +356,8 @@ class AttachmentModulePlugin extends ModulePlugin {
       'extension': _extensionOf(attachment.name),
       'kind': kind,
       'readableAsText': _isTextLike(attachment.name),
-      'visionSupported': false,
+      'visionRequired': kind == 'image',
+      'visionSupported': kind == 'image' && modelSupportsVision,
     };
   }
 

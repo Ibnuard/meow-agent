@@ -40,6 +40,18 @@ class ToolRouter {
   /// Attachments available for the current runtime turn.
   List<AttachedFile> attachments = const [];
 
+  /// Whether the active provider/model declares image input support.
+  bool modelSupportsVision = false;
+
+  /// User message for the current turn, used as the default image prompt.
+  String currentUserMessage = '';
+
+  Future<String> Function({
+    required AttachedFile image,
+    required String prompt,
+  })?
+  describeImage;
+
   final ModuleRegistry _moduleRegistry = buildRuntimeModuleRegistry();
 
   /// Catalog groups derived from the plugin list. Kept as a router getter for
@@ -228,6 +240,9 @@ class ToolRouter {
     saveAgent: saveAgent,
     deleteAgent: deleteAgent,
     attachments: attachments,
+    modelSupportsVision: modelSupportsVision,
+    currentUserMessage: currentUserMessage,
+    describeImage: describeImage,
     allToolDefinitions: _registry.values,
   );
 

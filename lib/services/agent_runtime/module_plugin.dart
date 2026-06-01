@@ -22,6 +22,9 @@ class ModuleToolContext {
     this.saveAgent,
     this.deleteAgent,
     this.attachments = const [],
+    this.modelSupportsVision = false,
+    this.currentUserMessage = '',
+    this.describeImage,
     this.allToolDefinitions = const [],
   });
 
@@ -33,6 +36,13 @@ class ModuleToolContext {
   final Future<void> Function(AgentModel agent)? saveAgent;
   final Future<void> Function(String id)? deleteAgent;
   final List<AttachedFile> attachments;
+  final bool modelSupportsVision;
+  final String currentUserMessage;
+  final Future<String> Function({
+    required AttachedFile image,
+    required String prompt,
+  })?
+  describeImage;
 
   /// Every registered [ToolDefinition], for tools that introspect the catalog
   /// (e.g. `system.tools.list`). Supplied by the router.

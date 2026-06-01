@@ -99,6 +99,26 @@ class LanguageRegistry {
       'recovery_reason_verification_unverified': 'hasil belum terverifikasi',
       'recovery_reason_stuck_loop': 'aku berulang di langkah yang sama',
       'recovery_reason_unknown': 'belum ketemu jalannya',
+      'runtime_capability_not_found':
+          'Maaf, aku belum punya kemampuan untuk melakukan itu. Tidak ada tool yang sesuai untuk permintaan tersebut.',
+      'runtime_vision_model_unsupported':
+          'Model yang aktif belum mendukung input gambar. Silakan ganti agent ke model yang support vision, lalu coba lagi.',
+      'runtime_task_completed': 'Tugas selesai.',
+      'runtime_need_more_information': 'Aku perlu informasi tambahan.',
+      'runtime_tool_selection_missing':
+          'Pemilihan tool tidak mengembalikan data tool.',
+      'runtime_permission_denied': 'Izin ditolak.',
+      'runtime_failed': 'Runtime gagal.',
+      'runtime_review_failed': 'Tahap review gagal.',
+      'runtime_unrecoverable_error':
+          'Terjadi kesalahan yang tidak bisa dipulihkan.',
+      'runtime_max_steps': 'Batas langkah runtime tercapai tanpa penyelesaian.',
+      'runtime_empty_files': 'Tidak ada file yang cocok dengan kriteria itu.',
+      'runtime_empty_notes':
+          'Tidak ada catatan yang cocok dengan kriteria itu.',
+      'runtime_empty_calendar':
+          'Tidak ada acara yang cocok dengan kriteria itu.',
+      'runtime_empty_results': 'Tidak ada hasil yang cocok.',
       'context_title': '🧠 Memori {agent}',
       'context_headline_low': 'masih sangat lega, baru terpakai {pct}%',
       'context_headline_comfortable': 'masih nyaman, sekitar {pct}% terpakai',
@@ -153,6 +173,22 @@ class LanguageRegistry {
       'recovery_reason_verification_unverified': 'the result is not verified',
       'recovery_reason_stuck_loop': 'I was looping on the same step',
       'recovery_reason_unknown': "I couldn't find a path forward",
+      'runtime_capability_not_found':
+          "Sorry, I don't have the capability to do that. No tool is available for this request.",
+      'runtime_vision_model_unsupported':
+          'The active model does not support image input. Switch this agent to a vision-capable model, then try again.',
+      'runtime_task_completed': 'Task completed.',
+      'runtime_need_more_information': 'Need more information.',
+      'runtime_tool_selection_missing': 'Tool selection returned no tool data.',
+      'runtime_permission_denied': 'Permission denied.',
+      'runtime_failed': 'Runtime failed.',
+      'runtime_review_failed': 'Review phase failed.',
+      'runtime_unrecoverable_error': 'Unrecoverable error.',
+      'runtime_max_steps': 'Maximum runtime steps reached without completion.',
+      'runtime_empty_files': 'No files match that criteria.',
+      'runtime_empty_notes': 'No notes match that criteria.',
+      'runtime_empty_calendar': 'No events match that criteria.',
+      'runtime_empty_results': 'No results match.',
       'context_title': '🧠 {agent}’s Memory',
       'context_headline_low': 'plenty of room, only {pct}% used',
       'context_headline_comfortable': 'comfortable, around {pct}% used',

@@ -32,13 +32,13 @@ class ExecuteLoopRunner {
     required CompletionVerifier completionVerifier,
     required RuntimeMemory memory,
     required String languageCode,
-  })  : _toolRouter = toolRouter,
-        _workspaceLoader = workspaceLoader,
-        _taskScope = taskScope,
-        _preflight = preflight,
-        _completionVerifier = completionVerifier,
-        _memory = memory,
-        _languageCode = languageCode;
+  }) : _toolRouter = toolRouter,
+       _workspaceLoader = workspaceLoader,
+       _taskScope = taskScope,
+       _preflight = preflight,
+       _completionVerifier = completionVerifier,
+       _memory = memory,
+       _languageCode = languageCode;
 
   final ToolRouter _toolRouter;
   final WorkspaceLoader _workspaceLoader;
@@ -136,7 +136,7 @@ class ExecuteLoopRunner {
             'Repeated null tool selection. Aborting to prevent infinite loop.',
           );
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          return fail(_capabilityNotFoundMessage(detectedLang), logger);
+          return fail(_capabilityNotFoundMessage(), logger);
         }
         final recoveryDecision = await _maybeRecover(
           recovery: recovery,
@@ -167,8 +167,8 @@ class ExecuteLoopRunner {
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return fail(
-          recovery?.giveUpMessage(detectedLang) ??
-              _capabilityNotFoundMessage(detectedLang),
+          recovery?.giveUpMessage(_settingsLanguage()) ??
+              _capabilityNotFoundMessage(),
           logger,
         );
       }
@@ -183,7 +183,8 @@ class ExecuteLoopRunner {
 
       if (status == 'done') {
         final finalResponse =
-            selection['final_response'] as String? ?? 'Task completed.';
+            selection['final_response'] as String? ??
+            _runtimePhrase('runtime_task_completed');
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           final active = goalTree.nextActionable;
           if (active != null && _isAnswerOnlySubgoal(active)) {
@@ -254,7 +255,8 @@ class ExecuteLoopRunner {
       if (status == 'ask_user') {
         return AgentRuntimeResponse(
           finalMessage:
-              selection['question'] as String? ?? 'Need more information.',
+              selection['question'] as String? ??
+              _runtimePhrase('runtime_need_more_information'),
           success: true,
           state: AgentRuntimeState.askingUser,
           events: logger.events,
@@ -291,8 +293,9 @@ class ExecuteLoopRunner {
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return fail(
-          recovery?.giveUpMessage(detectedLang) ??
-              (selection['error'] as String? ?? 'Runtime failed.'),
+          recovery?.giveUpMessage(_settingsLanguage()) ??
+              (selection['error'] as String? ??
+                  _runtimePhrase('runtime_failed')),
           logger,
         );
       }
@@ -328,8 +331,8 @@ class ExecuteLoopRunner {
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return fail(
-            recovery?.giveUpMessage(detectedLang) ??
-                'Tool selection returned no tool data.',
+            recovery?.giveUpMessage(_settingsLanguage()) ??
+                _runtimePhrase('runtime_tool_selection_missing'),
             logger,
           );
         }
@@ -381,7 +384,7 @@ class ExecuteLoopRunner {
             );
           }
           final abortMsg =
-              recovery?.giveUpMessage(detectedLang) ??
+              recovery?.giveUpMessage(_settingsLanguage()) ??
               await verbalizer.abort(
                 reason: 'agent looped on ${toolRequest.name} after retry',
                 language: detectedLang,
@@ -400,7 +403,7 @@ class ExecuteLoopRunner {
         if (validationError != null) {
           logger.logError(validationError);
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          return fail(_capabilityNotFoundMessage(detectedLang), logger);
+          return fail(_capabilityNotFoundMessage(), logger);
         }
 
         final definition = _toolRouter.getDefinition(toolRequest.name)!;
@@ -429,7 +432,8 @@ class ExecuteLoopRunner {
           );
           final finalResponse =
               permissionDeniedResponseFor(permissionDenied) ??
-              (permissionDenied.error ?? 'Permission denied.');
+              (permissionDenied.error ??
+                  _runtimePhrase('runtime_permission_denied'));
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
@@ -473,7 +477,10 @@ class ExecuteLoopRunner {
               '${toolRequest.name}',
             );
             emit(logger.events.last);
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
             return AgentRuntimeResponse(
               finalMessage: '',
               success: false,
@@ -610,7 +617,10 @@ class ExecuteLoopRunner {
               lastTool: priorTool.name,
               lastResult: 'success',
             );
-            await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+            await _taskScope.archiveLedgerForRequest(
+              request,
+              LedgerStatus.completed,
+            );
             return AgentRuntimeResponse(
               finalMessage: finalMsg,
               success: true,
@@ -676,6 +686,26 @@ class ExecuteLoopRunner {
           );
         }
 
+        if (!result.success && _isCapabilityBoundaryFailure(result)) {
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+          final finalResponse = _capabilityBoundaryMessage(result);
+          logger.logFinalResponse(finalResponse);
+          await _workspaceLoader.updateHeartbeat(
+            request.agentName.isNotEmpty ? request.agentName : request.agentId,
+            state: 'failed',
+            task: request.userMessage,
+            lastTool: toolRequest.name,
+            lastResult: 'capability_boundary',
+            lastError: result.error,
+          );
+          return AgentRuntimeResponse(
+            finalMessage: finalResponse,
+            success: false,
+            state: AgentRuntimeState.failed,
+            events: logger.events,
+          );
+        }
+
         // Post-execute verification.
         if (postExecuteValidator != null && result.success) {
           final toolDef = _toolRouter.getDefinition(toolRequest.name);
@@ -718,7 +748,10 @@ class ExecuteLoopRunner {
                   isWorkflowAutoExecute: isWorkflowAutoExecute,
                 );
               }
-              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+              await _taskScope.finishScopeForRequest(
+                request,
+                LedgerStatus.failed,
+              );
               final unverifiedMessage = verification.userFacingMessage(
                 detectedLang,
               );
@@ -750,33 +783,34 @@ class ExecuteLoopRunner {
           if (retrievalCompletesTree) {
             shortCircuitActive.status = SubgoalStatus.done;
           }
-          final verificationBlocker = await _completionVerifier.blockIfUnverified(
-            request: request,
-            plan: plan,
-            goalTree: goalTree,
-            previousResults: previousResults,
-            currentStep: currentStep,
-            availableTools: availableTools,
-            memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
-            autoApproveSensitive: autoApproveSensitive,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            logger: logger,
-            parkTask: (questions) => _taskScope.parkForUserInput(
-              request: request,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: previousResults,
-              currentStep: currentStep,
-              availableTools: availableTools,
-              memorySnapshot: memorySnapshot,
-              detectedLangCode: detectedLang.code,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              questions: questions,
-            ),
-            lastToolName: toolRequest.name,
-          );
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+              );
           if (verificationBlocker != null) return verificationBlocker;
           final localFinal =
               shouldAnswerFromToolResult(
@@ -807,7 +841,10 @@ class ExecuteLoopRunner {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
-          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -867,10 +904,7 @@ class ExecuteLoopRunner {
             );
             reviewStatus = 'done';
             review?['status'] = 'done';
-            review?['final_response'] ??= _emptyResultMessage(
-              detectedLang.code,
-              toolRequest.name,
-            );
+            review?['final_response'] ??= _emptyResultMessage(toolRequest.name);
           }
         }
 
@@ -914,7 +948,7 @@ class ExecuteLoopRunner {
 
         if (review == null) {
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          return fail('Review phase failed.', logger);
+          return fail(_runtimePhrase('runtime_review_failed'), logger);
         }
 
         if (reviewStatus == 'done') {
@@ -947,34 +981,36 @@ class ExecuteLoopRunner {
                   result: result,
                   language: detectedLang,
                 )
-              : review['final_response'] as String? ?? 'Task completed.';
-          final verificationBlocker = await _completionVerifier.blockIfUnverified(
-            request: request,
-            plan: plan,
-            goalTree: goalTree,
-            previousResults: previousResults,
-            currentStep: currentStep,
-            availableTools: availableTools,
-            memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
-            autoApproveSensitive: autoApproveSensitive,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            logger: logger,
-            parkTask: (questions) => _taskScope.parkForUserInput(
-              request: request,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: previousResults,
-              currentStep: currentStep,
-              availableTools: availableTools,
-              memorySnapshot: memorySnapshot,
-              detectedLangCode: detectedLang.code,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              questions: questions,
-            ),
-            lastToolName: toolRequest.name,
-          );
+              : review['final_response'] as String? ??
+                    _runtimePhrase('runtime_task_completed');
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+              );
           if (verificationBlocker != null) return verificationBlocker;
           final completedFinal =
               goalTree.isNotEmpty &&
@@ -1005,7 +1041,10 @@ class ExecuteLoopRunner {
             lastTool: toolRequest.name,
             lastResult: 'success',
           );
-          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
           return AgentRuntimeResponse(
             finalMessage: completedFinal,
             success: true,
@@ -1018,8 +1057,11 @@ class ExecuteLoopRunner {
         if (reviewStatus == 'ask_user') {
           if (!result.success && !_failedToolCanAskUser(result)) {
             if (_isCapabilityBoundaryFailure(result)) {
-              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-              return fail(_capabilityNotFoundMessage(detectedLang), logger);
+              await _taskScope.finishScopeForRequest(
+                request,
+                LedgerStatus.failed,
+              );
+              return fail(_capabilityNotFoundMessage(), logger);
             }
             reviewStatus = 'failed';
           } else {
@@ -1082,8 +1124,9 @@ class ExecuteLoopRunner {
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           final giveUp =
-              recovery?.giveUpMessage(detectedLang) ??
-              (review['error'] as String? ?? 'Unrecoverable error.');
+              recovery?.giveUpMessage(_settingsLanguage()) ??
+              (review['error'] as String? ??
+                  _runtimePhrase('runtime_unrecoverable_error'));
           return fail(giveUp, logger);
         }
 
@@ -1109,10 +1152,7 @@ class ExecuteLoopRunner {
     }
 
     await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-    return fail(
-      'Maximum runtime steps ($adaptiveLimit) reached without completion.',
-      logger,
-    );
+    return fail(_runtimePhrase('runtime_max_steps'), logger);
   }
 
   // ---------------------------------------------------------------------------
@@ -1242,18 +1282,18 @@ class ExecuteLoopRunner {
 
     final setting = (data['settingLabel'] as String? ?? '').trim();
     if (setting.isNotEmpty) {
-      return LanguageRegistry.phrase(
-        'permission_setting_disabled',
-        code,
-        {'module': module, 'setting': setting, 'action': actionLabel},
-      );
+      return LanguageRegistry.phrase('permission_setting_disabled', code, {
+        'module': module,
+        'setting': setting,
+        'action': actionLabel,
+      });
     }
 
-    return LanguageRegistry.phrase(
-      'permission_denied',
-      code,
-      {'module': module, 'action': actionLabel, 'reason': reason},
-    );
+    return LanguageRegistry.phrase('permission_denied', code, {
+      'module': module,
+      'action': actionLabel,
+      'reason': reason,
+    });
   }
 
   /// Build the final user-facing message when the goal tree completes.
@@ -1367,8 +1407,19 @@ class ExecuteLoopRunner {
     final count = data['count'];
     if (count is num && count == 0) return true;
     const listKeys = [
-      'results', 'items', 'events', 'notes', 'files', 'matches',
-      'apps', 'recent', 'list', 'data', 'slots', 'conflicts', 'tree',
+      'results',
+      'items',
+      'events',
+      'notes',
+      'files',
+      'matches',
+      'apps',
+      'recent',
+      'list',
+      'data',
+      'slots',
+      'conflicts',
+      'tree',
     ];
     var sawList = false;
     for (final k in listKeys) {
@@ -1417,32 +1468,40 @@ class ExecuteLoopRunner {
   }
 
   /// User-facing message when no tool exists for the requested action.
-  String _capabilityNotFoundMessage(DetectedLanguage lang) {
-    final code = lang.code.toLowerCase();
-    if (code == 'id' || code.startsWith('id_')) {
-      return 'Maaf, aku belum punya kemampuan untuk melakukan itu. '
-          'Tidak ada tool yang sesuai untuk permintaan tersebut.';
+  String _runtimePhrase(String key, [Map<String, String> params = const {}]) =>
+      LanguageRegistry.phrase(key, _languageCode, params);
+
+  DetectedLanguage _settingsLanguage() =>
+      DetectedLanguage.fromAnalyzerCode(_languageCode);
+
+  String _capabilityNotFoundMessage() =>
+      _runtimePhrase('runtime_capability_not_found');
+
+  String _capabilityBoundaryMessage(ToolExecutionResult result) {
+    final messageKey = result.data?['messageKey']?.toString().trim();
+    if (messageKey != null && messageKey.isNotEmpty) {
+      return _runtimePhrase(messageKey);
     }
-    return 'Sorry, I don\'t have the capability to do that. '
-        'No tool is available for this request.';
+
+    final error = (result.error ?? '').trim();
+    if (error.isNotEmpty) return error;
+    return _capabilityNotFoundMessage();
   }
 
   /// Localized "no results" reply when the empty-result loop guard fires.
   static String emptyResultMessage(String langCode, String toolName) {
-    final code = langCode.toLowerCase();
+    final key = _emptyResultPhraseKey(toolName);
+    return LanguageRegistry.phrase(key, langCode);
+  }
+
+  static String _emptyResultPhraseKey(String toolName) {
     final isFiles = toolName.startsWith('files.');
     final isNotes = toolName.startsWith('notes.');
     final isCal = toolName.startsWith('calendar.');
-    if (code == 'id' || code.startsWith('id_')) {
-      if (isFiles) return 'Tidak ada file yang cocok dengan kriteria itu.';
-      if (isNotes) return 'Tidak ada catatan yang cocok dengan kriteria itu.';
-      if (isCal) return 'Tidak ada acara yang cocok dengan kriteria itu.';
-      return 'Tidak ada hasil yang cocok.';
-    }
-    if (isFiles) return 'No files match that criteria.';
-    if (isNotes) return 'No notes match that criteria.';
-    if (isCal) return 'No events match that criteria.';
-    return 'No results match.';
+    if (isFiles) return 'runtime_empty_files';
+    if (isNotes) return 'runtime_empty_notes';
+    if (isCal) return 'runtime_empty_calendar';
+    return 'runtime_empty_results';
   }
 
   // ---------------------------------------------------------------------------
@@ -1523,21 +1582,11 @@ class ExecuteLoopRunner {
     return '';
   }
 
-  String _emptyResultMessage(String langCode, String toolName) {
-    final code = langCode.toLowerCase();
-    final isFiles = toolName.startsWith('files.');
-    final isNotes = toolName.startsWith('notes.');
-    final isCal = toolName.startsWith('calendar.');
-    if (code == 'id' || code.startsWith('id_')) {
-      if (isFiles) return 'Tidak ada file yang cocok dengan kriteria itu.';
-      if (isNotes) return 'Tidak ada catatan yang cocok dengan kriteria itu.';
-      if (isCal) return 'Tidak ada acara yang cocok dengan kriteria itu.';
-      return 'Tidak ada hasil yang cocok.';
-    }
-    if (isFiles) return 'No files match that criteria.';
-    if (isNotes) return 'No notes match that criteria.';
-    if (isCal) return 'No events match that criteria.';
-    return 'No results match.';
+  String _emptyResultMessage(String toolName) {
+    return LanguageRegistry.phrase(
+      _emptyResultPhraseKey(toolName),
+      _languageCode,
+    );
   }
 
   bool _failedToolCanAskUser(ToolExecutionResult result) {
@@ -1553,6 +1602,10 @@ class ExecuteLoopRunner {
   }
 
   bool _isCapabilityBoundaryFailure(ToolExecutionResult result) {
+    final failureKind = result.data?['failureKind']?.toString().toLowerCase();
+    if (failureKind == 'capability_boundary') {
+      return true;
+    }
     final text = '${result.error ?? ''} ${result.toolName}'.toLowerCase();
     return text.contains('tool not found') ||
         text.contains('unknown tool') ||

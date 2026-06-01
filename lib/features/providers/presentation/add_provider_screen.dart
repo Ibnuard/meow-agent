@@ -33,6 +33,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final _apiKeyController = TextEditingController();
   final _modelInputController = TextEditingController();
   final List<String> _models = [];
+  final Set<String> _visionModels = {};
 
   bool _obscureKey = true;
   bool _testing = false;
@@ -67,6 +68,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
       _models
         ..clear()
         ..addAll(existing.models);
+      _visionModels
+        ..clear()
+        ..addAll(existing.visionModels);
       if (mounted) setState(() {});
     }
   }
@@ -87,6 +91,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     apiKey: _apiKeyController.text.trim(),
     model: _models.firstOrNull ?? '',
     models: _models,
+    visionModels: _visionModels.toList(),
   );
 
   void _addModel() {
@@ -102,9 +107,22 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   void _removeModel(String model) {
     if (_models.isEmpty) return;
-    setState(() => _models.remove(model));
+    setState(() {
+      _models.remove(model);
+      _visionModels.remove(model);
+    });
     // Re-validate so the model error appears if the list became empty.
     _formKey.currentState?.validate();
+  }
+
+  void _toggleVisionModel(String model) {
+    setState(() {
+      if (_visionModels.contains(model)) {
+        _visionModels.remove(model);
+      } else {
+        _visionModels.add(model);
+      }
+    });
   }
 
   Future<void> _testConnection() async {
@@ -305,10 +323,12 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       const SizedBox(height: 18),
                       _ModelListEditor(
                         models: _models,
+                        visionModels: _visionModels,
                         controller: _modelInputController,
                         isId: s.isId,
                         onAdd: _addModel,
                         onRemove: _removeModel,
+                        onToggleVision: _toggleVisionModel,
                       ),
                     ],
                   ),
@@ -435,86 +455,96 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 class _ModelListEditor extends FormField<List<String>> {
   _ModelListEditor({
     required List<String> models,
+    required Set<String> visionModels,
     required TextEditingController controller,
     required bool isId,
     required VoidCallback onAdd,
     required ValueChanged<String> onRemove,
+    required ValueChanged<String> onToggleVision,
   }) : super(
-          initialValue: models,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          validator: (_) {
-            if (models.isEmpty) {
-              return isId ? 'Model wajib diisi' : 'Model is required';
-            }
-            return null;
-          },
-          builder: (state) {
-            final extras = state.context.extras;
-            final hasError = state.hasError;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                MeowInput(
-                  controller: controller,
-                  label: isId ? 'Model Tersedia' : 'Available Models',
-                  hint: 'deepseek-v4-flash',
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => onAdd(),
-                  errorText: hasError ? state.errorText : null,
-                  suffixIcon: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Center(
-                      widthFactor: 1,
-                      heightFactor: 1,
-                      child: IconButton.filledTonal(
-                        onPressed: onAdd,
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(36, 36),
-                          maximumSize: const Size(36, 36),
-                          padding: EdgeInsets.zero,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final model in models)
-                      _ModelChip(
-                        model: model,
-                        canRemove: true,
-                        onRemove: () => onRemove(model),
-                      ),
-                  ],
-                ),
-                Text(
-                  isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: extras.subtleText,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+         initialValue: models,
+         autovalidateMode: AutovalidateMode.onUserInteraction,
+         validator: (_) {
+           if (models.isEmpty) {
+             return isId ? 'Model wajib diisi' : 'Model is required';
+           }
+           return null;
+         },
+         builder: (state) {
+           final extras = state.context.extras;
+           final hasError = state.hasError;
+           return Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+               MeowInput(
+                 controller: controller,
+                 label: isId ? 'Model Tersedia' : 'Available Models',
+                 hint: 'deepseek-v4-flash',
+                 textInputAction: TextInputAction.done,
+                 onSubmitted: (_) => onAdd(),
+                 errorText: hasError ? state.errorText : null,
+                 suffixIcon: Padding(
+                   padding: const EdgeInsets.only(right: 8),
+                   child: Center(
+                     widthFactor: 1,
+                     heightFactor: 1,
+                     child: IconButton.filledTonal(
+                       onPressed: onAdd,
+                       icon: const Icon(Icons.add_rounded, size: 18),
+                       style: IconButton.styleFrom(
+                         minimumSize: const Size(36, 36),
+                         maximumSize: const Size(36, 36),
+                         padding: EdgeInsets.zero,
+                       ),
+                     ),
+                   ),
+                 ),
+               ),
+               const SizedBox(height: 10),
+               Wrap(
+                 spacing: 8,
+                 runSpacing: 8,
+                 children: [
+                   for (final model in models)
+                     _ModelChip(
+                       model: model,
+                       visionEnabled: visionModels.contains(model),
+                       canRemove: true,
+                       onRemove: () => onRemove(model),
+                       onToggleVision: () => onToggleVision(model),
+                     ),
+                 ],
+               ),
+               Text(
+                 isId
+                     ? 'Tambahkan model satu per satu. Ketuk ikon mata untuk model vision.'
+                     : 'Add models one by one. Tap the eye icon for vision models.',
+                 style: TextStyle(
+                   fontSize: 12,
+                   color: extras.subtleText,
+                   height: 1.35,
+                 ),
+               ),
+             ],
+           );
+         },
+       );
 }
 
 class _ModelChip extends StatelessWidget {
   const _ModelChip({
     required this.model,
+    required this.visionEnabled,
     required this.canRemove,
     required this.onRemove,
+    required this.onToggleVision,
   });
 
   final String model;
+  final bool visionEnabled;
   final bool canRemove;
   final VoidCallback onRemove;
+  final VoidCallback onToggleVision;
 
   @override
   Widget build(BuildContext context) {
@@ -535,6 +565,21 @@ class _ModelChip extends StatelessWidget {
               fontSize: 12,
               fontWeight: FontWeight.w600,
               color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onToggleVision,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                visionEnabled
+                    ? Icons.visibility_rounded
+                    : Icons.visibility_outlined,
+                size: 14,
+                color: visionEnabled ? cs.primary : cs.onSurfaceVariant,
+              ),
             ),
           ),
           if (canRemove) ...[

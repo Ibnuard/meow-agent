@@ -114,6 +114,67 @@ class OpenAiCompatibleClient {
     return content;
   }
 
+  Future<String> chatWithImage({
+    required LlmProviderConfig config,
+    required String prompt,
+    required String imageDataUrl,
+    String phase = 'vision',
+  }) async {
+    final response = await _dio.postUri<Map<String, dynamic>>(
+      _resolve(config.baseUrl, '/chat/completions'),
+      data: {
+        'model': config.model,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {'type': 'text', 'text': prompt},
+              {
+                'type': 'image_url',
+                'image_url': {'url': imageDataUrl},
+              },
+            ],
+          },
+        ],
+      },
+      options: Options(
+        headers: {
+          'Authorization': 'Bearer ${config.apiKey}',
+          'Content-Type': 'application/json',
+        },
+      ),
+    );
+
+    final data = response.data;
+    if (data == null) {
+      throw Exception('Empty response from LLM provider.');
+    }
+
+    final choices = data['choices'] as List?;
+    if (choices == null || choices.isEmpty) {
+      throw Exception('No choices returned by LLM provider.');
+    }
+
+    final message = (choices.first as Map)['message'] as Map?;
+    final content = message?['content'];
+    if (content is! String) {
+      throw Exception('Malformed message content.');
+    }
+    final usage = data['usage'] as Map?;
+    final completionTokens = usage?['completion_tokens'];
+    _recordUsage(
+      LlmRequestUsage(
+        phase: phase,
+        model: config.model,
+        inputTokens: estimateTokens(prompt),
+        outputTokens: completionTokens is int ? completionTokens : null,
+        messageCount: 1,
+        createdAt: DateTime.now(),
+      ),
+    );
+    return content;
+  }
+
   /// Lightweight credential test: lists models and returns true on 2xx.
   /// Falls back to a tiny chat completion if /models is not exposed by
   /// the provider.
