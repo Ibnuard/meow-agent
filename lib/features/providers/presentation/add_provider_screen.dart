@@ -37,6 +37,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   bool _obscureKey = true;
   bool _testing = false;
+  bool _checkingModelVision = false;
   bool _saving = false;
   String? _testResult;
   bool? _testSuccess;
@@ -94,12 +95,38 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     visionModels: _visionModels.toList(),
   );
 
-  void _addModel() {
+  Future<void> _addModel() async {
     final model = _modelInputController.text.trim();
     if (model.isEmpty || _models.contains(model)) return;
+    final canProbe =
+        _baseUrlController.text.trim().isNotEmpty &&
+        _apiKeyController.text.trim().isNotEmpty;
+    if (canProbe) {
+      setState(() => _checkingModelVision = true);
+    }
+    final supportsVision = canProbe
+        ? await OpenAiCompatibleClient().testVisionSupport(
+            _toLlmConfig(
+              ProviderConfig(
+                nickname: _nicknameController.text.trim().isEmpty
+                    ? 'Provider'
+                    : _nicknameController.text.trim(),
+                baseUrl: _baseUrlController.text.trim(),
+                apiKey: _apiKeyController.text.trim(),
+                model: model,
+                models: [model],
+              ),
+            ),
+          )
+        : false;
+    if (!mounted) return;
     setState(() {
       _models.add(model);
+      if (supportsVision) {
+        _visionModels.add(model);
+      }
       _modelInputController.clear();
+      _checkingModelVision = false;
     });
     // Re-validate so the model error clears after adding a model.
     _formKey.currentState?.validate();
@@ -113,16 +140,6 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     });
     // Re-validate so the model error appears if the list became empty.
     _formKey.currentState?.validate();
-  }
-
-  void _toggleVisionModel(String model) {
-    setState(() {
-      if (_visionModels.contains(model)) {
-        _visionModels.remove(model);
-      } else {
-        _visionModels.add(model);
-      }
-    });
   }
 
   Future<void> _testConnection() async {
@@ -324,11 +341,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       _ModelListEditor(
                         models: _models,
                         visionModels: _visionModels,
+                        checkingVision: _checkingModelVision,
                         controller: _modelInputController,
                         isId: s.isId,
                         onAdd: _addModel,
                         onRemove: _removeModel,
-                        onToggleVision: _toggleVisionModel,
                       ),
                     ],
                   ),
@@ -456,11 +473,11 @@ class _ModelListEditor extends FormField<List<String>> {
   _ModelListEditor({
     required List<String> models,
     required Set<String> visionModels,
+    required bool checkingVision,
     required TextEditingController controller,
     required bool isId,
-    required VoidCallback onAdd,
+    required Future<void> Function() onAdd,
     required ValueChanged<String> onRemove,
-    required ValueChanged<String> onToggleVision,
   }) : super(
          initialValue: models,
          autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -489,8 +506,14 @@ class _ModelListEditor extends FormField<List<String>> {
                      widthFactor: 1,
                      heightFactor: 1,
                      child: IconButton.filledTonal(
-                       onPressed: onAdd,
-                       icon: const Icon(Icons.add_rounded, size: 18),
+                       onPressed: checkingVision ? null : () => onAdd(),
+                       icon: checkingVision
+                           ? const SizedBox(
+                               width: 16,
+                               height: 16,
+                               child: CircularProgressIndicator(strokeWidth: 2),
+                             )
+                           : const Icon(Icons.add_rounded, size: 18),
                        style: IconButton.styleFrom(
                          minimumSize: const Size(36, 36),
                          maximumSize: const Size(36, 36),
@@ -500,7 +523,7 @@ class _ModelListEditor extends FormField<List<String>> {
                    ),
                  ),
                ),
-               const SizedBox(height: 10),
+               const SizedBox(height: 12),
                Wrap(
                  spacing: 8,
                  runSpacing: 8,
@@ -511,20 +534,21 @@ class _ModelListEditor extends FormField<List<String>> {
                        visionEnabled: visionModels.contains(model),
                        canRemove: true,
                        onRemove: () => onRemove(model),
-                       onToggleVision: () => onToggleVision(model),
                      ),
                  ],
                ),
+               const SizedBox(height: 8),
                Text(
                  isId
-                     ? 'Tambahkan model satu per satu. Ketuk ikon mata untuk model vision.'
-                     : 'Add models one by one. Tap the eye icon for vision models.',
+                     ? 'Tambahkan model satu per satu. Support vision dicek otomatis lewat API.'
+                     : 'Add models one by one. Vision support is checked automatically through the API.',
                  style: TextStyle(
                    fontSize: 12,
                    color: extras.subtleText,
                    height: 1.35,
                  ),
                ),
+               const SizedBox(height: 18),
              ],
            );
          },
@@ -537,14 +561,12 @@ class _ModelChip extends StatelessWidget {
     required this.visionEnabled,
     required this.canRemove,
     required this.onRemove,
-    required this.onToggleVision,
   });
 
   final String model;
   final bool visionEnabled;
   final bool canRemove;
   final VoidCallback onRemove;
-  final VoidCallback onToggleVision;
 
   @override
   Widget build(BuildContext context) {
@@ -567,21 +589,10 @@ class _ModelChip extends StatelessWidget {
               color: cs.onSurface,
             ),
           ),
-          const SizedBox(width: 4),
-          InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: onToggleVision,
-            child: Padding(
-              padding: const EdgeInsets.all(2),
-              child: Icon(
-                visionEnabled
-                    ? Icons.visibility_rounded
-                    : Icons.visibility_outlined,
-                size: 14,
-                color: visionEnabled ? cs.primary : cs.onSurfaceVariant,
-              ),
-            ),
-          ),
+          if (visionEnabled) ...[
+            const SizedBox(width: 6),
+            Icon(Icons.visibility_rounded, size: 14, color: cs.primary),
+          ],
           if (canRemove) ...[
             const SizedBox(width: 4),
             InkWell(

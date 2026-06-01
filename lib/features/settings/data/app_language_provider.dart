@@ -7,35 +7,31 @@ import '../../../core/storage/local_storage_service.dart';
 /// Temporary app language switcher.
 /// `system` follows the device locale. For now supported explicit languages:
 /// Indonesian and English.
-enum AppLanguage {
-  system,
-  id,
-  en,
-}
+enum AppLanguage { system, id, en }
 
 extension AppLanguageX on AppLanguage {
   String get code => switch (this) {
-        AppLanguage.system => 'system',
-        AppLanguage.id => 'id',
-        AppLanguage.en => 'en',
-      };
+    AppLanguage.system => 'system',
+    AppLanguage.id => 'id',
+    AppLanguage.en => 'en',
+  };
 
   String get label => switch (this) {
-        AppLanguage.system => 'System language',
-        AppLanguage.id => 'Bahasa Indonesia',
-        AppLanguage.en => 'English',
-      };
+    AppLanguage.system => 'System language',
+    AppLanguage.id => 'Bahasa Indonesia',
+    AppLanguage.en => 'English',
+  };
 
   static AppLanguage fromCode(String? code) => switch (code) {
-        'id' => AppLanguage.id,
-        'en' => AppLanguage.en,
-        _ => AppLanguage.system,
-      };
+    'id' => AppLanguage.id,
+    'en' => AppLanguage.en,
+    _ => AppLanguage.system,
+  };
 }
 
 class AppLanguageController extends StateNotifier<AppLanguage> {
   AppLanguageController(this._local)
-      : super(AppLanguageX.fromCode(_local.readString(_kLanguageKey)));
+    : super(AppLanguageX.fromCode(_local.readString(_kLanguageKey)));
 
   static const _kLanguageKey = 'meow.app.language';
 
@@ -49,8 +45,8 @@ class AppLanguageController extends StateNotifier<AppLanguage> {
 
 final appLanguageProvider =
     StateNotifierProvider<AppLanguageController, AppLanguage>((ref) {
-  return AppLanguageController(ref.watch(localStorageProvider));
-});
+      return AppLanguageController(ref.watch(localStorageProvider));
+    });
 
 /// Resolves the effective language from setting + device locale.
 String resolveLanguageCode(AppLanguage pref, {Locale? systemLocale}) {
@@ -63,10 +59,10 @@ String resolveLanguageCode(AppLanguage pref, {Locale? systemLocale}) {
 }
 
 String languageLabelFromCode(String code) => switch (code) {
-      'id' => 'Indonesian',
-      'en' => 'English',
-      _ => 'English',
-    };
+  'id' => 'Indonesian',
+  'en' => 'English',
+  _ => 'English',
+};
 
 class AppStrings {
   const AppStrings(this.code);
@@ -84,12 +80,13 @@ class AppStrings {
   String get close => isId ? 'Tutup' : 'Close';
   String get add => isId ? 'Tambah' : 'Add';
   String get saving => isId ? 'Menyimpan...' : 'Saving...';
-  String get autoCompact => isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
+  String get autoCompact =>
+      isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
   String get autoCompactDesc => isId
       ? 'Ringkas otomatis pesan lama saat batas konteks model hampir tercapai. '
-          'Jika dimatikan, agen akan berhenti dan memberi tahu kamu saat konteks penuh.'
+            'Jika dimatikan, agen akan berhenti dan memberi tahu kamu saat konteks penuh.'
       : 'Automatically summarize old messages when the context window approaches '
-          'the model limit. When off, the agent stops and asks you how to proceed.';
+            'the model limit. When off, the agent stops and asks you how to proceed.';
 
   String get preferences => isId ? 'PREFERENSI' : 'PREFERENCES';
   String get providers => isId ? 'PROVIDER' : 'PROVIDERS';
@@ -113,8 +110,8 @@ class AppStrings {
   String get editProvider => isId ? 'Edit Provider' : 'Edit Provider';
   String get llmProvider => isId ? 'Provider LLM' : 'LLM Provider';
   String get llmProviderDesc => isId
-      ? 'Hubungkan endpoint API manapun yang kompatibel dengan OpenAI.'
-      : 'Connect any OpenAI-compatible API endpoint.';
+      ? 'Hubungkan endpoint API mana pun yang OpenAI Compatible.'
+      : 'Connect any OpenAI Compatible API endpoint.';
   String get providerDetails => isId ? 'Detail Provider' : 'Provider Details';
   String get providerDetailsDesc => isId
       ? 'Berikan nama dan masukkan info koneksi.'
@@ -124,22 +121,28 @@ class AppStrings {
   String get nicknameHelper => isId
       ? 'Ditampilkan di dropdown provider agen.'
       : 'Shown in the agent provider dropdown.';
-  String get nicknameRequired => isId ? 'Nama panggilan wajib diisi' : 'Nickname is required';
+  String get nicknameRequired =>
+      isId ? 'Nama panggilan wajib diisi' : 'Nickname is required';
   String get baseUrl => 'Base URL';
-  String get baseUrlRequired => isId ? 'Base URL wajib diisi' : 'Base URL is required';
-  String get baseUrlInvalid => isId ? 'Masukkan URL yang valid (https://...)' : 'Enter a valid URL (https://...)';
+  String get baseUrlRequired =>
+      isId ? 'Base URL wajib diisi' : 'Base URL is required';
+  String get baseUrlInvalid => isId
+      ? 'Masukkan URL yang valid (https://...)'
+      : 'Enter a valid URL (https://...)';
   String get apiKey => 'API Key';
   String get apiKeyHelper => isId
       ? 'Disimpan dengan aman hanya di perangkat ini.'
       : 'Stored securely on this device only.';
-  String get apiKeyRequired => isId ? 'API Key wajib diisi' : 'API Key is required';
+  String get apiKeyRequired =>
+      isId ? 'API Key wajib diisi' : 'API Key is required';
   String get model => 'Model';
   String get modelRequired => isId ? 'Model wajib diisi' : 'Model is required';
   String get test => isId ? 'Uji' : 'Test';
   String get testing => isId ? 'Menguji...' : 'Testing...';
   String get saveProvider => isId ? 'Simpan Provider' : 'Save Provider';
   String get deleteProvider => isId ? 'Hapus Provider' : 'Delete Provider';
-  String get connectionOk => isId ? 'Koneksi berhasil' : 'Connection successful';
+  String get connectionOk =>
+      isId ? 'Koneksi berhasil' : 'Connection successful';
   String get connectionFail => isId ? 'Koneksi gagal' : 'Connection failed';
   String deleteProviderBody(String name) => isId
       ? 'Hapus "$name"?\n\nIni akan menghapus konfigurasi provider dan API key.'
@@ -150,17 +153,17 @@ class AppStrings {
   String get noProvidersYet => isId ? 'Belum ada provider' : 'No providers yet';
 
   // Provider/model missing fallback — used in chat when agent's provider disappeared.
-  String get providerMissingTitle => isId
-      ? 'Provider tidak tersedia'
-      : 'Provider unavailable';
+  String get providerMissingTitle =>
+      isId ? 'Provider tidak tersedia' : 'Provider unavailable';
   String providerMissingBody(String agentName) => isId
       ? 'Agen "$agentName" memerlukan provider dan model yang valid. '
-          'Provider yang terhubung mungkin telah dihapus atau modelnya tidak lagi tersedia. '
-          'Silakan atur ulang di halaman Provider.'
+            'Provider yang terhubung mungkin telah dihapus atau modelnya tidak lagi tersedia. '
+            'Silakan atur ulang di halaman Provider.'
       : 'Agent "$agentName" needs a valid provider and model. '
-          'The linked provider may have been deleted or its model is no longer available. '
-          'Please reconfigure it in the Provider page.';
-  String get manageProvidersAction => isId ? 'Atur Provider' : 'Manage Providers';
+            'The linked provider may have been deleted or its model is no longer available. '
+            'Please reconfigure it in the Provider page.';
+  String get manageProvidersAction =>
+      isId ? 'Atur Provider' : 'Manage Providers';
   String get noProvidersTapAdd => isId
       ? 'Tap + untuk menambahkan provider LLM pertama.'
       : 'Tap + to add your first LLM provider.';
@@ -196,29 +199,36 @@ class AppStrings {
   String get noAgentsCreate => isId
       ? 'Buat agen pertamamu untuk mulai mengobrol.'
       : 'Create your first agent to start chatting.';
-  String get providerNotFound => isId ? 'Provider tidak ditemukan' : 'Provider not found';
-  String get pleaseSelectProvider => isId ? 'Silakan pilih provider.' : 'Please select a provider.';
+  String get providerNotFound =>
+      isId ? 'Provider tidak ditemukan' : 'Provider not found';
+  String get pleaseSelectProvider =>
+      isId ? 'Silakan pilih provider.' : 'Please select a provider.';
 
   String get moduleStore => isId ? 'Daftar Modul' : 'Module List';
   String get modules => isId ? 'Modul' : 'Modules';
   String get install => isId ? 'Pasang' : 'Install';
   String get installed => isId ? 'Terpasang' : 'Installed';
-  String moduleInstalled(String name) => isId ? '$name terpasang.' : '$name installed.';
+  String moduleInstalled(String name) =>
+      isId ? '$name terpasang.' : '$name installed.';
   String get active => isId ? 'Aktif' : 'Active';
   String get disabled => isId ? 'Nonaktif' : 'Disabled';
-  String get failedLoadModules => isId ? 'Gagal memuat modul.' : 'Failed to load modules.';
+  String get failedLoadModules =>
+      isId ? 'Gagal memuat modul.' : 'Failed to load modules.';
   String get noModulesYet => isId ? 'Belum ada modul' : 'No modules yet';
   String get noModulesBrowse => isId
       ? 'Tap "Tambah" untuk melihat modul yang tersedia.'
       : 'Tap "Add" to browse available modules.';
-  String get welcomeTitle => isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
+  String get welcomeTitle =>
+      isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId
       ? 'Siapkan agen pertamamu untuk mulai. Gunakan API key kompatibel OpenAI milikmu sendiri.'
       : 'Set up your first agent to get started. Bring your own OpenAI-compatible API key.';
   String get setUp => isId ? 'Siapkan' : 'Set Up';
-  String get appTagline => isId ? 'AI agentic Android-native' : 'Android-native agentic AI';
+  String get appTagline =>
+      isId ? 'AI agentic Android-native' : 'Android-native agentic AI';
 
-  String get permissionRequired => isId ? 'Izin Diperlukan' : 'Permission Required';
+  String get permissionRequired =>
+      isId ? 'Izin Diperlukan' : 'Permission Required';
   String get openSettings => isId ? 'Buka Pengaturan' : 'Open Settings';
   String get skip => isId ? 'Lewati' : 'Skip';
   String get uninstallModule => isId ? 'Hapus Modul' : 'Uninstall Module';
@@ -234,13 +244,15 @@ class AppStrings {
 
   String get copyResult => isId ? 'Salin Hasil' : 'Copy Result';
   String get save => isId ? 'Simpan' : 'Save';
-  String get copiedToClipboard => isId ? 'Disalin ke clipboard.' : 'Copied to clipboard.';
+  String get copiedToClipboard =>
+      isId ? 'Disalin ke clipboard.' : 'Copied to clipboard.';
   String get result => isId ? 'Hasil' : 'Result';
   String get chooseActionAbove => isId
       ? 'Pilih aksi di atas untuk memproses teks.'
       : 'Choose an action above to process the text.';
 
-  String get noAgentConfigured => isId ? 'Belum ada agen dikonfigurasi' : 'No agent configured';
+  String get noAgentConfigured =>
+      isId ? 'Belum ada agen dikonfigurasi' : 'No agent configured';
   String get createAgentToChat => isId
       ? 'Buat agen untuk mulai mengobrol.'
       : 'Create an agent to start chatting.';
@@ -284,13 +296,13 @@ class AppStrings {
       isId ? 'Belum ada agen dipilih.' : 'No agent selected.';
 
   // Clipboard action chips.
-  String get clipboardActionSendToChat => isId ? 'Kirim ke Chat' : 'Send to Chat';
+  String get clipboardActionSendToChat =>
+      isId ? 'Kirim ke Chat' : 'Send to Chat';
   String get clipboardActionTranslate => isId ? 'Terjemahkan' : 'Translate';
   String get clipboardActionSummarize => isId ? 'Ringkas' : 'Summarize';
   String get clipboardActionRewrite => isId ? 'Tulis Ulang' : 'Rewrite';
   String get clipboardActionExplain => isId ? 'Jelaskan' : 'Explain';
   String get clipboardActionGrammar =>
       isId ? 'Perbaiki Tata Bahasa' : 'Fix Grammar';
-  String get clipboardActionReply =>
-      isId ? 'Susun Balasan' : 'Draft Reply';
+  String get clipboardActionReply => isId ? 'Susun Balasan' : 'Draft Reply';
 }

@@ -209,4 +209,19 @@ class OpenAiCompatibleClient {
       return false;
     }
   }
+
+  Future<bool> testVisionSupport(LlmProviderConfig config) async {
+    try {
+      await chatWithImage(
+        config: config,
+        prompt: 'Reply with the single word ok.',
+        imageDataUrl:
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+        phase: 'vision_probe',
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

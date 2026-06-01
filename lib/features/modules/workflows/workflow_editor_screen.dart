@@ -902,10 +902,13 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           .map(
             (agent) => MeowDropdownOption<String>(
               value: agent.id,
-              label: agent.name,
+              label: agent.name.trim().isEmpty
+                  ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
+                  : agent.name.trim(),
               subtitle: isId
                   ? 'Agent untuk langkah ini'
                   : 'Agent for this step',
+              prefix: MeowAgentIcon(agent: agent),
               searchText: agent.name,
             ),
           )
