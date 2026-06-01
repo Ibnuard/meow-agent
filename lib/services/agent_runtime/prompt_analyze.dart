@@ -30,6 +30,7 @@ const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
 - Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "what can you do?", "what are your capabilities?", "where is your workspace?"
 - Capability/ability questions MUST use system.tools.list. Never answer from memory or generic assistant knowledge.
+- Set true when attached files are present and the user asks to inspect, read, summarize, transform, explain, or answer from those attachments. Use attachment tools; never infer attachment contents from filenames.
 - Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
@@ -135,6 +136,7 @@ Rules:
     workflow     \\u2014 create/list/update/delete/toggle scheduled or recurring automations
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
     chat         \\u2014 deliver a message into a chat UI
+    attachment   \\u2014 list attached files and read supported text attachments from the current message
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
 - narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):

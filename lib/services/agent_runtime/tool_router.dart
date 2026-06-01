@@ -37,6 +37,9 @@ class ToolRouter {
   /// The current agent id - used by data-scoped tools (workflows, chat, etc.).
   String agentId;
 
+  /// Attachments available for the current runtime turn.
+  List<AttachedFile> attachments = const [];
+
   final ModuleRegistry _moduleRegistry = buildRuntimeModuleRegistry();
 
   /// Catalog groups derived from the plugin list. Kept as a router getter for
@@ -224,6 +227,7 @@ class ToolRouter {
     providerRepository: providerRepository,
     saveAgent: saveAgent,
     deleteAgent: deleteAgent,
+    attachments: attachments,
     allToolDefinitions: _registry.values,
   );
 

@@ -1,4 +1,5 @@
 import '../../features/modules/app_control/app_module.dart';
+import '../../features/modules/attachments/attachment_module.dart';
 import '../../features/modules/calendar/calendar_module.dart';
 import '../../features/modules/chat/chat_module.dart';
 import '../../features/modules/clipboard_ai/clipboard_module.dart';
@@ -22,6 +23,7 @@ const List<ModulePlugin> runtimeModulePlugins = [
   WorkflowModulePlugin(),
   SystemModulePlugin(),
   ChatModulePlugin(),
+  AttachmentModulePlugin(),
 ];
 
 ModuleRegistry? _cachedRegistry;

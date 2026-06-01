@@ -21,6 +21,7 @@ class ModuleToolContext {
     this.providerRepository,
     this.saveAgent,
     this.deleteAgent,
+    this.attachments = const [],
     this.allToolDefinitions = const [],
   });
 
@@ -31,6 +32,7 @@ class ModuleToolContext {
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;
   final Future<void> Function(String id)? deleteAgent;
+  final List<AttachedFile> attachments;
 
   /// Every registered [ToolDefinition], for tools that introspect the catalog
   /// (e.g. `system.tools.list`). Supplied by the router.
@@ -64,8 +66,7 @@ abstract class ModulePlugin {
   List<String> get capabilityHints => const [];
 
   /// Tool names owned by this module (derived from [toolDefinitions]).
-  Set<String> get toolNames =>
-      toolDefinitions.map((d) => d.name).toSet();
+  Set<String> get toolNames => toolDefinitions.map((d) => d.name).toSet();
 
   /// Whether this plugin owns [toolName].
   bool handles(String toolName) => toolNames.contains(toolName);

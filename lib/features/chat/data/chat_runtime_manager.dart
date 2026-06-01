@@ -156,8 +156,14 @@ class ChatRuntimeManager extends ChangeNotifier {
   }) async {
     final provider = await _resolveProvider(agentId);
 
-    // Persist user message immediately.
-    final userMsg = ChatMessage(role: 'user', content: userMessage);
+    // Persist user message with attached file names so the bubble survives
+    // history reload. The runtime receives the raw userMessage + attachments
+    // separately, so the 📎 suffix is display-only and does not pollute LLM
+    // context.
+    final displayContent = attachments.isEmpty
+        ? userMessage
+        : '$userMessage\n\n📎 ${attachments.map((a) => a.name).join(", ")}';
+    final userMsg = ChatMessage(role: 'user', content: displayContent);
     await history.addMessage(agentId, userMsg);
 
     if (provider == null || !provider.isComplete) {

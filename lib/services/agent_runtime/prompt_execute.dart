@@ -39,6 +39,7 @@ If you need more info from the user:
 
 CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
+- If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Do not infer file contents from filenames or prior narrative.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
