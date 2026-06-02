@@ -719,24 +719,24 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   }
 
   String _moduleDescription(ModuleModel module, {required bool isId}) {
-    if (!isId) return module.description;
+    final s = AppStrings(isId ? 'id' : 'en');
     switch (module.id) {
       case 'clipboard_ai':
-        return 'Biarkan agen memproses teks dari clipboard dan menu Share Android.';
+        return s.moduleDescClipboard;
       case 'app_control':
-        return 'Biarkan agen membuka aplikasi, URL, dan halaman pengaturan tertentu dengan kontrol izin.';
+        return s.moduleDescAppControl;
       case 'device_context':
-        return 'Biarkan agen membaca konteks perangkat seperti baterai, jaringan, penyimpanan, waktu, DND, dan Bluetooth.';
+        return s.moduleDescDeviceContext;
       case 'notification_intelligence':
-        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis atau menghapus notifikasi.';
+        return s.moduleDescNotification;
       case 'notes':
-        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
+        return s.moduleDescNotes;
       case 'files':
-        return 'Buat, baca, edit, hapus, dan kelola file di workspace agen. Terbatas hanya di direktori workspace.';
+        return s.moduleDescFiles;
       case 'calendar':
-        return 'Kalender lokal untuk menjadwalkan event dan pengingat. Agen dapat membuat dan mengelola jadwalmu.';
+        return s.moduleDescCalendar;
       case 'workflows':
-        return 'Jadwalkan tugas otomatis agent dengan notifikasi. Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.';
+        return s.moduleDescWorkflows;
       default:
         return module.description;
     }

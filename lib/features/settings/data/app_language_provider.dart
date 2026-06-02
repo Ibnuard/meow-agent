@@ -361,6 +361,32 @@ class AppStrings {
   String get noModulesBrowse => isId
       ? 'Tap "Tambah" untuk melihat modul yang tersedia.'
       : 'Tap "Add" to browse available modules.';
+
+  // Module descriptions (store & detail screens).
+  String get moduleDescClipboard => isId
+      ? 'Proses teks dari clipboard dengan AI. Terjemahkan, rangkum, tulis ulang, atau jelaskan teks apapun.'
+      : 'Process copied text with AI. Translate, summarize, rewrite, or explain any text from any app.';
+  String get moduleDescAppControl => isId
+      ? 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.'
+      : 'Let AI open apps, URLs, and system settings on your behalf.';
+  String get moduleDescDeviceContext => isId
+      ? 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.'
+      : 'Let agents read battery, network, storage, time, locale, charging, DND, and Bluetooth.';
+  String get moduleDescNotification => isId
+      ? 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca - tidak membalas otomatis.'
+      : 'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.';
+  String get moduleDescNotes => isId
+      ? 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.'
+      : 'Create and manage markdown notes for you and your agents. Local-first persistent memory layer.';
+  String get moduleDescFiles => isId
+      ? 'Buat, baca, edit, hapus, dan kelola file di workspace agen. Terbatas hanya di direktori workspace.'
+      : 'Create, read, edit, delete, and organize files within the agent workspace. Sandboxed to the workspace directory only.';
+  String get moduleDescCalendar => isId
+      ? 'Kalender lokal untuk menjadwalkan event dan pengingat. Agen dapat membuat dan mengelola jadwalmu.'
+      : 'Local calendar for scheduling events and reminders. Agent can create and manage your schedule.';
+  String get moduleDescWorkflows => isId
+      ? 'Jadwalkan tugas otomatis agent dengan notifikasi. Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.'
+      : 'Schedule automated agent tasks with notifications. Create workflows that run prompts at specific times or intervals.';
   String get welcomeTitle =>
       isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId

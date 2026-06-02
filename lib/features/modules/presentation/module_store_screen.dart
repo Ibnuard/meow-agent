@@ -138,18 +138,23 @@ class ModuleStoreScreen extends ConsumerWidget {
   }
 
   String _moduleDescription(ModuleModel module, AppStrings s) {
-    if (!s.isId) return module.description;
     switch (module.id) {
       case 'clipboard_ai':
-        return 'Proses teks dari clipboard dengan AI. Terjemahkan, rangkum, tulis ulang, atau jelaskan teks apapun.';
+        return s.moduleDescClipboard;
       case 'app_control':
-        return 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.';
+        return s.moduleDescAppControl;
       case 'device_context':
-        return 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.';
+        return s.moduleDescDeviceContext;
       case 'notification_intelligence':
-        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca - tidak membalas otomatis.';
+        return s.moduleDescNotification;
       case 'notes':
-        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
+        return s.moduleDescNotes;
+      case 'files':
+        return s.moduleDescFiles;
+      case 'calendar':
+        return s.moduleDescCalendar;
+      case 'workflows':
+        return s.moduleDescWorkflows;
       default:
         return module.description;
     }
