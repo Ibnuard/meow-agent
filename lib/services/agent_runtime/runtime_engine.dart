@@ -9,7 +9,6 @@ import '../../features/providers/data/provider_config.dart';
 import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
-import '../llm/vision_probe_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
@@ -229,26 +228,9 @@ class AgentRuntimeEngine {
       toolRouter.agentName = wsName;
       toolRouter.agentId = request.agentId;
       toolRouter.attachments = request.attachments;
-      // Vision probe: only test if the user attached an image file.
-      // The probe is cached per baseUrl|model so it only runs once.
-      final hasImageAttachment = request.attachments.any(
-        (a) {
-          final dot = a.name.lastIndexOf('.');
-          if (dot < 0) return false;
-          final ext = a.name.substring(dot).toLowerCase();
-          return const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'}.contains(ext);
-        },
-      );
-      if (hasImageAttachment) {
-        toolRouter.modelSupportsVision = await VisionProbeService.instance.probe(
-          client: client,
-          config: llmConfig,
-        );
-      } else {
-        // No image attached - skip probe. Use cached result if available.
-        toolRouter.modelSupportsVision =
-            VisionProbeService.instance.getCached(llmConfig) ?? false;
-      }
+      // TODO: Vision probe disabled temporarily — assume all models support vision.
+      // Re-enable VisionProbeService once the probe failure is debugged.
+      toolRouter.modelSupportsVision = true;
       toolRouter.currentUserMessage = request.userMessage;
       toolRouter.describeImage =
           ({required AttachedFile image, required String prompt}) async {

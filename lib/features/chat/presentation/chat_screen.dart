@@ -2681,6 +2681,45 @@ class _ChatInputState extends State<_ChatInput> {
     setState(() => _attachments.removeAt(index));
     _notifyAttachments();
   }
+  bool _isImageExtension(String name) {
+    final dot = name.lastIndexOf('.');
+    if (dot < 0) return false;
+    final ext = name.substring(dot).toLowerCase();
+    return const {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'}
+        .contains(ext);
+  }
+
+  void _showImagePreview(BuildContext context, File file) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.file(
+              file,
+              fit: BoxFit.contain,
+              errorBuilder: (_, e, s) => Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.broken_image_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   void _onTextChanged() {
     final text = widget.controller.text;
@@ -2886,51 +2925,103 @@ Text(
             child: Align(
               alignment: Alignment.centerLeft,
               child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: List.generate(_attachments.length, (i) {
                   final a = _attachments[i];
-                  return Padding(
-                    padding: EdgeInsets.only(top: i == 0 ? 0 : 6),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: extras.card,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: extras.subtleBorder),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.attach_file_rounded,
-                            size: 16,
-                            color: cs.primary,
-                          ),
-                          const SizedBox(width: 6),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 200),
-                            child: Text(
-                              a.name,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: cs.onSurface,
+                  final isImage = _isImageExtension(a.name);
+                  if (isImage) {
+                    // Image thumbnail preview.
+                    return Stack(
+                      children: [
+                        GestureDetector(
+                          onTap: () => _showImagePreview(context, a.file),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.file(
+                              a.file,
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, e, s) => Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: extras.card,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.broken_image_rounded,
+                                  size: 20,
+                                  color: cs.onSurfaceVariant,
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          const SizedBox(width: 4),
-                          GestureDetector(
+                        ),
+                        Positioned(
+                          top: 2,
+                          right: 2,
+                          child: GestureDetector(
                             onTap: () => _removeFile(i),
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 16,
-                              color: cs.onSurfaceVariant,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    );
+                  }
+                  // Non-image file chip (existing style).
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: extras.card,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: extras.subtleBorder),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.attach_file_rounded,
+                          size: 16,
+                          color: cs.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 200),
+                          child: Text(
+                            a.name,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: cs.onSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _removeFile(i),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 }),

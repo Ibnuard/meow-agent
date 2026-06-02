@@ -50,7 +50,7 @@ class AttachmentModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'attachment.describe_image',
       description:
-          'Describe or answer questions about one attached image from the current user message. Requires the active model to support vision.',
+          'Describe or answer questions about one attached image from the current user message.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
