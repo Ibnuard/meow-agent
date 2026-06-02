@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import '../../../services/workspace/workspace_file_service.dart';
 import '../../chat/data/chat_history_service.dart';
+import '../web/data/api_store_repository.dart';
+import '../web/domain/http_executor.dart';
 
 /// Catalog entry describing a single built-in variable so the editor UI
 /// can render it (label + description) and let users tap-to-insert.
@@ -238,11 +242,14 @@ int? stepResultNumber(String key) {
 }
 
 /// True if [key] is any recognized built-in: a static catalog entry OR a
-/// dynamic `@stepN` reference. The editor uses this for highlighting,
-/// atomic-token deletion, and the undefined-variable check so dynamic step
-/// variables are treated as first-class.
+/// dynamic `@stepN` reference OR an `@api:name` reference. The editor uses
+/// this for highlighting, atomic-token deletion, and the undefined-variable
+/// check so dynamic step variables and API references are treated as
+/// first-class.
 bool isKnownBuiltInKey(String key) =>
-    kBuiltInVariableKeys.contains(key) || isStepResultKey(key);
+    kBuiltInVariableKeys.contains(key) ||
+    isStepResultKey(key) ||
+    key.startsWith('api:');
 
 /// Build the dynamic step-result variables for a workflow with [stepCount]
 /// steps. `@stepN` resolves to the output of step N (1-based).
@@ -390,6 +397,58 @@ class WorkflowBuiltInVars {
       final re = RegExp('(?<![\\w@])@$escaped\\b');
       resolved = resolved.replaceAllMapped(re, (_) => entry.value);
     }
+    return resolved;
+  }
+
+  /// Resolve all `@api:Name` references in [prompt] by executing the stored
+  /// API and replacing the token with the HTTP response body.
+  ///
+  /// API names are matched case-insensitively with spaces normalized to
+  /// underscores. If an API is not found or execution fails, the token is
+  /// replaced with an error message so the agent can react gracefully.
+  static Future<String> resolveApiReferences(String prompt) async {
+    // Match @api:Name tokens (name is word chars including underscores).
+    final pattern = RegExp(r'(?<![\w@])@api:(\w+)');
+    final matches = pattern.allMatches(prompt).toList();
+    if (matches.isEmpty) return prompt;
+
+    final apis = await ApiStoreRepository.instance.list();
+    var resolved = prompt;
+
+    // Process in reverse so indices stay valid after replacements.
+    for (final match in matches.reversed) {
+      final rawName = match.group(1) ?? '';
+      final searchName = rawName.replaceAll('_', ' ').toLowerCase();
+
+      // Find API by name (case-insensitive, underscore = space).
+      final api = apis.where((a) {
+        return a.name.toLowerCase() == searchName ||
+            a.name.replaceAll(' ', '_').toLowerCase() == rawName.toLowerCase();
+      }).firstOrNull;
+
+      String replacement;
+      if (api == null) {
+        replacement = '[API "$rawName" not found in store]';
+      } else {
+        try {
+          final executor = HttpExecutor();
+          final result = await executor.executeFromConfig(config: api);
+          if (result.isSuccess) {
+            replacement = result.body is String
+                ? result.body as String
+                : jsonEncode(result.body);
+          } else {
+            replacement =
+                '[API "${api.name}" returned ${result.statusCode}: ${result.error ?? result.body}]';
+          }
+        } catch (e) {
+          replacement = '[API "${api.name}" failed: $e]';
+        }
+      }
+
+      resolved = resolved.replaceRange(match.start, match.end, replacement);
+    }
+
     return resolved;
   }
 

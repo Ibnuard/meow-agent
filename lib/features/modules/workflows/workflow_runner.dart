@@ -328,7 +328,8 @@ class WorkflowRunner {
       wf.prompt,
       substituteVars,
     );
-    final prompt = _wrapWithTriggerContext(resolvedPrompt, triggerVars);
+    final apiResolved = await WorkflowBuiltInVars.resolveApiReferences(resolvedPrompt);
+    final prompt = _wrapWithTriggerContext(apiResolved, triggerVars);
 
     final response = await engine
         .run(
@@ -617,6 +618,7 @@ class WorkflowRunner {
         step.prompt,
         substituteVars,
       );
+      rawPrompt = await WorkflowBuiltInVars.resolveApiReferences(rawPrompt);
 
       if (i == 0) {
         rawPrompt = _wrapWithTriggerContext(rawPrompt, triggerVars);

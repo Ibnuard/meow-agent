@@ -13,6 +13,8 @@ import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_templates.dart';
+import '../web/data/api_config.dart';
+import '../web/data/api_store_repository.dart';
 
 /// Create or edit a workflow.
 class WorkflowEditorScreen extends ConsumerStatefulWidget {
@@ -1153,95 +1155,205 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       grouped.putIfAbsent(v.category, () => []).add(v);
     }
 
+    if (!mounted) return;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: false,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.78,
-          ),
-          decoration: BoxDecoration(
-            color: extras.card,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: extras.subtleBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                blurRadius: 28,
-                offset: const Offset(0, 18),
+      builder: (ctx) {
+        final media = MediaQuery.of(ctx);
+        final maxSheetHeight = media.size.height * 0.78;
+        final bottomPadding = media.viewPadding.bottom + 12;
+
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: double.infinity,
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            margin: const EdgeInsets.only(left: 10, right: 10),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
+              border: Border(top: BorderSide(color: extras.inputBorder)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 30,
+                  spreadRadius: -14,
+                  offset: const Offset(0, -10),
                 ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-              const SizedBox(height: 14),
-              Text(
-                s.workflowBuiltinVars,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                s.isId
-                    ? 'Tap untuk menyisipkan ke prompt utama.'
-                    : 'Tap to insert into the main prompt.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.72),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: grouped.entries.map((entry) {
-                    return Theme(
-                      data: Theme.of(
-                        ctx,
-                      ).copyWith(dividerColor: Colors.transparent),
-                      child: ExpansionTile(
-                        initiallyExpanded: true,
-                        tilePadding: EdgeInsets.zero,
-                        childrenPadding: const EdgeInsets.only(bottom: 8),
-                        title: Text(
-                          entry.key.labelFor(s.code),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: cs.onSurface,
-                            fontWeight: FontWeight.w700,
-                          ),
+              child: Padding(
+                padding: EdgeInsets.only(bottom: bottomPadding),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Drag handle
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.24),
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                        children: entry.value
-                            .map((v) => _builtInSheetRow(v, cs, s.code))
-                            .toList(),
                       ),
-                    );
-                  }).toList(),
+                    ),
+
+                    // Header: title + subtitle + close
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  s.workflowBuiltinVars,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: cs.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  s.isId
+                                      ? 'Tap untuk menyisipkan ke prompt utama.'
+                                      : 'Tap to insert into the main prompt.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Content
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                        children: [
+                          // ─── @api: row (same style as other vars) ──────────
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, top: 4, bottom: 8),
+                            child: Text(
+                              'API',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () {
+                              Navigator.of(ctx).pop();
+                              _insertBuiltInVariable('@api:');
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF06B6D4).withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                                    ),
+                                    child: const Text(
+                                      '@api:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF06B6D4),
+                                        fontFamily: 'monospace',
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      s.isId
+                                          ? 'Panggil API tersimpan (ketik @api: lalu nama API)'
+                                          : 'Call stored API (type @api: then API name)',
+                                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+
+                          // ─── Built-in variable categories ───────────────────
+                          ...grouped.entries.map((entry) {
+                            return Theme(
+                              data: Theme.of(ctx).copyWith(
+                                dividerColor: Colors.transparent,
+                              ),
+                              child: ExpansionTile(
+                                initiallyExpanded: true,
+                                tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+                                childrenPadding: const EdgeInsets.only(
+                                  left: 4,
+                                  right: 4,
+                                  bottom: 8,
+                                ),
+                                title: Text(
+                                  entry.key.labelFor(s.code),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                children: entry.value
+                                    .map((v) => _builtInSheetRow(v, cs, s.code))
+                                    .toList(),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -1632,16 +1744,28 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return StatefulBuilder(
       builder: (context, localSetState) {
         final trigger = _activeVariableTrigger(ctrl);
+        final isApiQuery = trigger != null && trigger.query.startsWith('api:');
         final suggestions = trigger == null
             ? const <BuiltInVariable>[]
-            : _visibleBuiltIns()
-                  .where(
-                    (v) => v.key.toLowerCase().contains(
-                      trigger.query.toLowerCase(),
-                    ),
-                  )
-                  .take(6)
-                  .toList();
+            : isApiQuery
+                ? const <BuiltInVariable>[]
+                : _visibleBuiltIns()
+                      .where(
+                        (v) => v.key.toLowerCase().contains(
+                          trigger.query.toLowerCase(),
+                        ),
+                      )
+                      .take(6)
+                      .toList();
+
+        // API suggestions when user types @api: or @api
+        final showApiHint = trigger != null &&
+            !isApiQuery &&
+            'api'.contains(trigger.query.toLowerCase()) &&
+            trigger.query.isNotEmpty;
+        final apiSuggestions = isApiQuery
+            ? _getApiSuggestions(trigger.query.substring(4))
+            : const <ApiConfig>[];
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1722,10 +1846,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           child: InkWell(
                             onTap: () {
                               _replaceVariableTrigger(ctrl, trigger, v.key);
-                              // Programmatic controller edits don't fire
-                              // TextField.onChanged, so step prompts (which
-                              // persist via onChanged) would otherwise save the
-                              // half-typed token. Propagate the final text.
                               onChanged?.call(ctrl.text);
                               localSetState(() {});
                             },
@@ -1777,10 +1897,183 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
               ),
             ],
+
+            // Show @api: hint when user types @a, @ap, @api
+            if (showApiHint) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () {
+                  _replaceVariableTriggerRaw(ctrl, trigger, 'api:');
+                  localSetState(() {});
+                },
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF06B6D4).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.24)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_rounded, size: 12, color: Color(0xFF06B6D4)),
+                      const SizedBox(width: 5),
+                      Text(
+                        '@api:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: const Color(0xFF06B6D4),
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        s.isId ? 'Panggil API tersimpan' : 'Call a stored API',
+                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // API suggestions when query starts with api:
+            if (isApiQuery && apiSuggestions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: extras.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.isId ? 'Pilih API' : 'Select API',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...apiSuggestions.map((api) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: InkWell(
+                          onTap: () {
+                            final safeName = api.name.replaceAll(RegExp(r'\s+'), '_');
+                            _replaceVariableTrigger(ctrl, trigger, 'api:$safeName');
+                            onChanged?.call(ctrl.text);
+                            localSetState(() {});
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF06B6D4).withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.15)),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _methodColor(api.method).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    api.method,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: _methodColor(api.method),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    api.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: cs.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
           ],
         );
       },
     );
+  }
+
+  static Color _methodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET': return const Color(0xFF22C55E);
+      case 'POST': return const Color(0xFF3B82F6);
+      case 'PUT': return const Color(0xFFF59E0B);
+      case 'PATCH': return const Color(0xFF8B5CF6);
+      case 'DELETE': return const Color(0xFFEF4444);
+      default: return const Color(0xFF64748B);
+    }
+  }
+
+  List<ApiConfig> _cachedApis = [];
+  DateTime? _lastApiLoad;
+
+  List<ApiConfig> _getApiSuggestions(String query) {
+    // Refresh cache every 5 seconds
+    final now = DateTime.now();
+    if (_lastApiLoad == null || now.difference(_lastApiLoad!).inSeconds > 5) {
+      _lastApiLoad = now;
+      ApiStoreRepository.instance.list().then((apis) {
+        _cachedApis = apis.toList();
+      });
+    }
+    if (query.isEmpty) return _cachedApis.take(8).toList();
+    return _cachedApis
+        .where((a) => a.name.toLowerCase().contains(query.toLowerCase()))
+        .take(8)
+        .toList();
+  }
+
+  /// Like _replaceVariableTrigger but doesn't add a trailing space (for @api: prefix).
+  void _replaceVariableTriggerRaw(
+    TextEditingController ctrl,
+    _VariableTrigger trigger,
+    String key,
+  ) {
+    final text = ctrl.text;
+    final end = trigger.end.clamp(0, text.length);
+    final replacement = '@$key';
+    ctrl.text = text.replaceRange(trigger.start, end, replacement);
+    final pos = trigger.start + replacement.length;
+    ctrl.selection = TextSelection.collapsed(offset: pos);
   }
 
   _VariableTrigger? _activeVariableTrigger(TextEditingController ctrl) {
@@ -1798,9 +2091,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       if (RegExp(r'[\w@]').hasMatch(prev)) return null;
     }
     final query = before.substring(at + 1);
-    // Stop suggestions if the user already typed a non-word character (space,
-    // newline, punctuation) — they've moved on from the placeholder.
-    if (query.isNotEmpty && RegExp(r'[^\w]').hasMatch(query)) return null;
+    // Allow colon in the query only when it's the 'api:' prefix pattern.
+    // Stop suggestions if the user typed another non-word character.
+    if (query.isNotEmpty) {
+      final cleaned = query.startsWith('api:') ? query.substring(4) : query;
+      if (cleaned.isNotEmpty && RegExp(r'[^\w]').hasMatch(cleaned)) return null;
+      // Also reject if colon appears but doesn't form 'api:'
+      if (query.contains(':') && !query.startsWith('api:')) return null;
+    }
     return _VariableTrigger(at, cursor, query);
   }
 
@@ -2214,9 +2512,8 @@ class _VariableTrigger {
 class _VariableTextEditingController extends TextEditingController {
   _VariableTextEditingController({super.text});
 
-  // Match @key tokens with a left-side word boundary so emails (foo@bar.com)
-  // and double-@ chains never get rewritten.
-  static final _pattern = RegExp(r'(?<![\w@])@(\w+)');
+  // Match @key tokens AND @api:name tokens with a left-side word boundary.
+  static final _pattern = RegExp(r'(?<![\w@])@(\w+(?::\w+)?)');
 
   @override
   TextSpan buildTextSpan({
