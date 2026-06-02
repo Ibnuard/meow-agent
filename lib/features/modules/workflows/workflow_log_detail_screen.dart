@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
@@ -209,47 +209,9 @@ class _WorkflowLogDetailScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          MarkdownBody(
-            data: displayText,
-            selectable: true,
-            shrinkWrap: true,
-            styleSheet: MarkdownStyleSheet(
-              p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.5),
-              h1: TextStyle(
-                color: cs.onSurface,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-              ),
-              h2: TextStyle(
-                color: cs.onSurface,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                height: 1.4,
-              ),
-              h3: TextStyle(
-                color: cs.onSurface,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-                height: 1.4,
-              ),
-              strong: TextStyle(
-                color: cs.onSurface,
-                fontWeight: FontWeight.w700,
-              ),
-              em: TextStyle(color: cs.onSurface, fontStyle: FontStyle.italic),
-              listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
-              blockquote: TextStyle(
-                color: cs.onSurfaceVariant,
-                fontSize: 14,
-                height: 1.5,
-              ),
-              code: TextStyle(
-                color: cs.primary,
-                backgroundColor: cs.primary.withValues(alpha: 0.08),
-                fontSize: 13,
-              ),
-            ),
+          GptMarkdown(
+            displayText,
+            style: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.5),
           ),
           if (isLong) ...[
             const SizedBox(height: 10),

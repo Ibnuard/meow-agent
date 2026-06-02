@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -179,6 +179,170 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final mgr = _manager;
     if (mgr == null) return;
     mgr.cancelActive(_activeAgentId);
+  }
+
+  /// Developer-only: show a runtime debug stream as a bottom sheet, triggered
+  /// by long-pressing the agent name in the AppBar. Subscribes to the chat
+  /// runtime manager so new events appear live without re-opening the sheet.
+  /// Replaces the old behavior of injecting debug bubbles into the chat list.
+  void _showDebugBottomSheet() {
+    final mgr = _ensureManager();
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (sheetCtx, scrollCtrl) {
+            return AnimatedBuilder(
+              animation: mgr,
+              builder: (innerCtx, _) {
+                final session = mgr.sessionFor(_activeAgentId);
+                final events = session.debugMessages;
+                final narrative = session.narrativeMessage;
+                final isRunning = session.isRunning;
+                return Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.bug_report_outlined,
+                              size: 18, color: cs.primary),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Runtime Debug',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (isRunning)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                'running',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.primary,
+                                ),
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: 'Close',
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (narrative != null && narrative.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: cs.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: cs.primary.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Text(
+                            narrative,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: cs.onSurface,
+                              fontStyle: FontStyle.italic,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: events.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  isRunning
+                                      ? 'Waiting for runtime events\u2026'
+                                      : 'No runtime events for this run.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: scrollCtrl,
+                              padding: const EdgeInsets.fromLTRB(
+                                  16, 12, 16, 24),
+                              itemCount: events.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 6),
+                              itemBuilder: (lctx, i) {
+                                final e = events[i];
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 9),
+                                  decoration: BoxDecoration(
+                                    color: cs.surfaceContainerHighest
+                                        .withValues(alpha: 0.5),
+                                    borderRadius:
+                                        BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    e.content,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface,
+                                      height: 1.35,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
   }
 
   /// Show long-press action sheet for a chat bubble.
@@ -1126,41 +1290,25 @@ String _buildCommandHelp(bool debugMode) {
       if (cleaned.length < kMessagePageSize) {
         _fullyLoaded.add(agentId);
       }
-      // Multi-frame settle: ListView.builder needs several frames to finalize
-      // layout with variable-height markdown bubbles. We jumpTo the current
-      // maxExtent each frame until it stabilizes, then do one smooth animateTo.
-      _settleScrollToEnd();
+      // Single-frame jump to bottom. Multi-frame settle was needed before
+      // when markdown bubbles re-parsed on every rebuild causing layout
+      // jitter; now that the stylesheet is cached and items have stable
+      // keys, ListView.builder reports the correct extent on the first
+      // post-frame callback.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scroll.hasClients || !mounted) return;
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      });
     }
   }
 
-  /// Repeatedly jump to the bottom over multiple frames until the layout
-  /// stabilizes (markdown bubbles have variable heights), then perform one
-  /// smooth animated scroll for final polish.
-  void _settleScrollToEnd({int attempt = 0}) {
-    const maxAttempts = 10;
-    if (attempt >= maxAttempts) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients || !mounted) return;
-      final extent = _scroll.position.maxScrollExtent;
-      final current = _scroll.position.pixels;
-      final atBottom = (extent - current).abs() < 1.0;
-      // Jump toward the bottom on every frame. Once we've been at the
-      // bottom for two consecutive frames (layout settled), finish with
-      // a smooth animateTo for polish.
-      if (atBottom && attempt > 2) {
-        _scroll.animateTo(
-          extent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-        return;
-      }
-      _scroll.jumpTo(extent);
-      _settleScrollToEnd(attempt: attempt + 1);
-    });
-  }
-
   /// Load older messages when scrolling to the top.
+  ///
+  /// Loads exactly one page (kMessagePageSize) per call rather than 30 at
+  /// once. The smaller batch keeps each older-load fast (less DB work, less
+  /// markdown layout work). After insertion we preserve the user's visual
+  /// scroll position so the screen doesn't jerk upward as content streams
+  /// in above their viewport.
   Future<void> _loadOlderMessages() async {
     if (_loadingOlder || !_hasMore) return;
     final messages = _messages;
@@ -1175,11 +1323,18 @@ String _buildCommandHelp(bool debugMode) {
     _loadingOlder = true;
     setState(() {}); // Show loading indicator.
 
+    // Capture pre-insertion extent so we can restore the user's visual
+    // anchor after the new bubbles are laid out.
+    final beforeExtent = _scroll.hasClients
+        ? _scroll.position.maxScrollExtent
+        : 0.0;
+    final beforePixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+
     final service = ref.read(chatHistoryServiceProvider);
     final older = await service.loadOlder(
       _activeAgentId,
       beforeId: oldestId,
-      limit: 30,
+      limit: kMessagePageSize,
     );
 
     if (!mounted) return;
@@ -1194,6 +1349,24 @@ String _buildCommandHelp(bool debugMode) {
         }
       }
       _loadingOlder = false;
+    });
+
+    // Preserve scroll anchor: keep the previously visible bubble at the
+    // same screen position by silently shifting pixels by the layout
+    // delta. We use position.correctPixels rather than jumpTo because
+    // jumpTo fires scroll listeners and interrupts any in-progress user
+    // drag, which manifested as a brief "blank state" flicker mid-scroll.
+    // correctPixels is the framework-sanctioned way to shift the scroll
+    // origin invisibly when content is added above the viewport.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients || !mounted) return;
+      final position = _scroll.position;
+      final afterExtent = position.maxScrollExtent;
+      final delta = afterExtent - beforeExtent;
+      if (delta > 0) {
+        position.correctPixels(beforePixels + delta);
+        position.notifyListeners();
+      }
     });
   }
 
@@ -1253,31 +1426,39 @@ String _buildCommandHelp(bool debugMode) {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(agentName),
-              if (modelName != null && modelName.isNotEmpty) ...[
-                const SizedBox(height: 3),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      displayModelName!,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w400,
-                        color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
+          title: GestureDetector(
+            // Long-press on the agent name (header title) opens the runtime
+            // debug bottom sheet, but only when LLM debug mode is enabled.
+            // This replaces the previous behavior of mixing debug bubbles
+            // into the chat list, which polluted the conversation view.
+            onLongPress: debugMode ? _showDebugBottomSheet : null,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(agentName),
+                if (modelName != null && modelName.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        displayModelName!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w400,
+                          color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-                    if (modelSupportsVision) ...[
-                      const SizedBox(width: 4),
-                      Icon(Icons.visibility_rounded, size: 12, color: cs.primary),
+                      if (modelSupportsVision) ...[
+                        const SizedBox(width: 4),
+                        Icon(Icons.visibility_rounded, size: 12, color: cs.primary),
+                      ],
                     ],
-                  ],
-                ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
@@ -1364,21 +1545,26 @@ String _buildCommandHelp(bool debugMode) {
                             ? _ChatEmptyState(s: s)
                             : ListView.builder(
                                 controller: _scroll,
+                                // Larger cacheExtent reduces rebuilds when
+                                // scrolling through variable-height markdown
+                                // bubbles. addAutomaticKeepAlives is disabled
+                                // because bubbles are stateless. We provide
+                                // RepaintBoundary manually around each bubble
+                                // below, so disable the automatic one too.
+                                cacheExtent: 1000,
+                                addAutomaticKeepAlives: false,
+                                addRepaintBoundaries: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   16,
                                   12,
                                   16,
                                   12,
                                 ),
-                                // +1 loading, +N debug, +1 narrative (when present), +1 thinking.
+                                // +1 loading, +1 narrative (when present), +1 thinking.
+                                // Debug bubbles are now shown in a separate bottom sheet.
                                 itemCount:
                                     (_loadingOlder ? 1 : 0) +
                                     _messages.length +
-                                    (_manager
-                                            ?.sessionFor(_activeAgentId)
-                                            .debugMessages
-                                            .length ??
-                                        0) +
                                     ((_sending &&
                                             (_manager
                                                     ?.sessionFor(_activeAgentId)
@@ -1406,13 +1592,8 @@ String _buildCommandHelp(bool debugMode) {
                                       ),
                                     );
                                   }
-                                  final debugBubbles =
-                                      _manager
-                                          ?.sessionFor(_activeAgentId)
-                                          .debugMessages ??
-                                      const <ChatMessage>[];
                                   final msgIndex = i - (_loadingOlder ? 1 : 0);
-                                  // Order: messages → debug bubbles → thinking.
+                                  // Order: messages → narrative → thinking.
                                   if (msgIndex < _messages.length) {
                                     final current = _messages[msgIndex];
                                     // Show a floating date separator when the
@@ -1428,6 +1609,9 @@ String _buildCommandHelp(bool debugMode) {
                                           current.timestamp.toLocal(),
                                         );
                                     final bubble = RepaintBoundary(
+                                      key: ValueKey(
+                                        'msg-${current.id ?? identityHashCode(current)}',
+                                      ),
                                       child: _Bubble(
                                         msg: current,
                                         isId: isId,
@@ -1454,25 +1638,15 @@ String _buildCommandHelp(bool debugMode) {
                                       ],
                                     );
                                   }
-                                  final debugIdx = msgIndex - _messages.length;
-                                  if (debugIdx < debugBubbles.length) {
-                                    return RepaintBoundary(
-                                      child: _Bubble(
-                                        msg: debugBubbles[debugIdx],
-                                        isId: isId,
-                                      ),
-                                    );
-                                  }
                                   // Narrative bubble — above the thinking dots,
                                   // shown only while sending AND a narrative is set.
+                                  final narrativeIdx = msgIndex - _messages.length;
                                   final narrative = _manager
                                       ?.sessionFor(_activeAgentId)
                                       .narrativeMessage;
                                   final hasNarrative =
                                       _sending &&
                                       (narrative?.isNotEmpty == true);
-                                  final narrativeIdx =
-                                      debugIdx - debugBubbles.length;
                                   if (hasNarrative && narrativeIdx == 0) {
                                     return _NarrativeBubble(text: narrative!);
                                   }
@@ -1559,6 +1733,10 @@ class _Bubble extends StatelessWidget {
 
     final bubble = ConstrainedBox(
       constraints: BoxConstraints(
+        // Min width so a single-character user message ("a") still renders
+        // as a proper bubble instead of a tiny chip. Assistant bubbles
+        // start without a min so short replies stay compact.
+        minWidth: isUser ? 72 : 0,
         maxWidth: MediaQuery.of(context).size.width * 0.78,
       ),
       child: Container(
@@ -1575,6 +1753,10 @@ class _Bubble extends StatelessWidget {
           border: isUser ? null : Border.all(color: extras.subtleBorder),
         ),
         child: IntrinsicWidth(
+          // Without this wrapper, Column would fill the incoming maxWidth
+          // (78% of screen) regardless of content, making short user
+          // messages stretch unnaturally. IntrinsicWidth measures the
+          // widest child once and tightens the bubble around it.
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
@@ -1627,40 +1809,28 @@ class _Bubble extends StatelessWidget {
                 ),
               ],
               if (isUser)
-                Text(
-                  displayContent,
+                _ExpandableText(
+                  content: displayContent,
+                  markdown: false,
+                  isId: isId,
                   style: TextStyle(
                     color: cs.onPrimary,
                     fontSize: 14,
                     height: 1.4,
                   ),
+                  toggleColor: Colors.white,
                 )
               else
-                MarkdownBody(
-                  data: displayContent,
-                  selectable: true,
-                  shrinkWrap: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
-                    strong: TextStyle(
-                      color: cs.onSurface,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    em: TextStyle(
-                      color: cs.onSurface,
-                      fontStyle: FontStyle.italic,
-                    ),
-                    code: TextStyle(
-                      color: cs.primary,
-                      backgroundColor: cs.primary.withValues(alpha: 0.08),
-                      fontSize: 13,
-                    ),
-                    listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
+                _ExpandableText(
+                  content: displayContent,
+                  markdown: true,
+                  isId: isId,
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                    height: 1.4,
                   ),
+                  toggleColor: cs.primary,
                 ),
               // Confirmation action buttons.
               if (isConfirmation && onConfirmAction != null) ...[
@@ -1745,6 +1915,229 @@ class _Bubble extends StatelessWidget {
   }
 }
 
+/// Truncates long bubble content with a "Show more" toggle.
+///
+/// Cuts initial render cost when opening a chat that contains long markdown
+/// agent replies. Below the threshold it renders the content in full;
+/// above, it parses only the first chunk plus a small toggle button. On
+/// tap, the full content swaps in.
+///
+/// The threshold is character-based (not pixel-based) so we never have to
+/// measure layout to decide whether to truncate, which would defeat the
+/// purpose of avoiding the heavy initial parse.
+class _ExpandableText extends StatefulWidget {
+  const _ExpandableText({
+    required this.content,
+    required this.markdown,
+    required this.isId,
+    required this.style,
+    required this.toggleColor,
+  });
+
+  /// Show full content if length is at most this many characters.
+  static const int _truncateThreshold = 800;
+
+  /// When truncated, show this many characters before the "Show more" button.
+  static const int _truncatePreview = 700;
+
+  final String content;
+  final bool markdown;
+  final bool isId;
+  final TextStyle style;
+  final Color toggleColor;
+
+  @override
+  State<_ExpandableText> createState() => _ExpandableTextState();
+}
+
+class _ExpandableTextState extends State<_ExpandableText> {
+  /// Inline expand only applies to plain text (user) bubbles. For markdown
+  /// bubbles, tapping "Show more" opens a bottom sheet (isolated route),
+  /// so a markdown parser crash on the full content cannot tear down the
+  /// chat list.
+  bool _expanded = false;
+
+  /// Find a clean truncation point near [target]. Prefers the last newline
+  /// within a [target - 200, target] window so we do not slice through code
+  /// fences, lists, or other multi-line markdown constructs. Falls back to
+  /// a word boundary, then to the raw cut.
+  static int _safeTruncatePoint(String text, int target) {
+    if (text.length <= target) return text.length;
+    final newlineCutoff = (target - 200).clamp(0, target);
+    final newline = text.lastIndexOf('\n', target);
+    if (newline >= newlineCutoff) return newline;
+    final spaceCutoff = (target - 60).clamp(0, target);
+    final space = text.lastIndexOf(' ', target);
+    if (space >= spaceCutoff) return space;
+    return target;
+  }
+
+  void _openMarkdownSheet() {
+    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetCtx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (innerCtx, scrollCtrl) {
+            return Column(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 8),
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.article_outlined,
+                          size: 18, color: cs.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        s.wfLogShowMore,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Copy',
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        onPressed: () {
+                          Clipboard.setData(
+                              ClipboardData(text: widget.content));
+                          ScaffoldMessenger.of(sheetCtx).showSnackBar(
+                            const SnackBar(
+                              content: Text('Copied'),
+                              duration: Duration(seconds: 1),
+                            ),
+                          );
+                        },
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        onPressed: () => Navigator.pop(sheetCtx),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: SingleChildScrollView(
+                    controller: scrollCtrl,
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                    // Full markdown is rendered here, in an isolated route.
+                    // If GptMarkdown chokes on a malformed input it tears
+                    // down only this sheet, not the chat list behind it.
+                    child: GptMarkdown(
+                      widget.content,
+                      style: TextStyle(
+                        color: cs.onSurface,
+                        fontSize: 14,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final isLong =
+        widget.content.length > _ExpandableText._truncateThreshold;
+
+    if (!isLong) {
+      // Short content renders normally.
+      return widget.markdown
+          ? GptMarkdown(widget.content, style: widget.style)
+          : Text(widget.content, style: widget.style);
+    }
+
+    // Long content: always render preview as plain Text (no markdown
+    // parse, safe from half-cut syntax crashes, fast).
+    final cut = _safeTruncatePoint(
+      widget.content,
+      _ExpandableText._truncatePreview,
+    );
+    final preview = widget.content.substring(0, cut).trimRight();
+
+    // Plain text (user bubble) supports inline expand because Text cannot
+    // crash on partial content. Markdown content opens in a bottom sheet
+    // (separate route) so a parser failure cannot affect the chat list.
+    final showFull = !widget.markdown && _expanded;
+    final body = Text(
+      showFull ? widget.content : '$preview\u2026',
+      style: widget.style,
+    );
+
+    final toggleLabel = widget.markdown
+        ? s.wfLogShowMore
+        : (_expanded ? s.wfLogCollapse : s.wfLogShowMore);
+    final toggleIcon = widget.markdown
+        ? Icons.open_in_full_rounded
+        : (_expanded
+            ? Icons.expand_less_rounded
+            : Icons.expand_more_rounded);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        body,
+        const SizedBox(height: 6),
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: widget.markdown
+              ? _openMarkdownSheet
+              : () => setState(() => _expanded = !_expanded),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(toggleIcon, size: 16, color: widget.toggleColor),
+                const SizedBox(width: 4),
+                Text(
+                  toggleLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: widget.toggleColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
 /// A floating, centered date separator (WhatsApp/Telegram style) shown above
 /// the first message of each day. Renders "Today" / "Yesterday" for recent
 /// days and a localized date otherwise.

@@ -9,6 +9,7 @@ import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
 import 'features/agents/data/agent_repository.dart';
+import 'features/chat/data/chat_history_service.dart';
 import 'features/chat/data/chat_notification_service.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
@@ -71,7 +72,19 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       _checkSharedText();
       _runWorkspaceMigration();
       _initWorkflowServices();
+      _prewarmChatDatabase();
     });
+  }
+
+  /// Open the chat history SQLite DB in the background so the first chat
+  /// open isn't blocked by the platform-channel cost of openDatabase.
+  Future<void> _prewarmChatDatabase() async {
+    try {
+      // Cheap query that forces lazy `_database` getter to initialize.
+      await ref.read(chatHistoryServiceProvider).count('__warmup__');
+    } catch (_) {
+      // Non-fatal — the DB will open on first real use anyway.
+    }
   }
 
   /// Migrate workspace files from internal to external Documents (one-time).

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -163,46 +163,14 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: extras.subtleBorder),
                 ),
-                child: MarkdownBody(
-                  data: _note!.content.isEmpty
+                child: GptMarkdown(
+                  _note!.content.isEmpty
                       ? s.noteDetailEmptyContent
                       : _note!.content,
-                  selectable: true,
-                  shrinkWrap: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 14,
-                      height: 1.5,
-                    ),
-                    h1: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    h2: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    h3: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    strong: TextStyle(
-                      color: cs.onSurface,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    code: TextStyle(
-                      color: cs.primary,
-                      backgroundColor: cs.primary.withValues(alpha: 0.08),
-                      fontSize: 13,
-                    ),
-                    listBullet: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 14,
-                    ),
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                    height: 1.5,
                   ),
                 ),
               ),

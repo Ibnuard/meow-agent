@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -544,20 +544,12 @@ class _ClipboardProcessScreenState
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              MarkdownBody(
-                                data: _result!,
-                                selectable: true,
-                                shrinkWrap: true,
-                                styleSheet: MarkdownStyleSheet(
-                                  p: TextStyle(
-                                    color: cs.onSurface,
-                                    fontSize: 14,
-                                    height: 1.5,
-                                  ),
-                                  strong: TextStyle(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              GptMarkdown(
+                                _result!,
+                                style: TextStyle(
+                                  color: cs.onSurface,
+                                  fontSize: 14,
+                                  height: 1.5,
                                 ),
                               ),
                             ],
