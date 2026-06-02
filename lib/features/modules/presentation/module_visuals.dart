@@ -15,6 +15,7 @@ class ModuleVisuals {
       'files' => Icons.folder_rounded,
       'calendar' => Icons.calendar_month_rounded,
       'workflows' => Icons.bolt_rounded,
+      'web' => Icons.cloud_rounded,
       _ => Icons.extension_rounded,
     };
   }
@@ -29,6 +30,7 @@ class ModuleVisuals {
       'files' => const Color(0xFFEAB308),
       'calendar' => const Color(0xFFEF4444),
       'workflows' => const Color(0xFF3B82F6),
+      'web' => const Color(0xFF06B6D4),
       _ => const Color(0xFF64748B),
     };
   }

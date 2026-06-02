@@ -248,6 +248,7 @@ class AppStrings {
   String get openNotes => isId ? 'Buka Catatan' : 'Open Notes';
   String get openCalendar => isId ? 'Buka Kalender' : 'Open Calendar';
   String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
+  String get openApiStore => isId ? 'Buka API Store' : 'Open API Store';
   String get featurePermission => isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
   String get notificationPermissionRequired => isId
       ? 'Izin notifikasi diperlukan.' : 'Notification permission required.';
@@ -387,6 +388,9 @@ class AppStrings {
   String get moduleDescWorkflows => isId
       ? 'Jadwalkan tugas otomatis agent dengan notifikasi. Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.'
       : 'Schedule automated agent tasks with notifications. Create workflows that run prompts at specific times or intervals.';
+  String get moduleDescWeb => isId
+      ? 'Fetch API HTTP dan simpan endpoint yang bisa dipakai ulang. Semua agent bisa memanggil API tersimpan lewat nama.'
+      : 'Fetch HTTP APIs and register reusable endpoints. Any agent can call stored APIs by name with auto-filled parameters.';
   String get welcomeTitle =>
       isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId

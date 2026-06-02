@@ -155,6 +155,8 @@ class ModuleStoreScreen extends ConsumerWidget {
         return s.moduleDescCalendar;
       case 'workflows':
         return s.moduleDescWorkflows;
+      case 'web':
+        return s.moduleDescWeb;
       default:
         return module.description;
     }

@@ -184,6 +184,21 @@ class ModuleRegistry {
     },
   );
 
+  static const web = ModuleModel(
+    id: 'web',
+    name: 'API Store',
+    description:
+        'Fetch HTTP APIs and register reusable endpoints. '
+        'Any agent can call stored APIs by name with auto-filled parameters.',
+    icon: '🌐',
+    settings: {
+      'allow_fetch': true,
+      'allow_register': true,
+      'allow_call': true,
+      'allow_remove': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
@@ -193,5 +208,6 @@ class ModuleRegistry {
     files,
     calendar,
     workflows,
+    web,
   ];
 }

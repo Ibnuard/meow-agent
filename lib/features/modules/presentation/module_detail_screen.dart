@@ -10,6 +10,7 @@ import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../web/presentation/api_store_screen.dart';
 import '../workflows/workflow_list_screen.dart';
 import 'module_visuals.dart';
 
@@ -661,6 +662,44 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // Web/API module: show "Open API Store" button when enabled.
+          if (module.id == 'web' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ApiStoreScreen()),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openApiStore,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           if (module.enabled) ...[
             Text(
               s.featurePermission,
@@ -737,6 +776,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return s.moduleDescCalendar;
       case 'workflows':
         return s.moduleDescWorkflows;
+      case 'web':
+        return s.moduleDescWeb;
       default:
         return module.description;
     }
@@ -938,6 +979,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             'Agent can delete workflows. Requires confirmation.',
           ),
         };
+      case 'web':
+        return {
+          'allow_fetch': (
+            'Allow Fetch URLs',
+            'Agent can make HTTP requests to public URLs.',
+          ),
+          'allow_register': (
+            'Allow Register APIs',
+            'Agent can save new API endpoints to the store.',
+          ),
+          'allow_call': (
+            'Allow Call APIs',
+            'Agent can call registered APIs from the store.',
+          ),
+          'allow_remove': (
+            'Allow Remove APIs',
+            'Agent can delete registered APIs. Requires confirmation.',
+          ),
+        };
       default:
         return {};
     }
@@ -1135,6 +1195,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           'allow_delete': (
             'Izinkan Hapus Workflow',
             'Agen dapat menghapus workflow. Perlu konfirmasi.',
+          ),
+        };
+      case 'web':
+        return {
+          'allow_fetch': (
+            'Izinkan Fetch URL',
+            'Agen dapat melakukan request HTTP ke URL publik.',
+          ),
+          'allow_register': (
+            'Izinkan Daftar API',
+            'Agen dapat menyimpan endpoint API baru ke store.',
+          ),
+          'allow_call': (
+            'Izinkan Panggil API',
+            'Agen dapat memanggil API yang tersimpan di store.',
+          ),
+          'allow_remove': (
+            'Izinkan Hapus API',
+            'Agen dapat menghapus API tersimpan. Perlu konfirmasi.',
           ),
         };
       default:

@@ -137,6 +137,7 @@ Rules:
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
     chat         \\u2014 deliver a message into a chat UI
     attachment   \\u2014 list attached files and read supported text attachments from the current message
+    web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
 - narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
