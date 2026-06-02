@@ -816,4 +816,225 @@ class AppStrings {
 
   // --- Settings ---
   String get aboutTitle => isId ? 'Tentang Meow Agent' : 'About Meow Agent';
+
+  // --- API Store ---
+  String get apiStoreTitle => 'API Store';
+  String get apiStoreEditTitle => isId ? 'Edit API' : 'Edit API';
+  String get apiStoreNewTitle => isId ? 'API Baru' : 'New API';
+  String get apiStoreSelectTooltip => isId ? 'Pilih' : 'Select';
+  String get apiStoreSelectAll => isId ? 'Pilih Semua' : 'Select All';
+  String get apiStoreDeselectAll => isId ? 'Batal Pilih Semua' : 'Deselect All';
+  String get apiStoreDeleteTooltip => isId ? 'Hapus' : 'Delete';
+  String apiStoreSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
+  String get apiStoreNoApis => isId ? 'Belum ada API' : 'No APIs yet';
+  String get apiStoreNoApisDesc => isId
+      ? 'Daftarkan endpoint API di sini, lalu agent mana pun bisa memanggilnya lewat chat atau workflow.'
+      : 'Register an API endpoint here, then any agent can call it by name via chat or workflows.';
+  String get apiStoreAddApi => isId ? 'Tambah API' : 'Add API';
+  String get apiStoreRemoveApisTitle => isId ? 'Hapus API?' : 'Remove APIs?';
+  String apiStoreRemoveApisMessage(int count) => isId
+      ? 'Hapus $count API yang dipilih dari store?'
+      : 'Remove $count selected API${count > 1 ? 's' : ''} from the store?';
+  String get apiStoreRemoveApiTitle => isId ? 'Hapus API?' : 'Remove API?';
+  String apiStoreRemoveApiMessage(String name) => isId
+      ? 'Hapus "$name" dari store?'
+      : 'Remove "$name" from the store?';
+  String get apiStoreRemove => isId ? 'Hapus' : 'Remove';
+  String get apiStoreSectionName => isId ? 'Nama' : 'Name';
+  String get apiStoreSectionUrl => 'URL';
+  String get apiStoreSectionMethod => isId ? 'Metode' : 'Method';
+  String get apiStoreSectionAuth => isId ? 'Autentikasi' : 'Authentication';
+  String get apiStoreSectionHeaders => 'Headers';
+  String get apiStoreSectionQueryParams => 'Query Parameters';
+  String get apiStoreSectionBody => 'Body';
+  String get apiStoreNameHint => isId ? 'mis. GitHub Search API' : 'e.g. GitHub Search API';
+  String get apiStoreUrlHint => 'https://api.example.com/endpoint';
+  String get apiStoreBodyHint => '{"key": "value"}';
+  String get apiStoreTokenHint => 'Token value';
+  String get apiStoreHeaderHint => isId
+      ? 'Nama header (mis. X-API-Key)'
+      : 'Header name (e.g. X-API-Key)';
+  String get apiStoreKeyValueHint => isId ? 'Nilai key' : 'Key value';
+  String get apiStoreBasicAuthHint => 'username:password';
+  String get apiStoreKeyHint => 'Key';
+  String get apiStoreValueHint => 'Value';
+  String get apiStoreHintHint => 'Hint';
+  String get apiStoreDefaultHint => 'Default';
+  String get apiStoreHintForAgent => isId ? 'Petunjuk untuk agent' : 'Hint for agent';
+  String get apiStoreAuthNone => isId ? 'Tidak Ada' : 'None';
+  String get apiStoreAuthBearer => 'Bearer Token';
+  String get apiStoreAuthApiKey => isId ? 'API Key di Header' : 'API Key in Header';
+  String get apiStoreAuthBasic => 'Basic Auth';
+  String get apiStoreModeDynamic => isId ? 'Dinamis' : 'Dynamic';
+  String get apiStoreModeFixed => isId ? 'Tetap' : 'Fixed';
+  String get apiStoreModeTree => 'Tree';
+  String get apiStoreModeRaw => 'Raw';
+  String get apiStoreAddField => isId ? 'Tambah field' : 'Add field';
+  String get apiStoreAddFieldTitle => isId ? 'Tambah Field' : 'Add Field';
+  String get apiStoreAddItem => isId ? 'Tambah item' : 'Add item';
+  String get apiStoreNameUrlRequired => isId
+      ? 'Nama dan URL wajib diisi'
+      : 'Name and URL are required';
+  String apiStoreDynamicParams(int count) => isId
+      ? '$count parameter dinamis'
+      : '$count dynamic param${count > 1 ? 's' : ''}';
+  String get apiStoreAdd => isId ? 'Tambah' : 'Add';
+  String get apiStoreSave => isId ? 'Simpan' : 'Save';
+  String get apiStoreSaving => isId ? 'Menyimpan...' : 'Saving...';
+  String get apiStoreCancel => isId ? 'Batal' : 'Cancel';
+
+  // --- Workflow event labels ---
+  String get wfEventBatteryLow => isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+  String get wfEventBatteryHigh => isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
+  String get wfEventBatteryFull => isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
+  String get wfEventChargingStart => isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
+  String get wfEventChargingStop => isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
+  String get wfEventNotifKeyword => isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
+  String get wfEventAppOpened => isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
+  String get wfEventWifiConnected => isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
+  String get wfEventWifiDisconnected => isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+
+  // --- Workflow event sub labels ---
+  String get wfEventBatteryLowSub => isId ? 'Jalan saat baterai turun di bawah 50%.' : 'Runs when battery drops below 50%.';
+  String get wfEventBatteryHighSub => isId ? 'Jalan saat baterai naik di atas 50%.' : 'Runs when battery rises above 50%.';
+  String get wfEventBatteryFullSub => isId ? 'Jalan saat baterai penuh.' : 'Runs when battery is full.';
+  String get wfEventChargingStartSub => isId ? 'Jalan saat perangkat mulai di-charge.' : 'Runs when device starts charging.';
+  String get wfEventChargingStopSub => isId ? 'Jalan saat perangkat berhenti di-charge.' : 'Runs when device stops charging.';
+  String get wfEventNotifKeywordSub => isId ? 'Jalan saat notifikasi mengandung kata kunci.' : 'Runs when a notification contains a keyword.';
+  String get wfEventAppOpenedSub => isId ? 'Jalan saat aplikasi tertentu dibuka.' : 'Runs when a specific app is opened.';
+  String get wfEventWifiConnectedSub => isId ? 'Jalan saat WiFi terhubung ke jaringan.' : 'Runs when WiFi connects to a network.';
+  String get wfEventWifiDisconnectedSub => isId ? 'Jalan saat WiFi terputus.' : 'Runs when WiFi disconnects.';
+
+  // --- Workflow editor misc ---
+  String get wfTitleRequired => isId ? 'Judul workflow tidak boleh kosong.' : 'Workflow title is required.';
+  String get wfMaxWorkflows => isId ? 'Maksimal 20 workflow.' : 'Max 20 workflows reached.';
+  String get wfAllowSensitiveDesc => isId
+      ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi.'
+      : 'Auto-approve actions that normally require confirmation.';
+  String get wfNotifyPermRequired => isId
+      ? 'Pastikan permission akses notifikasi sudah diizinkan.'
+      : 'Make sure notification access permission is allowed.';
+  String get wfModuleDisabled => isId
+      ? 'Pastikan modul Notification sudah aktif di Modules.'
+      : 'Make sure the Notification module is enabled in Modules.';
+  String get wfApiCallLabel => isId ? 'Panggil API tersimpan' : 'Call a stored API';
+  String get wfApiSelectLabel => isId ? 'Pilih API' : 'Select API';
+  String get wfConditionOnlyIfPrevSuccess => isId
+      ? 'Hanya jika langkah sebelumnya berhasil'
+      : 'Only if previous step succeeded';
+  String get wfConditionOnlyIfPrevEmpty => isId
+      ? 'Hanya jika langkah sebelumnya kosong'
+      : 'Only if previous step is empty';
+  String get wfConditionIfPrevShort => isId
+      ? 'Jika hasil sebelumnya pendek (< 50 karakter)'
+      : 'If previous result is short (< 50 chars)';
+  String get wfConditionIfPrevLong => isId
+      ? 'Jika hasil sebelumnya panjang (> 200 karakter)'
+      : 'If previous result is long (> 200 chars)';
+  String get wfConditionIfContainsSukses => isId
+      ? "Jika hasil mengandung 'sukses'"
+      : "If result contains 'success'";
+  String get wfConditionIfContainsError => isId
+      ? "Jika hasil mengandung 'error'"
+      : "If result contains 'error'";
+
+  // --- Built-in variable categories ---
+  String get wfVarCategoryTime => isId ? 'Waktu & Tanggal' : 'Time & Date';
+  String get wfVarCategoryIdentity => isId ? 'Identitas' : 'Identity';
+  String get wfVarCategoryTriggerNotif => isId ? 'Pemicu: Notifikasi' : 'Trigger: Notification';
+  String get wfVarCategoryTriggerApp => isId ? 'Pemicu: Buka Aplikasi' : 'Trigger: App Opened';
+  String get wfVarCategoryTriggerBattery => isId ? 'Pemicu: Baterai' : 'Trigger: Battery';
+  String get wfVarCategoryStep => isId ? 'Multi-Langkah' : 'Multi-Step';
+
+  // --- Module setting labels (used by module_detail_screen) ---
+  (String, String) moduleSetting(String moduleId, String key) => switch (moduleId) {
+    'clipboard_ai' => switch (key) {
+      'share_intent' => (isId ? 'Menu Share Android' : 'Share Intent', isId ? 'Terima teks dari menu Share Android.' : 'Receive text via Android Share menu.'),
+      'persistent_notification' => (isId ? 'Notifikasi Persisten' : 'Persistent Notification', isId ? 'Tampilkan notifikasi untuk memproses clipboard dengan cepat.' : 'Show a notification to quickly process clipboard.'),
+      'floating_bubble' => (isId ? 'Bubble Mengambang' : 'Floating Bubble', isId ? 'Bubble yang bisa digeser di atas aplikasi lain.' : 'Draggable bubble overlay on top of all apps.'),
+      _ => (key, ''),
+    },
+    'app_control' => switch (key) {
+      'require_confirmation' => (isId ? 'Wajib Konfirmasi' : 'Require Confirmation', isId ? 'Minta konfirmasi sebelum membuka aplikasi atau URL.' : 'Ask before opening apps or URLs.'),
+      'allow_system_settings' => (isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings', isId ? 'AI dapat membuka halaman pengaturan sistem Android.' : 'AI can open Android system settings screens.'),
+      'allow_url_intents' => (isId ? 'Izinkan Buka URL' : 'Allow URL Intents', isId ? 'AI dapat membuka URL di browser.' : 'AI can open URLs in the browser.'),
+      'allow_background_launch' => (isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch', isId ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".' : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.'),
+      'show_execution_toast' => (isId ? 'Tampilkan Toast Eksekusi' : 'Show Execution Toast', isId ? 'Tampilkan notifikasi singkat saat aksi dijalankan.' : 'Show a brief notification when an action runs.'),
+      _ => (key, ''),
+    },
+    'device_context' => switch (key) {
+      'allow_battery' => (isId ? 'Info Baterai' : 'Battery Info', isId ? 'Agen dapat membaca level baterai dan status pengisian.' : 'Agent can read battery level and charging status.'),
+      'allow_network' => (isId ? 'Info Jaringan' : 'Network Info', isId ? 'Agen dapat membaca tipe koneksi. Opsional: izin Lokasi & Telepon mengaktifkan SSID WiFi dan deteksi 4G/5G.' : 'Agent can read connection type (WiFi, cellular, etc.). Optional: Location & Phone permissions enable WiFi SSID and 4G/5G detection.'),
+      'allow_storage' => (isId ? 'Info Penyimpanan' : 'Storage Info', isId ? 'Agen dapat membaca penggunaan penyimpanan internal.' : 'Agent can read internal storage usage.'),
+      'allow_time_locale' => (isId ? 'Waktu & Lokal' : 'Time & Locale', isId ? 'Agen dapat membaca waktu lokal, zona waktu, dan bahasa.' : 'Agent can read local time, timezone, and language.'),
+      'allow_foreground_app' => (isId ? 'Deteksi Aplikasi Aktif' : 'Foreground App Detection', isId ? 'Agen dapat mendeteksi aplikasi yang sedang aktif. Membutuhkan izin Usage Stats.' : 'Agent can detect which app is currently active. Requires Usage Stats permission.'),
+      'allow_charging' => (isId ? 'Info Pengisian Daya' : 'Charging Info', isId ? 'Agen dapat membaca status pengisian daya dan tipe charger.' : 'Agent can read charging state and plug type.'),
+      'allow_dnd' => (isId ? 'Status Jangan Ganggu' : 'Do Not Disturb Status', isId ? 'Agen dapat membaca mode DND. Membutuhkan akses kebijakan notifikasi.' : 'Agent can read DND mode. Requires notification policy access.'),
+      'allow_bluetooth' => (isId ? 'Status Bluetooth' : 'Bluetooth Status', isId ? 'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.' : 'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.'),
+      'show_logs' => (isId ? 'Tampilkan di Log Runtime' : 'Show in Runtime Logs', isId ? 'Sertakan data perangkat di log debug agen.' : 'Include device data in agent debug logs.'),
+      _ => (key, ''),
+    },
+    'notification_intelligence' => switch (key) {
+      'allow_read' => (isId ? 'Izinkan Baca Notifikasi' : 'Allow Read Notifications', isId ? 'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.' : 'Agent can read recent notifications. Requires Notification access permission.'),
+      'allow_summary' => (isId ? 'Izinkan Ringkasan Notifikasi' : 'Allow Notification Summaries', isId ? 'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.' : 'Agent can group and summarize recent notifications.'),
+      'allow_classify' => (isId ? 'Izinkan Deteksi Penting' : 'Allow Importance Detection', isId ? 'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.' : 'Agent can flag urgent or important notifications.'),
+      'allow_reply_suggestion' => (isId ? 'Izinkan Saran Balasan' : 'Allow Reply Suggestions', isId ? 'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.' : 'Agent can suggest replies. Will NOT auto-send.'),
+      'allow_open_source_app' => (isId ? 'Izinkan Buka Aplikasi Sumber' : 'Allow Open Source App', isId ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.' : 'Agent can open the app that sent a notification.'),
+      'show_logs' => (isId ? 'Tampilkan Data Notifikasi di Log' : 'Show Notification Data in Logs', isId ? 'Sertakan konten notifikasi di log runtime (default mati untuk privasi).' : 'Include notification content in runtime logs (privacy off by default).'),
+      _ => (key, ''),
+    },
+    'notes' => switch (key) {
+      'allow_create' => (isId ? 'Izinkan Buat Note' : 'Allow Create Notes', isId ? 'Agen dapat membuat catatan baru.' : 'Agent can create new notes.'),
+      'allow_read' => (isId ? 'Izinkan Baca Note' : 'Allow Read Notes', isId ? 'Agen dapat membaca dan melihat daftar catatan.' : 'Agent can read and list notes.'),
+      'allow_search' => (isId ? 'Izinkan Cari Note' : 'Allow Search Notes', isId ? 'Agen dapat mencari catatan berdasarkan kata kunci.' : 'Agent can search notes by keyword.'),
+      'allow_export' => (isId ? 'Izinkan Export Note' : 'Allow Export Notes', isId ? 'Agen dapat mengekspor catatan sebagai file markdown ke workspace.' : 'Agent can export notes as markdown files to the workspace.'),
+      'require_confirm_update' => (isId ? 'Konfirmasi Sebelum Update' : 'Confirm Before Update', isId ? 'Wajib konfirmasi pengguna sebelum menimpa konten catatan.' : 'Require user confirmation before overwriting note content.'),
+      'require_confirm_delete' => (isId ? 'Konfirmasi Sebelum Hapus' : 'Confirm Before Delete', isId ? 'Wajib konfirmasi pengguna sebelum menghapus catatan.' : 'Require user confirmation before deleting a note.'),
+      _ => (key, ''),
+    },
+    'files' => switch (key) {
+      'allow_create' => (isId ? 'Izinkan Buat File' : 'Allow Create Files', isId ? 'Agen dapat membuat file dan direktori baru di workspace.' : 'Agent can create new files and directories in workspace.'),
+      'allow_read' => (isId ? 'Izinkan Baca File' : 'Allow Read Files', isId ? 'Agen dapat membaca isi file dan melihat daftar direktori.' : 'Agent can read file contents and list directories.'),
+      'allow_write' => (isId ? 'Izinkan Tulis File' : 'Allow Write Files', isId ? 'Agen dapat mengedit dan menimpa file yang ada.' : 'Agent can edit and overwrite existing files.'),
+      'allow_delete' => (isId ? 'Izinkan Hapus File' : 'Allow Delete Files', isId ? 'Agen dapat menghapus file dan direktori. Perlu konfirmasi.' : 'Agent can delete files and directories. Requires confirmation.'),
+      'allow_organize' => (isId ? 'Izinkan Organisasi File' : 'Allow Organize Files', isId ? 'Agen dapat memindahkan dan mengganti nama file di workspace.' : 'Agent can move and rename files within workspace.'),
+      _ => (key, ''),
+    },
+    'calendar' => switch (key) {
+      'allow_create' => (isId ? 'Izinkan Buat Event' : 'Allow Create Events', isId ? 'Agen dapat membuat event kalender baru.' : 'Agent can create new calendar events.'),
+      'allow_read' => (isId ? 'Izinkan Baca Event' : 'Allow Read Events', isId ? 'Agen dapat membaca dan melihat daftar event.' : 'Agent can read and list calendar events.'),
+      'allow_update' => (isId ? 'Izinkan Update Event' : 'Allow Update Events', isId ? 'Agen dapat mengubah event kalender yang ada.' : 'Agent can modify existing calendar events.'),
+      'allow_delete' => (isId ? 'Izinkan Hapus Event' : 'Allow Delete Events', isId ? 'Agen dapat menghapus event kalender. Perlu konfirmasi.' : 'Agent can delete calendar events. Requires confirmation.'),
+      _ => (key, ''),
+    },
+    'workflows' => switch (key) {
+      'allow_create' => (isId ? 'Izinkan Buat Workflow' : 'Allow Create Workflows', isId ? 'Agen dapat membuat workflow terjadwal baru.' : 'Agent can create new scheduled workflows.'),
+      'allow_read' => (isId ? 'Izinkan Baca Workflow' : 'Allow Read Workflows', isId ? 'Agen dapat melihat daftar dan detail workflow.' : 'Agent can list and view workflow details.'),
+      'allow_update' => (isId ? 'Izinkan Update Workflow' : 'Allow Update Workflows', isId ? 'Agen dapat mengubah workflow yang ada.' : 'Agent can modify existing workflows.'),
+      'allow_delete' => (isId ? 'Izinkan Hapus Workflow' : 'Allow Delete Workflows', isId ? 'Agen dapat menghapus workflow. Perlu konfirmasi.' : 'Agent can delete workflows. Requires confirmation.'),
+      _ => (key, ''),
+    },
+    'web' => switch (key) {
+      'allow_fetch' => (isId ? 'Izinkan Fetch URL' : 'Allow Fetch URLs', isId ? 'Agen dapat melakukan request HTTP ke URL publik.' : 'Agent can make HTTP requests to public URLs.'),
+      'allow_register' => (isId ? 'Izinkan Daftar API' : 'Allow Register APIs', isId ? 'Agen dapat menyimpan endpoint API baru ke store.' : 'Agent can save new API endpoints to the store.'),
+      'allow_call' => (isId ? 'Izinkan Panggil API' : 'Allow Call APIs', isId ? 'Agen dapat memanggil API yang tersimpan di store.' : 'Agent can call registered APIs from the store.'),
+      'allow_remove' => (isId ? 'Izinkan Hapus API' : 'Allow Remove APIs', isId ? 'Agen dapat menghapus API tersimpan. Perlu konfirmasi.' : 'Agent can delete registered APIs. Requires confirmation.'),
+      _ => (key, ''),
+    },
+    _ => (key, ''),
+  };
+
+  // --- Chat misc ---
+  String get copied => isId ? 'Disalin' : 'Copied';
+  String get copyTooltip => isId ? 'Salin' : 'Copy';
+  String get closeTooltip => isId ? 'Tutup' : 'Close';
+
+  // --- Workflow list ---
+  String get workflowsTitle => isId ? 'Workflows' : 'Workflows';
+
+  // --- Misc labels ---
+  String get errorPrefix => 'Error';
+  String errorWithMessage(String message) => isId ? 'Error: $message' : 'Error: $message';
+  String get runtimeDebugTitle => 'Runtime Debug';
+  String get runningLabel => isId ? 'berjalan' : 'running';
 }

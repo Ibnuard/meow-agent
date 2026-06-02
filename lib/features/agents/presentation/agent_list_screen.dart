@@ -37,7 +37,7 @@ class AgentListScreen extends ConsumerWidget {
             ? _EmptyState(s: s)
             : providersAsync.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(child: Text('Error: $e')),
+                error: (e, _) => Center(child: Text(s.errorWithMessage('$e'))),
                 data: (providers) => ListView.builder(
                   padding: const EdgeInsets.fromLTRB(20, 6, 20, 100),
                   itemCount: agents.length,

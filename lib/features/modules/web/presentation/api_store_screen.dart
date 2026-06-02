@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/theme.dart';
+import '../../../settings/data/app_language_provider.dart';
 import '../data/api_config.dart';
 import '../data/api_store_repository.dart';
 
 /// API Store — lists all registered APIs as floating cards.
 ///
 /// Follows AGENTS.md: floating surfaces, controlled emptiness, calm futuristic.
-class ApiStoreScreen extends StatefulWidget {
+class ApiStoreScreen extends ConsumerStatefulWidget {
   const ApiStoreScreen({super.key});
 
   @override
-  State<ApiStoreScreen> createState() => _ApiStoreScreenState();
+  ConsumerState<ApiStoreScreen> createState() => _ApiStoreScreenState();
 }
 
-class _ApiStoreScreenState extends State<ApiStoreScreen> {
+class _ApiStoreScreenState extends ConsumerState<ApiStoreScreen> {
   List<ApiConfig> _apis = [];
   bool _loading = true;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   // Multi-select state.
   bool _selectionMode = false;
@@ -77,16 +83,16 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove APIs'),
-        content: Text('Remove $count selected API${count > 1 ? 's' : ''} from the store?'),
+        title: Text(s.apiStoreRemoveApisTitle),
+        content: Text(s.apiStoreRemoveApisMessage(count)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.apiStoreCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Remove', style: TextStyle(color: context.cs.error)),
+            child: Text(s.apiStoreRemove, style: TextStyle(color: context.cs.error)),
           ),
         ],
       ),
@@ -137,12 +143,12 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
         appBar: _selectionMode
             ? _buildSelectionAppBar(cs)
             : AppBar(
-                title: const Text('API Store'),
+                title: Text(s.apiStoreTitle),
                 actions: [
                   if (_apis.isNotEmpty)
                     IconButton(
                       icon: const Icon(Icons.checklist_rounded),
-                      tooltip: 'Select',
+                      tooltip: s.apiStoreSelectTooltip,
                       onPressed: () {
                         if (_apis.isNotEmpty) _enterSelection(_apis.first.id);
                       },
@@ -162,7 +168,7 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _apis.isEmpty
-                ? _EmptyState(onAdd: () => _openEditor())
+                ? _EmptyState(onAdd: () => _openEditor(), s: s)
                 : ListView.builder(
                     padding: EdgeInsets.fromLTRB(
                       18, 16, 18,
@@ -180,6 +186,7 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
                           selectionMode: _selectionMode,
                           onTap: () => _onCardTap(config),
                           onLongPress: () => _onCardLongPress(config),
+                          s: s,
                         ),
                       );
                     },
@@ -192,7 +199,7 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
     final count = _selectedIds.length;
     final allSelected = count == _apis.length;
     return AppBar(
-      title: Text('$count selected', style: const TextStyle(fontSize: 16)),
+      title: Text(s.apiStoreSelectedCount(count), style: const TextStyle(fontSize: 16)),
       leading: IconButton(
         icon: const Icon(Icons.close_rounded),
         onPressed: _exitSelection,
@@ -200,12 +207,12 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
       actions: [
         IconButton(
           icon: Icon(allSelected ? Icons.deselect_rounded : Icons.select_all_rounded),
-          tooltip: allSelected ? 'Deselect All' : 'Select All',
+          tooltip: allSelected ? s.apiStoreDeselectAll : s.apiStoreSelectAll,
           onPressed: _selectAll,
         ),
         IconButton(
           icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-          tooltip: 'Delete',
+          tooltip: s.apiStoreDeleteTooltip,
           onPressed: count > 0 ? _deleteSelected : null,
         ),
       ],
@@ -220,6 +227,7 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
 class _ApiCard extends StatelessWidget {
   const _ApiCard({
     required this.config,
+    required this.s,
     this.onTap,
     this.onLongPress,
     this.selected = false,
@@ -227,6 +235,7 @@ class _ApiCard extends StatelessWidget {
   });
 
   final ApiConfig config;
+  final AppStrings s;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final bool selected;
@@ -325,7 +334,7 @@ class _ApiCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      '$dynamicCount dynamic param${dynamicCount > 1 ? 's' : ''}',
+                      s.apiStoreDynamicParams(dynamicCount),
                       style: TextStyle(
                         fontSize: 11.5,
                         color: cs.primary.withValues(alpha: 0.8),
@@ -395,9 +404,10 @@ class _MethodBadge extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({this.onAdd});
+  const _EmptyState({this.onAdd, required this.s});
 
   final VoidCallback? onAdd;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -425,7 +435,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             Text(
-              'No APIs yet',
+              s.apiStoreNoApis,
               style: TextStyle(
                 fontSize: 17,
                 fontWeight: FontWeight.w600,
@@ -434,7 +444,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              'Register an API endpoint here, then any agent can call it by name via chat or workflows.',
+              s.apiStoreNoApisDesc,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 13,
@@ -446,7 +456,7 @@ class _EmptyState extends StatelessWidget {
             FilledButton.icon(
               onPressed: onAdd,
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Add API'),
+              label: Text(s.apiStoreAddApi),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -465,17 +475,17 @@ class _EmptyState extends StatelessWidget {
 // API Editor Screen (Create / Edit)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class ApiEditorScreen extends StatefulWidget {
+class ApiEditorScreen extends ConsumerStatefulWidget {
   const ApiEditorScreen({super.key, this.config});
 
   final ApiConfig? config;
   bool get isEditing => config != null;
 
   @override
-  State<ApiEditorScreen> createState() => _ApiEditorScreenState();
+  ConsumerState<ApiEditorScreen> createState() => _ApiEditorScreenState();
 }
 
-class _ApiEditorScreenState extends State<ApiEditorScreen> {
+class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _urlCtrl;
   late final TextEditingController _authValueCtrl;
@@ -490,6 +500,11 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
   final List<_BodyTreeNode> _bodyNodes = [];
 
   bool _saving = false;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   @override
   void initState() {
@@ -536,12 +551,12 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     return Scaffold(
       backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
       appBar: AppBar(
-        title: Text(widget.isEditing ? 'Edit API' : 'New API'),
+        title: Text(widget.isEditing ? s.apiStoreEditTitle : s.apiStoreNewTitle),
         actions: [
           if (widget.isEditing)
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-              tooltip: 'Delete',
+              tooltip: s.apiStoreDeleteTooltip,
               onPressed: _confirmDelete,
             ),
         ],
@@ -553,28 +568,28 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
         ),
         children: [
           // Name
-          _SectionLabel(label: 'Name'),
+          _SectionLabel(label: s.apiStoreSectionName),
           const SizedBox(height: 8),
           TextField(
             controller: _nameCtrl,
-            decoration: const InputDecoration(hintText: 'e.g. GitHub Search API'),
+            decoration: InputDecoration(hintText: s.apiStoreNameHint),
           ),
 
           const SizedBox(height: 22),
 
           // URL
-          _SectionLabel(label: 'URL'),
+          _SectionLabel(label: s.apiStoreSectionUrl),
           const SizedBox(height: 8),
           TextField(
             controller: _urlCtrl,
-            decoration: const InputDecoration(hintText: 'https://api.example.com/endpoint'),
+            decoration: InputDecoration(hintText: s.apiStoreUrlHint),
             keyboardType: TextInputType.url,
           ),
 
           const SizedBox(height: 22),
 
           // Method
-          _SectionLabel(label: 'Method'),
+          _SectionLabel(label: s.apiStoreSectionMethod),
           const SizedBox(height: 8),
           _MethodSelector(
             value: _method,
@@ -584,35 +599,38 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
           const SizedBox(height: 22),
 
           // Auth
-          _SectionLabel(label: 'Authentication'),
+          _SectionLabel(label: s.apiStoreSectionAuth),
           const SizedBox(height: 8),
           _AuthSection(
             type: _authType,
             valueCtrl: _authValueCtrl,
             headerCtrl: _authHeaderCtrl,
             onTypeChanged: (t) => setState(() => _authType = t),
+            s: s,
           ),
 
           const SizedBox(height: 22),
 
           // Headers
-          _SectionLabel(label: 'Headers'),
+          _SectionLabel(label: s.apiStoreSectionHeaders),
           const SizedBox(height: 8),
           _KeyValueSection(
             rows: _headers,
             onChanged: () => setState(() {}),
             showDynamic: false,
+            s: s,
           ),
 
           const SizedBox(height: 22),
 
           // Query Params
-          _SectionLabel(label: 'Query Parameters'),
+          _SectionLabel(label: s.apiStoreSectionQueryParams),
           const SizedBox(height: 8),
           _KeyValueSection(
             rows: _queryParams,
             onChanged: () => setState(() {}),
             showDynamic: true,
+            s: s,
           ),
 
           // Body (only for non-GET)
@@ -620,11 +638,12 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
             const SizedBox(height: 22),
             Row(
               children: [
-                _SectionLabel(label: 'Body'),
+                _SectionLabel(label: s.apiStoreSectionBody),
                 const Spacer(),
                 _BodyModeToggle(
                   isRaw: _useRawBody,
                   onChanged: (v) => setState(() => _useRawBody = v),
+                  s: s,
                 ),
               ],
             ),
@@ -633,8 +652,8 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
               TextField(
                 controller: _bodyRawCtrl,
                 maxLines: 5,
-                decoration: const InputDecoration(
-                  hintText: '{"key": "value"}',
+                decoration: InputDecoration(
+                  hintText: s.apiStoreBodyHint,
                   alignLabelWithHint: true,
                 ),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
@@ -643,6 +662,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
               _BodyTreeSection(
                 nodes: _bodyNodes,
                 onChanged: () => setState(() {}),
+                s: s,
               ),
           ],
 
@@ -662,7 +682,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
                 ),
               ),
               child: Text(
-                _saving ? 'Saving...' : 'Save',
+                _saving ? s.apiStoreSaving : s.apiStoreSave,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
@@ -677,7 +697,7 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     final url = _urlCtrl.text.trim();
     if (name.isEmpty || url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Name and URL are required')),
+        SnackBar(content: Text(s.apiStoreNameUrlRequired)),
       );
       return;
     }
@@ -753,16 +773,16 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove API'),
-        content: Text('Remove "${widget.config!.name}" from the store?'),
+        title: Text(s.apiStoreRemoveApiTitle),
+        content: Text(s.apiStoreRemoveApiMessage(widget.config!.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(s.apiStoreCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Remove', style: TextStyle(color: context.cs.error)),
+            child: Text(s.apiStoreRemove, style: TextStyle(color: context.cs.error)),
           ),
         ],
       ),
@@ -841,12 +861,14 @@ class _AuthSection extends StatelessWidget {
     required this.valueCtrl,
     required this.headerCtrl,
     required this.onTypeChanged,
+    required this.s,
   });
 
   final ApiAuthType type;
   final TextEditingController valueCtrl;
   final TextEditingController headerCtrl;
   final ValueChanged<ApiAuthType> onTypeChanged;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -856,11 +878,11 @@ class _AuthSection extends StatelessWidget {
         DropdownButtonFormField<ApiAuthType>(
           initialValue: type,
           decoration: const InputDecoration(contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12)),
-          items: const [
-            DropdownMenuItem(value: ApiAuthType.none, child: Text('None')),
-            DropdownMenuItem(value: ApiAuthType.bearer, child: Text('Bearer Token')),
-            DropdownMenuItem(value: ApiAuthType.apiKeyHeader, child: Text('API Key in Header')),
-            DropdownMenuItem(value: ApiAuthType.basic, child: Text('Basic Auth')),
+          items: [
+            DropdownMenuItem(value: ApiAuthType.none, child: Text(s.apiStoreAuthNone)),
+            DropdownMenuItem(value: ApiAuthType.bearer, child: Text(s.apiStoreAuthBearer)),
+            DropdownMenuItem(value: ApiAuthType.apiKeyHeader, child: Text(s.apiStoreAuthApiKey)),
+            DropdownMenuItem(value: ApiAuthType.basic, child: Text(s.apiStoreAuthBasic)),
           ],
           onChanged: (v) { if (v != null) onTypeChanged(v); },
         ),
@@ -868,7 +890,7 @@ class _AuthSection extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             controller: valueCtrl,
-            decoration: const InputDecoration(hintText: 'Token value'),
+            decoration: InputDecoration(hintText: s.apiStoreTokenHint),
             obscureText: true,
           ),
         ],
@@ -876,12 +898,12 @@ class _AuthSection extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             controller: headerCtrl,
-            decoration: const InputDecoration(hintText: 'Header name (e.g. X-API-Key)'),
+            decoration: InputDecoration(hintText: s.apiStoreHeaderHint),
           ),
           const SizedBox(height: 10),
           TextField(
             controller: valueCtrl,
-            decoration: const InputDecoration(hintText: 'Key value'),
+            decoration: InputDecoration(hintText: s.apiStoreKeyValueHint),
             obscureText: true,
           ),
         ],
@@ -889,7 +911,7 @@ class _AuthSection extends StatelessWidget {
           const SizedBox(height: 12),
           TextField(
             controller: valueCtrl,
-            decoration: const InputDecoration(hintText: 'username:password'),
+            decoration: InputDecoration(hintText: s.apiStoreBasicAuthHint),
             obscureText: true,
           ),
         ],
@@ -920,11 +942,13 @@ class _KeyValueSection extends StatelessWidget {
   const _KeyValueSection({
     required this.rows,
     required this.onChanged,
+    required this.s,
     this.showDynamic = false,
   });
 
   final List<_KVRow> rows;
   final VoidCallback onChanged;
+  final AppStrings s;
   final bool showDynamic;
 
   @override
@@ -954,10 +978,10 @@ class _KeyValueSection extends StatelessWidget {
                       Expanded(
                         child: TextField(
                           controller: row.keyCtrl,
-                          decoration: const InputDecoration(
-                            hintText: 'Key',
+                          decoration: InputDecoration(
+                            hintText: s.apiStoreKeyHint,
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           ),
                           style: const TextStyle(fontSize: 13),
                         ),
@@ -967,7 +991,7 @@ class _KeyValueSection extends StatelessWidget {
                         child: TextField(
                           controller: row.valueCtrl,
                           decoration: InputDecoration(
-                            hintText: row.mode == ParamMode.dynamic ? 'Hint' : 'Value',
+                            hintText: row.mode == ParamMode.dynamic ? s.apiStoreHintHint : s.apiStoreValueHint,
                             isDense: true,
                             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                           ),
@@ -1027,7 +1051,7 @@ class _KeyValueSection extends StatelessWidget {
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  row.mode == ParamMode.dynamic ? 'Dynamic' : 'Fixed',
+                                  row.mode == ParamMode.dynamic ? s.apiStoreModeDynamic : s.apiStoreModeFixed,
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
@@ -1045,10 +1069,10 @@ class _KeyValueSection extends StatelessWidget {
                           Expanded(
                             child: TextField(
                               controller: row.defaultCtrl,
-                              decoration: const InputDecoration(
-                                hintText: 'Default',
+                              decoration: InputDecoration(
+                                hintText: s.apiStoreDefaultHint,
                                 isDense: true,
-                                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               ),
                               style: const TextStyle(fontSize: 12),
                             ),
@@ -1069,7 +1093,7 @@ class _KeyValueSection extends StatelessWidget {
           },
           icon: Icon(Icons.add_rounded, size: 16, color: cs.primary),
           label: Text(
-            'Add',
+            s.apiStoreAdd,
             style: TextStyle(fontSize: 13, color: cs.primary),
           ),
         ),
@@ -1145,9 +1169,10 @@ class _BodyTreeNode {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _BodyModeToggle extends StatelessWidget {
-  const _BodyModeToggle({required this.isRaw, required this.onChanged});
+  const _BodyModeToggle({required this.isRaw, required this.onChanged, required this.s});
   final bool isRaw;
   final ValueChanged<bool> onChanged;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -1163,8 +1188,8 @@ class _BodyModeToggle extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _toggleChip(context, label: 'Tree', active: !isRaw, onTap: () => onChanged(false)),
-          _toggleChip(context, label: 'Raw', active: isRaw, onTap: () => onChanged(true)),
+          _toggleChip(context, label: s.apiStoreModeTree, active: !isRaw, onTap: () => onChanged(false)),
+          _toggleChip(context, label: s.apiStoreModeRaw, active: isRaw, onTap: () => onChanged(true)),
         ],
       ),
     );
@@ -1198,9 +1223,10 @@ class _BodyModeToggle extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _BodyTreeSection extends StatelessWidget {
-  const _BodyTreeSection({required this.nodes, required this.onChanged});
+  const _BodyTreeSection({required this.nodes, required this.onChanged, required this.s});
   final List<_BodyTreeNode> nodes;
   final VoidCallback onChanged;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -1218,12 +1244,13 @@ class _BodyTreeSection extends StatelessWidget {
               nodes.removeAt(entry.key);
               onChanged();
             },
+            s: s,
           );
         }),
         TextButton.icon(
           onPressed: () => _showAddNodeDialog(context),
           icon: Icon(Icons.add_rounded, size: 16, color: cs.primary),
-          label: Text('Add field', style: TextStyle(fontSize: 13, color: cs.primary)),
+          label: Text(s.apiStoreAddField, style: TextStyle(fontSize: 13, color: cs.primary)),
         ),
       ],
     );
@@ -1238,6 +1265,7 @@ class _BodyTreeSection extends StatelessWidget {
           onChanged();
           Navigator.pop(ctx);
         },
+        s: s,
       ),
     );
   }
@@ -1249,12 +1277,14 @@ class _BodyNodeTile extends StatelessWidget {
     required this.depth,
     required this.onChanged,
     required this.onRemove,
+    required this.s,
   });
 
   final _BodyTreeNode node;
   final int depth;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
+  final AppStrings s;
 
   IconData _typeIcon() {
     switch (node.type) {
@@ -1306,10 +1336,10 @@ class _BodyNodeTile extends StatelessWidget {
                   flex: 2,
                   child: TextField(
                     controller: node.keyCtrl,
-                    decoration: const InputDecoration(
-                      hintText: 'Key',
+                    decoration: InputDecoration(
+                      hintText: s.apiStoreKeyHint,
                       isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     ),
                     style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                     onChanged: (_) => onChanged(),
@@ -1322,7 +1352,7 @@ class _BodyNodeTile extends StatelessWidget {
                     child: TextField(
                       controller: node.mode == ParamMode.dynamic ? node.hintCtrl : node.valueCtrl,
                       decoration: InputDecoration(
-                        hintText: node.mode == ParamMode.dynamic ? 'Hint for agent' : 'Value',
+                        hintText: node.mode == ParamMode.dynamic ? s.apiStoreHintForAgent : s.apiStoreValueHint,
                         isDense: true,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       ),
@@ -1377,7 +1407,7 @@ class _BodyNodeTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 3),
                         Text(
-                          node.mode == ParamMode.dynamic ? 'Dynamic' : 'Fixed',
+                          node.mode == ParamMode.dynamic ? s.apiStoreModeDynamic : s.apiStoreModeFixed,
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w600,
@@ -1393,10 +1423,10 @@ class _BodyNodeTile extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: node.defaultCtrl,
-                      decoration: const InputDecoration(
-                        hintText: 'Default',
+                      decoration: InputDecoration(
+                        hintText: s.apiStoreDefaultHint,
                         isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                       ),
                       style: const TextStyle(fontSize: 11),
                       onChanged: (_) => onChanged(),
@@ -1432,6 +1462,7 @@ class _BodyNodeTile extends StatelessWidget {
                     node.children.removeAt(entry.key);
                     onChanged();
                   },
+                  s: s,
                 );
               }),
               Padding(
@@ -1440,7 +1471,7 @@ class _BodyNodeTile extends StatelessWidget {
                   onPressed: () => _showAddChildDialog(context),
                   icon: Icon(Icons.add_rounded, size: 14, color: cs.primary.withValues(alpha: 0.7)),
                   label: Text(
-                    'Add ${node.type == 'array' ? 'item' : 'field'}',
+                    node.type == 'array' ? s.apiStoreAddItem : s.apiStoreAddField,
                     style: TextStyle(fontSize: 11, color: cs.primary.withValues(alpha: 0.7)),
                   ),
                 ),
@@ -1461,6 +1492,7 @@ class _BodyNodeTile extends StatelessWidget {
           onChanged();
           Navigator.pop(ctx);
         },
+        s: s,
       ),
     );
   }
@@ -1471,8 +1503,9 @@ class _BodyNodeTile extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AddNodeSheet extends StatelessWidget {
-  const _AddNodeSheet({required this.onAdd});
+  const _AddNodeSheet({required this.onAdd, required this.s});
   final ValueChanged<String> onAdd;
+  final AppStrings s;
 
   @override
   Widget build(BuildContext context) {
@@ -1486,7 +1519,7 @@ class _AddNodeSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Add Field',
+              s.apiStoreAddFieldTitle,
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: cs.onSurface),
             ),
             const SizedBox(height: 16),

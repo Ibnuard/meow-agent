@@ -228,7 +228,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               size: 18, color: cs.primary),
                           const SizedBox(width: 8),
                           Text(
-                            'Runtime Debug',
+                            s.runtimeDebugTitle,
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w700,
@@ -245,7 +245,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Text(
-                                'running',
+                                s.runningLabel,
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w600,
@@ -254,7 +254,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               ),
                             ),
                           IconButton(
-                            tooltip: 'Close',
+                            tooltip: s.closeTooltip,
                             icon: const Icon(Icons.close_rounded, size: 20),
                             onPressed: () => Navigator.pop(ctx),
                           ),
@@ -2085,21 +2085,21 @@ class _ExpandableTextState extends State<_ExpandableText> {
                       ),
                       const Spacer(),
                       IconButton(
-                        tooltip: 'Copy',
+                        tooltip: s.copyTooltip,
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         onPressed: () {
                           Clipboard.setData(
                               ClipboardData(text: widget.content));
                           ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                            const SnackBar(
-                              content: Text('Copied'),
-                              duration: Duration(seconds: 1),
+                            SnackBar(
+                              content: Text(s.copied),
+                              duration: const Duration(seconds: 1),
                             ),
                           );
                         },
                       ),
                       IconButton(
-                        tooltip: 'Close',
+                        tooltip: s.closeTooltip,
                         icon: const Icon(Icons.close_rounded, size: 20),
                         onPressed: () => Navigator.pop(sheetCtx),
                       ),

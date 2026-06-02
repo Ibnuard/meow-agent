@@ -157,11 +157,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (_titleCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            isId
-                ? 'Judul workflow tidak boleh kosong.'
-                : 'Workflow title is required.',
-          ),
+          content: Text(sSave.wfTitleRequired),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -277,7 +273,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       final success = await _repo.create(workflow);
       if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Max 20 workflows reached.')),
+          SnackBar(content: Text(sSave.wfMaxWorkflows)),
         );
         return;
       }
@@ -518,9 +514,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               const SizedBox(height: 14),
               _buildToggleWithDesc(
                 s.workflowAllowSensitive,
-                isId
-                    ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi.'
-                    : 'Auto-approve actions that normally require confirmation.',
+                s.wfAllowSensitiveDesc,
                 _allowSensitive,
                 (v) => setState(() => _allowSensitive = v),
                 cs,
@@ -1511,19 +1505,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          _infoBullet(
-            s.isId
-                ? 'Pastikan permission akses notifikasi sudah diizinkan.'
-                : 'Make sure notification access permission is allowed.',
-            cs,
-          ),
+          _infoBullet(s.wfNotifyPermRequired, cs),
           const SizedBox(height: 7),
-          _infoBullet(
-            s.isId
-                ? 'Pastikan module Notifikasi aktif di halaman Modules.'
-                : 'Make sure the Notification module is enabled in Modules.',
-            cs,
-          ),
+          _infoBullet(s.wfModuleDisabled, cs),
         ],
       ),
     );
@@ -1560,64 +1544,46 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   String _eventKindLabel(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return s.isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+        return s.wfEventBatteryLow;
       case EventTriggerKind.batteryAbove:
-        return s.isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
+        return s.wfEventBatteryHigh;
       case EventTriggerKind.batteryFull:
-        return s.isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
+        return s.wfEventBatteryFull;
       case EventTriggerKind.chargingStart:
-        return s.isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
+        return s.wfEventChargingStart;
       case EventTriggerKind.chargingStop:
-        return s.isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
+        return s.wfEventChargingStop;
       case EventTriggerKind.notificationKeyword:
-        return s.isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
+        return s.wfEventNotifKeyword;
       case EventTriggerKind.appOpened:
-        return s.isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
+        return s.wfEventAppOpened;
       case EventTriggerKind.wifiConnected:
-        return s.isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
+        return s.wfEventWifiConnected;
       case EventTriggerKind.wifiDisconnected:
-        return s.isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+        return s.wfEventWifiDisconnected;
     }
   }
 
   String _eventKindSubtitle(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return s.isId
-            ? 'Jalan saat baterai turun melewati 50%.'
-            : 'Runs when battery drops past 50%.';
+        return s.wfEventBatteryLowSub;
       case EventTriggerKind.batteryAbove:
-        return s.isId
-            ? 'Jalan saat baterai naik melewati 50%.'
-            : 'Runs when battery rises past 50%.';
+        return s.wfEventBatteryHighSub;
       case EventTriggerKind.batteryFull:
-        return s.isId
-            ? 'Jalan saat baterai mencapai 100%.'
-            : 'Runs when battery reaches 100%.';
+        return s.wfEventBatteryFullSub;
       case EventTriggerKind.chargingStart:
-        return s.isId
-            ? 'Jalan saat perangkat mulai di-charge.'
-            : 'Runs when device starts charging.';
+        return s.wfEventChargingStartSub;
       case EventTriggerKind.chargingStop:
-        return s.isId
-            ? 'Jalan saat perangkat berhenti di-charge.'
-            : 'Runs when device stops charging.';
+        return s.wfEventChargingStopSub;
       case EventTriggerKind.notificationKeyword:
-        return s.isId
-            ? 'Jalan saat notifikasi mengandung kata kunci.'
-            : 'Runs when a notification contains a keyword.';
+        return s.wfEventNotifKeywordSub;
       case EventTriggerKind.appOpened:
-        return s.isId
-            ? 'Jalan saat aplikasi tertentu dibuka.'
-            : 'Runs when a specific app is opened.';
+        return s.wfEventAppOpenedSub;
       case EventTriggerKind.wifiConnected:
-        return s.isId
-            ? 'Jalan saat WiFi tersambung.'
-            : 'Runs when WiFi connects.';
+        return s.wfEventWifiConnectedSub;
       case EventTriggerKind.wifiDisconnected:
-        return s.isId
-            ? 'Jalan saat WiFi terputus.'
-            : 'Runs when WiFi disconnects.';
+        return s.wfEventWifiDisconnectedSub;
     }
   }
 
@@ -1930,7 +1896,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        s.isId ? 'Panggil API tersimpan' : 'Call a stored API',
+                        s.wfApiCallLabel,
                         style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                       ),
                     ],
@@ -1960,7 +1926,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      s.isId ? 'Pilih API' : 'Select API',
+                      s.wfApiSelectLabel,
                       style: TextStyle(
                         fontSize: 11,
                         color: cs.onSurfaceVariant,
@@ -2455,39 +2421,27 @@ class _ConditionPreset {
         value: null,
       ),
       _ConditionPreset(
-        label: s.isId
-            ? 'Hanya jika langkah sebelumnya berhasil'
-            : 'Only if previous step succeeded',
+        label: s.wfConditionOnlyIfPrevSuccess,
         value: 'prev.isNotEmpty',
       ),
       _ConditionPreset(
-        label: s.isId
-            ? 'Hanya jika langkah sebelumnya kosong'
-            : 'Only if previous step is empty',
+        label: s.wfConditionOnlyIfPrevEmpty,
         value: 'prev.isEmpty',
       ),
       _ConditionPreset(
-        label: s.isId
-            ? 'Jika hasil sebelumnya pendek (< 50 karakter)'
-            : 'If previous result is short (< 50 chars)',
+        label: s.wfConditionIfPrevShort,
         value: 'prev.length < 50',
       ),
       _ConditionPreset(
-        label: s.isId
-            ? 'Jika hasil sebelumnya panjang (> 200 karakter)'
-            : 'If previous result is long (> 200 chars)',
+        label: s.wfConditionIfPrevLong,
         value: 'prev.length > 200',
       ),
       _ConditionPreset(
-        label: s.isId
-            ? "Jika hasil mengandung 'sukses'"
-            : "If result contains 'success'",
+        label: s.wfConditionIfContainsSukses,
         value: "prev.contains('sukses')",
       ),
       _ConditionPreset(
-        label: s.isId
-            ? "Jika hasil mengandung 'error'"
-            : "If result contains 'error'",
+        label: s.wfConditionIfContainsError,
         value: "prev.contains('error')",
       ),
     ];

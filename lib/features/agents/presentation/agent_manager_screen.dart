@@ -210,7 +210,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       body: SafeArea(
         child: providersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) => Center(child: Text(s.errorWithMessage('$e'))),
           data: (providers) => _buildForm(context, providers),
         ),
       ),

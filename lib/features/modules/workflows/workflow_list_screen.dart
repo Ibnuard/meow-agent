@@ -174,7 +174,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   PreferredSizeWidget _buildDefaultAppBar(AppStrings s) {
     return AppBar(
-      title: const Text('Workflows'),
+      title: Text(s.workflowsTitle),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => context.pop(),

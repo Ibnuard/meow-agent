@@ -24,6 +24,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   bool _saving = false;
   Note? _existing;
 
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
+
   bool get _isEditing => widget.noteId != null;
 
   @override
@@ -49,8 +54,6 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      final langPref = ref.read(appLanguageProvider);
-      final s = AppStrings(resolveLanguageCode(langPref));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(s.noteEditorTitleRequired),
@@ -90,7 +93,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(s.errorWithMessage('$e'))),
         );
       }
     }

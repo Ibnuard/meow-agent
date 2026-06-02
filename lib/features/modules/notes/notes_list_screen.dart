@@ -310,7 +310,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
                           loading: () => const Center(
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          error: (e, _) => Center(child: Text('Error: $e')),
+                          error: (e, _) => Center(child: Text(s.errorWithMessage('$e'))),
                           data: (notes) =>
                               _buildNotesList(notes, cs, extras, s),
                         ),

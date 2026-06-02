@@ -33,6 +33,11 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   bool _allDay = false;
   bool _saving = false;
 
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
+
   bool get _isEditing => widget.event != null;
 
   @override
@@ -109,7 +114,6 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(s.calendarEventTitleRequired)),
       );
@@ -151,7 +155,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(s.errorWithMessage('$e'))),
         );
       }
     }
