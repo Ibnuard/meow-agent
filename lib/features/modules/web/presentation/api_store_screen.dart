@@ -19,6 +19,10 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
   List<ApiConfig> _apis = [];
   bool _loading = true;
 
+  // Multi-select state.
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+
   @override
   void initState() {
     super.initState();
@@ -30,67 +34,51 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
     if (mounted) setState(() { _apis = apis.toList(); _loading = false; });
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final cs = context.cs;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
-      appBar: AppBar(title: const Text('API Store')),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () async {
-          final result = await Navigator.of(context).push<bool>(
-            MaterialPageRoute(builder: (_) => const ApiEditorScreen()),
-          );
-          if (result == true) _load();
-        },
-        backgroundColor: cs.primary,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        shape: const CircleBorder(),
-        child: const Icon(Icons.add_rounded, size: 28),
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _apis.isEmpty
-              ? _EmptyState(onAdd: () async {
-                  final result = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(builder: (_) => const ApiEditorScreen()),
-                  );
-                  if (result == true) _load();
-                })
-              : ListView.builder(
-                  padding: EdgeInsets.fromLTRB(
-                    18, 16, 18,
-                    100 + MediaQuery.of(context).padding.bottom,
-                  ),
-                  itemCount: _apis.length,
-                  itemBuilder: (context, i) => Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: _ApiCard(
-                      config: _apis[i],
-                      onTap: () async {
-                        final result = await Navigator.of(context).push<bool>(
-                          MaterialPageRoute(
-                            builder: (_) => ApiEditorScreen(config: _apis[i]),
-                          ),
-                        );
-                        if (result == true) _load();
-                      },
-                      onDelete: () => _confirmDelete(_apis[i]),
-                    ),
-                  ),
-                ),
-    );
+  void _enterSelection(String id) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(id);
+    });
   }
 
-  Future<void> _confirmDelete(ApiConfig config) async {
+  void _exitSelection() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+        if (_selectedIds.isEmpty) _selectionMode = false;
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _selectAll() {
+    setState(() {
+      if (_selectedIds.length == _apis.length) {
+        _selectedIds.clear();
+        _selectionMode = false;
+      } else {
+        _selectedIds
+          ..clear()
+          ..addAll(_apis.map((a) => a.id));
+      }
+    });
+  }
+
+  Future<void> _deleteSelected() async {
+    final count = _selectedIds.length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove API'),
-        content: Text('Remove "${config.name}" from the store?'),
+        title: const Text('Remove APIs'),
+        content: Text('Remove $count selected API${count > 1 ? 's' : ''} from the store?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -103,10 +91,125 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
         ],
       ),
     );
-    if (confirmed == true) {
-      await ApiStoreRepository.instance.remove(config.id);
-      _load();
+    if (confirmed != true) return;
+    for (final id in _selectedIds) {
+      await ApiStoreRepository.instance.remove(id);
     }
+    _exitSelection();
+    _load();
+  }
+
+  void _onCardTap(ApiConfig config) {
+    if (_selectionMode) {
+      _toggleSelection(config.id);
+    } else {
+      _openEditor(config: config);
+    }
+  }
+
+  void _onCardLongPress(ApiConfig config) {
+    if (!_selectionMode) {
+      _enterSelection(config.id);
+    }
+  }
+
+  Future<void> _openEditor({ApiConfig? config}) async {
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ApiEditorScreen(config: config),
+      ),
+    );
+    if (result == true) _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return PopScope(
+      canPop: !_selectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selectionMode) _exitSelection();
+      },
+      child: Scaffold(
+        backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
+        appBar: _selectionMode
+            ? _buildSelectionAppBar(cs)
+            : AppBar(
+                title: const Text('API Store'),
+                actions: [
+                  if (_apis.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.checklist_rounded),
+                      tooltip: 'Select',
+                      onPressed: () {
+                        if (_apis.isNotEmpty) _enterSelection(_apis.first.id);
+                      },
+                    ),
+                ],
+              ),
+        floatingActionButton: _selectionMode
+            ? null
+            : FloatingActionButton(
+                onPressed: () => _openEditor(),
+                backgroundColor: cs.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: const CircleBorder(),
+                child: const Icon(Icons.add_rounded, size: 28),
+              ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _apis.isEmpty
+                ? _EmptyState(onAdd: () => _openEditor())
+                : ListView.builder(
+                    padding: EdgeInsets.fromLTRB(
+                      18, 16, 18,
+                      100 + MediaQuery.of(context).padding.bottom,
+                    ),
+                    itemCount: _apis.length,
+                    itemBuilder: (context, i) {
+                      final config = _apis[i];
+                      final selected = _selectedIds.contains(config.id);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: _ApiCard(
+                          config: config,
+                          selected: selected,
+                          selectionMode: _selectionMode,
+                          onTap: () => _onCardTap(config),
+                          onLongPress: () => _onCardLongPress(config),
+                        ),
+                      );
+                    },
+                  ),
+      ),
+    );
+  }
+
+  PreferredSizeWidget _buildSelectionAppBar(ColorScheme cs) {
+    final count = _selectedIds.length;
+    final allSelected = count == _apis.length;
+    return AppBar(
+      title: Text('$count selected', style: const TextStyle(fontSize: 16)),
+      leading: IconButton(
+        icon: const Icon(Icons.close_rounded),
+        onPressed: _exitSelection,
+      ),
+      actions: [
+        IconButton(
+          icon: Icon(allSelected ? Icons.deselect_rounded : Icons.select_all_rounded),
+          tooltip: allSelected ? 'Deselect All' : 'Select All',
+          onPressed: _selectAll,
+        ),
+        IconButton(
+          icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+          tooltip: 'Delete',
+          onPressed: count > 0 ? _deleteSelected : null,
+        ),
+      ],
+    );
   }
 }
 
@@ -115,11 +218,19 @@ class _ApiStoreScreenState extends State<ApiStoreScreen> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _ApiCard extends StatelessWidget {
-  const _ApiCard({required this.config, this.onTap, this.onDelete});
+  const _ApiCard({
+    required this.config,
+    this.onTap,
+    this.onLongPress,
+    this.selected = false,
+    this.selectionMode = false,
+  });
 
   final ApiConfig config;
   final VoidCallback? onTap;
-  final VoidCallback? onDelete;
+  final VoidCallback? onLongPress;
+  final bool selected;
+  final bool selectionMode;
 
   @override
   Widget build(BuildContext context) {
@@ -135,13 +246,19 @@ class _ApiCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         onTap: onTap,
-        onLongPress: onDelete,
+        onLongPress: onLongPress,
         borderRadius: BorderRadius.circular(22),
-        child: Ink(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
-            color: isDark ? extras.card : const Color(0xFFF4F7FB),
+            color: selected
+                ? cs.primary.withValues(alpha: 0.08)
+                : (isDark ? extras.card : const Color(0xFFF4F7FB)),
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: extras.subtleBorder),
+            border: Border.all(
+              color: selected ? cs.primary : extras.subtleBorder,
+              width: selected ? 1.5 : 1,
+            ),
           ),
           padding: const EdgeInsets.all(18),
           child: Column(
@@ -149,6 +266,18 @@ class _ApiCard extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  if (selectionMode) ...[
+                    Icon(
+                      selected
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 20,
+                      color: selected
+                          ? cs.primary
+                          : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   _MethodBadge(method: config.method),
                   const SizedBox(width: 10),
                   Expanded(
@@ -409,10 +538,12 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
       appBar: AppBar(
         title: Text(widget.isEditing ? 'Edit API' : 'New API'),
         actions: [
-          TextButton(
-            onPressed: _saving ? null : _save,
-            child: Text(_saving ? 'Saving...' : 'Save'),
-          ),
+          if (widget.isEditing)
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+              tooltip: 'Delete',
+              onPressed: _confirmDelete,
+            ),
         ],
       ),
       body: ListView(
@@ -514,6 +645,28 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
                 onChanged: () => setState(() {}),
               ),
           ],
+
+          const SizedBox(height: 32),
+
+          // Save button at the bottom of form
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _saving ? null : _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: cs.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: Text(
+                _saving ? 'Saving...' : 'Save',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -593,6 +746,30 @@ class _ApiEditorScreenState extends State<ApiEditorScreen> {
     await ApiStoreRepository.instance.save(config);
     if (mounted) {
       Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove API'),
+        content: Text('Remove "${widget.config!.name}" from the store?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Remove', style: TextStyle(color: context.cs.error)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await ApiStoreRepository.instance.remove(widget.config!.id);
+      if (mounted) Navigator.pop(context, true);
     }
   }
 }
