@@ -67,15 +67,106 @@ class OpenAiCompatibleClient {
     return Uri.parse('$trimmed$path');
   }
 
+  /// Normalize provider-specific response formats to the JSON shape the
+  /// runtime engine expects.
+  ///
+  /// Some models emit tool calls as XML (with or without a vendor prefix
+  /// like `<acme:tool_call>` or just `<tool_call>`) instead of structured
+  /// JSON. This converter matches that family of patterns generically,
+  /// without naming any specific provider.
+  static String _normalizeContent(String raw) {
+    final trimmed = raw.trim();
+
+    // Generic XML tool-call wrapper. Accepts:
+    //   <tool_call>...</tool_call>
+    //   <something:tool_call>...</something:tool_call>
+    // The wrapper must contain an <invoke name="..."> block with optional
+    // <parameter name="...">value</parameter> children.
+    final wrapperRe = RegExp(
+      r'<(?:[\w-]+:)?tool_call>\s*'
+      r'<invoke\s+name="([^"]+)"\s*>'
+      r'(.*?)'
+      r'</invoke>\s*'
+      r'</(?:[\w-]+:)?tool_call>',
+      dotAll: true,
+    );
+    final match = wrapperRe.firstMatch(trimmed);
+    if (match != null) {
+      final toolName = match.group(1) ?? '';
+      final body = match.group(2) ?? '';
+      final args = <String, String>{};
+      final paramRe = RegExp(
+        r'<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>',
+        dotAll: true,
+      );
+      for (final m in paramRe.allMatches(body)) {
+        args[m.group(1) ?? ''] = (m.group(2) ?? '').trim();
+      }
+      final argEntries = args.entries
+          .map((e) => '"${e.key}":${_jsonString(e.value)}')
+          .join(',');
+      return '{"status":"tool_required","tool":{"name":"$toolName","args":{$argEntries},"risk":"safe","requires_confirmation":false},"reason":"Tool call extracted from XML wrapper.","narrative":""}';
+    }
+    return raw;
+  }
+
+  static String _jsonString(String s) {
+    final escaped = s
+        .replaceAll(r'\', r'\\')
+        .replaceAll('"', r'\"')
+        .replaceAll('\n', r'\n')
+        .replaceAll('\r', r'\r')
+        .replaceAll('\t', r'\t');
+    return '"$escaped"';
+  }
+
   Future<String> chat({
     required LlmProviderConfig config,
     required List<Map<String, String>> messages,
     String phase = 'chat',
+    List<String> imageDataUrls = const [],
   }) async {
     final estimatedInputTokens = estimateMessagesTokens(messages);
+
+    // Build the wire payload. If image data URLs are supplied, the LAST
+    // user message is transformed into the OpenAI multipart content format
+    // (a content array of {type: text|image_url, ...}). All other messages
+    // are passed through unchanged. This lets the model see the user's
+    // image inline during a normal conversational turn — no tool required.
+    final wireMessages = <Map<String, dynamic>>[];
+    if (imageDataUrls.isEmpty) {
+      wireMessages.addAll(messages);
+    } else {
+      var lastUserIdx = -1;
+      for (var i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]['role'] == 'user') {
+          lastUserIdx = i;
+          break;
+        }
+      }
+      for (var i = 0; i < messages.length; i++) {
+        final m = messages[i];
+        if (i == lastUserIdx) {
+          wireMessages.add({
+            'role': m['role'],
+            'content': [
+              {'type': 'text', 'text': m['content'] ?? ''},
+              for (final url in imageDataUrls)
+                {
+                  'type': 'image_url',
+                  'image_url': {'url': url},
+                },
+            ],
+          });
+        } else {
+          wireMessages.add({...m});
+        }
+      }
+    }
+
     final response = await _dio.postUri<Map<String, dynamic>>(
       _resolve(config.baseUrl, '/chat/completions'),
-      data: {'model': config.model, 'messages': messages},
+      data: {'model': config.model, 'messages': wireMessages},
       options: Options(
         headers: {
           'Authorization': 'Bearer ${config.apiKey}',
@@ -111,7 +202,7 @@ class OpenAiCompatibleClient {
         createdAt: DateTime.now(),
       ),
     );
-    return content;
+    return _normalizeContent(content);
   }
 
   Future<String> chatWithImage({
@@ -172,7 +263,7 @@ class OpenAiCompatibleClient {
         createdAt: DateTime.now(),
       ),
     );
-    return content;
+    return _normalizeContent(content);
   }
 
   /// Lightweight credential test: lists models and returns true on 2xx.

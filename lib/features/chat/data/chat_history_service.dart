@@ -24,7 +24,7 @@ class ChatHistoryService {
     final dbPath = '$dbDir/meow_chat.db';
     return openDatabase(
       dbPath,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -43,6 +43,9 @@ class ChatHistoryService {
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE messages ADD COLUMN actions TEXT');
+        }
+        if (oldVersion < 3) {
+          await db.execute('ALTER TABLE messages ADD COLUMN image_paths TEXT');
         }
       },
     );
@@ -115,6 +118,9 @@ class ChatHistoryService {
       'actions': message.actions.isEmpty
           ? null
           : jsonEncode(message.actions.map((a) => a.toJson()).toList()),
+      'image_paths': message.imagePaths.isEmpty
+          ? null
+          : jsonEncode(message.imagePaths),
     });
   }
 
@@ -131,6 +137,9 @@ class ChatHistoryService {
         'actions': message.actions.isEmpty
             ? null
             : jsonEncode(message.actions.map((a) => a.toJson()).toList()),
+        'image_paths': message.imagePaths.isEmpty
+            ? null
+            : jsonEncode(message.imagePaths),
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -150,6 +159,9 @@ class ChatHistoryService {
         'actions': msg.actions.isEmpty
             ? null
             : jsonEncode(msg.actions.map((a) => a.toJson()).toList()),
+        'image_paths': msg.imagePaths.isEmpty
+            ? null
+            : jsonEncode(msg.imagePaths),
       });
     }
     await batch.commit(noResult: true);
@@ -189,6 +201,7 @@ class ChatMessage {
     required this.content,
     DateTime? timestamp,
     this.actions = const [],
+    this.imagePaths = const [],
   }) : timestamp = timestamp ?? DateTime.now();
 
   final int? id;
@@ -198,6 +211,9 @@ class ChatMessage {
 
   /// Optional contextual action buttons. Persisted as JSON in the DB.
   final List<ResultAction> actions;
+
+  /// File paths for attached images. Persisted as JSON for thumbnail rendering.
+  final List<String> imagePaths;
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final actionsRaw = row['actions'] as String?;
@@ -212,12 +228,23 @@ class ChatMessage {
         // Malformed JSON — ignore.
       }
     }
+    final imagePathsRaw = row['image_paths'] as String?;
+    final imagePaths = <String>[];
+    if (imagePathsRaw != null && imagePathsRaw.isNotEmpty) {
+      try {
+        final list = jsonDecode(imagePathsRaw) as List;
+        for (final item in list) {
+          imagePaths.add(item.toString());
+        }
+      } catch (_) {}
+    }
     return ChatMessage(
       id: row['id'] as int?,
       role: row['role'] as String,
       content: row['content'] as String,
       timestamp: DateTime.tryParse(row['timestamp'] as String? ?? ''),
       actions: actions,
+      imagePaths: imagePaths,
     );
   }
 }

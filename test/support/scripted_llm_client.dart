@@ -55,6 +55,7 @@ class ScriptedLlmClient extends OpenAiCompatibleClient {
     required LlmProviderConfig config,
     required List<Map<String, String>> messages,
     String phase = 'chat',
+    List<String> imageDataUrls = const [],
   }) async {
     callLog.add(ScriptedLlmCall(phase: phase, messages: messages));
 

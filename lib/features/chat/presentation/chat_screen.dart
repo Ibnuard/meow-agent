@@ -518,9 +518,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? messageText
         : '$messageText\n\n📎 ${attachmentNames.map((a) => a.name).join(", ")}';
 
+    // Collect image paths for thumbnail rendering in the bubble.
+    final imageExts = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
+    final imgPaths = _attachments
+        .where((a) {
+          final dot = a.path.lastIndexOf('.');
+          if (dot < 0) return false;
+          return imageExts.contains(a.path.substring(dot).toLowerCase());
+        })
+        .map((a) => a.path)
+        .toList();
+
     // Optimistically show the user message immediately — it always lands
     // in history regardless of context exhaustion.
-    final userMsg = ChatMessage(role: 'user', content: displayText);
+    final userMsg = ChatMessage(role: 'user', content: displayText, imagePaths: imgPaths);
     setState(() => _messages.add(userMsg));
     _scrollToEnd();
 
@@ -1682,6 +1693,38 @@ class _Bubble extends StatelessWidget {
   final VoidCallback? onLongPress;
   final bool isId;
 
+  void _showImagePreviewFromPath(BuildContext context, String path) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.file(
+              File(path),
+              fit: BoxFit.contain,
+              errorBuilder: (_, e, s) => Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.broken_image_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = AppStrings(isId ? 'id' : 'en');
@@ -1796,6 +1839,42 @@ class _Bubble extends StatelessWidget {
                     ],
                   ),
                 ),
+              ],
+              // Image thumbnails in bubble (user messages with attachments).
+              if (isUser && msg.imagePaths.isNotEmpty) ...[
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final imgPath in msg.imagePaths)
+                      GestureDetector(
+                        onTap: () => _showImagePreviewFromPath(context, imgPath),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.file(
+                            File(imgPath),
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, e, s) => Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.broken_image_rounded,
+                                size: 18,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
               ],
               if (isUser)
                 _ExpandableText(

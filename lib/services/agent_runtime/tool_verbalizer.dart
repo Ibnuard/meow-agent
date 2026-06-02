@@ -180,13 +180,71 @@ Rules:
 
 Reply with the answer only. No JSON, no quotes.''';
 
-    return _callOrFallback(
+    final raw = await _callOrFallback(
       prompt: prompt,
       phase: 'verbalize.answer_from_tool_result',
       languageCode: language.code,
       fallbackPhase: 'success',
       cacheKey: cacheKey,
     );
+
+    // Safety net: if the model echoed the prompt structure (rare on capable
+    // models, common on weak ones), fall back to extracting the primary
+    // human-readable field from the result data.
+    if (_looksLikePromptEcho(raw)) {
+      final extracted = _extractPrimaryText(result.data);
+      if (extracted != null && extracted.isNotEmpty) {
+        _turnCache[cacheKey] = extracted;
+        return extracted;
+      }
+    }
+    return raw;
+  }
+
+  /// Detect when an output is the model echoing back the prompt structure
+  /// instead of producing a real answer. Generic — looks for the kind of
+  /// labeled section markers verbalizer prompts contain. Vendor-agnostic.
+  static bool _looksLikePromptEcho(String s) {
+    final lower = s.toLowerCase();
+    var hits = 0;
+    const markers = [
+      'user request:',
+      'tool action:',
+      'tool arguments:',
+      'tool result data:',
+      'rules:',
+    ];
+    for (final m in markers) {
+      if (lower.contains(m)) hits++;
+    }
+    return hits >= 2;
+  }
+
+  /// Pull the most user-relevant text field out of arbitrary tool result
+  /// data. Tries a small ordered list of common field names. This is
+  /// shape-based, not tool-specific.
+  static String? _extractPrimaryText(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return null;
+    const preferredKeys = [
+      'description',
+      'summary',
+      'text',
+      'content',
+      'message',
+      'answer',
+      'result',
+      'value',
+      'output',
+    ];
+    for (final k in preferredKeys) {
+      final v = data[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    // Fallback: first string value of meaningful length.
+    for (final v in data.values) {
+      if (v is String && v.trim().length > 20) return v.trim();
+    }
+    return null;
   }
 
   /// Message shown when the user rejects a pending action.

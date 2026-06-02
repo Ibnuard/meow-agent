@@ -9,11 +9,13 @@ import '../../features/providers/data/provider_config.dart';
 import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
+import '../llm/vision_probe_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
+import 'language_registry.dart';
 
 import 'pending_action.dart';
 import 'pending_clarification.dart';
@@ -228,9 +230,51 @@ class AgentRuntimeEngine {
       toolRouter.agentName = wsName;
       toolRouter.agentId = request.agentId;
       toolRouter.attachments = request.attachments;
-      // TODO: Vision probe disabled temporarily — assume all models support vision.
-      // Re-enable VisionProbeService once the probe failure is debugged.
-      toolRouter.modelSupportsVision = true;
+
+      // Vision probe: only when the user actually attached an image. The
+      // probe is cached per (provider, model) for the session on success,
+      // so capable models pay the round-trip exactly once. Failures are not
+      // cached — transient errors get a fresh chance on the next turn.
+      final hasImageAttachment = request.attachments.any((a) {
+        final dot = a.name.lastIndexOf('.');
+        if (dot < 0) return false;
+        final ext = a.name.substring(dot).toLowerCase();
+        return const {
+          '.png',
+          '.jpg',
+          '.jpeg',
+          '.webp',
+          '.gif',
+          '.bmp',
+          '.heic',
+        }.contains(ext);
+      });
+      if (hasImageAttachment) {
+        final supports = await VisionProbeService.instance.probe(
+          client: client,
+          config: llmConfig,
+        );
+        toolRouter.modelSupportsVision = supports;
+        if (!supports) {
+          // Short-circuit early: the model cannot see images. Returning
+          // here prevents the agent loop from running and hallucinating
+          // image content, which is the exact failure mode that produced
+          // the multi-step looping bug.
+          final message = LanguageRegistry.phrase(
+            'runtime_vision_model_unsupported',
+            detectedLang.code,
+          );
+          logger.logFinalResponse(message);
+          return AgentRuntimeResponse(
+            finalMessage: message,
+            success: false,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+          );
+        }
+      } else {
+        toolRouter.modelSupportsVision = true;
+      }
       toolRouter.currentUserMessage = request.userMessage;
       toolRouter.describeImage =
           ({required AttachedFile image, required String prompt}) async {
@@ -620,10 +664,7 @@ class AgentRuntimeEngine {
         }
       }
       final analyzerSaysTools = analysis['requires_tools'] == true;
-      final requiresTools =
-          analyzerSaysTools ||
-          isWorkflowAutoExecute ||
-          request.attachments.isNotEmpty;
+      final requiresTools = analyzerSaysTools || isWorkflowAutoExecute;
       if (!requiresTools) {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
@@ -643,6 +684,13 @@ class AgentRuntimeEngine {
         final systemContent = pending != null
             ? '$baseSystem\n\nPENDING ACTION (user was asked to confirm):\nTool: ${pending.toolName}\nArgs: ${pending.toolArgs}\nSummary: ${pending.userFacingSummary}\nIf user asks about the result or preview, show them what the result would be.'
             : baseSystem;
+
+        // Build image data URLs for any image attachments. The model receives
+        // them inline in the user message so it can see and reason about them
+        // directly without invoking a tool. Non-image attachments still go
+        // through tools (read_text, etc.) when the analyzer routes that way.
+        final imageDataUrls = await _buildImageDataUrls(request.attachments);
+
         final directResponse = await client.chat(
           config: llmConfig,
           phase: 'direct',
@@ -651,6 +699,7 @@ class AgentRuntimeEngine {
             ...recentMsgs,
             {'role': 'user', 'content': effectiveUserMessage},
           ],
+          imageDataUrls: imageDataUrls,
         );
         if (pending != null) {
           _pendingActions.remove(request.agentId);
@@ -1265,19 +1314,52 @@ class AgentRuntimeEngine {
   /// Contents are intentionally read only through attachment.* tools.
   String? _buildAttachmentContext(List<AttachedFile> attachments) {
     if (attachments.isEmpty) return null;
+    const imageExts = {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
+    bool isImage(String name) {
+      final dot = name.lastIndexOf('.');
+      if (dot < 0) return false;
+      return imageExts.contains(name.substring(dot).toLowerCase());
+    }
+
+    final hasImage = attachments.any((a) => isImage(a.name));
     final buf = StringBuffer()
-      ..writeln('[ATTACHED FILES]')
+      ..writeln('[ATTACHED FILES — CURRENT TURN]')
       ..writeln(
-        'The user attached ${attachments.length} file(s) to their message.',
-      )
-      ..writeln(
-        'Use attachment.list to inspect metadata and attachment.read_text to read supported text files. Do not infer file contents from filenames.',
+        'The user attached ${attachments.length} file(s) to THIS message (current turn).',
       );
+
+    if (hasImage) {
+      buf.writeln(
+        'IMPORTANT: Image files are present in the current turn. You MUST use '
+        'attachment.describe_image to inspect them — this tool can describe, '
+        'read text (OCR), identify objects, recognize colors, count, extract '
+        'information, or answer ANY visual question. Pass the user\'s exact '
+        'request as the `prompt` argument.',
+      );
+      buf.writeln(
+        'Disregard any prior assistant message claiming inability to see images. '
+        'The current model and tool stack CAN process the attached image now.',
+      );
+    }
+    buf.writeln(
+      'For text-like files use attachment.read_text. For metadata use '
+      'attachment.list. Never infer file contents from filenames.',
+    );
+
     for (final a in attachments) {
       final sizeFmt = a.sizeBytes >= 1024 * 1024
           ? '${(a.sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
           : '${(a.sizeBytes / 1024).toStringAsFixed(0)} KB';
-      buf.writeln('- ${a.name} ($sizeFmt)');
+      final kind = isImage(a.name) ? 'image' : 'file';
+      buf.writeln('- ${a.name} ($sizeFmt, $kind)');
     }
     buf.writeln('[/ATTACHED FILES]');
     return buf.toString();
@@ -1291,6 +1373,38 @@ class AgentRuntimeEngine {
     if (lower.endsWith('.bmp')) return 'image/bmp';
     if (lower.endsWith('.heic')) return 'image/heic';
     return 'image/png';
+  }
+
+  /// Encode image attachments as base64 data URLs for inline vision input.
+  /// Non-image attachments are skipped. Unreadable files are also skipped
+  /// (graceful degradation — the rest of the request still proceeds).
+  Future<List<String>> _buildImageDataUrls(
+    List<AttachedFile> attachments,
+  ) async {
+    if (attachments.isEmpty) return const [];
+    const imageExts = {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
+    final out = <String>[];
+    for (final a in attachments) {
+      final dot = a.name.lastIndexOf('.');
+      if (dot < 0) continue;
+      if (!imageExts.contains(a.name.substring(dot).toLowerCase())) continue;
+      try {
+        final bytes = await File(a.path).readAsBytes();
+        final mime = _mimeTypeForImage(a.name);
+        out.add('data:$mime;base64,${base64Encode(bytes)}');
+      } catch (_) {
+        // Skip unreadable files; the model still gets the rest.
+      }
+    }
+    return out;
   }
 }
 

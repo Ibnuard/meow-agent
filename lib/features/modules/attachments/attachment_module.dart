@@ -50,13 +50,14 @@ class AttachmentModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'attachment.describe_image',
       description:
-          'Describe or answer questions about one attached image from the current user message.',
+          'Process an attached image with vision. Use this for ANY image-related task: describing content, reading text/OCR, identifying objects or people, counting, recognizing colors, extracting information, answering visual questions, comparing, or any other inspection of an attached image. Always pass the user\'s exact question as the `prompt` argument so the vision model answers what was actually asked.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
         'index': 'number (optional, zero-based attachment index)',
         'name': 'string (optional, attached file name)',
-        'prompt': 'string (optional, question to answer about the image)',
+        'prompt':
+            'string (REQUIRED — pass the user\'s actual question or request verbatim, e.g. "read the text", "what color is this", "count the people", "describe the scene")',
       },
       isRetrieval: true,
     ),

@@ -163,7 +163,16 @@ class ChatRuntimeManager extends ChangeNotifier {
     final displayContent = attachments.isEmpty
         ? userMessage
         : '$userMessage\n\n📎 ${attachments.map((a) => a.name).join(", ")}';
-    final userMsg = ChatMessage(role: 'user', content: displayContent);
+    final imageExtensions = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
+    final imagePaths = attachments
+        .where((a) {
+          final dot = a.name.lastIndexOf('.');
+          if (dot < 0) return false;
+          return imageExtensions.contains(a.name.substring(dot).toLowerCase());
+        })
+        .map((a) => a.path)
+        .toList();
+    final userMsg = ChatMessage(role: 'user', content: displayContent, imagePaths: imagePaths);
     await history.addMessage(agentId, userMsg);
 
     if (provider == null || !provider.isComplete) {
