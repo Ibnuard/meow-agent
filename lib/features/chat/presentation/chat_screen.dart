@@ -1406,9 +1406,7 @@ String _buildCommandHelp(bool debugMode) {
         ? provider?.effectiveModel(agent!.model)
         : null;
     final modelIsOverride = modelName != null;
-    final modelSupportsVision = modelName != null
-        ? provider?.visionModels.contains(modelName) ?? false
-        : false;
+
     final providerCode = provider?.displayCode ?? '';
     final displayModelName = modelName != null && modelName.isNotEmpty
         ? '$providerCode${providerCode.isNotEmpty ? ' • ' : ''}$modelName'
@@ -1439,22 +1437,13 @@ String _buildCommandHelp(bool debugMode) {
                 Text(agentName),
                 if (modelName != null && modelName.isNotEmpty) ...[
                   const SizedBox(height: 3),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        displayModelName!,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w400,
-                          color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
-                        ),
-                      ),
-                      if (modelSupportsVision) ...[
-                        const SizedBox(width: 4),
-                        Icon(Icons.visibility_rounded, size: 12, color: cs.primary),
-                      ],
-                    ],
+                  Text(
+                    displayModelName!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ],

@@ -38,7 +38,6 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   bool _obscureKey = true;
   bool _testing = false;
-  bool _checkingModelVision = false;
   bool _saving = false;
   String? _testResult;
   bool? _testSuccess;
@@ -99,38 +98,12 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     visionModels: _visionModels.toList(),
   );
 
-  Future<void> _addModel() async {
+  void _addModel() {
     final model = _modelInputController.text.trim();
     if (model.isEmpty || _models.contains(model)) return;
-    final canProbe =
-        _baseUrlController.text.trim().isNotEmpty &&
-        _apiKeyController.text.trim().isNotEmpty;
-    if (canProbe) {
-      setState(() => _checkingModelVision = true);
-    }
-    final supportsVision = canProbe
-        ? await OpenAiCompatibleClient().testVisionSupport(
-            _toLlmConfig(
-              ProviderConfig(
-                nickname: _nicknameController.text.trim().isEmpty
-                    ? 'Provider'
-                    : _nicknameController.text.trim(),
-                baseUrl: _baseUrlController.text.trim(),
-                apiKey: _apiKeyController.text.trim(),
-                model: model,
-                models: [model],
-              ),
-            ),
-          )
-        : false;
-    if (!mounted) return;
     setState(() {
       _models.add(model);
-      if (supportsVision) {
-        _visionModels.add(model);
-      }
       _modelInputController.clear();
-      _checkingModelVision = false;
     });
     // Re-validate so the model error clears after adding a model.
     _formKey.currentState?.validate();
@@ -358,8 +331,6 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       const SizedBox(height: 18),
                       _ModelListEditor(
                         models: _models,
-                        visionModels: _visionModels,
-                        checkingVision: _checkingModelVision,
                         controller: _modelInputController,
                         isId: s.isId,
                         onAdd: _addModel,
@@ -490,11 +461,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 class _ModelListEditor extends FormField<List<String>> {
   _ModelListEditor({
     required List<String> models,
-    required Set<String> visionModels,
-    required bool checkingVision,
     required TextEditingController controller,
     required bool isId,
-    required Future<void> Function() onAdd,
+    required VoidCallback onAdd,
     required ValueChanged<String> onRemove,
   }) : super(
          initialValue: models,
@@ -525,14 +494,8 @@ class _ModelListEditor extends FormField<List<String>> {
                      widthFactor: 1,
                      heightFactor: 1,
                      child: IconButton.filledTonal(
-                       onPressed: checkingVision ? null : () => onAdd(),
-                       icon: checkingVision
-                           ? const SizedBox(
-                               width: 16,
-                               height: 16,
-                               child: CircularProgressIndicator(strokeWidth: 2),
-                             )
-                           : const Icon(Icons.add_rounded, size: 18),
+                       onPressed: onAdd,
+                       icon: const Icon(Icons.add_rounded, size: 18),
                        style: IconButton.styleFrom(
                          minimumSize: const Size(36, 36),
                          maximumSize: const Size(36, 36),
@@ -550,15 +513,13 @@ class _ModelListEditor extends FormField<List<String>> {
                    for (final model in models)
                      _ModelChip(
                        model: model,
-                       visionEnabled: visionModels.contains(model),
-                       canRemove: true,
                        onRemove: () => onRemove(model),
                      ),
                  ],
                ),
                const SizedBox(height: 8),
-Text(
-                  s.modelListHelper,
+               Text(
+                 s.modelListHelper,
                  style: TextStyle(
                    fontSize: 12,
                    color: extras.subtleText,
@@ -575,14 +536,10 @@ Text(
 class _ModelChip extends StatelessWidget {
   const _ModelChip({
     required this.model,
-    required this.visionEnabled,
-    required this.canRemove,
     required this.onRemove,
   });
 
   final String model;
-  final bool visionEnabled;
-  final bool canRemove;
   final VoidCallback onRemove;
 
   @override
@@ -606,25 +563,19 @@ class _ModelChip extends StatelessWidget {
               color: cs.onSurface,
             ),
           ),
-          if (visionEnabled) ...[
-            const SizedBox(width: 6),
-            Icon(Icons.visibility_rounded, size: 14, color: cs.primary),
-          ],
-          if (canRemove) ...[
-            const SizedBox(width: 4),
-            InkWell(
-              borderRadius: BorderRadius.circular(999),
-              onTap: onRemove,
-              child: Padding(
-                padding: const EdgeInsets.all(2),
-                child: Icon(
-                  Icons.close_rounded,
-                  size: 14,
-                  color: cs.onSurfaceVariant,
-                ),
+          const SizedBox(width: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onRemove,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                Icons.close_rounded,
+                size: 14,
+                color: cs.onSurfaceVariant,
               ),
             ),
-          ],
+          ),
         ],
       ),
     );

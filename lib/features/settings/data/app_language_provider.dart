@@ -137,8 +137,8 @@ class AppStrings {
   String get modelListRequired =>
       isId ? 'Model wajib diisi' : 'Model is required';
   String get modelListHelper => isId
-      ? 'Tambahkan model satu per satu. Support vision dicek otomatis lewat API.'
-      : 'Add models one by one. Vision support is checked automatically through the API.';
+      ? 'Tambahkan model satu per satu.'
+      : 'Add models one by one.';
 
   // --- Agent manager ---
   String providerModelsCount(int count) => isId
