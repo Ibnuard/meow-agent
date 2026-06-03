@@ -245,6 +245,14 @@ class PermissionManager {
     } catch (_) {}
   }
 
+  /// Open Accessibility Service settings.
+  Future<void> openAccessibilitySettings() async {
+    if (!Platform.isAndroid) return;
+    await _appControlService.openSettings(
+      action: 'android.settings.ACCESSIBILITY_SETTINGS',
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------

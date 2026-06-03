@@ -193,6 +193,32 @@ class ExecuteLoopRunner {
           }
         }
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
+          // Count how many times LLM returned "done" without any tool executed.
+          final toolsExecutedSoFar = previousResults.where(
+            (r) => r.containsKey('tool'),
+          ).length;
+          final prematureDoneCount = previousResults.where(
+            (r) =>
+                r['note']?.toString().contains('status=done but subgoals') ==
+                true,
+          ).length;
+
+          // If LLM has said "done" 2+ times with zero tools executed, abort.
+          if (prematureDoneCount >= 2 && toolsExecutedSoFar == 0) {
+            logger.logError(
+              'LLM returned status=done $prematureDoneCount times without '
+              'executing any tool. Aborting to prevent infinite loop.',
+            );
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+            return fail(
+              _runtimePhrase('runtime_tool_selection_missing'),
+              logger,
+            );
+          }
+
           logger.logError(
             'Selector tried to finish early but goal tree is incomplete '
             '(${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoals remaining). Continuing loop.',
@@ -200,7 +226,10 @@ class ExecuteLoopRunner {
           previousResults.add({
             'step': currentStep,
             'note':
-                'Selector returned status=done but subgoals remain. Forcing continue.',
+                'SYSTEM ERROR: You returned status=done but subgoals remain '
+                'and NO tool was executed. You MUST select status=tool_required '
+                'and call the appropriate tool. Do NOT return status=done until '
+                'a tool has been executed for this task.',
           });
           currentStep++;
           continue;

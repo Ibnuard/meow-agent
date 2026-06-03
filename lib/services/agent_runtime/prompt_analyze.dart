@@ -135,7 +135,8 @@ Rules:
     calendar     \\u2014 create/read/update/delete calendar events, find free slots, conflicts
     workflow     \\u2014 create/list/update/delete/toggle scheduled or recurring automations
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
-    chat         \\u2014 deliver a message into a chat UI
+    chat         \\u2014 deliver a message into the Meow Agent internal chat UI (NOT external messaging apps)
+    communication \\u2014 WhatsApp messages/calls, phone calls (CALL_PHONE), SMS, contact lookup — any external messaging or telephony
     attachment   \\u2014 list attached files and read supported text attachments from the current message
     web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.

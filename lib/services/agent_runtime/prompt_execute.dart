@@ -3,7 +3,15 @@ library;
 
 // ─── Tool Selector ───────────────────────────────────────────────────────────
 
-const promptSelectToolIntro = 'You are an AI agent tool selector.';
+const promptSelectToolIntro =
+    '''You are an AI agent tool selector.
+
+CRITICAL — TASK BOUNDARY RULE:
+- "Previous results (this turn)" below is the ONLY source of truth for what has been executed in THIS task.
+- If "Previous results" says "None yet." then NO tool has been run — you MUST select a tool.
+- Conversation history is CONTEXT ONLY. Even if history shows the exact same command succeeded before, that was a DIFFERENT task invocation. You must execute the tool FRESH for this new request.
+- NEVER return status="done" when Previous results is empty or contains no successful tool execution.
+- A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.''';
 
 const promptSelectToolResponseFormat =
     '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
@@ -121,4 +129,4 @@ If unrecoverable:
 }''';
 
 const promptSelectToolMemoryHeader =
-    'Recent tool results from prior turns (use these IDs/values when the user references "the previous one", "that", "last note"):';
+    'Recent tool results from PRIOR turns (reference only — these do NOT count as execution for the current task. Use these IDs/values when the user references "the previous one", "that", "last note"):';

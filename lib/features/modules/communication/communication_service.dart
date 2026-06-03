@@ -12,6 +12,16 @@ import '../../../services/agent_runtime/runtime_models.dart';
 class CommunicationService {
   static const _channel = MethodChannel('com.meowagent/communication');
 
+  /// Check if the Meow Agent Accessibility Service is currently enabled.
+  static Future<bool> isAccessibilityEnabled() async {
+    try {
+      final result = await _channel.invokeMethod<bool>('isAccessibilityEnabled');
+      return result ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ─── Contacts ──────────────────────────────────────────────────────
 
   Future<ToolExecutionResult> resolveContact(Map<String, dynamic> args) async {

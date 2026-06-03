@@ -7,6 +7,7 @@ import '../../../app/widgets/widgets.dart';
 import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
+import '../communication/communication_service.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
@@ -51,9 +52,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-check overlay permission when user returns from settings.
+    // Re-check permissions when user returns from settings.
     if (state == AppLifecycleState.resumed) {
       _syncBubbleState();
+      _syncCommunicationState();
     }
   }
 
@@ -62,6 +64,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final found = modules.where((m) => m.id == widget.moduleId).firstOrNull;
     if (mounted && found != null) {
       setState(() => _module = found);
+      // Sync permission state immediately on load.
+      _syncCommunicationState();
     }
   }
 
@@ -80,6 +84,33 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         .isBubbleServiceRunning();
     if (canDraw && !running) {
       await ref.read(clipboardServiceControllerProvider).startBubbleService();
+    }
+  }
+
+  /// Sync communication module toggles with actual accessibility state.
+  /// If accessibility got revoked externally, turn off WA toggles.
+  /// If accessibility was just granted (user returned from settings), turn them on.
+  Future<void> _syncCommunicationState() async {
+    if (_module == null || _module!.id != 'communication') return;
+
+    final waEnabled = _module!.settings['whatsapp_enabled'] ?? false;
+    final waCallEnabled = _module!.settings['wa_call_enabled'] ?? false;
+    if (!waEnabled && !waCallEnabled) return;
+
+    final accessibilityOn = await CommunicationService.isAccessibilityEnabled();
+
+    if (!accessibilityOn) {
+      // Accessibility revoked — disable WA toggles.
+      final updated = _module!.copyWith(
+        settings: {
+          ..._module!.settings,
+          'whatsapp_enabled': false,
+          'wa_call_enabled': false,
+        },
+      );
+      await ref.read(moduleRepositoryProvider).update(updated);
+      ref.invalidate(installedModulesProvider);
+      if (mounted) setState(() => _module = updated);
     }
   }
 
@@ -336,6 +367,130 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         );
         if (goSettings == true) {
           await _permissionManager.openNotificationListenerSettings();
+        }
+      }
+    }
+
+    // Communication module — permission gating per feature.
+    if (_module!.id == 'communication') {
+      // Telegram: Coming Soon — block toggle.
+      if (key == 'telegram_enabled') {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                s.isId
+                    ? 'Integrasi Telegram segera hadir!'
+                    : 'Telegram integration coming soon!',
+              ),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      // WhatsApp features need Accessibility Service.
+      if (value &&
+          (key == 'whatsapp_enabled' || key == 'wa_call_enabled')) {
+        final alreadyEnabled =
+            await CommunicationService.isAccessibilityEnabled();
+        if (!alreadyEnabled && mounted) {
+          final goSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Text(s.permissionRequired),
+              content: Text(
+                s.isId
+                    ? 'Fitur otomasi WhatsApp membutuhkan "Layanan Aksesibilitas".\n\n'
+                          'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan.\n\n'
+                          'Kembali ke sini setelah mengaktifkan.'
+                    : 'WhatsApp automation requires the "Accessibility Service".\n\n'
+                          'Tap "Open Settings", find "Meow Agent" in the list, and enable it.\n\n'
+                          'Come back here after enabling.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: Text(s.cancel),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: Text(s.openSettings),
+                ),
+              ],
+            ),
+          );
+          if (goSettings != true) return;
+          await _permissionManager.openAccessibilitySettings();
+          // Don't toggle yet — user returns after enabling.
+          return;
+        }
+      }
+
+      // Phone call needs CALL_PHONE permission.
+      if (value && key == 'call_enabled') {
+        final result = await _permissionManager.request(
+          PermissionType.callPhone,
+        );
+        if (result != PermissionResult.granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  s.isId
+                      ? 'Izin telepon diperlukan untuk fitur ini'
+                      : 'Phone call permission required for this feature',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // SMS needs SEND_SMS permission.
+      if (value && key == 'sms_enabled') {
+        final result = await _permissionManager.request(
+          PermissionType.sendSms,
+        );
+        if (result != PermissionResult.granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  s.isId
+                      ? 'Izin SMS diperlukan untuk fitur ini'
+                      : 'SMS permission required for this feature',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // Contacts needs READ_CONTACTS permission.
+      if (value && key == 'contacts_enabled') {
+        final result = await _permissionManager.request(
+          PermissionType.contacts,
+        );
+        if (result != PermissionResult.granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  s.isId
+                      ? 'Izin kontak diperlukan untuk fitur ini'
+                      : 'Contacts permission required for this feature',
+                ),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+          return;
         }
       }
     }

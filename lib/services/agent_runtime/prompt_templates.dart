@@ -133,9 +133,9 @@ ${PromptConstants.planResponseFormat}''';
     // but wrong content.
     final historyBlock = recentMessages.isEmpty
         ? ''
-        : '\nConversation history (authoritative data — use it when an '
-              'instruction refers to "the result", "this", "it", or the '
-              'previous step output):\n'
+        : '\nConversation history (CONTEXT ONLY — does NOT prove this task '
+              'was executed; use it for argument values like names, content, '
+              'or references to "the result", "this", "it"):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n'
               'When filling a tool argument that carries content (message '
               'body, note text, file body): if the instruction is to '
