@@ -221,17 +221,24 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
               tooltip: s.notesSelectMultiple,
               onPressed: _toggleSelection,
             ),
-            IconButton(
-              icon: const Icon(Icons.add_rounded),
-              tooltip: s.notesNewNote,
+          ],
+        ],
+      ),
+      floatingActionButton: _selectionMode
+          ? null
+          : FloatingActionButton(
               onPressed: () async {
                 await context.push('/notes/new');
                 ref.invalidate(notesListProvider);
               },
+              backgroundColor: cs.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(Icons.add_rounded, size: 28),
             ),
-          ],
-        ],
-      ),
       body: SafeArea(
         child: Column(
           children: [

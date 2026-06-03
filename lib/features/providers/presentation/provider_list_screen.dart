@@ -32,13 +32,16 @@ class ProviderListScreen extends ConsumerWidget {
             }
           },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            onPressed: () => context.push(AppRoutes.addProvider),
-            tooltip: s.addProvider,
-          ),
-        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => context.push(AppRoutes.addProvider),
+        backgroundColor: cs.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Icon(Icons.add_rounded, size: 28),
       ),
       body: SafeArea(
         child: providersAsync.when(

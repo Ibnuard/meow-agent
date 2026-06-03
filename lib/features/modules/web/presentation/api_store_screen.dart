@@ -162,7 +162,9 @@ class _ApiStoreScreenState extends ConsumerState<ApiStoreScreen> {
                 backgroundColor: cs.primary,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                shape: const CircleBorder(),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: const Icon(Icons.add_rounded, size: 28),
               ),
         body: _loading

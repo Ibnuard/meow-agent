@@ -201,7 +201,12 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             : FloatingActionButton(
                 onPressed: () => _openEditor(),
                 backgroundColor: cs.primary,
-                child: const Icon(Icons.add_rounded, color: Colors.white),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.add_rounded, size: 28),
               ),
         body: _loading
             ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
