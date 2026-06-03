@@ -15,7 +15,7 @@ enum NotificationSound {
   final String label;
 }
 
-const _prefKey = 'notification_sound';
+const notificationSoundPreferenceKey = 'notification_sound';
 
 /// Riverpod provider for the selected notification sound.
 final notificationSoundProvider =
@@ -30,7 +30,7 @@ class NotificationSoundNotifier extends StateNotifier<NotificationSound> {
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(_prefKey);
+    final stored = prefs.getString(notificationSoundPreferenceKey);
     if (stored != null) {
       final match = NotificationSound.values
           .where((s) => s.fileName == stored)
@@ -42,7 +42,7 @@ class NotificationSoundNotifier extends StateNotifier<NotificationSound> {
   Future<void> set(NotificationSound sound) async {
     state = sound;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefKey, sound.fileName);
+    await prefs.setString(notificationSoundPreferenceKey, sound.fileName);
   }
 }
 
