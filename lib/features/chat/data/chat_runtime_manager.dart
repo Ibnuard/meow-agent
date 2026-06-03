@@ -10,6 +10,7 @@ import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/llm_debug_provider.dart';
+import '../../settings/data/notification_sound_provider.dart';
 import 'chat_history_service.dart';
 import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
@@ -646,10 +647,12 @@ class ChatRuntimeManager extends ChangeNotifier {
     if (UnreadService.instance.isActive(agentId)) return;
     final body = _stripMarkdown(reply.content);
     final preview = body.length > 120 ? '${body.substring(0, 120)}…' : body;
+    final soundPref = ref.read(notificationSoundProvider);
     ChatNotificationService.instance.show(
       agentId: agentId,
       agentName: agentName,
       preview: preview,
+      soundFileName: soundPref.fileName,
     );
   }
 

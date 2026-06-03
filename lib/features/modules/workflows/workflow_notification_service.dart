@@ -50,11 +50,19 @@ class WorkflowNotificationService {
     required String style, // 'silent' | 'normal' | 'alarm'
     String? payload,
     bool ongoing = false,
+    String? soundFileName,
   }) async {
-    final channelId = _channelIdFor(style);
+    final baseChannelId = _channelIdFor(style);
+    // Append sound name to channel ID so Android creates a new channel
+    // when the user's sound preference changes.
+    final channelId = soundFileName != null && style != 'silent'
+        ? '${baseChannelId}_$soundFileName'
+        : baseChannelId;
     final channelName = _channelNameFor(style);
     final importance = _importanceFor(style);
     final priority = _priorityFor(style);
+
+    final useSound = !ongoing && style != 'silent';
 
     final androidDetails = AndroidNotificationDetails(
       channelId,
@@ -62,7 +70,10 @@ class WorkflowNotificationService {
       channelDescription: 'Meow Agent workflow notifications ($style)',
       importance: importance,
       priority: priority,
-      playSound: !ongoing && style != 'silent',
+      playSound: useSound,
+      sound: useSound && soundFileName != null
+          ? RawResourceAndroidNotificationSound(soundFileName)
+          : null,
       enableVibration: !ongoing && style != 'silent',
       fullScreenIntent: !ongoing && style == 'alarm',
       ongoing: ongoing,

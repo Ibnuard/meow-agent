@@ -33,7 +33,8 @@ class ChatHistoryService {
             role TEXT NOT NULL,
             content TEXT NOT NULL,
             timestamp TEXT NOT NULL,
-            actions TEXT
+            actions TEXT,
+            image_paths TEXT
           )
         ''');
         await db.execute('''

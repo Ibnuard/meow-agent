@@ -104,6 +104,25 @@ class AppStrings {
   String get aboutBody => isId
       ? 'Mobile First Modular Agentic AI.\n\nVersi 0.1.0'
       : 'Mobile First Modular Agentic AI.\n\nVersion 0.1.0';
+  String get notificationSound => isId ? 'Suara Notifikasi' : 'Notification Sound';
+  String get notificationSoundDesc => isId
+      ? 'Pilih suara untuk notifikasi push'
+      : 'Choose sound for push notifications';
+  String get soundNotification => isId ? 'Notification' : 'Notification';
+  String get soundCat => isId ? 'Cat' : 'Cat';
+  String get soundPreview => isId ? 'Pratinjau' : 'Preview';
+  String get storagePermissionTitle => isId
+      ? 'Izin Penyimpanan Diperlukan'
+      : 'Storage Permission Required';
+  String get storagePermissionBody => isId
+      ? 'Meow Agent memerlukan akses penyimpanan untuk membaca dan menulis file workspace agen. Tanpa izin ini, chat tidak bisa digunakan.'
+      : 'Meow Agent needs storage access to read and write agent workspace files. Without this permission, chat cannot function.';
+  String get storagePermissionGrant => isId
+      ? 'Izinkan Akses'
+      : 'Grant Access';
+  String get storagePermissionOpenSettings => isId
+      ? 'Buka Pengaturan'
+      : 'Open Settings';
 
   String get providerListTitle => isId ? 'Provider' : 'Providers';
   String get addProvider => isId ? 'Tambah Provider' : 'Add Provider';

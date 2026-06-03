@@ -15,6 +15,7 @@ import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/context_report.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/workspace_file_service.dart';
+import '../../../services/workspace/storage_permission_service.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
@@ -57,6 +58,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _initialLoading = true;
   late String _activeAgentId;
 
+  // Storage permission state.
+  bool _permissionGranted = true; // Assume true until checked.
+  bool _permissionChecking = true;
+
   // Tracks the last manager reply timestamp so we know when to reload.
   DateTime? _lastSeenReplyAt;
   ChatRuntimeManager? _manager;
@@ -81,12 +86,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (widget.initialText != null && widget.initialText!.isNotEmpty) {
       _input.text = widget.initialText!;
     }
-    _loadHistory(_activeAgentId);
+
     _scroll.addListener(_onScroll);
 
     // Mark this agent's chat as in-foreground so the unread counter clears
     // and incoming messages don't bump the badge while user is reading.
     UnreadService.instance.setActive(_activeAgentId);
+
+    // Check storage permission before loading history.
+    _checkStoragePermission();
 
     // Subscribe once after first frame so ref is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -94,6 +102,76 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _manager = ref.read(chatRuntimeManagerProvider);
       _manager!.addListener(_onManagerChanged);
     });
+  }
+
+  Future<void> _checkStoragePermission() async {
+    final granted = await StoragePermissionService.instance.isGranted();
+    if (!mounted) return;
+    setState(() {
+      _permissionGranted = granted;
+      _permissionChecking = false;
+    });
+    if (granted) {
+      _loadHistory(_activeAgentId);
+    }
+  }
+
+  Future<void> _requestStoragePermission() async {
+    final granted = await StoragePermissionService.instance.request();
+    if (!mounted) return;
+    setState(() => _permissionGranted = granted);
+    if (granted) {
+      _loadHistory(_activeAgentId);
+    }
+  }
+
+  Widget _buildPermissionError(ColorScheme cs) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.folder_off_outlined,
+              size: 48,
+              color: cs.error.withValues(alpha: 0.7),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              s.storagePermissionTitle,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              s.storagePermissionBody,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: cs.onSurfaceVariant,
+                height: 1.4,
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _requestStoragePermission,
+              icon: const Icon(Icons.security_rounded, size: 18),
+              label: Text(s.storagePermissionGrant),
+            ),
+            const SizedBox(height: 10),
+            TextButton(
+              onPressed: () => StoragePermissionService.instance.openSettings(),
+              child: Text(s.storagePermissionOpenSettings),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _onManagerChanged() {
@@ -1500,7 +1578,11 @@ String _buildCommandHelp(bool debugMode) {
           onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
           behavior: HitTestBehavior.translucent,
           child: SafeArea(
-            child: agent == null
+            child: _permissionChecking
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                : !_permissionGranted
+                ? _buildPermissionError(cs)
+                : agent == null
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,

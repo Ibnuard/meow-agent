@@ -8,6 +8,7 @@ import '../../../app/theme_mode_provider.dart';
 import '../../../app/widgets/widgets.dart';
 import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
+import '../data/notification_sound_provider.dart';
 
 import '../../providers/data/provider_repository.dart';
 
@@ -73,6 +74,20 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   onTap: () =>
                       _showLanguageSheet(context, ref, appLanguage, strings),
+                ),
+                _SettingsTile(
+                  icon: Icons.volume_up_rounded,
+                  label: strings.notificationSound,
+                  trailing: Text(
+                    ref.watch(notificationSoundProvider).label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onTap: () =>
+                      _showSoundSheet(context, ref, strings),
                 ),
               ],
             ),
@@ -145,6 +160,41 @@ class SettingsScreen extends ConsumerWidget {
 
     if (selected != null) {
       await ref.read(appLanguageProvider.notifier).set(selected);
+    }
+  }
+
+  Future<void> _showSoundSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final current = ref.read(notificationSoundProvider);
+    final selected = await MeowDropdown.showSheet<NotificationSound>(
+      context,
+      title: strings.notificationSound,
+      subtitle: strings.notificationSoundDesc,
+      selectedValue: current,
+      searchable: false,
+      useRootNavigator: true,
+      options: NotificationSound.values
+          .map(
+            (sound) => MeowDropdownOption<NotificationSound>(
+              value: sound,
+              label: sound.label,
+              prefix: Icon(
+                sound == NotificationSound.cat
+                    ? Icons.pets_rounded
+                    : Icons.notifications_rounded,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          )
+          .toList(),
+    );
+
+    if (selected != null) {
+      await ref.read(notificationSoundProvider.notifier).set(selected);
     }
   }
 }

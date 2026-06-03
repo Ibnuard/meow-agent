@@ -16,6 +16,7 @@ import 'workflow_notification_service.dart';
 import 'workflow_run_ledger.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_repository.dart';
+import '../../../features/settings/data/notification_sound_provider.dart';
 
 /// Runs in the main isolate. Uses dynamic scheduling to check for due workflows
 /// and executes them via RuntimeEngine with priority queue ordering.
@@ -384,6 +385,7 @@ class WorkflowRunner {
         body: result,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
+        soundFileName: _ref.read(notificationSoundProvider).fileName,
       );
     }
 
@@ -1043,6 +1045,7 @@ class WorkflowRunner {
         body: previousResult.isNotEmpty ? previousResult : summaryResult,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
+        soundFileName: _ref.read(notificationSoundProvider).fileName,
       );
     }
 
@@ -1346,6 +1349,7 @@ class WorkflowRunner {
       body: error,
       style: wf.notification.style.name,
       payload: 'workflow:${wf.id}',
+      soundFileName: _ref.read(notificationSoundProvider).fileName,
     );
 
     if (wf.sendToChat) {
