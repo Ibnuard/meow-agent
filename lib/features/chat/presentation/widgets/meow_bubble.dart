@@ -247,7 +247,8 @@ class _MarkdownLayout extends StatefulWidget {
   State<_MarkdownLayout> createState() => _MarkdownLayoutState();
 }
 
-class _MarkdownLayoutState extends State<_MarkdownLayout> {
+class _MarkdownLayoutState extends State<_MarkdownLayout>
+    with AutomaticKeepAliveClientMixin {
   /// Max visible height for markdown content before clipping.
   static const double _maxVisibleHeight = 400;
 
@@ -255,10 +256,12 @@ class _MarkdownLayoutState extends State<_MarkdownLayout> {
   static const int _maxChars = 600;
   static const int _maxLines = 20;
 
-  bool get _isLong {
-    return widget.content.length > _maxChars ||
-        '\n'.allMatches(widget.content).length > _maxLines;
-  }
+  /// Cache the length check to avoid re-computing on every build.
+  late final bool _isLong = widget.content.length > _maxChars ||
+      '\n'.allMatches(widget.content).length > _maxLines;
+
+  @override
+  bool get wantKeepAlive => true;
 
   void _showFullContent() {
     final cs = Theme.of(context).colorScheme;
@@ -348,6 +351,7 @@ class _MarkdownLayoutState extends State<_MarkdownLayout> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final cs = context.cs;
     final s = AppStrings(widget.isId ? 'id' : 'en');
     final textStyle = TextStyle(

@@ -1663,8 +1663,8 @@ String _buildCommandHelp(bool debugMode) {
                                 // because bubbles are stateless. We provide
                                 // RepaintBoundary manually around each bubble
                                 // below, so disable the automatic one too.
-                                cacheExtent: 1000,
-                                addAutomaticKeepAlives: false,
+                                cacheExtent: 2500,
+                                addAutomaticKeepAlives: true,
                                 addRepaintBoundaries: false,
                                 padding: const EdgeInsets.fromLTRB(
                                   16,
