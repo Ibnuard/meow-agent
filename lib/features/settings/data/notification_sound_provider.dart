@@ -3,8 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Available notification sounds (mapped to res/raw/*.ogg files).
 enum NotificationSound {
-  notification('notification', 'Notification'),
-  cat('cat', 'Cat');
+  notification('notification', 'Default'),
+  cat('cat', 'Meow');
 
   const NotificationSound(this.fileName, this.label);
 

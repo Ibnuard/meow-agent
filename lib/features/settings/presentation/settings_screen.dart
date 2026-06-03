@@ -9,6 +9,7 @@ import '../../../app/widgets/widgets.dart';
 import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
 import '../data/notification_sound_provider.dart';
+import '../../chat/data/chat_notification_service.dart';
 
 import '../../providers/data/provider_repository.dart';
 
@@ -188,6 +189,17 @@ class SettingsScreen extends ConsumerWidget {
                 size: 18,
                 color: Theme.of(context).colorScheme.primary,
               ),
+              suffix: IconButton(
+                icon: Icon(
+                  Icons.play_circle_outline_rounded,
+                  size: 22,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                onPressed: () => _previewSound(sound),
+                tooltip: 'Preview',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
             ),
           )
           .toList(),
@@ -196,6 +208,17 @@ class SettingsScreen extends ConsumerWidget {
     if (selected != null) {
       await ref.read(notificationSoundProvider.notifier).set(selected);
     }
+  }
+
+  Future<void> _previewSound(NotificationSound sound) async {
+    await ChatNotificationService.instance.show(
+      agentId: '__preview__',
+      agentName: 'Meow Agent',
+      preview: sound == NotificationSound.cat
+          ? 'Meow! \u{1F431}'
+          : 'This is a notification preview.',
+      soundFileName: sound.fileName,
+    );
   }
 }
 

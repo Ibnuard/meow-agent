@@ -4,6 +4,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app/responsive.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
@@ -35,6 +36,12 @@ Future<void> main() async {
       systemNavigationBarContrastEnforced: false,
     ),
   );
+
+  // Lock to portrait orientation only.
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
   final prefs = await SharedPreferences.getInstance();
 
@@ -210,6 +217,14 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       darkTheme: MeowTheme.dark(),
       themeMode: themeMode,
       routerConfig: router,
+      builder: (context, child) {
+        // Clamp text scale so extreme accessibility settings don't break
+        // fixed-layout widgets (chat bubbles, dock, cards).
+        return MediaQuery(
+          data: Responsive.clampTextScale(MediaQuery.of(context)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
     );
   }
 }
