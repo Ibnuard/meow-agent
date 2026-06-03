@@ -185,10 +185,31 @@ Hierarchy:
 
 All surfaces: large rounded corners (20–28px), subtle depth, soft translucent backgrounds.
 Floating dock: 999px (pill shape).
-FAB: fully circular.
+FAB: rounded rectangle (16px radius), NOT circular. Matches the overall rounded-surface language.
 Avoid: flat rectangles, harsh cards, Material default appearance.
 
 Shadows must be: soft, ambient, subtle. Goal: floating AI surfaces.
+
+## FAB (Floating Action Button)
+
+All list screens that own their own Scaffold (not embedded in the bottom-nav shell) use a unified FAB:
+
+```dart
+FloatingActionButton(
+  backgroundColor: cs.primary,
+  foregroundColor: Colors.white,
+  elevation: 0,
+  shape: RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(16),
+  ),
+  child: const Icon(Icons.add_rounded, size: 28),
+)
+```
+
+Rules:
+* Hide FAB during multi-select mode (`_selectionMode ? null : FAB`).
+* Screens inside the main bottom-nav shell (e.g. Agent list) must NOT use FAB — use AppBar action instead, since the floating dock clips FABs unpredictably across devices.
+* Never use `CircleBorder()` — the app's visual language is rounded rectangles, not circles.
 
 ## Input Fields
 
@@ -251,6 +272,34 @@ Avoid duplicated styling.
 # DEVELOPMENT RULES
 
 Optimize for: Flutter Material 3, reusable widgets, dark mode first, responsive layouts, edge-to-edge Android.
+
+## No Hardcoded Language Strings
+
+All user-facing text MUST go through `AppStrings` (defined in `lib/features/settings/data/app_language_provider.dart`).
+
+* Every string getter returns the correct variant based on `isId` (Indonesian) or English.
+* Screens receive `AppStrings` via `final s = AppStrings(resolveLanguageCode(langPref));`.
+* NEVER write inline Indonesian or English text directly in widget trees.
+* Pattern: `s.wfListRunNow` → `isId ? 'Jalankan sekarang' : 'Run now'`.
+* New features must add their strings to AppStrings BEFORE referencing them in UI code.
+
+## No Hardcoded Prompts
+
+All LLM prompt strings MUST live in the prompt constants system under `lib/services/agent_runtime/`:
+
+* `prompt_constants.dart` — central accessor class (`PromptConstants.*`)
+* `prompt_system.dart` — system-level rules
+* `prompt_analyze.dart` — analyzer phase
+* `prompt_reflect.dart` — reflector phase
+* `prompt_plan.dart` — planner phase
+* `prompt_execute.dart` — tool selector & reviewer
+* `prompt_context.dart` — chat, compactor, repair, pending action, memory, workflow API context
+
+Rules:
+* NEVER write inline prompt text in feature code (workflow_runner, runtime_engine, etc.).
+* Add new prompt constants to the appropriate phase file, then expose via `PromptConstants`.
+* Prompts are English-only. The LLM responds in the user's detected language naturally.
+* Use interpolation parameters (e.g. `String promptFoo(String name)`) for dynamic values.
 
 ---
 
