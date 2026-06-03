@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,7 @@ import '../../../services/agent_runtime/language_detector.dart';
 import '../../../services/agent_runtime/narrative_narrator.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/agent_runtime/task_ledger.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
@@ -15,6 +18,8 @@ import 'chat_history_service.dart';
 import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
 import 'unread_service.dart';
+
+const _taskLedgerSentinelPrefix = '[[TASK_LEDGER]]';
 
 /// Per-agent runtime state. Survives ChatScreen disposal so navigating away
 /// does not cancel in-flight work; results are persisted regardless of UI.
@@ -27,6 +32,7 @@ class ChatRuntimeSession {
     this.pendingToolArgs,
     this.lastReplyAt,
     this.narrativeMessage,
+    this.activeTaskLedger,
   });
 
   final String agentId;
@@ -41,6 +47,9 @@ class ChatRuntimeSession {
   /// phases; cleared (set to null) once the run terminates.
   final String? narrativeMessage;
 
+  /// Live multi-goal task ledger for complex chat requests.
+  final TaskLedger? activeTaskLedger;
+
   ChatRuntimeSession copyWith({
     bool? isRunning,
     List<ChatMessage>? debugMessages,
@@ -48,8 +57,10 @@ class ChatRuntimeSession {
     Map<String, dynamic>? pendingToolArgs,
     DateTime? lastReplyAt,
     String? narrativeMessage,
+    TaskLedger? activeTaskLedger,
     bool clearPending = false,
     bool clearNarrative = false,
+    bool clearTaskLedger = false,
   }) {
     return ChatRuntimeSession(
       agentId: agentId,
@@ -63,6 +74,9 @@ class ChatRuntimeSession {
       narrativeMessage: clearNarrative
           ? null
           : (narrativeMessage ?? this.narrativeMessage),
+      activeTaskLedger: clearTaskLedger
+          ? null
+          : (activeTaskLedger ?? this.activeTaskLedger),
     );
   }
 }
@@ -267,6 +281,12 @@ class ChatRuntimeManager extends ChangeNotifier {
             _set(agentId, s.copyWith(narrativeMessage: llmNarrative));
           }
 
+          final ledger = _taskLedgerFromEvent(event);
+          if (ledger != null) {
+            final s = sessionFor(agentId);
+            _set(agentId, s.copyWith(activeTaskLedger: ledger));
+          }
+
           if (debugMode) {
             _queueRuntimeLog(
               agentId,
@@ -312,6 +332,19 @@ class ChatRuntimeManager extends ChangeNotifier {
             : response.finalMessage,
         actions: response.actions,
       );
+      final historicalLedger = sessionFor(agentId).activeTaskLedger;
+      if (historicalLedger != null &&
+          historicalLedger.goalTree.subgoals.length > 1) {
+        await history.addMessage(
+          agentId,
+          ChatMessage(
+            role: 'assistant',
+            content:
+                '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
+          ),
+        );
+      }
+
       await history.addMessage(agentId, replyMsg);
       await UnreadService.instance.increment(agentId);
       _maybeNotify(agentId: agentId, agentName: agentName, reply: replyMsg);
@@ -325,6 +358,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           pendingToolArgs: response.pendingToolArgs,
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          clearTaskLedger: true,
         ),
       );
     } catch (e) {
@@ -360,6 +394,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           debugMessages: [],
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          clearTaskLedger: true,
         ),
       );
     }
@@ -452,6 +487,11 @@ class ChatRuntimeManager extends ChangeNotifier {
             final cur = sessionFor(agentId);
             _set(agentId, cur.copyWith(narrativeMessage: llmNarrative));
           }
+          final ledger = _taskLedgerFromEvent(event);
+          if (ledger != null) {
+            final cur = sessionFor(agentId);
+            _set(agentId, cur.copyWith(activeTaskLedger: ledger));
+          }
           if (debugMode) {
             _queueRuntimeLog(
               agentId,
@@ -484,6 +524,19 @@ class ChatRuntimeManager extends ChangeNotifier {
       // "lanjut" manually, which breaks the multi-task UX.
       final isNextConfirm =
           response.state == AgentRuntimeState.waitingConfirmation;
+      final historicalLedger = sessionFor(agentId).activeTaskLedger;
+      if (historicalLedger != null &&
+          historicalLedger.goalTree.subgoals.length > 1) {
+        await history.addMessage(
+          agentId,
+          ChatMessage(
+            role: 'assistant',
+            content:
+                '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
+          ),
+        );
+      }
+
       await history.addMessage(
         agentId,
         ChatMessage(
@@ -514,6 +567,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           pendingToolArgs: response.pendingToolArgs,
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          clearTaskLedger: true,
         ),
       );
     } catch (e) {
@@ -541,6 +595,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           debugMessages: [],
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          clearTaskLedger: true,
         ),
       );
     }
@@ -613,6 +668,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearPending: true,
         lastReplyAt: DateTime.now(),
         clearNarrative: true,
+        clearTaskLedger: true,
       ),
     );
   }
@@ -623,6 +679,17 @@ class ChatRuntimeManager extends ChangeNotifier {
     if (event.type != 'narrative') return null;
     final msg = event.message.trim();
     return msg.isEmpty ? null : msg;
+  }
+
+  TaskLedger? _taskLedgerFromEvent(RuntimeEvent event) {
+    if (event.type != 'task_ledger') return null;
+    final raw = event.data?['ledger'];
+    if (raw is! Map) return null;
+    try {
+      return TaskLedger.fromJson(raw.cast<String, dynamic>());
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Detect the user's language for narrative localization.

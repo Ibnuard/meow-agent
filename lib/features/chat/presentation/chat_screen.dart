@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:gpt_markdown/gpt_markdown.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -32,6 +32,8 @@ import '../data/chat_runtime_log_service.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
 import 'chat_shimmer.dart';
+import 'widgets/task_ledger_bubble.dart';
+import 'widgets/meow_bubble.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -52,7 +54,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  // Per-agent message history — paginated from local storage.
+  // Per-agent message history â€” paginated from local storage.
   final Map<String, List<ChatMessage>> _messagesByAgent = {};
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
   bool _loadingOlder = false;
@@ -216,7 +218,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.dispose();
   }
 
-  /// Detect scroll to top → load older messages.
+  /// Detect scroll to top â†’ load older messages.
   void _onScroll() {
     if (!_hasMore || _loadingOlder) return;
     if (_scroll.position.pixels <= 80) {
@@ -538,7 +540,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final quotedText = _cleanContent(quoted.content);
     // Truncate very long quotes so we don't blow up context.
     final truncated = quotedText.length > 280
-        ? '${quotedText.substring(0, 280)}…'
+        ? '${quotedText.substring(0, 280)}â€¦'
         : quotedText;
     final role = quoted.role == 'user' ? 'You' : 'Agent';
     return '[[REPLY_QUOTE:$role]]$truncated[[/REPLY_QUOTE]]\n$userText';
@@ -565,7 +567,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       final userMsg = ChatMessage(role: 'user', content: text);
       final botMsg = ChatMessage(
         role: 'assistant',
-        content: '⚠️ ${s.providerMissingBody(agentName)}',
+        content: 'âš ï¸ ${s.providerMissingBody(agentName)}',
         actions: [
           ResultAction(
             label: s.manageProvidersAction,
@@ -604,7 +606,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
     final displayText = _attachments.isEmpty
         ? messageText
-        : '$messageText\n\n📎 ${attachmentNames.map((a) => a.name).join(", ")}';
+        : '$messageText\n\nðŸ“Ž ${attachmentNames.map((a) => a.name).join(", ")}';
 
     // Collect image paths for thumbnail rendering in the bubble.
     final imageExts = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
@@ -617,7 +619,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         .map((a) => a.path)
         .toList();
 
-    // Optimistically show the user message immediately — it always lands
+    // Optimistically show the user message immediately â€” it always lands
     // in history regardless of context exhaustion.
     final userMsg = ChatMessage(role: 'user', content: displayText, imagePaths: imgPaths);
     setState(() => _messages.add(userMsg));
@@ -625,7 +627,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     // Check context BEFORE calling the runtime. If the threshold was hit
     // and auto-compact is off, surface a warning but DO NOT send the user
-    // message to the agent — there is no point because it will fail. The
+    // message to the agent â€” there is no point because it will fail. The
     // user message is already visible in the chat.
     final blocked = await _autoCompactIfNeeded();
     if (blocked) return;
@@ -723,7 +725,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         await _handleSelectModelAction(action, sourceMessage);
         break;
       case 'navigate':
-        // Special-case screens not in the router → push directly.
+        // Special-case screens not in the router â†’ push directly.
         if (action.target == '/modules/calendar') {
           await Navigator.push(
             context,
@@ -857,12 +859,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         if (provider != null) {
           final agentModel = agent?.model ?? '';
           final modelInfo = agentModel.isNotEmpty
-              ? '\n• Model: ${provider.effectiveModel(agentModel)}'
-              : '\n• Model: (provider default)';
+              ? '\nâ€¢ Model: ${provider.effectiveModel(agentModel)}'
+              : '\nâ€¢ Model: (provider default)';
           response =
-              '🤖 Model Info:\n'
-              '• Provider: ${provider.nickname}$modelInfo\n'
-              '• Endpoint: ${provider.baseUrl}';
+              'ðŸ¤– Model Info:\n'
+              'â€¢ Provider: ${provider.nickname}$modelInfo\n'
+              'â€¢ Endpoint: ${provider.baseUrl}';
         } else {
           response = s.noProviderConnected;
         }
@@ -916,7 +918,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         actions: [
           for (final model in provider.models)
             ResultAction(
-              label: model == selected ? '$model ✓' : model,
+              label: model == selected ? '$model âœ“' : model,
               icon: provider.visionModels.contains(model)
                   ? 'visibility_rounded'
                   : 'memory_rounded',
@@ -1129,8 +1131,8 @@ String _buildCommandHelp(bool debugMode) {
         : s.usageEstimated(usage.chatTokens, pct, maxCtx);
 
     final agentName = agent?.name ?? 'default';
-    final providerName = provider?.nickname ?? '—';
-    final providerModel = provider?.model ?? '—';
+    final providerName = provider?.nickname ?? 'â€”';
+    final providerModel = provider?.model ?? 'â€”';
 
     final buf = StringBuffer()
       ..writeln(s.statusAgentTitle(agentName))
@@ -1316,7 +1318,7 @@ String _buildCommandHelp(bool debugMode) {
       _persistMessage(infoMsg);
       return false;
     } catch (_) {
-      // Silent fail for auto-compact — don't block the user's message.
+      // Silent fail for auto-compact â€” don't block the user's message.
     }
     return false;
   }
@@ -1508,7 +1510,7 @@ String _buildCommandHelp(bool debugMode) {
 
     final providerCode = provider?.displayCode ?? '';
     final displayModelName = modelName != null && modelName.isNotEmpty
-        ? '$providerCode${providerCode.isNotEmpty ? ' • ' : ''}$modelName'
+        ? '$providerCode${providerCode.isNotEmpty ? ' â€¢ ' : ''}$modelName'
         : null;
 
     return PopScope(
@@ -1656,7 +1658,14 @@ String _buildCommandHelp(bool debugMode) {
                                 // Debug bubbles are now shown in a separate bottom sheet.
                                 itemCount:
                                     (_loadingOlder ? 1 : 0) +
-                                    _messages.length +
+                                    (_messages.length) +
+                                    ((_sending &&
+                                            (_manager
+                                                    ?.sessionFor(_activeAgentId)
+                                                    .activeTaskLedger !=
+                                                null))
+                                        ? 1
+                                        : 0) +
                                     ((_sending &&
                                             (_manager
                                                     ?.sessionFor(_activeAgentId)
@@ -1685,7 +1694,7 @@ String _buildCommandHelp(bool debugMode) {
                                     );
                                   }
                                   final msgIndex = i - (_loadingOlder ? 1 : 0);
-                                  // Order: messages → narrative → thinking.
+                                  // Order: messages â†’ narrative â†’ thinking.
                                   if (msgIndex < _messages.length) {
                                     final current = _messages[msgIndex];
                                     // Show a floating date separator when the
@@ -1700,22 +1709,30 @@ String _buildCommandHelp(bool debugMode) {
                                           prev.timestamp.toLocal(),
                                           current.timestamp.toLocal(),
                                         );
+                                    final ledger = taskLedgerFromSentinel(
+                                      current.content,
+                                    );
                                     final bubble = RepaintBoundary(
                                       key: ValueKey(
                                         'msg-${current.id ?? identityHashCode(current)}',
                                       ),
-                                      child: _Bubble(
-                                        msg: current,
-                                        isId: isId,
-                                        onConfirmAction: (action) =>
-                                            _handleConfirmation(
-                                              action,
-                                              msgIndex,
+                                      child: ledger != null
+                                          ? TaskLedgerBubble(
+                                              ledger: ledger,
+                                              timestamp: current.timestamp,
+                                            )
+                                          : MeowBubble(
+                                              msg: current,
+                                              isId: isId,
+                                              onConfirmAction: (action) =>
+                                                  _handleConfirmation(
+                                                    action,
+                                                    msgIndex,
+                                                  ),
+                                              onActionTap: _handleResultAction,
+                                              onLongPress: () =>
+                                                  _showMessageActions(current),
                                             ),
-                                        onActionTap: _handleResultAction,
-                                        onLongPress: () =>
-                                            _showMessageActions(current),
-                                      ),
                                     );
                                     if (!showDate) return bubble;
                                     return Column(
@@ -1730,12 +1747,25 @@ String _buildCommandHelp(bool debugMode) {
                                       ],
                                     );
                                   }
-                                  // Narrative bubble — above the thinking dots,
+                                  final tailIdx = msgIndex - _messages.length;
+                                  final session = _manager?.sessionFor(
+                                    _activeAgentId,
+                                  );
+                                  final liveLedger = session?.activeTaskLedger;
+                                  if (_sending &&
+                                      liveLedger != null &&
+                                      tailIdx == 0) {
+                                    return TaskLedgerBubble(
+                                      ledger: liveLedger,
+                                      live: true,
+                                    );
+                                  }
+
+                                  // Narrative bubble â€” above the thinking dots,
                                   // shown only while sending AND a narrative is set.
-                                  final narrativeIdx = msgIndex - _messages.length;
-                                  final narrative = _manager
-                                      ?.sessionFor(_activeAgentId)
-                                      .narrativeMessage;
+                                  final narrativeIdx =
+                                      tailIdx - ((_sending && liveLedger != null) ? 1 : 0);
+                                  final narrative = session?.narrativeMessage;
                                   final hasNarrative =
                                       _sending &&
                                       (narrative?.isNotEmpty == true);
@@ -1770,537 +1800,6 @@ String _buildCommandHelp(bool debugMode) {
   }
 }
 
-class _Bubble extends StatelessWidget {
-  const _Bubble({
-    required this.msg,
-    this.onConfirmAction,
-    this.onActionTap,
-    this.onLongPress,
-    this.isId = false,
-  });
-  final ChatMessage msg;
-  final void Function(String action)? onConfirmAction;
-  final void Function(ResultAction action, ChatMessage sourceMessage)?
-  onActionTap;
-  final VoidCallback? onLongPress;
-  final bool isId;
-
-  void _showImagePreviewFromPath(BuildContext context, String path) {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: GestureDetector(
-          onTap: () => Navigator.of(context).pop(),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Image.file(
-              File(path),
-              fit: BoxFit.contain,
-              errorBuilder: (_, e, s) => Container(
-                padding: const EdgeInsets.all(32),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(
-                  Icons.broken_image_rounded,
-                  size: 48,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = AppStrings(isId ? 'id' : 'en');
-    final cs = context.cs;
-    final extras = context.extras;
-    final isUser = msg.role == 'user';
-    final isConfirmation = msg.content.contains('[[CONFIRMATION_REQUIRED]]');
-
-    // Extract reply-quote sentinel if present.
-    String? quoteRole;
-    String? quoteText;
-    var rawContent = msg.content;
-    final quoteMatch = RegExp(
-      r'\[\[REPLY_QUOTE:([^\]]+)\]\](.*?)\[\[/REPLY_QUOTE\]\]\n?',
-      dotAll: true,
-    ).firstMatch(rawContent);
-    if (quoteMatch != null) {
-      quoteRole = quoteMatch.group(1);
-      quoteText = quoteMatch.group(2)?.trim();
-      rawContent = rawContent.replaceFirst(quoteMatch.group(0)!, '');
-    }
-    final displayContent = rawContent
-        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
-        .trim();
-
-    // Skip rendering ghost bubbles that have nothing visible to show.
-    // These can exist in the DB from before the cancel-guard fix, where
-    // engine.run() resolved with an empty finalMessage post-cancellation.
-    final hasNothingToShow =
-        displayContent.isEmpty &&
-        (quoteText == null || quoteText.isEmpty) &&
-        msg.actions.isEmpty &&
-        !isConfirmation;
-    if (hasNothingToShow) {
-      return const SizedBox.shrink();
-    }
-
-    final bubble = ConstrainedBox(
-      constraints: BoxConstraints(
-        // Min width so a single-character user message ("a") still renders
-        // as a proper bubble instead of a tiny chip. Assistant bubbles
-        // start without a min so short replies stay compact.
-        minWidth: isUser ? 72 : 0,
-        maxWidth: MediaQuery.of(context).size.width * 0.78,
-      ),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isUser ? cs.primary : extras.card,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isUser ? 16 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 16),
-          ),
-          border: isUser ? null : Border.all(color: extras.subtleBorder),
-        ),
-        child: IntrinsicWidth(
-          // Without this wrapper, Column would fill the incoming maxWidth
-          // (78% of screen) regardless of content, making short user
-          // messages stretch unnaturally. IntrinsicWidth measures the
-          // widest child once and tightens the bubble around it.
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Reply quote chip (WhatsApp-style).
-              if (quoteText != null && quoteText.isNotEmpty) ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isUser
-                        ? Colors.white.withValues(alpha: 0.18)
-                        : cs.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border(
-                      left: BorderSide(
-                        color: isUser ? Colors.white70 : cs.primary,
-                        width: 3,
-                      ),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        quoteRole ?? '',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: isUser ? Colors.white : cs.primary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        quoteText,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isUser ? Colors.white70 : cs.onSurfaceVariant,
-                          height: 1.3,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              // Image thumbnails in bubble (user messages with attachments).
-              if (isUser && msg.imagePaths.isNotEmpty) ...[
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final imgPath in msg.imagePaths)
-                      GestureDetector(
-                        onTap: () => _showImagePreviewFromPath(context, imgPath),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.file(
-                            File(imgPath),
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, e, s) => Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white24,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.broken_image_rounded,
-                                size: 18,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-              ],
-              if (isUser)
-                _ExpandableText(
-                  content: displayContent,
-                  markdown: false,
-                  isId: isId,
-                  style: TextStyle(
-                    color: cs.onPrimary,
-                    fontSize: 14,
-                    height: 1.4,
-                  ),
-                  toggleColor: Colors.white,
-                )
-              else
-                _ExpandableText(
-                  content: displayContent,
-                  markdown: true,
-                  isId: isId,
-                  style: TextStyle(
-                    color: cs.onSurface,
-                    fontSize: 14,
-                    height: 1.4,
-                  ),
-                  toggleColor: cs.primary,
-                ),
-              // Confirmation action buttons.
-              if (isConfirmation && onConfirmAction != null) ...[
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    _ConfirmButton(
-                      label: s.accept,
-                      icon: Icons.check_rounded,
-                      color: cs.primary,
-                      onTap: () => onConfirmAction!('accept'),
-                    ),
-                    _ConfirmButton(
-                      label: s.always,
-                      icon: Icons.done_all_rounded,
-                      color: Colors.green,
-                      onTap: () => onConfirmAction!('always_accept'),
-                    ),
-                    _ConfirmButton(
-                      label: s.reject,
-                      icon: Icons.close_rounded,
-                      color: Colors.redAccent,
-                      onTap: () => onConfirmAction!('reject'),
-                    ),
-                  ],
-                ),
-              ],
-              // Contextual result actions (e.g., "Open Calendar").
-              if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: msg.actions
-                      .map(
-                        (a) => _ResultActionButton(
-                          action: a,
-                          onTap: () => onActionTap!(a, msg),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ],
-              // Timestamp (WhatsApp-style, bottom-aligned). Respects the system
-              // 24H/12H clock preference.
-              const SizedBox(height: 4),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Text(
-                  _formatBubbleTime(context, msg.timestamp),
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: isUser
-                        ? Colors.white.withValues(alpha: 0.7)
-                        : cs.onSurfaceVariant.withValues(alpha: 0.7),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: onLongPress != null
-          ? GestureDetector(onLongPress: onLongPress, child: bubble)
-          : bubble,
-    );
-  }
-
-  /// Format a message timestamp following the device's 24H/12H clock setting.
-  static String _formatBubbleTime(BuildContext context, DateTime dt) {
-    final use24 = MediaQuery.of(context).alwaysUse24HourFormat;
-    final tod = TimeOfDay.fromDateTime(dt.toLocal());
-    return MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(tod, alwaysUse24HourFormat: use24);
-  }
-}
-
-/// Truncates long bubble content with a "Show more" toggle.
-///
-/// Cuts initial render cost when opening a chat that contains long markdown
-/// agent replies. Below the threshold it renders the content in full;
-/// above, it parses only the first chunk plus a small toggle button. On
-/// tap, the full content swaps in.
-///
-/// The threshold is character-based (not pixel-based) so we never have to
-/// measure layout to decide whether to truncate, which would defeat the
-/// purpose of avoiding the heavy initial parse.
-class _ExpandableText extends StatefulWidget {
-  const _ExpandableText({
-    required this.content,
-    required this.markdown,
-    required this.isId,
-    required this.style,
-    required this.toggleColor,
-  });
-
-  /// Show full content if length is at most this many characters.
-  static const int _truncateThreshold = 800;
-
-  /// When truncated, show this many characters before the "Show more" button.
-  static const int _truncatePreview = 700;
-
-  final String content;
-  final bool markdown;
-  final bool isId;
-  final TextStyle style;
-  final Color toggleColor;
-
-  @override
-  State<_ExpandableText> createState() => _ExpandableTextState();
-}
-
-class _ExpandableTextState extends State<_ExpandableText> {
-  /// Inline expand only applies to plain text (user) bubbles. For markdown
-  /// bubbles, tapping "Show more" opens a bottom sheet (isolated route),
-  /// so a markdown parser crash on the full content cannot tear down the
-  /// chat list.
-  bool _expanded = false;
-
-  /// Find a clean truncation point near [target]. Prefers the last newline
-  /// within a [target - 200, target] window so we do not slice through code
-  /// fences, lists, or other multi-line markdown constructs. Falls back to
-  /// a word boundary, then to the raw cut.
-  static int _safeTruncatePoint(String text, int target) {
-    if (text.length <= target) return text.length;
-    final newlineCutoff = (target - 200).clamp(0, target);
-    final newline = text.lastIndexOf('\n', target);
-    if (newline >= newlineCutoff) return newline;
-    final spaceCutoff = (target - 60).clamp(0, target);
-    final space = text.lastIndexOf(' ', target);
-    if (space >= spaceCutoff) return space;
-    return target;
-  }
-
-  void _openMarkdownSheet() {
-    final s = AppStrings(widget.isId ? 'id' : 'en');
-    final cs = Theme.of(context).colorScheme;
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: cs.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (sheetCtx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
-          maxChildSize: 0.95,
-          expand: false,
-          builder: (innerCtx, scrollCtrl) {
-            return Column(
-              children: [
-                Container(
-                  margin: const EdgeInsets.only(top: 8),
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.article_outlined,
-                          size: 18, color: cs.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        s.wfLogShowMore,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurface,
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: s.copyTooltip,
-                        icon: const Icon(Icons.copy_rounded, size: 18),
-                        onPressed: () {
-                          Clipboard.setData(
-                              ClipboardData(text: widget.content));
-                          ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                            SnackBar(
-                              content: Text(s.copied),
-                              duration: const Duration(seconds: 1),
-                            ),
-                          );
-                        },
-                      ),
-                      IconButton(
-                        tooltip: s.closeTooltip,
-                        icon: const Icon(Icons.close_rounded, size: 20),
-                        onPressed: () => Navigator.pop(sheetCtx),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: SingleChildScrollView(
-                    controller: scrollCtrl,
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                    // Full markdown is rendered here, in an isolated route.
-                    // If GptMarkdown chokes on a malformed input it tears
-                    // down only this sheet, not the chat list behind it.
-                    child: GptMarkdown(
-                      widget.content,
-                      style: TextStyle(
-                        color: cs.onSurface,
-                        fontSize: 14,
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = AppStrings(widget.isId ? 'id' : 'en');
-    final isLong =
-        widget.content.length > _ExpandableText._truncateThreshold;
-
-    if (!isLong) {
-      // Short content renders normally.
-      return widget.markdown
-          ? GptMarkdown(widget.content, style: widget.style)
-          : Text(widget.content, style: widget.style);
-    }
-
-    // Long content: always render preview as plain Text (no markdown
-    // parse, safe from half-cut syntax crashes, fast).
-    final cut = _safeTruncatePoint(
-      widget.content,
-      _ExpandableText._truncatePreview,
-    );
-    final preview = widget.content.substring(0, cut).trimRight();
-
-    // Plain text (user bubble) supports inline expand because Text cannot
-    // crash on partial content. Markdown content opens in a bottom sheet
-    // (separate route) so a parser failure cannot affect the chat list.
-    final showFull = !widget.markdown && _expanded;
-    final body = Text(
-      showFull ? widget.content : '$preview\u2026',
-      style: widget.style,
-    );
-
-    final toggleLabel = widget.markdown
-        ? s.wfLogShowMore
-        : (_expanded ? s.wfLogCollapse : s.wfLogShowMore);
-    final toggleIcon = widget.markdown
-        ? Icons.open_in_full_rounded
-        : (_expanded
-            ? Icons.expand_less_rounded
-            : Icons.expand_more_rounded);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        body,
-        const SizedBox(height: 6),
-        InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: widget.markdown
-              ? _openMarkdownSheet
-              : () => setState(() => _expanded = !_expanded),
-          child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(toggleIcon, size: 16, color: widget.toggleColor),
-                const SizedBox(width: 4),
-                Text(
-                  toggleLabel,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: widget.toggleColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-/// A floating, centered date separator (WhatsApp/Telegram style) shown above
-/// the first message of each day. Renders "Today" / "Yesterday" for recent
-/// days and a localized date otherwise.
 class _DateSeparator extends StatelessWidget {
   const _DateSeparator({required this.date, required this.isId});
 
@@ -2343,147 +1842,17 @@ class _DateSeparator extends StatelessWidget {
     if (diff == 1) return s.yesterday;
 
     const monthsId = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
     ];
     const monthsEn = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
     final months = isId ? monthsId : monthsEn;
     final mon = months[date.month - 1];
-    // Include year only when it's not the current year.
     if (date.year == now.year) return '${date.day} $mon';
     return '${date.day} $mon ${date.year}';
-  }
-}
-
-class _ConfirmButton extends StatelessWidget {
-  const _ConfirmButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: color.withValues(alpha: 0.12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: color.withValues(alpha: 0.3)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResultActionButton extends ConsumerWidget {
-  const _ResultActionButton({required this.action, required this.onTap});
-  final ResultAction action;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cs = context.cs;
-    final label = action.label;
-
-    return Material(
-      color: cs.primary.withValues(alpha: 0.12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: cs.primary.withValues(alpha: 0.3)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(_iconFor(action.icon), size: 14, color: cs.primary),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: cs.primary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _iconFor(String name) {
-    switch (name) {
-      case 'calendar_month_rounded':
-        return Icons.calendar_month_rounded;
-      case 'note_outlined':
-        return Icons.note_outlined;
-      case 'folder_open_rounded':
-        return Icons.folder_open_rounded;
-      case 'open_in_new_rounded':
-        return Icons.open_in_new_rounded;
-      case 'schedule_rounded':
-        return Icons.schedule_rounded;
-      case 'visibility_rounded':
-        return Icons.visibility_rounded;
-      case 'memory_rounded':
-        return Icons.memory_rounded;
-      default:
-        return Icons.arrow_forward_rounded;
-    }
   }
 }
 
@@ -2550,35 +1919,37 @@ class _NarrativeBubble extends StatelessWidget {
   /// Pure cosmetic; no semantic dependency.
   static String _emojiFor(String text) {
     final t = text.toLowerCase();
-    if (t.contains('confirm') || t.contains('konfirmasi')) return '⏸️';
+    if (t.contains('confirm') || t.contains('konfirmasi')) {
+      return '\u{23F8}\u{FE0F}';
+    }
     if (t.contains('check') || t.contains('cek') || t.contains('hasil')) {
-      return '🔍';
+      return '\u{1F50D}';
     }
     if (t.contains('plan') || t.contains('rencana') || t.contains('langkah')) {
-      return '🧭';
+      return '\u{1F9ED}';
     }
     if (t.contains('write') ||
         t.contains('compos') ||
         t.contains('jawaban') ||
         t.contains('reply')) {
-      return '✍️';
+      return '\u{270D}\u{FE0F}';
     }
     if (t.contains('try') ||
         t.contains('coba') ||
         t.contains('different') ||
         t.contains('lain')) {
-      return '🔁';
+      return '\u{1F504}';
     }
     if (t.contains('execut') ||
         t.contains('mengerjakan') ||
         t.contains('working') ||
         t.contains('progress')) {
-      return '⚙️';
+      return '\u{2699}\u{FE0F}';
     }
     if (t.contains('ask') || t.contains('quest') || t.contains('pertanyaan')) {
-      return '💬';
+      return '\u{1F4AC}';
     }
-    return '✨';
+    return '\u{2728}';
   }
 }
 
@@ -3003,7 +2374,7 @@ class _ChatInputState extends State<_ChatInput> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left accent strip (drawn as a sibling so the rounded
-                    // corners stay intact — non-uniform Border widths break
+                    // corners stay intact â€” non-uniform Border widths break
                     // when combined with borderRadius).
                     Container(width: 3, color: cs.primary),
                     Expanded(

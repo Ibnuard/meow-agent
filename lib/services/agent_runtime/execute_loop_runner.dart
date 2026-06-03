@@ -513,6 +513,7 @@ class ExecuteLoopRunner {
             final active = goalTree.nextActionable;
             if (active != null) {
               active.status = SubgoalStatus.inProgress;
+              _emitTaskLedger(emit, request, goalTree);
             }
             if (goalTree.subgoals.length > 1) {
               final ledger = await _taskScope.persistLedgerAtGate(
@@ -595,7 +596,10 @@ class ExecuteLoopRunner {
           emit(logger.events.last);
           if (goalTree.isNotEmpty) {
             final active = goalTree.nextActionable;
-            if (active != null) active.status = SubgoalStatus.done;
+            if (active != null) {
+              active.status = SubgoalStatus.done;
+              _emitTaskLedger(emit, request, goalTree);
+            }
           }
           if (goalTree.isEmpty || goalTree.isComplete) {
             final priorTool = lastDeliveryTool ?? toolRequest;
@@ -928,9 +932,12 @@ class ExecuteLoopRunner {
             final ok = goalTree.applyStatusUpdate(
               subgoalId: (update['id'] ?? '').toString(),
               status: status,
-              resultRef: update['result_ref'] as String?,
-              notes: update['notes'] as String?,
+              resultRef: update['result_ref']?.toString(),
+              notes: update['notes']?.toString(),
             );
+            if (ok) {
+              _emitTaskLedger(emit, request, goalTree);
+            }
             if (!ok) {
               final active = goalTree.nextActionable;
               if (active != null && result.success) {
@@ -1336,6 +1343,33 @@ class ExecuteLoopRunner {
       tool: fallbackTool,
       result: fallbackResult,
       language: language,
+    );
+  }
+
+  void _emitTaskLedger(
+    void Function(RuntimeEvent) emit,
+    AgentRuntimeRequest request,
+    GoalTree goalTree,
+  ) {
+    if (request.source != RequestSource.chat || goalTree.subgoals.length < 2) {
+      return;
+    }
+    final ledger = TaskLedger(
+      id: 'chat_live_${request.agentId}',
+      agentId: request.agentId,
+      source: LedgerSource.chat,
+      mainGoal: goalTree.mainGoal,
+      languageCode: _languageCode,
+      originalUserMessage: request.userMessage,
+      goalTree: goalTree,
+      status: goalTree.isComplete ? LedgerStatus.completed : LedgerStatus.active,
+    );
+    emit(
+      RuntimeEvent(
+        type: 'task_ledger',
+        message: 'Task ledger updated',
+        data: {'ledger': ledger.toJson()},
+      ),
     );
   }
 
