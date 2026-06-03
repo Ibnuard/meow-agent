@@ -1085,6 +1085,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   _eventKind == EventTriggerKind.chargingStop);
         case BuiltInCategory.time:
         case BuiltInCategory.identity:
+        case BuiltInCategory.action:
           return true;
       }
     }).toList();

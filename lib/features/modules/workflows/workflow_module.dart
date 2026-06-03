@@ -49,6 +49,7 @@ class WorkflowModulePlugin extends ModulePlugin {
           '@date_long, @month_name, @year, @iso_timestamp\n'
           '@agent_name, @user_name, @user_nickname (from profile)\n'
           '@chat_session (chat target for chat.send), @chat_history (recent chat)\n'
+          '@push_nofif (send a push notification to the device)\n'
           '@prev (previous step output), @step1, @step2, ... (specific step output)\n'
           '@notif, @notif_title, @notif_body, @notif_app, @notif_keyword\n'
           '@app_package, @battery_level\n\n'

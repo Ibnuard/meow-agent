@@ -35,6 +35,7 @@ class BuiltInVariable {
 enum BuiltInCategory {
   time,
   identity,
+  action,
   triggerNotification,
   triggerAppOpen,
   triggerBattery,
@@ -49,6 +50,8 @@ extension BuiltInCategoryX on BuiltInCategory {
         return isId ? 'Waktu & Tanggal' : 'Time & Date';
       case BuiltInCategory.identity:
         return isId ? 'Identitas' : 'Identity';
+      case BuiltInCategory.action:
+        return isId ? 'Aksi' : 'Actions';
       case BuiltInCategory.triggerNotification:
         return isId ? 'Pemicu: Notifikasi' : 'Trigger: Notification';
       case BuiltInCategory.triggerAppOpen:
@@ -161,6 +164,16 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
     descriptionEn: 'Recent chat history with this agent (last 20 messages)',
     category: BuiltInCategory.identity,
     exampleValue: 'user: halo\nassistant: hai, ada yang bisa dibantu?',
+  ),
+
+  // ─── Actions ──────────────────────────────────────────────────────────────
+  BuiltInVariable(
+    key: 'push_nofif',
+    descriptionId:
+        'Kirim notifikasi push ke perangkat kamu',
+    descriptionEn: 'Send a push notification to your device',
+    category: BuiltInCategory.action,
+    exampleValue: '[push notification target]',
   ),
 
   // ─── Multi-step ──────────────────────────────────────────────────────────
@@ -318,6 +331,11 @@ class WorkflowBuiltInVars {
     vars['chat_history'] = agentId == null
         ? ''
         : await resolveChatHistory(agentId);
+
+    // ── Action targets ─────────────────────────────────────────────────────
+    vars['push_nofif'] =
+        '[push notification target — use tool notification.create_local with '
+        'args {title, body, style}; style defaults to normal]';
 
     // ── Trigger overrides ─────────────────────────────────────────────────
     vars.addAll(triggerVars);
