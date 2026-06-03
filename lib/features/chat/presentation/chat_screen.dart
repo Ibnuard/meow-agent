@@ -43,7 +43,8 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with WidgetsBindingObserver {
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
@@ -77,6 +78,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final agents = ref.read(agentListProvider);
     if (widget.agentId == 'default' && agents.isNotEmpty) {
       _activeAgentId = agents.first.id;
@@ -113,6 +115,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
     if (granted) {
       _loadHistory(_activeAgentId);
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkStoragePermission();
     }
   }
 
@@ -198,6 +207,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
     _scroll.removeListener(_onScroll);

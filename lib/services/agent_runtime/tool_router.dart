@@ -1,3 +1,4 @@
+import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -145,7 +146,10 @@ class ToolRouter {
   }
 
   Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
-    return ToolPermissionPolicy(moduleRepository).deniedResult(toolName);
+    return ToolPermissionPolicy(
+      moduleRepository,
+      permissionManager: PermissionManager(),
+    ).deniedResult(toolName);
   }
 
   /// Returns true when this is a `files.*` call whose target path lands

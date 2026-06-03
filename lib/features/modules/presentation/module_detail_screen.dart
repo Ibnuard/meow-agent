@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
@@ -32,6 +32,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
   }
+
+  PermissionManager get _permissionManager =>
+      ref.read(permissionManagerProvider);
 
   @override
   void initState() {
@@ -69,11 +72,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final wantsBubble = _module!.settings['floating_bubble'] ?? false;
     if (!wantsBubble) return;
 
-    final controller = ref.read(clipboardServiceControllerProvider);
-    final canDraw = await controller.canDrawOverlays();
-    final running = await controller.isBubbleServiceRunning();
+    final canDraw = await _permissionManager.isGranted(
+      PermissionType.systemAlertWindow,
+    );
+    final running = await ref
+        .read(clipboardServiceControllerProvider)
+        .isBubbleServiceRunning();
     if (canDraw && !running) {
-      await controller.startBubbleService();
+      await ref.read(clipboardServiceControllerProvider).startBubbleService();
     }
   }
 
@@ -81,11 +87,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (_module == null) return;
 
     if (_module!.id == 'clipboard_ai') {
-      final controller = ref.read(clipboardServiceControllerProvider);
-
       if (key == 'persistent_notification') {
         if (value) {
-          final granted = await controller.requestNotificationPermission();
+          final granted = await _permissionManager.request(
+                PermissionType.notification,
+              ) ==
+              PermissionResult.granted;
           if (!granted) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -97,16 +104,23 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             }
             return;
           }
-          await controller.startNotificationService();
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .startNotificationService();
         } else {
-          await controller.stopNotificationService();
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .stopNotificationService();
         }
       }
 
       if (key == 'floating_bubble') {
         if (value) {
           // Need POST_NOTIFICATIONS for the foreground service notification.
-          final notifGranted = await controller.requestNotificationPermission();
+          final notifGranted = await _permissionManager.request(
+                PermissionType.notification,
+              ) ==
+              PermissionResult.granted;
           if (!notifGranted) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -119,7 +133,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             return;
           }
           // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
-          final canDraw = await controller.canDrawOverlays();
+          final canDraw = await _permissionManager.isGranted(
+            PermissionType.systemAlertWindow,
+          );
           if (!canDraw) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -129,13 +145,17 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               );
             }
-            await controller.requestOverlayPermission();
+            await _permissionManager.request(PermissionType.systemAlertWindow);
             // Don't toggle yet — will sync on resume.
             return;
           }
-          await controller.startBubbleService();
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .startBubbleService();
         } else {
-          await controller.stopBubbleService();
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .stopBubbleService();
         }
       }
     }
@@ -158,8 +178,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       // Background launch needs SYSTEM_ALERT_WINDOW. Without it Android 10+
       // will silently drop activity launches when Meow Agent is backgrounded.
       if (value && key == 'allow_background_launch') {
-        final controller = ref.read(clipboardServiceControllerProvider);
-        final canDraw = await controller.canDrawOverlays();
+        final canDraw = await _permissionManager.isGranted(
+          PermissionType.systemAlertWindow,
+        );
         if (!canDraw) {
           if (mounted) {
             final goSettings = await showDialog<bool>(
@@ -188,7 +209,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               ),
             );
             if (goSettings != true) return;
-            await controller.requestOverlayPermission();
+            await _permissionManager.request(PermissionType.systemAlertWindow);
             // Don't toggle yet — wait for user to grant and return.
             // Re-check on the next interaction; user can tap again.
             return;
@@ -228,11 +249,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         );
         if (goSettings != true) return;
         // Open Usage Access settings screen.
-        await const MethodChannel(
-          'com.meowagent/app_control',
-        ).invokeMethod<bool>('openSettings', {
-          'action': 'android.settings.USAGE_ACCESS_SETTINGS',
-        });
+        await _permissionManager.openUsageAccessSettings();
         // Fall through — save toggle as true so it reflects user intent.
         // If permission wasn't granted, the tool returns available:false gracefully.
       }
@@ -240,13 +257,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
     // Device Context — Bluetooth needs BLUETOOTH_CONNECT on Android 12+.
     if (_module!.id == 'device_context' && key == 'allow_bluetooth' && value) {
-      try {
-        await const MethodChannel(
-          'com.meowagent/services',
-        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
-          'permissions': ['android.permission.BLUETOOTH_CONNECT'],
-        });
-      } catch (_) {
+      final result = await _permissionManager.request(
+        PermissionType.bluetoothConnect,
+      );
+      if (result != PermissionResult.granted) {
         // If denied or error, toggle still saves; tools degrade gracefully.
       }
     }
@@ -279,28 +293,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         );
         if (goSettings != true) return;
-        await const MethodChannel(
-          'com.meowagent/app_control',
-        ).invokeMethod<bool>('openSettings', {
-          'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS',
-        });
+        await _permissionManager.openNotificationPolicySettings();
       }
     }
 
     // Device Context — Network Info needs Location (WiFi SSID) + Phone (cellular type) on Android 10+.
     if (_module!.id == 'device_context' && key == 'allow_network' && value) {
-      try {
-        await const MethodChannel(
-          'com.meowagent/services',
-        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
-          'permissions': [
-            'android.permission.ACCESS_FINE_LOCATION',
-            'android.permission.READ_PHONE_STATE',
-          ],
-        });
-      } catch (_) {
-        // If denied or error, toggle still saves; tools degrade gracefully.
-      }
+      await _permissionManager.request(PermissionType.location);
+      await _permissionManager.request(PermissionType.phoneState);
     }
 
     // Notification Intelligence — needs Notification access (Special Access).
@@ -335,9 +335,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         );
         if (goSettings == true) {
-          await const MethodChannel(
-            'com.meowagent/notifications',
-          ).invokeMethod<bool>('openNotificationAccessSettings');
+          await _permissionManager.openNotificationListenerSettings();
         }
       }
     }
@@ -379,24 +377,15 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   /// Check if SCHEDULE_EXACT_ALARM permission is granted.
   Future<bool> _checkAlarmPermission() async {
-    try {
-      const channel = MethodChannel('com.meowagent/alarm_permission');
-      final result = await channel.invokeMethod<bool>('canScheduleExactAlarms');
-      return result ?? false;
-    } catch (_) {
-      // If check fails (older Android), assume granted.
-      return true;
-    }
+    final result = await _permissionManager.check(
+      PermissionType.scheduleExactAlarm,
+    );
+    return result == PermissionResult.granted;
   }
 
   /// Open system alarm permission settings.
   Future<void> _openAlarmSettings() async {
-    try {
-      const channel = MethodChannel('com.meowagent/alarm_permission');
-      await channel.invokeMethod('openAlarmSettings');
-    } catch (_) {
-      // Fallback: do nothing.
-    }
+    await _permissionManager.openAlarmSettings();
   }
 
   Future<void> _uninstall() async {

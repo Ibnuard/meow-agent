@@ -1,3 +1,4 @@
+import '../permission/permission_manager.dart';
 import 'tool_permission_policy.dart';
 
 /// Static permission requirement map for Meow Agent tools.
@@ -104,6 +105,7 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_bluetooth',
     settingLabel: 'Bluetooth Status',
     actionLabel: 'read Bluetooth status',
+    androidPermission: PermissionType.bluetoothConnect,
   ),
   'device.dnd.set': ToolPermissionRequirement(
     moduleId: 'device_context',
@@ -122,6 +124,7 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_bluetooth',
     settingLabel: 'Bluetooth Status',
     actionLabel: 'change Bluetooth',
+    androidPermission: PermissionType.bluetoothConnect,
   ),
   'device.wifi': ToolPermissionRequirement(
     moduleId: 'device_context',
@@ -174,84 +177,98 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_create',
     settingLabel: 'Allow Create Notes',
     actionLabel: 'create notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.list_recent': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_read',
     settingLabel: 'Allow Read Notes',
     actionLabel: 'list notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.read': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_read',
     settingLabel: 'Allow Read Notes',
     actionLabel: 'read notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.search': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_search',
     settingLabel: 'Allow Search Notes',
     actionLabel: 'search notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.update': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_create',
     settingLabel: 'Allow Create Notes',
     actionLabel: 'update notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.delete': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_create',
     settingLabel: 'Allow Create Notes',
     actionLabel: 'delete notes',
+    androidPermission: PermissionType.storage,
   ),
   'notes.export': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_export',
     settingLabel: 'Allow Export Notes',
     actionLabel: 'export notes',
+    androidPermission: PermissionType.storage,
   ),
   'files.create': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_create',
     settingLabel: 'Allow Create Files',
     actionLabel: 'create files',
+    androidPermission: PermissionType.storage,
   ),
   'files.read': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_read',
     settingLabel: 'Allow Read Files',
     actionLabel: 'read files',
+    androidPermission: PermissionType.storage,
   ),
   'files.write': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_write',
     settingLabel: 'Allow Write Files',
     actionLabel: 'write files',
+    androidPermission: PermissionType.storage,
   ),
   'files.delete': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_delete',
     settingLabel: 'Allow Delete Files',
     actionLabel: 'delete files',
+    androidPermission: PermissionType.storage,
   ),
   'files.list': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_read',
     settingLabel: 'Allow Read Files',
     actionLabel: 'list files',
+    androidPermission: PermissionType.storage,
   ),
   'files.move': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_organize',
     settingLabel: 'Allow Organize Files',
     actionLabel: 'move files',
+    androidPermission: PermissionType.storage,
   ),
   'files.mkdir': ToolPermissionRequirement(
     moduleId: 'files',
     settingKey: 'allow_create',
     settingLabel: 'Allow Create Files',
     actionLabel: 'create folders',
+    androidPermission: PermissionType.storage,
   ),
   'calendar.create': ToolPermissionRequirement(
     moduleId: 'calendar',

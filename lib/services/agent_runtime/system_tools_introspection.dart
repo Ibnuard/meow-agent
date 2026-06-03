@@ -67,7 +67,10 @@ extension SystemToolsIntrospection on SystemTools {
 
   Future<ToolExecutionResult> executeToolsList() async {
     try {
-      final policy = ToolPermissionPolicy(moduleRepository);
+      final policy = ToolPermissionPolicy(
+        moduleRepository,
+        permissionManager: PermissionManager(),
+      );
       final tools = <Map<String, dynamic>>[];
       for (final def in toolDefinitions) {
         final check = await policy.check(def.name);

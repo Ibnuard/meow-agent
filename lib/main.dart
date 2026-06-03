@@ -17,6 +17,7 @@ import 'features/modules/workflows/workflow_notification_service.dart';
 import 'features/modules/workflows/workflow_repository.dart';
 import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
+import 'services/permission/permission_observer.dart';
 import 'services/workspace/workspace_migration_service.dart';
 
 Future<void> main() async {
@@ -62,6 +63,9 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Activate lifecycle-aware permission observer.
+    ref.read(permissionObserverProvider);
 
     // Listen for incoming shared text pushed from native side.
     _channel.setMethodCallHandler(_handleNativeCall);

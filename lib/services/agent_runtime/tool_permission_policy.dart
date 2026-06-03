@@ -1,5 +1,6 @@
 import '../../features/modules/data/module_model.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../permission/permission_manager.dart';
 import 'runtime_models.dart';
 import 'tool_permission_requirements.dart';
 
@@ -7,6 +8,7 @@ enum ToolPermissionBlockReason {
   moduleMissing,
   moduleDisabled,
   settingDisabled,
+  androidPermissionDenied,
 }
 
 class ToolPermissionRequirement {
@@ -15,12 +17,18 @@ class ToolPermissionRequirement {
     required this.actionLabel,
     this.settingKey,
     this.settingLabel,
+    this.androidPermission,
   });
 
   final String moduleId;
   final String actionLabel;
   final String? settingKey;
   final String? settingLabel;
+
+  /// Optional Android runtime permission required for this tool.
+  /// When set, [ToolPermissionPolicy] checks this permission before allowing
+  /// the tool to execute, preventing runtime crashes.
+  final PermissionType? androidPermission;
 }
 
 class ToolPermissionCheck {
@@ -48,6 +56,7 @@ class ToolPermissionCheck {
 
   Map<String, dynamic> toData() {
     final req = requirement;
+    final androidPerm = req?.androidPermission;
     return {
       'errorCode': ToolPermissionPolicy.permissionDeniedCode,
       'reason': reason?.name,
@@ -56,6 +65,7 @@ class ToolPermissionCheck {
       'settingKey': req?.settingKey,
       'settingLabel': req?.settingLabel,
       'actionLabel': req?.actionLabel,
+      if (androidPerm != null) 'androidPermission': androidPerm.name,
     };
   }
 
@@ -64,18 +74,26 @@ class ToolPermissionCheck {
     final reasonName = reason?.name ?? 'unknown';
     final setting = req?.settingLabel;
     final settingPart = setting == null ? '' : ' Setting: "$setting".';
+    final androidPerm = req?.androidPermission;
+    final androidPart = androidPerm == null
+        ? ''
+        : ' Android permission "${androidPerm.name}" is not granted.';
     return '${ToolPermissionPolicy.permissionDeniedCode}: $reasonName. '
-        'Module: "$moduleName".$settingPart '
+        'Module: "$moduleName".$settingPart$androidPart '
         'Enable the module or permission first.';
   }
 }
 
 class ToolPermissionPolicy {
-  ToolPermissionPolicy(this._moduleRepository);
+  ToolPermissionPolicy(
+    this._moduleRepository, {
+    PermissionManager? permissionManager,
+  }) : _permissionManager = permissionManager ?? PermissionManager();
 
   static const permissionDeniedCode = 'module_permission_denied';
 
   final ModuleRepository _moduleRepository;
+  final PermissionManager _permissionManager;
 
   Future<ToolPermissionCheck> check(String toolName) async {
     final req = _requirements[toolName];
@@ -111,6 +129,20 @@ class ToolPermissionPolicy {
         module: module,
         moduleSpec: spec ?? module,
       );
+    }
+
+    // Check Android runtime permission if the tool requires one.
+    final androidPermission = req.androidPermission;
+    if (androidPermission != null) {
+      final permResult = await _permissionManager.check(androidPermission);
+      if (permResult != PermissionResult.granted) {
+        return ToolPermissionCheck.blocked(
+          requirement: req,
+          reason: ToolPermissionBlockReason.androidPermissionDenied,
+          module: module,
+          moduleSpec: spec ?? module,
+        );
+      }
     }
 
     return const ToolPermissionCheck.allowed();
