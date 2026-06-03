@@ -242,11 +242,14 @@ class WorkflowTools {
     final workflow = WorkflowModel(
       id: 'wf_${const Uuid().v4().substring(0, 8)}',
       agentId: agentId,
-      title: tpl.titleId,
+      title: tpl.title,
       prompt: tpl.defaultPrompt,
       trigger:
           tpl.defaultTrigger ??
           const TriggerConfig(type: TriggerType.interval, intervalMinutes: 60),
+      notification: tpl.defaultNotification,
+      sendToChat: tpl.defaultSendToChat,
+      allowSensitive: tpl.defaultAllowSensitive,
       enabled: true,
       priority: tpl.defaultPriority,
       timeoutSeconds: tpl.defaultTimeoutSeconds,

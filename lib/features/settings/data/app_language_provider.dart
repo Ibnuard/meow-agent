@@ -726,6 +726,7 @@ class AppStrings {
   String get wfTemplatesTitle => isId ? 'Template Workflow' : 'Workflow Templates';
   String get wfTemplatesAll => isId ? 'Semua' : 'All';
   String get wfTemplatesProductivity => isId ? 'Produktivitas' : 'Productivity';
+  String get wfTemplatesMonitoring => isId ? 'Monitoring' : 'Monitoring';
   String get wfTemplatesCommunication => isId ? 'Komunikasi' : 'Communication';
   String get wfTemplatesAutomation => isId ? 'Otomatisasi' : 'Automation';
   String get wfTemplatesHealth => isId ? 'Kesehatan' : 'Health';

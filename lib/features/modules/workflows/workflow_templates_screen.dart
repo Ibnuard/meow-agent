@@ -205,7 +205,7 @@ class _WorkflowTemplatesScreenState
       case TemplateCategory.productivity:
         return s.wfTemplatesProductivity;
       case TemplateCategory.monitoring:
-        return 'Monitoring';
+        return s.wfTemplatesMonitoring;
       case TemplateCategory.communication:
         return s.wfTemplatesCommunication;
       case TemplateCategory.automation:
