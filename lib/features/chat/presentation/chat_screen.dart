@@ -54,7 +54,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  // Per-agent message history â€” paginated from local storage.
+  // Per-agent message history Ã¢â‚¬â€ paginated from local storage.
   final Map<String, List<ChatMessage>> _messagesByAgent = {};
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
   bool _loadingOlder = false;
@@ -218,7 +218,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.dispose();
   }
 
-  /// Detect scroll to top â†’ load older messages.
+  /// Detect scroll to top Ã¢â€ â€™ load older messages.
   void _onScroll() {
     if (!_hasMore || _loadingOlder) return;
     if (_scroll.position.pixels <= 80) {
@@ -540,7 +540,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final quotedText = _cleanContent(quoted.content);
     // Truncate very long quotes so we don't blow up context.
     final truncated = quotedText.length > 280
-        ? '${quotedText.substring(0, 280)}â€¦'
+        ? '${quotedText.substring(0, 280)}Ã¢â‚¬Â¦'
         : quotedText;
     final role = quoted.role == 'user' ? 'You' : 'Agent';
     return '[[REPLY_QUOTE:$role]]$truncated[[/REPLY_QUOTE]]\n$userText';
@@ -567,7 +567,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       final userMsg = ChatMessage(role: 'user', content: text);
       final botMsg = ChatMessage(
         role: 'assistant',
-        content: 'âš ï¸ ${s.providerMissingBody(agentName)}',
+        content: 'Ã¢Å¡Â Ã¯Â¸Â ${s.providerMissingBody(agentName)}',
         actions: [
           ResultAction(
             label: s.manageProvidersAction,
@@ -606,7 +606,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
     final displayText = _attachments.isEmpty
         ? messageText
-        : '$messageText\n\nðŸ“Ž ${attachmentNames.map((a) => a.name).join(", ")}';
+        : '$messageText\n\nÃ°Å¸â€œÅ½ ${attachmentNames.map((a) => a.name).join(", ")}';
 
     // Collect image paths for thumbnail rendering in the bubble.
     final imageExts = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
@@ -619,7 +619,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         .map((a) => a.path)
         .toList();
 
-    // Optimistically show the user message immediately â€” it always lands
+    // Optimistically show the user message immediately Ã¢â‚¬â€ it always lands
     // in history regardless of context exhaustion.
     final userMsg = ChatMessage(role: 'user', content: displayText, imagePaths: imgPaths);
     setState(() => _messages.add(userMsg));
@@ -627,7 +627,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     // Check context BEFORE calling the runtime. If the threshold was hit
     // and auto-compact is off, surface a warning but DO NOT send the user
-    // message to the agent â€” there is no point because it will fail. The
+    // message to the agent Ã¢â‚¬â€ there is no point because it will fail. The
     // user message is already visible in the chat.
     final blocked = await _autoCompactIfNeeded();
     if (blocked) return;
@@ -725,7 +725,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         await _handleSelectModelAction(action, sourceMessage);
         break;
       case 'navigate':
-        // Special-case screens not in the router â†’ push directly.
+        // Special-case screens not in the router Ã¢â€ â€™ push directly.
         if (action.target == '/modules/calendar') {
           await Navigator.push(
             context,
@@ -859,12 +859,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         if (provider != null) {
           final agentModel = agent?.model ?? '';
           final modelInfo = agentModel.isNotEmpty
-              ? '\nâ€¢ Model: ${provider.effectiveModel(agentModel)}'
-              : '\nâ€¢ Model: (provider default)';
+              ? '\nÃ¢â‚¬Â¢ Model: ${provider.effectiveModel(agentModel)}'
+              : '\nÃ¢â‚¬Â¢ Model: (provider default)';
           response =
-              'ðŸ¤– Model Info:\n'
-              'â€¢ Provider: ${provider.nickname}$modelInfo\n'
-              'â€¢ Endpoint: ${provider.baseUrl}';
+              'Ã°Å¸Â¤â€“ Model Info:\n'
+              'Ã¢â‚¬Â¢ Provider: ${provider.nickname}$modelInfo\n'
+              'Ã¢â‚¬Â¢ Endpoint: ${provider.baseUrl}';
         } else {
           response = s.noProviderConnected;
         }
@@ -918,7 +918,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         actions: [
           for (final model in provider.models)
             ResultAction(
-              label: model == selected ? '$model âœ“' : model,
+              label: model == selected ? '$model Ã¢Å“â€œ' : model,
               icon: provider.visionModels.contains(model)
                   ? 'visibility_rounded'
                   : 'memory_rounded',
@@ -1126,13 +1126,20 @@ String _buildCommandHelp(bool debugMode) {
         ? s.autoCompactThresholdNote
         : s.autoCompactOkNote;
 
-    final usageLine = usage.source == 'measured'
-        ? s.usageMeasured(pct, maxCtx, usage.chatTokens)
-        : s.usageEstimated(usage.chatTokens, pct, maxCtx);
+    // Cumulative token usage from all LLM calls this session.
+    final records = OpenAiCompatibleClient.usageRecords;
+    var totalInput = 0;
+    var totalOutput = 0;
+    for (final r in records) {
+      totalInput += r.inputTokens;
+      totalOutput += r.outputTokens ?? 0;
+    }
+    final totalTokens = totalInput + totalOutput;
+    final totalCalls = records.length;
 
     final agentName = agent?.name ?? 'default';
-    final providerName = provider?.nickname ?? 'â€”';
-    final providerModel = provider?.model ?? 'â€”';
+    final providerName = provider?.nickname ?? '-';
+    final providerModel = provider?.model ?? '-';
 
     final buf = StringBuffer()
       ..writeln(s.statusAgentTitle(agentName))
@@ -1147,7 +1154,12 @@ String _buildCommandHelp(bool debugMode) {
       ..writeln('- ${s.statusModel(providerModel)}')
       ..writeln('- ${s.statusMessages(_messages.length)}')
       ..writeln()
-      ..writeln(usageLine)
+      ..writeln('Token Usage (session):')
+      ..writeln()
+      ..writeln('- Total: $totalTokens tokens ($totalCalls LLM calls)')
+      ..writeln('- Input: $totalInput tokens')
+      ..writeln('- Output: $totalOutput tokens')
+      ..writeln('- Context pressure: ${usage.estimated}/$maxCtx ($pct%)')
       ..writeln()
       ..writeln(compactNote);
 
@@ -1318,7 +1330,7 @@ String _buildCommandHelp(bool debugMode) {
       _persistMessage(infoMsg);
       return false;
     } catch (_) {
-      // Silent fail for auto-compact â€” don't block the user's message.
+      // Silent fail for auto-compact Ã¢â‚¬â€ don't block the user's message.
     }
     return false;
   }
@@ -1510,7 +1522,7 @@ String _buildCommandHelp(bool debugMode) {
 
     final providerCode = provider?.displayCode ?? '';
     final displayModelName = modelName != null && modelName.isNotEmpty
-        ? '$providerCode${providerCode.isNotEmpty ? ' â€¢ ' : ''}$modelName'
+        ? '$providerCode${providerCode.isNotEmpty ? ' Ã¢â‚¬Â¢ ' : ''}$modelName'
         : null;
 
     return PopScope(
@@ -1694,7 +1706,7 @@ String _buildCommandHelp(bool debugMode) {
                                     );
                                   }
                                   final msgIndex = i - (_loadingOlder ? 1 : 0);
-                                  // Order: messages â†’ narrative â†’ thinking.
+                                  // Order: messages Ã¢â€ â€™ narrative Ã¢â€ â€™ thinking.
                                   if (msgIndex < _messages.length) {
                                     final current = _messages[msgIndex];
                                     // Show a floating date separator when the
@@ -1761,7 +1773,7 @@ String _buildCommandHelp(bool debugMode) {
                                     );
                                   }
 
-                                  // Narrative bubble â€” above the thinking dots,
+                                  // Narrative bubble Ã¢â‚¬â€ above the thinking dots,
                                   // shown only while sending AND a narrative is set.
                                   final narrativeIdx =
                                       tailIdx - ((_sending && liveLedger != null) ? 1 : 0);
@@ -2374,7 +2386,7 @@ class _ChatInputState extends State<_ChatInput> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left accent strip (drawn as a sibling so the rounded
-                    // corners stay intact â€” non-uniform Border widths break
+                    // corners stay intact Ã¢â‚¬â€ non-uniform Border widths break
                     // when combined with borderRadius).
                     Container(width: 3, color: cs.primary),
                     Expanded(

@@ -199,6 +199,23 @@ class ModuleRegistry {
     },
   );
 
+  static const communication = ModuleModel(
+    id: 'communication',
+    name: 'Communication',
+    description:
+        'Automate messaging and calls. Send WhatsApp messages, '
+        'make phone calls, send SMS, and resolve contacts hands-free.',
+    icon: '📲',
+    settings: {
+      'whatsapp_enabled': false,
+      'wa_call_enabled': false,
+      'call_enabled': false,
+      'sms_enabled': false,
+      'contact_access': false,
+      'telegram_enabled': false,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
@@ -209,5 +226,6 @@ class ModuleRegistry {
     calendar,
     workflows,
     web,
+    communication,
   ];
 }

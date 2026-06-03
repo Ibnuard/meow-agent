@@ -15,6 +15,15 @@
 
 ---
 
+## Distribution & Permissions Policy
+
+1. **NOT targeting Google Play Store.** This app is distributed outside Play Store (direct APK / sideload). There are NO Play Store policy constraints on Accessibility Service usage, background services, or advanced system integrations.
+2. **Accessibility Service is pre-approved.** Features that require Android Accessibility Service (auto-tap, UI injection, cross-app automation) are explicitly allowed. Implement them freely without worrying about store rejection.
+3. **Go wild, but user controls everything.** Advanced automation (auto-send WA, auto-dial, cross-app control, screen reading) is encouraged. However, ALL permissions are strictly opt-in — the app NEVER force-enables or silently activates any permission. The user grants each permission manually and can revoke at any time.
+4. **Permission philosophy:** Present → Explain → Request → Respect. Show what the permission enables, explain why it's needed, request it once, and gracefully degrade if denied.
+
+---
+
 ## Architecture Overview
 
 ```

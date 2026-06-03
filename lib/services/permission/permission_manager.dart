@@ -34,6 +34,15 @@ enum PermissionType {
 
   /// REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
   ignoreBatteryOptimizations,
+
+  /// READ_CONTACTS
+  contacts,
+
+  /// CALL_PHONE
+  callPhone,
+
+  /// SEND_SMS
+  sendSms,
 }
 
 /// Result of a permission check or request.
@@ -197,6 +206,9 @@ class PermissionManager {
       case PermissionType.systemAlertWindow:
       case PermissionType.ignoreBatteryOptimizations:
       case PermissionType.scheduleExactAlarm:
+      case PermissionType.contacts:
+      case PermissionType.callPhone:
+      case PermissionType.sendSms:
         await _openAppSettings();
     }
   }
@@ -256,6 +268,12 @@ class PermissionManager {
         return ph.Permission.systemAlertWindow;
       case PermissionType.ignoreBatteryOptimizations:
         return ph.Permission.ignoreBatteryOptimizations;
+      case PermissionType.contacts:
+        return ph.Permission.contacts;
+      case PermissionType.callPhone:
+        return ph.Permission.phone;
+      case PermissionType.sendSms:
+        return ph.Permission.sms;
     }
   }
 

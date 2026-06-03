@@ -14,6 +14,9 @@ class PermissionStates {
     this.phoneState = PermissionResult.denied,
     this.systemAlertWindow = PermissionResult.denied,
     this.ignoreBatteryOptimizations = PermissionResult.denied,
+    this.contacts = PermissionResult.denied,
+    this.callPhone = PermissionResult.denied,
+    this.sendSms = PermissionResult.denied,
   });
 
   final PermissionResult notification;
@@ -24,6 +27,9 @@ class PermissionStates {
   final PermissionResult phoneState;
   final PermissionResult systemAlertWindow;
   final PermissionResult ignoreBatteryOptimizations;
+  final PermissionResult contacts;
+  final PermissionResult callPhone;
+  final PermissionResult sendSms;
 
   PermissionResult operator [](PermissionType type) => switch (type) {
     PermissionType.notification => notification,
@@ -34,6 +40,9 @@ class PermissionStates {
     PermissionType.phoneState => phoneState,
     PermissionType.systemAlertWindow => systemAlertWindow,
     PermissionType.ignoreBatteryOptimizations => ignoreBatteryOptimizations,
+    PermissionType.contacts => contacts,
+    PermissionType.callPhone => callPhone,
+    PermissionType.sendSms => sendSms,
   };
 
   PermissionStates _with(PermissionType type, PermissionResult result) {
@@ -47,6 +56,9 @@ class PermissionStates {
       PermissionType.systemAlertWindow => copyWith(systemAlertWindow: result),
       PermissionType.ignoreBatteryOptimizations =>
         copyWith(ignoreBatteryOptimizations: result),
+      PermissionType.contacts => copyWith(contacts: result),
+      PermissionType.callPhone => copyWith(callPhone: result),
+      PermissionType.sendSms => copyWith(sendSms: result),
     };
   }
 
@@ -59,6 +71,9 @@ class PermissionStates {
     PermissionResult? phoneState,
     PermissionResult? systemAlertWindow,
     PermissionResult? ignoreBatteryOptimizations,
+    PermissionResult? contacts,
+    PermissionResult? callPhone,
+    PermissionResult? sendSms,
   }) {
     return PermissionStates(
       notification: notification ?? this.notification,
@@ -70,6 +85,9 @@ class PermissionStates {
       systemAlertWindow: systemAlertWindow ?? this.systemAlertWindow,
       ignoreBatteryOptimizations:
           ignoreBatteryOptimizations ?? this.ignoreBatteryOptimizations,
+      contacts: contacts ?? this.contacts,
+      callPhone: callPhone ?? this.callPhone,
+      sendSms: sendSms ?? this.sendSms,
     );
   }
 }

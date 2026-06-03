@@ -1052,6 +1052,15 @@ class AppStrings {
       'allow_remove' => (isId ? 'Izinkan Hapus API' : 'Allow Remove APIs', isId ? 'Agen dapat menghapus API tersimpan. Perlu konfirmasi.' : 'Agent can delete registered APIs. Requires confirmation.'),
       _ => (key, ''),
     },
+    'communication' => switch (key) {
+      'whatsapp_enabled' => (isId ? 'WhatsApp Auto-Send' : 'WhatsApp Auto-Send', isId ? 'Kirim pesan WhatsApp otomatis via Accessibility Service.' : 'Auto-send WhatsApp messages via Accessibility Service.'),
+      'wa_call_enabled' => (isId ? 'WhatsApp Auto-Call' : 'WhatsApp Auto-Call', isId ? 'Lakukan panggilan suara/video WhatsApp otomatis.' : 'Auto-initiate WhatsApp voice/video calls.'),
+      'call_enabled' => (isId ? 'Telepon Otomatis' : 'Auto Phone Call', isId ? 'Langsung dial nomor telepon tanpa konfirmasi manual.' : 'Directly dial phone numbers without manual confirmation.'),
+      'sms_enabled' => (isId ? 'SMS Otomatis' : 'Auto SMS', isId ? 'Kirim SMS secara langsung tanpa buka aplikasi.' : 'Send SMS directly without opening the messaging app.'),
+      'contact_access' => (isId ? 'Akses Kontak' : 'Contact Access', isId ? 'Izinkan agen membaca buku kontak untuk resolve nama.' : 'Allow agent to read contacts to resolve names to numbers.'),
+      'telegram_enabled' => (isId ? 'Telegram (Coming Soon)' : 'Telegram (Coming Soon)', isId ? 'Integrasi Telegram sedang dalam pengembangan.' : 'Telegram integration is under development.'),
+      _ => (key, ''),
+    },
     _ => (key, ''),
   };
 
