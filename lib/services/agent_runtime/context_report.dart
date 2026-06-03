@@ -3,7 +3,6 @@ import '../../features/settings/data/app_language_provider.dart';
 import '../llm/openai_compatible_client.dart';
 import '../workspace/workspace_file_service.dart';
 import 'context_compactor.dart';
-import 'language_registry.dart';
 import 'prompt_constants.dart';
 import 'tool_catalog.dart';
 import 'tool_router.dart';
@@ -11,9 +10,7 @@ import 'tool_router.dart';
 /// Builds a human-readable summary of the agent's runtime context for the
 /// `/context` command.
 ///
-/// Designed to be approachable — no internal file names (SOUL.md etc.), no
-/// LLM call traces, no tool filter jargon. Just: how full is the agent's
-/// short-term memory, what does it know about you, and how much room is left.
+/// Clean, simple format — one glance shows context pressure and breakdown.
 class ContextReport {
   ContextReport._();
 
@@ -24,6 +21,7 @@ class ContextReport {
     required int maxContextLength,
     String userMessageHint = '',
   }) async {
+    final isId = languageCode == 'id';
     final recentMessages = messages.length > 20
         ? messages.sublist(messages.length - 20)
         : messages;
@@ -51,7 +49,7 @@ class ContextReport {
       'HEARTBEAT.md',
     );
 
-    // Aggregate token estimates by purpose, not by source file.
+    // Token estimates by category.
     final identityTokens =
         OpenAiCompatibleClient.estimateTokens(soul) +
         OpenAiCompatibleClient.estimateTokens(memory);
@@ -64,14 +62,11 @@ class ContextReport {
         .join('\n');
     final messagesTokens = OpenAiCompatibleClient.estimateTokens(messagesText);
     final selectedToolsText = selectedTools.join('\n');
-    final allToolsText = allTools.join('\n');
     final selectedToolsTokens = OpenAiCompatibleClient.estimateTokens(
       selectedToolsText,
     );
-    final allToolsTokens = OpenAiCompatibleClient.estimateTokens(allToolsText);
 
-    // Prefer the actually-measured peak from recent LLM calls.
-    // Fall back to the synthesized estimate when no calls have happened yet.
+    // Prefer measured peak from recent LLM calls.
     final peakMeasured = ContextCompactor.peakRecentInputTokens();
     final synthesizedTotal =
         identityTokens + knowledgeTokens + messagesTokens + selectedToolsTokens;
@@ -82,71 +77,36 @@ class ContextReport {
         ? ((usedTokens / maxContextLength) * 100).clamp(0, 999).round()
         : 0;
 
-    final headlineKey = pct < 30
-        ? 'context_headline_low'
-        : pct < 60
-        ? 'context_headline_comfortable'
-        : pct < 80
-        ? 'context_headline_tight'
-        : 'context_headline_full';
-    final headline = LanguageRegistry.phrase(headlineKey, languageCode, {
-      'pct': pct.toString(),
-    });
-
-    final fullContextDelta = (allToolsTokens - selectedToolsTokens).clamp(
-      0,
-      1 << 30,
-    );
+    // Status indicator.
+    final String statusIcon;
+    final String statusLabel;
+    if (pct < 30) {
+      statusIcon = '\u{2705}';
+      statusLabel = isId ? 'Lega' : 'Comfortable';
+    } else if (pct < 60) {
+      statusIcon = '\u{1F7E1}';
+      statusLabel = isId ? 'Normal' : 'Normal';
+    } else if (pct < 80) {
+      statusIcon = '\u{1F7E0}';
+      statusLabel = isId ? 'Padat' : 'Getting tight';
+    } else {
+      statusIcon = '\u{1F534}';
+      statusLabel = isId ? 'Penuh' : 'Near limit';
+    }
 
     final buf = StringBuffer()
-      ..writeln(
-        LanguageRegistry.phrase('context_title', languageCode, {
-          'agent': agentName,
-        }),
-      )
+      ..writeln('\u{1F4CA} Context \u{2014} $agentName')
       ..writeln()
-      ..writeln('$headline.')
+      ..writeln('${isId ? 'Penggunaan' : 'Usage'}: $usedTokens / $maxContextLength ($pct%)')
+      ..writeln('Status: $statusIcon $statusLabel')
       ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_capacity_line', languageCode, {
-          'max': maxContextLength.toString(),
-          'used': usedTokens.toString(),
-          'free': remainingTokens.toString(),
-        }),
-      )
+      ..writeln('${isId ? 'Rincian' : 'Breakdown'}:')
+      ..writeln('\u{2022} ${isId ? 'Identitas & memori' : 'Identity & memory'}: ~$identityTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Riwayat chat' : 'Chat history'} (${recentMessages.length} ${isId ? 'pesan' : 'msgs'}): ~$messagesTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Kemampuan' : 'Capabilities'} (${selectedTools.length}/${allTools.length}): ~$selectedToolsTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Pengetahuan & aturan' : 'Knowledge & rules'}: ~$knowledgeTokens tokens')
       ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_currently_holding', languageCode),
-      )
-      ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_item_identity', languageCode, {
-          'tokens': identityTokens.toString(),
-        }),
-      )
-      ..writeln(
-        LanguageRegistry.phrase('context_item_messages', languageCode, {
-          'count': recentMessages.length.toString(),
-          'tokens': messagesTokens.toString(),
-        }),
-      )
-      ..writeln(
-        LanguageRegistry.phrase('context_item_capabilities', languageCode, {
-          'used': selectedTools.length.toString(),
-          'total': allTools.length.toString(),
-          'tokens': selectedToolsTokens.toString(),
-        }),
-      );
-
-    if (fullContextDelta > 100) {
-      buf
-        ..writeln()
-        ..writeln(
-          LanguageRegistry.phrase('context_savings_note', languageCode, {
-            'delta': fullContextDelta.toString(),
-          }),
-        );
-    }
+      ..writeln('$remainingTokens tokens ${isId ? 'tersisa' : 'remaining'}.');
 
     return buf.toString().trim();
   }

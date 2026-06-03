@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 
@@ -100,6 +101,7 @@ class MeowBubble extends StatelessWidget {
               msg: msg,
               onConfirmAction: onConfirmAction,
               onActionTap: onActionTap,
+              onLongPress: onLongPress,
             )
           : _PlainLayout(
               content: displayContent,
@@ -217,7 +219,7 @@ class _PlainLayout extends StatelessWidget {
   }
 }
 
-class _MarkdownLayout extends StatelessWidget {
+class _MarkdownLayout extends StatefulWidget {
   const _MarkdownLayout({
     required this.content,
     required this.quoteRole,
@@ -227,6 +229,7 @@ class _MarkdownLayout extends StatelessWidget {
     required this.msg,
     required this.onConfirmAction,
     required this.onActionTap,
+    this.onLongPress,
   });
 
   final String content;
@@ -238,38 +241,191 @@ class _MarkdownLayout extends StatelessWidget {
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action, ChatMessage sourceMessage)?
   onActionTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  State<_MarkdownLayout> createState() => _MarkdownLayoutState();
+}
+
+class _MarkdownLayoutState extends State<_MarkdownLayout> {
+  /// Max visible height for markdown content before clipping.
+  static const double _maxVisibleHeight = 400;
+
+  /// Content is considered "long" if it exceeds this char count or line count.
+  static const int _maxChars = 600;
+  static const int _maxLines = 20;
+
+  bool get _isLong {
+    return widget.content.length > _maxChars ||
+        '\n'.allMatches(widget.content).length > _maxLines;
+  }
+
+  void _showFullContent() {
+    final cs = Theme.of(context).colorScheme;
+    final extras = context.extras;
+    final s = AppStrings(widget.isId ? 'id' : 'en');
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: extras.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.85,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (ctx, scrollController) => Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Action row: Copy + Reply.
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  _SheetAction(
+                    icon: Icons.copy_rounded,
+                    label: s.copyTooltip,
+                    onTap: () {
+                      Clipboard.setData(
+                        ClipboardData(text: widget.content),
+                      );
+                      Navigator.of(ctx).pop();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(s.copied),
+                          duration: const Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  _SheetAction(
+                    icon: Icons.reply_rounded,
+                    label: widget.isId ? 'Balas' : 'Reply',
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      widget.onLongPress?.call();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: GptMarkdown(
+                  widget.content,
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: 16 + MediaQuery.of(ctx).padding.bottom),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = AppStrings(widget.isId ? 'id' : 'en');
     final textStyle = TextStyle(
       color: cs.onSurface,
       fontSize: 14,
       height: 1.4,
     );
 
+    final markdownWidget = GptMarkdown(widget.content, style: textStyle);
+    final isLong = _isLong;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (quoteText != null && quoteText!.isNotEmpty) ...[
-          _QuoteChip(role: quoteRole ?? '', text: quoteText!, isUser: false),
+        if (widget.quoteText != null && widget.quoteText!.isNotEmpty) ...[
+          _QuoteChip(
+            role: widget.quoteRole ?? '',
+            text: widget.quoteText!,
+            isUser: false,
+          ),
         ],
-        GptMarkdown(content, style: textStyle),
-        if (isConfirmation && onConfirmAction != null) ...[
+        if (isLong) ...[
+          ClipRect(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: _maxVisibleHeight),
+              child: markdownWidget,
+            ),
+          ),
+          // Fade gradient overlay hint.
+          Container(
+            height: 32,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  (context.extras.card).withValues(alpha: 0),
+                  context.extras.card,
+                ],
+              ),
+            ),
+          ),
+          // "See more" button.
+          GestureDetector(
+            onTap: _showFullContent,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 2),
+              child: Text(
+                widget.isId ? 'Lihat selengkapnya' : 'See more',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.primary,
+                ),
+              ),
+            ),
+          ),
+        ] else ...[
+          markdownWidget,
+        ],
+        if (widget.isConfirmation && widget.onConfirmAction != null) ...[
           const SizedBox(height: 12),
-          _ConfirmRow(s: s, onAction: onConfirmAction!),
+          _ConfirmRow(s: s, onAction: widget.onConfirmAction!),
         ],
-        if (msg.actions.isNotEmpty && onActionTap != null) ...[
+        if (widget.msg.actions.isNotEmpty && widget.onActionTap != null) ...[
           const SizedBox(height: 10),
-          _ActionRow(actions: msg.actions, msg: msg, onTap: onActionTap!),
+          _ActionRow(
+            actions: widget.msg.actions,
+            msg: widget.msg,
+            onTap: widget.onActionTap!,
+          ),
         ],
         const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerRight,
           child: Text(
-            formatBubbleTime(context, msg.timestamp),
+            formatBubbleTime(context, widget.msg.timestamp),
             style: TextStyle(
               fontSize: 10,
               color: cs.onSurfaceVariant.withValues(alpha: 0.7),
@@ -552,5 +708,49 @@ class _ActionRow extends ConsumerWidget {
       default:
         return Icons.touch_app_rounded;
     }
+  }
+}
+
+class _SheetAction extends StatelessWidget {
+  const _SheetAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: cs.primary),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: cs.primary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

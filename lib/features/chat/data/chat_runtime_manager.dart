@@ -17,6 +17,7 @@ import '../../settings/data/notification_sound_provider.dart';
 import 'chat_history_service.dart';
 import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
+import 'token_usage_service.dart';
 import 'unread_service.dart';
 
 const _taskLedgerSentinelPrefix = '[[TASK_LEDGER]]';
@@ -348,6 +349,8 @@ class ChatRuntimeManager extends ChangeNotifier {
       await history.addMessage(agentId, replyMsg);
       await UnreadService.instance.increment(agentId);
       _maybeNotify(agentId: agentId, agentName: agentName, reply: replyMsg);
+      // Persist cumulative token usage stats for this agent.
+      ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
 
       _set(
         agentId,
@@ -556,6 +559,8 @@ class ChatRuntimeManager extends ChangeNotifier {
           content: response.finalMessage,
         ),
       );
+      // Persist cumulative token usage stats for this agent.
+      ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
 
       _set(
         agentId,

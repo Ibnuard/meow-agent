@@ -12,6 +12,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
+import '../data/token_usage_service.dart';
 import '../../../services/agent_runtime/context_report.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/workspace_file_service.dart';
@@ -1413,6 +1414,11 @@ String _buildCommandHelp(bool debugMode) {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);
       });
     }
+
+    // Load persisted peak for accurate compaction on cold start.
+    final tokenService = ref.read(tokenUsageServiceProvider);
+    final peak = await tokenService.getPersistedPeak(agentId);
+    if (peak > 0) ContextCompactor.setPersistedPeak(peak);
   }
 
   /// Load older messages when scrolling to the top.
@@ -1522,7 +1528,7 @@ String _buildCommandHelp(bool debugMode) {
 
     final providerCode = provider?.displayCode ?? '';
     final displayModelName = modelName != null && modelName.isNotEmpty
-        ? '$providerCode${providerCode.isNotEmpty ? ' Ã¢â‚¬Â¢ ' : ''}$modelName'
+        ? '$providerCode${providerCode.isNotEmpty ? ' \u{2022} ' : ''}$modelName'
         : null;
 
     return PopScope(
