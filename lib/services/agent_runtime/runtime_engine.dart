@@ -311,14 +311,12 @@ class AgentRuntimeEngine {
         _pendingClarifications.remove(request.agentId);
         pendingClarification = null;
       }
-      final activeLedger = request.source == RequestSource.workflow
-          ? null
-          : await ledgerDb.findActive(
-              agentId: request.agentId,
-              source: request.source == RequestSource.workflow
-                  ? LedgerSource.workflow
-                  : LedgerSource.chat,
-            );
+      final activeLedger = await ledgerDb.findActive(
+        agentId: request.agentId,
+        source: request.source == RequestSource.workflow
+            ? LedgerSource.workflow
+            : LedgerSource.chat,
+      );
       String activeTaskContext = '';
       if (activeLedger != null) {
         activeTaskContext = activeLedger.describeForUser();

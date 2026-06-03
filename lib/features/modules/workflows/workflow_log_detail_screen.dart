@@ -9,6 +9,7 @@ import '../../settings/data/llm_debug_provider.dart';
 import 'workflow_editor_screen.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
+import 'workflow_runner.dart';
 
 /// Detail page for a single workflow execution log entry.
 class WorkflowLogDetailScreen extends ConsumerStatefulWidget {
@@ -136,25 +137,54 @@ class _WorkflowLogDetailScreenState
               ]),
               const SizedBox(height: 20),
 
-              // Open workflow button (right after Informasi).
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () => _openWorkflow(context, s),
-                  icon: const Icon(Icons.edit_note_rounded, size: 20),
-                  label: Text(
-                    s.wfLogOpenWorkflow,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: cs.primary,
-                    side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+              // Action buttons (right after Informasi).
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openWorkflow(context, s),
+                      icon: const Icon(Icons.edit_note_rounded, size: 20),
+                      label: Text(
+                        s.wfLogOpenWorkflow,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: cs.primary,
+                        side: BorderSide(
+                          color: cs.primary.withValues(alpha: 0.4),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _runAgain(context, s),
+                      icon: const Icon(
+                        Icons.play_arrow_rounded,
+                        size: 20,
+                      ),
+                      label: Text(
+                        s.wfLogRunAgain,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: cs.primary,
+                        foregroundColor: cs.onPrimary,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 24),
 
@@ -702,6 +732,64 @@ class _WorkflowLogDetailScreenState
     await Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (_) => WorkflowEditorScreen(workflow: workflow),
+      ),
+    );
+  }
+
+  Future<void> _runAgain(BuildContext context, AppStrings s) async {
+    final repo = WorkflowRepository();
+    final workflow = await repo.read(execution.workflowId);
+    if (!context.mounted) return;
+    if (workflow == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfLogDeleted),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    final cs = context.cs;
+    if (workflow.trigger.type == TriggerType.event) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowEventBlocked),
+          backgroundColor: cs.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!workflow.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowDisabled),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    ref.read(workflowRunnerProvider).enqueue(workflow);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.wfListRunNowQueued),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
       ),
     );
   }

@@ -112,4 +112,9 @@ class PromptConstants {
   static const pendingActionInstructions = promptPendingActionInstructions;
   static const memoryInstructions = promptMemoryInstructions;
   static const memoryHeader = promptMemoryHeader;
+
+  // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
+
+  static String workflowApiContext(List<String> apiNames) =>
+      promptWorkflowApiContext(apiNames);
 }

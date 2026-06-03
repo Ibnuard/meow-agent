@@ -51,3 +51,40 @@ const promptMemoryInstructions =
 
 const promptMemoryHeader =
     'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';
+
+// ─── Workflow API Context ────────────────────────────────────────────────────
+
+/// Build the [WORKFLOW_CONTEXT] header injected at the top of a workflow
+/// prompt whenever one or more `@api:` tokens have been resolved into
+/// embedded `[API_RESPONSE]` blocks.
+///
+/// The header forces three behaviors that compensate for the LLM's tendency
+/// to ignore inlined data:
+///   1. The data IS available — never claim it is missing.
+///   2. Copy the response body verbatim into tool args (do not paraphrase).
+///   3. Compound asks (fetch + save/send/transform) must become multi-subgoal.
+///
+/// English-only on purpose. The user's language is conveyed separately via
+/// `detected_language` and the LLM responds in that language naturally.
+String promptWorkflowApiContext(List<String> apiNames) {
+  final list = apiNames.map((n) => '"$n"').join(', ');
+  return '''
+[WORKFLOW_CONTEXT]
+The following API endpoints have ALREADY been fetched for you: $list.
+Their full responses are embedded below inside [API_RESPONSE] blocks.
+
+CRITICAL RULES:
+1. The API data IS available in this prompt. Never claim it is missing.
+2. When a tool needs that data (e.g. save to a note, send to chat),
+   COPY the entire content from inside the [API_RESPONSE] code fence
+   verbatim into the tool argument.
+3. If the user request mentions BOTH fetching AND another action
+   (save, send, transform, summarize, etc.), treat each action as a
+   SEPARATE subgoal in your plan. The fetch subgoal is already DONE;
+   you still need to complete the remaining subgoal(s) before saying
+   the task is finished.
+4. Verify each subgoal completion explicitly before reporting done.
+[/WORKFLOW_CONTEXT]
+
+''';
+}

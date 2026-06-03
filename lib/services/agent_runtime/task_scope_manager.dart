@@ -84,9 +84,10 @@ class TaskScopeManager {
     _confirmation?.pendingActions.remove(agentId);
     _confirmation?.pendingClarifications.remove(agentId);
 
-    // Workflow run state lives in the WorkflowRunner's run ledger, not here.
-    if (source == RequestSource.workflow) return;
-
+    // Both chat and workflow ledgers follow the same lifecycle. Source
+    // partitioning (LedgerSource.chat vs LedgerSource.workflow) ensures they
+    // never collide — workflow's own run ledger (WorkflowRunner) tracks
+    // execution history separately and coexists with this task ledger.
     final active = await ledgerDb.findActive(
       agentId: agentId,
       source: _ledgerSourceFor(source),
@@ -105,8 +106,6 @@ class TaskScopeManager {
     AgentRuntimeRequest request,
     LedgerStatus terminal,
   ) async {
-    // Workflow runs do not use the engine's resume ledger.
-    if (request.source == RequestSource.workflow) return;
     final active = await ledgerDb.findActive(
       agentId: request.agentId,
       source: _ledgerSourceFor(request.source),

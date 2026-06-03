@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/workspace/workspace_file_service.dart';
 import '../../chat/data/chat_history_service.dart';
 import '../web/data/api_store_repository.dart';
@@ -414,6 +415,7 @@ class WorkflowBuiltInVars {
 
     final apis = await ApiStoreRepository.instance.list();
     var resolved = prompt;
+    final resolvedNames = <String>[];
 
     // Process in reverse so indices stay valid after replacements.
     for (final match in matches.reversed) {
@@ -434,9 +436,11 @@ class WorkflowBuiltInVars {
           final executor = HttpExecutor();
           final result = await executor.executeFromConfig(config: api);
           if (result.isSuccess) {
-            replacement = result.body is String
+            final raw = result.body is String
                 ? result.body as String
                 : jsonEncode(result.body);
+            replacement = _wrapApiResponse(api.name, api.method, raw);
+            resolvedNames.add(api.name);
           } else {
             replacement =
                 '[API "${api.name}" returned ${result.statusCode}: ${result.error ?? result.body}]';
@@ -449,7 +453,40 @@ class WorkflowBuiltInVars {
       resolved = resolved.replaceRange(match.start, match.end, replacement);
     }
 
+    // Prepend an instruction header so the agent treats the embedded
+    // API_RESPONSE blocks as ground truth, not as missing context.
+    if (resolvedNames.isNotEmpty) {
+      resolved =
+          PromptConstants.workflowApiContext(resolvedNames) + resolved;
+    }
+
     return resolved;
+  }
+
+  /// Maximum size of an inlined API response body. Anything larger is
+  /// truncated with a clear marker so the prompt budget stays sane.
+  static const int _apiResponseCharCap = 6000;
+
+  /// Wrap a fetched API body so the agent treats it as a data payload
+  /// (not free-form text). The fenced block + metadata header makes
+  /// downstream tool selection ("save this to a note") much more reliable.
+  static String _wrapApiResponse(String apiName, String method, String body) {
+    final trimmed = body.trim();
+    final truncated = trimmed.length > _apiResponseCharCap
+        ? '${trimmed.substring(0, _apiResponseCharCap)}\n...[truncated, original ${trimmed.length} chars]'
+        : trimmed;
+    final lang = _detectBodyLang(truncated);
+    return '\n[API_RESPONSE name="$apiName" method="$method" bytes=${trimmed.length}]\n'
+        '```$lang\n$truncated\n```\n[/API_RESPONSE]\n';
+  }
+
+  /// Heuristic: pick a markdown fence label so the agent treats JSON/XML
+  /// payloads as structured data rather than prose.
+  static String _detectBodyLang(String body) {
+    final t = body.trimLeft();
+    if (t.startsWith('{') || t.startsWith('[')) return 'json';
+    if (t.startsWith('<')) return 'xml';
+    return 'text';
   }
 
   /// Convert any legacy `{{key}}` placeholder for KNOWN built-ins into the

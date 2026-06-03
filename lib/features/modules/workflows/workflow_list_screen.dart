@@ -7,6 +7,7 @@ import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
+import 'workflow_runner.dart';
 import 'workflow_editor_screen.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_templates_screen.dart';
@@ -47,6 +48,50 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
   Future<void> _toggle(WorkflowModel wf) async {
     await _repo.toggle(wf.id, !wf.enabled);
     _load();
+  }
+
+  void _runNow(WorkflowModel wf, AppStrings s) {
+    final cs = context.cs;
+    // Direct-trigger only supports time-based workflows.
+    // Event-based workflows must wait for their event to fire.
+    if (wf.trigger.type == TriggerType.event) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowEventBlocked),
+          backgroundColor: cs.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!wf.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowDisabled),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    ref.read(workflowRunnerProvider).enqueue(wf);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.wfListRunNowQueued),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
   }
 
   void _enterSelection(String id) {
@@ -388,7 +433,24 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
               ),
             ),
             if (!_selectionMode) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: Icon(
+                  Icons.play_arrow_rounded,
+                  size: 22,
+                  color: wf.trigger.type == TriggerType.event
+                      ? cs.onSurfaceVariant.withValues(alpha: 0.4)
+                      : cs.primary,
+                ),
+                tooltip: s.wfListRunNow,
+                onPressed: () => _runNow(wf, s),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+              ),
               Transform.scale(
                 scale: 0.85,
                 child: Switch(

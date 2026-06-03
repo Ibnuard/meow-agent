@@ -663,6 +663,16 @@ class AppStrings {
   String get wfListLastRun => isId ? 'Terakhir:' : 'Last run:';
   String get wfListAlarm => isId ? 'Alarm' : 'Alarm';
   String get wfListNormal => isId ? 'Normal' : 'Normal';
+  String get wfListRunNow => isId ? 'Jalankan sekarang' : 'Run now';
+  String get wfListRunNowEventBlocked => isId
+      ? 'Trigger langsung hanya tersedia untuk workflow berbasis waktu atau interval.'
+      : 'Direct trigger is only available for time- or interval-based workflows.';
+  String get wfListRunNowDisabled => isId
+      ? 'Aktifkan workflow ini dulu untuk menjalankannya.'
+      : 'Enable this workflow first to run it.';
+  String get wfListRunNowQueued => isId
+      ? 'Workflow dimasukkan ke antrian eksekusi.'
+      : 'Workflow queued for execution.';
 
   // --- Workflow log detail ---
   String get wfLogDetailTitle => isId ? 'Detail Log' : 'Log Detail';
@@ -672,6 +682,7 @@ class AppStrings {
   String get wfLogExecutedAt => isId ? 'Waktu Eksekusi' : 'Executed At';
   String get wfLogDuration => isId ? 'Durasi' : 'Duration';
   String get wfLogOpenWorkflow => isId ? 'Buka Workflow' : 'Open Workflow';
+  String get wfLogRunAgain => isId ? 'Jalankan ulang' : 'Run again';
   String get wfLogCollapse => isId ? 'Sembunyikan' : 'Collapse';
   String get wfLogShowMore => isId ? 'Lihat selengkapnya' : 'Show more';
   String get wfLogNoRuntimeDetails => isId ? 'Tidak ada detail runtime.' : 'No runtime details.';
