@@ -18,6 +18,7 @@ import 'features/modules/workflows/workflow_notification_service.dart';
 import 'features/modules/workflows/workflow_repository.dart';
 import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
+import 'services/bubble/bubble_chat_service.dart';
 import 'services/permission/permission_observer.dart';
 import 'services/workspace/workspace_migration_service.dart';
 
@@ -83,6 +84,7 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       _runWorkspaceMigration();
       _initWorkflowServices();
       _prewarmChatDatabase();
+      _initBubbleChat();
     });
   }
 
@@ -127,6 +129,11 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     } catch (_) {
       // Non-fatal.
     }
+  }
+
+  /// Initialize bubble chat bridge (overlay → LLM → overlay response).
+  void _initBubbleChat() {
+    BubbleChatService(ref).init();
   }
 
   /// Handle notification tap — navigate to workflow log detail or chat.

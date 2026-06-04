@@ -161,6 +161,47 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Bubble Chat bridge — connects FloatingBubbleService ↔ Flutter
+        val bubbleChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/bubble")
+        bubbleChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "sendResponse" -> {
+                    // Flutter → Bubble: deliver agent response to overlay
+                    val response = call.argument<String>("response") ?: ""
+                    val header = call.argument<String>("header")
+                    FloatingBubbleService.deliverResponse(response, header)
+                    result.success(true)
+                }
+                "updateChatInfo" -> {
+                    // Flutter → Bubble: update header subtitle with agent/model info
+                    val info = call.argument<String>("info") ?: ""
+                    FloatingBubbleService.updateChatInfo(info)
+                    result.success(true)
+                }
+                "sendNarrative" -> {
+                    // Flutter → Bubble: show narrative progress text while processing
+                    val text = call.argument<String>("text") ?: ""
+                    FloatingBubbleService.showNarrativeText(text)
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // Wire up Bubble → Flutter: when user sends message from bubble
+        FloatingBubbleService.onSendMessage = { message ->
+            Handler(Looper.getMainLooper()).post {
+                bubbleChannel.invokeMethod("onBubbleChat", mapOf("message" to message))
+            }
+        }
+
+        // Wire up Bubble → Flutter: request agent/model info when chat opens
+        FloatingBubbleService.onRequestInfo = {
+            Handler(Looper.getMainLooper()).post {
+                bubbleChannel.invokeMethod("onRequestInfo", null)
+            }
+        }
+
         val notificationsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
         notificationsChannel.setMethodCallHandler { call, result ->
             when (call.method) {
