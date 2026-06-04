@@ -75,6 +75,33 @@ class AppAgentModulePlugin extends ModulePlugin {
         'reason': 'string why scrolling is needed',
       },
     ),
+    ToolDefinition(
+      name: 'app_agent.back',
+      description:
+          'Press the Android back button. Use to dismiss popups, menus, '
+          'dialogs, or navigate to the previous screen. Does not require a node_id.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'reason': 'string why back navigation is needed',
+      },
+    ),
+    ToolDefinition(
+      name: 'app_agent.find_by_text',
+      description:
+          'Search the current screen for nodes whose visible text or accessibility '
+          'label (desc) matches the query. Returns up to 20 matched nodes with the '
+          'same shape as inspect, ready to use with click/set_text. PREFER this '
+          'over inspect+manual-scan when looking for a specific named item '
+          '(chat name, contact, button label, group, etc).',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'query': 'string text or label to search for (case-insensitive)',
+        'mode': 'string optional: "contains" (default) or "exact"',
+        'reason': 'string optional why this search is needed',
+      },
+    ),
   ];
 
   @override
@@ -92,6 +119,10 @@ class AppAgentModulePlugin extends ModulePlugin {
         return service.setText(request.args);
       case 'app_agent.scroll':
         return service.scroll(request.args);
+      case 'app_agent.back':
+        return service.back(request.args);
+      case 'app_agent.find_by_text':
+        return service.findByText(request.args);
       default:
         return Future.value(
           ToolExecutionResult(

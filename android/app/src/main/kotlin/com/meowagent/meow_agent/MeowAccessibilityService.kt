@@ -47,6 +47,14 @@ class MeowAccessibilityService : AccessibilityService() {
         private const val MAX_RETRIES = 15
         private const val RETRY_DELAY_MS = 600L
 
+        // Shared traversal limits used by serializeNode (inspect),
+        // findSerializedNodeById (click/set_text/scroll target lookup),
+        // and findByTextRecurse (find_by_text). These MUST match across all
+        // three traversals so an id returned by one resolves to the same node
+        // in the others.
+        const val TREE_MAX_DEPTH = 25
+        const val TREE_MAX_NODES = 400
+
         private val actionQueue = ConcurrentLinkedQueue<MeowAccessibilityAction>()
         private var instance: MeowAccessibilityService? = null
 
@@ -107,6 +115,23 @@ class MeowAccessibilityService : AccessibilityService() {
                     "error" to "accessibility_service_not_connected"
                 )
         }
+
+        fun performGlobalBack(): Map<String, Any?> {
+            val svc = instance ?: return mapOf(
+                "success" to false,
+                "error" to "accessibility_service_not_connected"
+            )
+            val ok = svc.performGlobalAction(GLOBAL_ACTION_BACK)
+            return mapOf("success" to ok, "action" to "global_back")
+        }
+
+        fun findByText(query: String, mode: String): Map<String, Any?> {
+            val svc = instance ?: return mapOf(
+                "success" to false,
+                "error" to "accessibility_service_not_connected"
+            )
+            return svc.findByTextInternal(query, mode)
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -141,17 +166,17 @@ class MeowAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
 
-        // Track the foreground package for the overlay gating logic. We do
-        // this regardless of whether anything is queued so the overlay
-        // service can decide when to draw.
-        // IMPORTANT: ignore events from our own package — these are triggered
-        // by our overlay windows being added/removed and must NOT reset the
-        // foreground state (which would cause the overlay to hide itself).
-        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val pkg = event.packageName?.toString()
-            if (!pkg.isNullOrEmpty() && pkg != applicationContext.packageName) {
-                foregroundPackage = pkg
-                AppAgentOverlayService.notifyForegroundChanged(applicationContext, pkg)
+        // Track the foreground package using the windows API rather than the
+        // event's raw packageName. Raw packageName can be misleading: our own
+        // overlay windows fire TYPE_WINDOW_STATE_CHANGED events with our
+        // package, and stale state can persist if we filter those naively.
+        // The windows API gives us the authoritative top APPLICATION window.
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            val topPkg = resolveTopApplicationPackage()
+            if (!topPkg.isNullOrEmpty() && topPkg != foregroundPackage) {
+                foregroundPackage = topPkg
+                AppAgentOverlayService.notifyForegroundChanged(applicationContext, topPkg)
             }
         }
 
@@ -649,7 +674,7 @@ class MeowAccessibilityService : AccessibilityService() {
                 if (root != null) {
                     val nodes = mutableListOf<Map<String, Any?>>()
                     val counter = intArrayOf(0)
-                    serializeNode(root, nodes, 0, 15, counter, 200)
+                    serializeNode(root, nodes, 0, TREE_MAX_DEPTH, counter, TREE_MAX_NODES)
                     windowInfo["package"] = root.packageName?.toString()
                     windowInfo["nodes"] = nodes
                     windowInfo["node_count"] = nodes.size
@@ -698,7 +723,7 @@ class MeowAccessibilityService : AccessibilityService() {
             val nodes = mutableListOf<Map<String, Any?>>()
             val counter = intArrayOf(0)
             val visited = intArrayOf(0)
-            serializeNode(root, nodes, 0, 15, counter, 200, visited)
+            serializeNode(root, nodes, 0, TREE_MAX_DEPTH, counter, TREE_MAX_NODES, visited)
 
             Log.d(TAG, "captureDefaultTree: serialized ${nodes.size} interesting nodes " +
                     "out of ${visited[0]} visited (package=$pkg)")
@@ -722,6 +747,191 @@ class MeowAccessibilityService : AccessibilityService() {
             Log.e(TAG, "Error capturing default tree", e)
             return mapOf("error" to "exception", "message" to (e.message ?: "unknown"))
         }
+    }
+
+    /**
+     * Search the accessibility tree for nodes matching [query] in either
+     * text or contentDescription. Returns up to 20 matches in the same node
+     * shape as inspect, ready to use with click/set_text.
+     *
+     * Unlike inspect, this walks EVERY node (not just "interesting" ones)
+     * because chat names, contact names, and labels often live in deeply
+     * nested non-interactive TextViews. When a match is found on such a leaf,
+     * we walk up to the nearest clickable ancestor and return THAT node so
+     * click() actually opens the item.
+     *
+     * [mode]: "exact" = whole-string equality (case-insensitive)
+     *         "contains" = substring match (default, case-insensitive)
+     */
+    internal fun findByTextInternal(query: String, mode: String): Map<String, Any?> {
+        if (query.isBlank()) {
+            return mapOf("success" to false, "error" to "empty_query")
+        }
+        val root = rootInActiveWindow ?: return mapOf(
+            "success" to false,
+            "error" to "no_active_window"
+        )
+        val pkg = root.packageName?.toString() ?: "unknown"
+        val needle = query.trim().lowercase()
+        val exact = mode.equals("exact", ignoreCase = true)
+        val matches = mutableListOf<Map<String, Any?>>()
+        // Track which interactable ancestors we've already reported so we
+        // don't return duplicates when several leaves under the same item match.
+        val reportedAncestors = HashSet<Int>()
+        val counter = intArrayOf(0)
+        val visited = intArrayOf(0)
+
+        try {
+            findByTextRecurse(
+                node = root,
+                needle = needle,
+                exact = exact,
+                matches = matches,
+                reportedAncestors = reportedAncestors,
+                counter = counter,
+                visited = visited,
+                depth = 0,
+                maxDepth = TREE_MAX_DEPTH,
+                maxScan = TREE_MAX_NODES,
+                maxMatches = 20
+            )
+            Log.d(TAG, "findByText('$query', $mode): ${matches.size} matches " +
+                    "from ${visited[0]} visited nodes (package=$pkg)")
+            val result = mapOf<String, Any?>(
+                "success" to true,
+                "package" to pkg,
+                "query" to query,
+                "mode" to (if (exact) "exact" else "contains"),
+                "match_count" to matches.size,
+                "scanned" to visited[0],
+                "nodes" to matches
+            )
+            root.recycle()
+            return result
+        } catch (e: Exception) {
+            Log.e(TAG, "findByText failed", e)
+            return mapOf("success" to false, "error" to "exception", "message" to (e.message ?: "unknown"))
+        }
+    }
+
+    private fun findByTextRecurse(
+        node: AccessibilityNodeInfo,
+        needle: String,
+        exact: Boolean,
+        matches: MutableList<Map<String, Any?>>,
+        reportedAncestors: HashSet<Int>,
+        counter: IntArray,
+        visited: IntArray,
+        depth: Int,
+        maxDepth: Int,
+        maxScan: Int,
+        maxMatches: Int
+    ) {
+        if (depth > maxDepth || visited[0] >= maxScan || matches.size >= maxMatches) return
+        visited[0]++
+
+        // Only "interesting" nodes get IDs (matches inspect's numbering so
+        // the agent can also call inspect and use the same ID space).
+        val text = node.text?.toString()
+        val desc = node.contentDescription?.toString()
+        val isInteresting = !text.isNullOrEmpty() || !desc.isNullOrEmpty() ||
+                node.isClickable || node.isEditable || node.isScrollable
+        var assignedId = -1
+        if (isInteresting) {
+            assignedId = counter[0]
+            counter[0]++
+        }
+
+        // Match against EVERY node, not just "interesting" ones — many list
+        // items have their label in a leaf TextView whose own flags don't pass
+        // the inspect filter.
+        val textLc = text?.lowercase() ?: ""
+        val descLc = desc?.lowercase() ?: ""
+        val matched = if (exact) {
+            (textLc.isNotEmpty() && textLc == needle) ||
+                    (descLc.isNotEmpty() && descLc == needle)
+        } else {
+            (textLc.isNotEmpty() && textLc.contains(needle)) ||
+                    (descLc.isNotEmpty() && descLc.contains(needle))
+        }
+
+        if (matched) {
+            // Walk up to find the nearest clickable / focusable ancestor so
+            // a downstream click() actually opens the item rather than the
+            // inert label inside it.
+            val target = resolveClickableAncestor(node) ?: node
+            val targetHash = System.identityHashCode(target)
+            if (!reportedAncestors.contains(targetHash)) {
+                reportedAncestors.add(targetHash)
+                val bounds = Rect()
+                target.getBoundsInScreen(bounds)
+                val width = bounds.right - bounds.left
+                val height = bounds.bottom - bounds.top
+                val screenW = resources.displayMetrics.widthPixels
+                val screenH = resources.displayMetrics.heightPixels
+                val onScreen = width > 0 && height > 0 &&
+                        bounds.right > 0 && bounds.bottom > 0 &&
+                        bounds.left < screenW && bounds.top < screenH
+
+                if (onScreen) {
+                    // The reported id should match how the agent will see it
+                    // when it later calls inspect — use assignedId if this
+                    // node itself is interesting, else -1 (caller can use
+                    // the bounds to act, but the agent should re-inspect for
+                    // a stable id).
+                    matches.add(mapOf(
+                        "id" to assignedId,
+                        "class" to (target.className?.toString() ?: ""),
+                        "package" to (target.packageName?.toString() ?: ""),
+                        "text" to (target.text?.toString() ?: text ?: ""),
+                        "desc" to (target.contentDescription?.toString() ?: desc ?: ""),
+                        "matched_text" to (text ?: ""),
+                        "matched_desc" to (desc ?: ""),
+                        "resource_id" to (target.viewIdResourceName ?: ""),
+                        "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                        "clickable" to target.isClickable,
+                        "editable" to target.isEditable,
+                        "scrollable" to target.isScrollable,
+                        "focused" to target.isFocused,
+                        "depth" to depth
+                    ))
+                }
+            }
+        }
+
+        for (i in 0 until node.childCount) {
+            if (visited[0] >= maxScan || matches.size >= maxMatches) break
+            val child = node.getChild(i) ?: continue
+            findByTextRecurse(
+                node = child,
+                needle = needle,
+                exact = exact,
+                matches = matches,
+                reportedAncestors = reportedAncestors,
+                counter = counter,
+                visited = visited,
+                depth = depth + 1,
+                maxDepth = maxDepth,
+                maxScan = maxScan,
+                maxMatches = maxMatches
+            )
+        }
+    }
+
+    /**
+     * Walk up the accessibility tree to find the nearest ancestor (or self)
+     * that is clickable or long-clickable. Returns null if none found within
+     * 6 hops (chat list items are usually within 3-4 levels of the label).
+     */
+    private fun resolveClickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops < 6) {
+            if (current.isClickable || current.isLongClickable) return current
+            current = current.parent
+            hops++
+        }
+        return null
     }
 
     /** Debug helper: dump raw tree structure to logcat without any pruning. */
@@ -853,25 +1063,45 @@ class MeowAccessibilityService : AccessibilityService() {
                 isClickable || isEditable || isScrollable
 
         if (isInteresting) {
+            // Assign an ID FIRST so the ID space is deterministic across all
+            // traversals (inspect, find_by_text, findSerializedNodeById). The
+            // onscreen filter only decides whether the node appears in the
+            // OUTPUT, not whether it consumes an ID slot. This is critical:
+            // find_by_text can return id=13 at depth=20 and click(13) must
+            // resolve to the SAME node — they share this counter logic.
+            val currentId = counter[0]
+            counter[0]++
+
             val bounds = Rect()
             node.getBoundsInScreen(bounds)
 
-            val nodeMap = mutableMapOf<String, Any?>(
-                "id" to counter[0],
-                "class" to (node.className?.toString() ?: ""),
-                "package" to (node.packageName?.toString() ?: ""),
-                "text" to (text ?: ""),
-                "desc" to (desc ?: ""),
-                "resource_id" to (node.viewIdResourceName ?: ""),
-                "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
-                "clickable" to isClickable,
-                "editable" to isEditable,
-                "scrollable" to isScrollable,
-                "focused" to node.isFocused,
-                "depth" to depth
-            )
-            output.add(nodeMap)
-            counter[0]++
+            // Filter out invisible/offscreen nodes from the OUTPUT (clean tree
+            // for the LLM), but the ID was already consumed above.
+            val width = bounds.right - bounds.left
+            val height = bounds.bottom - bounds.top
+            val screenW = resources.displayMetrics.widthPixels
+            val screenH = resources.displayMetrics.heightPixels
+            val isOnScreen = width > 0 && height > 0 &&
+                    bounds.right > 0 && bounds.bottom > 0 &&
+                    bounds.left < screenW && bounds.top < screenH
+
+            if (isOnScreen) {
+                val nodeMap = mutableMapOf<String, Any?>(
+                    "id" to currentId,
+                    "class" to (node.className?.toString() ?: ""),
+                    "package" to (node.packageName?.toString() ?: ""),
+                    "text" to (text ?: ""),
+                    "desc" to (desc ?: ""),
+                    "resource_id" to (node.viewIdResourceName ?: ""),
+                    "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    "clickable" to isClickable,
+                    "editable" to isEditable,
+                    "scrollable" to isScrollable,
+                    "focused" to node.isFocused,
+                    "depth" to depth
+                )
+                output.add(nodeMap)
+            }
         }
 
         // Recurse into children
@@ -886,9 +1116,9 @@ class MeowAccessibilityService : AccessibilityService() {
         node: AccessibilityNodeInfo,
         targetId: Int,
         depth: Int = 0,
-        maxDepth: Int = 15,
+        maxDepth: Int = TREE_MAX_DEPTH,
         counter: IntArray = intArrayOf(0),
-        maxNodes: Int = 200
+        maxNodes: Int = TREE_MAX_NODES
     ): AccessibilityNodeInfo? {
         if (depth > maxDepth || counter[0] >= maxNodes) return null
 
@@ -920,6 +1150,31 @@ class MeowAccessibilityService : AccessibilityService() {
             AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "ACCESSIBILITY_OVERLAY"
             AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> "SPLIT_SCREEN_DIVIDER"
             else -> "UNKNOWN($type)"
+        }
+    }
+
+    /**
+     * Find the package name of the topmost APPLICATION window currently visible.
+     * This is more reliable than reading event.packageName because it ignores
+     * overlay/IME/system windows and reflects the user's actual active app.
+     */
+    private fun resolveTopApplicationPackage(): String? {
+        return try {
+            val windowList = windows ?: return null
+            // Find the focused or active APPLICATION window with the highest layer.
+            val appWindows = windowList.filter {
+                it.type == AccessibilityWindowInfo.TYPE_APPLICATION
+            }
+            if (appWindows.isEmpty()) return null
+            // Prefer the focused/active window, fall back to highest layer.
+            val active = appWindows.firstOrNull { it.isActive || it.isFocused }
+                ?: appWindows.maxByOrNull { it.layer }
+                ?: return null
+            val root = active.root ?: return null
+            root.packageName?.toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "resolveTopApplicationPackage failed", e)
+            null
         }
     }
 }

@@ -89,10 +89,26 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 
 const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 - For app_agent.inspect: return status="continue" when the original user goal requires any action. Choose done only if the user merely asked to inspect/read the current screen.
-- For app_agent.click, app_agent.set_text, and app_agent.scroll: if the tool succeeded, return status="continue" so the next step inspects the screen again.
+- For app_agent.click, app_agent.set_text, app_agent.scroll, and app_agent.back: if the tool succeeded, return status="continue" so the next step inspects the screen again.
+- For app_agent.back: use it to dismiss popup menus, dialogs, bottom sheets, or to navigate back to a previous screen. It is the correct response when a menu or overlay is blocking the target UI.
 - Do not declare success for external app automation until a later app_agent.inspect result shows evidence that the goal is complete.
 - If a node action failed because node_not_found, stale screen, no_active_window, or the UI changed, return status="retry" or "continue" with another app_agent.inspect.
 - If the screen lacks the required target after reasonable scrolling/searching, ask the user for help instead of claiming success.
+- NAVIGATION STRATEGY:
+  * For tab-based apps (e.g. ViewPager), prefer scrolling the pager horizontally (scroll left/right on the ViewPager node) to switch tabs rather than opening menus.
+  * When a popup menu, dialog, or overlay is blocking the target UI, use app_agent.back to dismiss it before continuing.
+  * NEVER declare "failed" because you cannot dismiss a menu — use app_agent.back instead.
+- UI HEURISTICS (apply to ANY app, language-agnostic):
+  * To FIND a named entity (chat, contact, file, item, button label) on screen, use app_agent.find_by_text(query) FIRST. It returns matched nodes directly with IDs ready for click/set_text. This is far more reliable than inspect + visual scan and works regardless of UI language.
+  * For SEARCH affordances (magnifying glass, search box), call find_by_text with semantic terms in the user's language ("Search", "Cari", etc.) — find_by_text matches both `text` and `desc` (accessibility label).
+  * Use plain inspect only when: (a) you need to see the overall layout, (b) you need a scrollable container's node_id, or (c) find_by_text returned no matches and you need to discover available affordances.
+  * NEVER click a node based on positional guess. Always pick by `desc` or `text` that semantically matches the target action.
+  * After app.open succeeds, the FIRST inspect may show a transient/loading state. If the screen looks empty or unfamiliar, do ONE more inspect/find_by_text before deciding next action.
+  * To enter a text input, you MUST click the editable field first (focus it), then app_agent.set_text on that node. Skipping the click can cause the text to land in the wrong field.
+  * Reading the `desc` field is critical — it contains the accessibility label which is the most reliable identifier for icons (which have empty `text`).
+  * When find_by_text returns 0 matches, the item is OFF-SCREEN. DO NOT declare failure. Two strategies in order:
+    (1) Try find_by_text for the SEARCH affordance ("Search"/"Cari"/etc.) to open a search field, then set_text the target name there — this is the fastest path for any list.
+    (2) If no search affordance exists, scroll the main scrollable container and re-run find_by_text after each scroll until found or list ends.
 - PRE-EXISTING STATE COUNTS AS COMPLETION:
   * If app_agent.inspect shows that the goal state is ALREADY satisfied (e.g. the target text already exists in the input field, the target screen is already visible, the desired item is already selected), declare the relevant subgoals as done immediately. Do NOT attempt to re-execute an action whose outcome is already present on screen. The user's intent is the END STATE, not the act of performing each step.
   * Example: user asks "type Meow Test in the message field" and inspect shows text="Meow Test" already in an editable node → that subgoal is done.

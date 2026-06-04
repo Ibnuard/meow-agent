@@ -101,6 +101,14 @@ class MainActivity : FlutterActivity() {
                             )
                         )
                     }
+                    "globalBack" -> {
+                        result.success(MeowAccessibilityService.performGlobalBack())
+                    }
+                    "findByText" -> {
+                        val query = call.argument<String>("query") ?: ""
+                        val mode = call.argument<String>("mode") ?: "contains"
+                        result.success(MeowAccessibilityService.findByText(query, mode))
+                    }
                     else -> result.notImplemented()
                 }
             }
