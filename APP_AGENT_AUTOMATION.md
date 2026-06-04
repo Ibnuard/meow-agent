@@ -245,6 +245,106 @@ ModuleModel(
 
 ---
 
+## Virtual Display Experiment (FAILED — Archived)
+
+**Tested: 2026-06-04 on Android 15 (API 35)**
+
+Hypothesis: Create a virtual display, launch target app headlessly, capture accessibility tree — all without screen being on/unlocked.
+
+Results:
+- ✅ `DisplayManager.createVirtualDisplay()` succeeds with `VIRTUAL_DISPLAY_FLAG_PRESENTATION`
+- ❌ `startActivity(intent, ActivityOptions.setLaunchDisplayId(id))` → SecurityException
+- ❌ `adb shell am start --display <id>` → SecurityException (even UID 2000 blocked)
+- Root cause: `SafeActivityOptions.checkPermissions()` requires display to be TRUSTED (system-created) or caller to have `INTERNAL_SYSTEM_WINDOW` (signature permission)
+
+**Conclusion**: Virtual display approach is NOT viable on Android 14+/15 without root. Dead end.
+
+---
+
+## Background & Lock-Screen Execution (Shizuku Approach)
+
+### Overview
+
+App Agent **requires the device to be unlocked** for UI automation (accessibility tree needs active window). For scheduled/background tasks, we use **Shizuku** to programmatically wake and unlock the device.
+
+Shizuku provides ADB shell-level access (UID 2000) from within the app. User grants it once via wireless ADB. Persists across reboots with Shizuku service running.
+
+### Flow
+
+```
+Trigger (scheduled task / background event)
+  → Check: is device locked?
+    → YES:
+        1. Shizuku: input keyevent WAKEUP          (screen on)
+        2. Shizuku: input swipe 540 1800 540 800    (swipe up to PIN)
+        3. Shizuku: input text <encrypted_pin>      (enter PIN)
+        4. Shizuku: input keyevent 66               (confirm/ENTER)
+        5. Wait 1s for keyguard dismiss
+    → NO: proceed directly
+  → Normal App Agent automation loop (accessibility-based)
+  → After completion:
+        6. Shizuku: input keyevent 26               (lock device)
+```
+
+### PIN Storage
+
+- User provides device PIN once during setup
+- Stored encrypted with AES-256 + Android Keystore
+- Decryption requires app to be running (no biometric gate for background tasks)
+- If PIN changes → automation fails gracefully, prompts user to update
+
+### Shizuku Integration
+
+```kotlin
+// Execute shell command via Shizuku
+fun shizukuExec(command: String): String {
+    val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+    val output = process.inputStream.bufferedReader().readText()
+    process.waitFor()
+    return output
+}
+
+// Wake + Unlock sequence
+suspend fun wakeAndUnlock(encryptedPin: String) {
+    val pin = decryptPin(encryptedPin)
+    shizukuExec("input keyevent KEYEVENT_WAKEUP")
+    delay(500)
+    shizukuExec("input swipe 540 1800 540 800 300")
+    delay(500)
+    shizukuExec("input text $pin")
+    shizukuExec("input keyevent 66")
+    delay(1000) // wait for keyguard dismiss
+}
+
+// Lock device
+fun lockDevice() {
+    shizukuExec("input keyevent 26")
+}
+```
+
+### Permissions / Requirements
+
+| Requirement | How |
+|-------------|-----|
+| Shizuku app installed | User installs from GitHub/APK |
+| Shizuku service running | User starts via wireless ADB once |
+| Grant to Meow Agent | Runtime permission prompt (one-time) |
+| Device PIN stored | User provides during module setup |
+| Foreground service | Keeps LLM calls alive during Doze |
+| Battery optimization exempt | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` |
+
+### Behavior Matrix
+
+| Scenario | Action |
+|----------|--------|
+| Device unlocked, user active | Accessibility direct (no Shizuku needed) |
+| Device locked, scheduled task | Shizuku wake → unlock → automate → lock |
+| Shizuku not available | Queue task, notify user to unlock manually |
+| PIN incorrect / changed | Fail gracefully, prompt PIN update |
+| Automation takes >60s | Keep wakelock, show notification progress |
+
+---
+
 ## Multi-Function Floating Bubble (Menggantikan Clipboard Bubble)
 
 ### Konsep

@@ -127,6 +127,11 @@ class SettingsScreen extends ConsumerWidget {
                     );
                   },
                 ),
+                _SettingsTile(
+                  icon: Icons.terminal_rounded,
+                  label: 'Shizuku Automation Test',
+                  onTap: () => context.push(AppRoutes.shizukuTest),
+                ),
               ],
             ),
           ],

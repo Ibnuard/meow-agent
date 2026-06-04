@@ -123,6 +123,15 @@
             </intent-filter>
         </receiver>
 
+        <!-- Shizuku provider for ADB-level shell access (wake/unlock/input). -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

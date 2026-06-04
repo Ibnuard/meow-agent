@@ -104,6 +104,63 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Shizuku Shell Automation channel
+        val shizukuManager = ShizukuManager(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/shizuku")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getStatus" -> {
+                        result.success(shizukuManager.getStatus())
+                    }
+                    "requestPermission" -> {
+                        shizukuManager.requestPermission()
+                        result.success(true)
+                    }
+                    "exec" -> {
+                        val command = call.argument<String>("command") ?: ""
+                        val shellResult = shizukuManager.exec(command)
+                        result.success(shellResult.toMap())
+                    }
+                    "wakeScreen" -> {
+                        result.success(shizukuManager.wakeScreen().toMap())
+                    }
+                    "isScreenOn" -> {
+                        result.success(shizukuManager.isScreenOn())
+                    }
+                    "isDeviceLocked" -> {
+                        result.success(shizukuManager.isDeviceLocked())
+                    }
+                    "swipeUp" -> {
+                        result.success(shizukuManager.swipeUp().toMap())
+                    }
+                    "inputText" -> {
+                        val text = call.argument<String>("text") ?: ""
+                        result.success(shizukuManager.inputText(text).toMap())
+                    }
+                    "pressKey" -> {
+                        val keycode = call.argument<Int>("keycode") ?: 0
+                        result.success(shizukuManager.pressKey(keycode).toMap())
+                    }
+                    "tap" -> {
+                        val x = call.argument<Int>("x") ?: 0
+                        val y = call.argument<Int>("y") ?: 0
+                        result.success(shizukuManager.tap(x, y).toMap())
+                    }
+                    "lockDevice" -> {
+                        result.success(shizukuManager.lockDevice().toMap())
+                    }
+                    "wakeAndUnlock" -> {
+                        val pin = call.argument<String>("pin") ?: ""
+                        val unlockResult = shizukuManager.wakeAndUnlock(pin)
+                        result.success(unlockResult)
+                    }
+                    "isAccessibilityEnabled" -> {
+                        result.success(MeowAccessibilityService.isEnabled(this))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         val notificationsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
         notificationsChannel.setMethodCallHandler { call, result ->
             when (call.method) {
