@@ -104,25 +104,22 @@ class AppStrings {
   String get aboutBody => isId
       ? 'Mobile First Modular Agentic AI.\n\nVersi 0.1.0'
       : 'Mobile First Modular Agentic AI.\n\nVersion 0.1.0';
-  String get notificationSound => isId ? 'Suara Notifikasi' : 'Notification Sound';
+  String get notificationSound =>
+      isId ? 'Suara Notifikasi' : 'Notification Sound';
   String get notificationSoundDesc => isId
       ? 'Pilih suara untuk notifikasi push'
       : 'Choose sound for push notifications';
   String get soundNotification => isId ? 'Notification' : 'Notification';
   String get soundCat => isId ? 'Cat' : 'Cat';
   String get soundPreview => isId ? 'Pratinjau' : 'Preview';
-  String get storagePermissionTitle => isId
-      ? 'Izin Penyimpanan Diperlukan'
-      : 'Storage Permission Required';
+  String get storagePermissionTitle =>
+      isId ? 'Izin Penyimpanan Diperlukan' : 'Storage Permission Required';
   String get storagePermissionBody => isId
       ? 'Meow Agent memerlukan akses penyimpanan untuk membaca dan menulis file workspace agen. Tanpa izin ini, chat tidak bisa digunakan.'
       : 'Meow Agent needs storage access to read and write agent workspace files. Without this permission, chat cannot function.';
-  String get storagePermissionGrant => isId
-      ? 'Izinkan Akses'
-      : 'Grant Access';
-  String get storagePermissionOpenSettings => isId
-      ? 'Buka Pengaturan'
-      : 'Open Settings';
+  String get storagePermissionGrant => isId ? 'Izinkan Akses' : 'Grant Access';
+  String get storagePermissionOpenSettings =>
+      isId ? 'Buka Pengaturan' : 'Open Settings';
 
   String get providerListTitle => isId ? 'Provider' : 'Providers';
   String get addProvider => isId ? 'Tambah Provider' : 'Add Provider';
@@ -150,34 +147,35 @@ class AppStrings {
       : 'Short code shown in the chat header.';
   String get codenameTooLong =>
       isId ? 'Maksimal 4 karakter' : 'Max 4 characters';
-  String get modelListLabel =>
-      isId ? 'Model Tersedia' : 'Available Models';
+  String get modelListLabel => isId ? 'Model Tersedia' : 'Available Models';
   String get modelListHint => 'deepseek-v4-flash';
   String get modelListRequired =>
       isId ? 'Model wajib diisi' : 'Model is required';
-  String get modelListHelper => isId
-      ? 'Tambahkan model satu per satu.'
-      : 'Add models one by one.';
+  String get modelListHelper =>
+      isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.';
 
   // --- Agent manager ---
-  String providerModelsCount(int count) => isId
-      ? '$count model' : '$count models';
+  String providerModelsCount(int count) =>
+      isId ? '$count model' : '$count models';
   String get chooseModel => isId ? 'Pilih model' : 'Choose model';
   String get advanced => isId ? 'Lanjutan' : 'Advanced';
   String advancedSubtitle(String tokens, bool autoCompact) => isId
       ? 'Konteks $tokens token, auto-compact ${autoCompact ? 'aktif' : 'mati'}'
       : '$tokens token context, auto-compact ${autoCompact ? 'on' : 'off'}';
-  String get maxContextLength => isId ? 'Konteks Maksimum' : 'Max Context Length';
-  String get tokenLimitHint => isId
-      ? 'Batas token untuk model ini.'
-      : 'Token limit for this model.';
+  String get maxContextLength =>
+      isId ? 'Konteks Maksimum' : 'Max Context Length';
+  String get tokenLimitHint =>
+      isId ? 'Batas token untuk model ini.' : 'Token limit for this model.';
   String get minTokens => isId ? 'Minimal 512 tokens' : 'Minimum 512 tokens';
-  String get autoCompactContext => isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
+  String get autoCompactContext =>
+      isId ? 'Auto-Compact Konteks' : 'Auto-Compact Context';
   String get autoCompactContextDesc => isId
       ? 'Ringkas pesan lama saat konteks hampir penuh.'
       : 'Summarize older messages near the limit.';
-  String get personalizeAgent => isId ? 'Personalisasi Agent' : 'Personalize Agent';
-  String get chooseIconAndColor => isId ? 'Pilih ikon dan warna' : 'Choose icon and color';
+  String get personalizeAgent =>
+      isId ? 'Personalisasi Agent' : 'Personalize Agent';
+  String get chooseIconAndColor =>
+      isId ? 'Pilih ikon dan warna' : 'Choose icon and color';
   String get iconLabel => isId ? 'Ikon' : 'Icon';
   String get colorLabel => isId ? 'Warna' : 'Color';
 
@@ -203,42 +201,56 @@ class AppStrings {
   String workflowStepsCount(int count) =>
       isId ? '$count langkah' : '$count steps';
   String get workflowAddStep => isId ? 'Tambah Langkah' : 'Add Step';
-  String get workflowSendToChat => isId ? 'Kirim hasil ke chat' : 'Send result to chat';
-  String get workflowAllowSensitive => isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions';
+  String get workflowSendToChat =>
+      isId ? 'Kirim hasil ke chat' : 'Send result to chat';
+  String get workflowAllowSensitive =>
+      isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions';
   String get workflowSave => isId ? 'Simpan' : 'Save';
   String get workflowCreate => isId ? 'Buat Workflow' : 'Create';
-  String get workflowMoreSettings => isId ? 'Pengaturan Lainnya' : 'More settings';
+  String get workflowMoreSettings =>
+      isId ? 'Pengaturan Lainnya' : 'More settings';
   String get workflowNotification => isId ? 'Notifikasi' : 'Notification';
   String get workflowPriority => isId ? 'Prioritas' : 'Priority';
   String get workflowTimeout => isId ? 'Timeout' : 'Timeout';
-  String get workflowMultiAgent => isId ? 'Mode multi-agent' : 'Multi-agent mode';
-  String workflowStepLabel(int i) => isId ? 'Langkah ${i + 1}' : 'Step ${i + 1}';
+  String get workflowMultiAgent =>
+      isId ? 'Mode multi-agent' : 'Multi-agent mode';
+  String workflowStepLabel(int i) =>
+      isId ? 'Langkah ${i + 1}' : 'Step ${i + 1}';
   String get workflowOnFailure => isId ? 'Jika gagal:' : 'On failure:';
   String get workflowFailureStop => isId ? 'Hentikan' : 'Stop';
   String get workflowFailureSkip => isId ? 'Lewati' : 'Skip';
   String get workflowFailureRetry => isId ? 'Coba lagi' : 'Retry';
-  String get workflowChooseStepAgent => isId ? 'Pilih agent langkah' : 'Choose step agent';
+  String get workflowChooseStepAgent =>
+      isId ? 'Pilih agent langkah' : 'Choose step agent';
   String get workflowChooseStepAgentDesc => isId
       ? 'Agent ini yang akan menjalankan langkah.'
       : 'This agent will execute the step.';
   String get workflowSearchAgent => isId ? 'Cari agent...' : 'Search agents...';
-  String get workflowNoAgents => isId ? 'Agent belum tersedia' : 'No agents available';
-  String get workflowUntitledAgent => isId ? 'Agen tanpa nama' : 'Untitled agent';
-  String get workflowBuiltinVars => isId ? 'Variabel Built-in' : 'Built-in Variables';
+  String get workflowNoAgents =>
+      isId ? 'Agent belum tersedia' : 'No agents available';
+  String get workflowUntitledAgent =>
+      isId ? 'Agen tanpa nama' : 'Untitled agent';
+  String get workflowBuiltinVars =>
+      isId ? 'Variabel Built-in' : 'Built-in Variables';
   String get workflowViewAll => isId ? 'Lihat Semua' : 'View All';
-  String get workflowInsertVariable => isId ? 'Sisipkan variabel' : 'Insert variable';
+  String get workflowInsertVariable =>
+      isId ? 'Sisipkan variabel' : 'Insert variable';
   String get workflowSchedule => isId ? 'Jadwal' : 'Schedule';
   String get workflowEvent => isId ? 'Event' : 'Event';
   String get workflowEventType => isId ? 'Jenis Event' : 'Event Type';
-  String get workflowChooseEventType => isId ? 'Pilih jenis event' : 'Choose event type';
+  String get workflowChooseEventType =>
+      isId ? 'Pilih jenis event' : 'Choose event type';
   String get workflowChooseEventTypeDesc => isId
       ? 'Pilih pemicu event untuk workflow ini.'
       : 'Choose an event trigger for this workflow.';
   String get workflowSearchEvent => isId ? 'Cari event...' : 'Search events...';
-  String get workflowNoEvents => isId ? 'Event tidak ditemukan' : 'No events found';
+  String get workflowNoEvents =>
+      isId ? 'Event tidak ditemukan' : 'No events found';
   String get workflowKeyword => isId ? 'Kata Kunci' : 'Keyword';
-  String get workflowKeywordHint => isId ? 'mis: urgent, meeting' : 'e.g. urgent, meeting';
-  String get workflowTriggerRequired => isId ? 'Agar trigger berjalan' : 'Required for this trigger';
+  String get workflowKeywordHint =>
+      isId ? 'mis: urgent, meeting' : 'e.g. urgent, meeting';
+  String get workflowTriggerRequired =>
+      isId ? 'Agar trigger berjalan' : 'Required for this trigger';
   String get workflowPriorityLow => isId ? 'Rendah' : 'Low';
   String get workflowPriorityHigh => isId ? 'Tinggi' : 'High';
   String get workflowPriorityCritical => isId ? 'Kritis' : 'Critical';
@@ -258,7 +270,8 @@ class AppStrings {
   String get workflowChooseAgentTitle => isId ? 'Pilih Agen' : 'Choose Agent';
   String get workflowNoAgentsYet => isId ? 'Belum ada agen' : 'No agents yet';
   String get workflowSearchAgentsLong => isId ? 'Cari agen' : 'Search agents';
-  String get workflowNoAgentsFound => isId ? 'Agen tidak ditemukan' : 'No agents found';
+  String get workflowNoAgentsFound =>
+      isId ? 'Agen tidak ditemukan' : 'No agents found';
 
   // --- Module detail ---
   String get openLabel => isId ? 'Buka' : 'Open';
@@ -268,9 +281,11 @@ class AppStrings {
   String get openCalendar => isId ? 'Buka Kalender' : 'Open Calendar';
   String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
   String get openApiStore => isId ? 'Buka API Store' : 'Open API Store';
-  String get featurePermission => isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
+  String get featurePermission =>
+      isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
   String get notificationPermissionRequired => isId
-      ? 'Izin notifikasi diperlukan.' : 'Notification permission required.';
+      ? 'Izin notifikasi diperlukan.'
+      : 'Notification permission required.';
   String get overlayPermissionRequired => isId
       ? 'Izinkan "Tampil di atas aplikasi lain" untuk menggunakan bubble.'
       : 'Allow "Display over other apps" to use the bubble.';
@@ -286,6 +301,33 @@ class AppStrings {
   String get moduleEnabledDesc => isId
       ? 'Nyalakan untuk mengaktifkan modul ini.'
       : 'Turn on to activate this module.';
+  String get shizukuSectionTitle => 'App Agentic - Shizuku';
+  String get shizukuSectionDesc => isId
+      ? 'Shizuku memberikan akses shell-level untuk otomatisasi perangkat (wake, unlock, input gesture). Pastikan Shizuku aktif sebelum mengaktifkan toggle.'
+      : 'Shizuku provides shell-level access for device automation (wake, unlock, input gestures). Make sure Shizuku is running before enabling the toggle.';
+  String get shizukuStatusReady => isId
+      ? 'Shizuku aktif dan permission sudah diberikan.'
+      : 'Shizuku is running and permission is granted.';
+  String get shizukuStatusPermissionNeeded => isId
+      ? 'Shizuku aktif, tapi permission Meow Agent belum diberikan.'
+      : 'Shizuku is running, but Meow Agent permission is not granted yet.';
+  String get shizukuStatusUnavailable => isId
+      ? 'Shizuku belum tersedia. Jalankan Shizuku dulu, lalu cek ulang.'
+      : 'Shizuku is not available yet. Start Shizuku, then check again.';
+  String get shizukuStatusChecking =>
+      isId ? 'Mengecek status Shizuku...' : 'Checking Shizuku status...';
+  String get shizukuStatusUnknown => isId
+      ? 'Status Shizuku belum dicek.'
+      : 'Shizuku status has not been checked yet.';
+  String get shizukuStatusRequestPending => isId
+      ? 'Request permission dikirim. Jika dialog Shizuku muncul, izinkan lalu kembali ke Meow Agent.'
+      : 'Permission request sent. If Shizuku shows a dialog, allow it and return to Meow Agent.';
+  String shizukuStatusError(String message) => isId
+      ? 'Gagal mengecek Shizuku: $message'
+      : 'Could not check Shizuku: $message';
+  String get checkStatus => isId ? 'Cek Status' : 'Check Status';
+  String get requestPermission => 'Request Permission';
+  String get setupGuide => 'Setup Guide';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';
@@ -410,6 +452,9 @@ class AppStrings {
   String get moduleDescWeb => isId
       ? 'Fetch API HTTP dan simpan endpoint yang bisa dipakai ulang. Semua agent bisa memanggil API tersimpan lewat nama.'
       : 'Fetch HTTP APIs and register reusable endpoints. Any agent can call stored APIs by name with auto-filled parameters.';
+  String get moduleDescSuperPower => isId
+      ? 'Fitur lanjutan: bubble AI mengambang dan kontrol perangkat via Shizuku untuk otomatisasi tingkat lanjut.'
+      : 'Advanced features: floating AI bubble overlay and Shizuku-powered device control for next-level automation.';
   String get welcomeTitle =>
       isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId
@@ -501,8 +546,9 @@ class AppStrings {
   // Chat action strings (moved from inline isId checks)
   String get reply => isId ? 'Balas' : 'Reply';
   String get copyText => isId ? 'Salin teks' : 'Copy text';
-  String get cannotReplyEmpty =>
-      isId ? 'Tidak bisa membalas pesan kosong.' : 'Cannot reply to an empty message.';
+  String get cannotReplyEmpty => isId
+      ? 'Tidak bisa membalas pesan kosong.'
+      : 'Cannot reply to an empty message.';
 
   String modelUpdated(String provider, String model) => isId
       ? 'Model aktif sudah diperbarui.\n\n• Provider: $provider\n• Model: $model'
@@ -532,13 +578,15 @@ class AppStrings {
       : 'No LLM call recorded yet. Chat history estimate: $tokens tokens ($pct% of $max max).';
 
   // --- Chat slash command responses ---
-  String get chatHistoryCleared =>
-      isId ? 'Riwayat chat dan konteks dibersihkan.' : 'Chat history and context cleared.';
+  String get chatHistoryCleared => isId
+      ? 'Riwayat chat dan konteks dibersihkan.'
+      : 'Chat history and context cleared.';
   String get contextReset => isId
       ? '✓ Konteks direset — counter penggunaan dihapus. AI akan menganggap pesan berikutnya sebagai sesi baru.'
       : '✓ Context reset — usage counters cleared. AI will treat next message as a fresh session.';
-  String get noProviderConnected =>
-      isId ? '⚠️ Tidak ada provider terhubung ke agen ini.' : '⚠️ No provider connected to this agent.';
+  String get noProviderConnected => isId
+      ? '⚠️ Tidak ada provider terhubung ke agen ini.'
+      : '⚠️ No provider connected to this agent.';
   String unknownCommand(String cmd) => isId
       ? 'Perintah tidak dikenal: $cmd\nKetik /help untuk daftar perintah yang tersedia.'
       : 'Unknown command: $cmd\nType /help for available commands.';
@@ -551,16 +599,16 @@ class AppStrings {
   String get noRuntimeLog => isId
       ? 'Tidak ada runtime log untuk perintah terakhir.'
       : 'No runtime log recorded for the last command.';
-  String get runtimeLogHeader => isId ? 'Runtime log (perintah terakhir)' : 'Runtime log (last command)';
+  String get runtimeLogHeader =>
+      isId ? 'Runtime log (perintah terakhir)' : 'Runtime log (last command)';
   String get noRuntimeSteps => isId
       ? 'Belum ada langkah runtime tercatat.'
       : 'No runtime steps have been recorded yet.';
   String get debugOffForClearlog => isId
       ? 'Debug LLM (Dev) mati. Nyalakan di Pengaturan untuk menggunakan /clearlog.'
       : 'Debug LLM (Dev) is off. Turn it on in Settings to use /clearlog.';
-  String get runtimeLogCleared => isId
-      ? 'Runtime debug log dibersihkan.'
-      : 'Runtime debug log cleared.';
+  String get runtimeLogCleared =>
+      isId ? 'Runtime debug log dibersihkan.' : 'Runtime debug log cleared.';
 
   // --- Status report (/status) ---
   String statusAgentTitle(String name) =>
@@ -569,8 +617,10 @@ class AppStrings {
       ? 'Agent terhubung ke provider $provider dengan model $model.'
       : 'Connected to provider $provider using model $model.';
   String get statusDetails => isId ? 'Detail:' : 'Details:';
-  String get statusApp => isId ? 'Aplikasi: Meow Agent v1.0.0' : 'App: Meow Agent v1.0.0';
-  String statusActiveAgent(String name) => isId ? 'Agen aktif: $name' : 'Active agent: $name';
+  String get statusApp =>
+      isId ? 'Aplikasi: Meow Agent v1.0.0' : 'App: Meow Agent v1.0.0';
+  String statusActiveAgent(String name) =>
+      isId ? 'Agen aktif: $name' : 'Active agent: $name';
   String statusProvider(String provider) =>
       isId ? 'Provider: $provider' : 'Provider: $provider';
   String statusModel(String model) => isId ? 'Model: $model' : 'Model: $model';
@@ -586,22 +636,22 @@ class AppStrings {
   String contextAlreadyCompact(int count, int tokens, int max) => isId
       ? '✓ Konteks sudah ringkas ($count pesan, ~$tokens tokens / $max max).'
       : '✓ Context already compact ($count messages, ~$tokens tokens / $max max).';
-  String get compacting => isId ? '⏳ Mengompresi konteks...' : '⏳ Compacting context...';
+  String get compacting =>
+      isId ? '⏳ Mengompresi konteks...' : '⏳ Compacting context...';
   String contextCompacted(int count, int tokens) => isId
       ? '✓ Konteks dikompresi: $count pesan (~$tokens tokens).'
       : '✓ Context compacted: $count messages (~$tokens tokens).';
-  String compactFailed(String error) => isId
-      ? '⚠️ Kompresi gagal: $error'
-      : '⚠️ Compact failed: $error';
+  String compactFailed(String error) =>
+      isId ? '⚠️ Kompresi gagal: $error' : '⚠️ Compact failed: $error';
   String contextExhausted(int limit) => isId
       ? 'Konteks penuh — percakapan mencapai batas $limit token.\n'
-          '- Mulai **chat baru** untuk memulai ulang\n'
-          '- **Tambah panjang konteks** di pengaturan agen\n'
-          '- **Aktifkan auto-compact** di pengaturan agen untuk merangkum otomatis pesan lama'
+            '- Mulai **chat baru** untuk memulai ulang\n'
+            '- **Tambah panjang konteks** di pengaturan agen\n'
+            '- **Aktifkan auto-compact** di pengaturan agen untuk merangkum otomatis pesan lama'
       : 'Context exhausted — conversation reached $limit token limit.\n'
-          '- Start a **new chat** for a clean slate\n'
-          '- **Increase context length** in agent settings\n'
-          '- **Enable auto-compact** in agent settings to automatically summarize old messages';
+            '- Start a **new chat** for a clean slate\n'
+            '- **Increase context length** in agent settings\n'
+            '- **Enable auto-compact** in agent settings to automatically summarize old messages';
   String autoCompacted(int count) => isId
       ? '🔄 Konteks auto-compact (threshold 80% tercapai). $count pesan tersisa.'
       : '🔄 Context auto-compacted (threshold 80% reached). $count messages remaining.';
@@ -626,34 +676,49 @@ class AppStrings {
   String fileTooLarge(String name) => isId
       ? '"$name" terlalu besar. Maks 5 MB.'
       : '"$name" is too large. Max size is 5 MB.';
-  String fileAlreadyAttached(String name) => isId
-      ? '"$name" sudah dilampirkan.'
-      : '"$name" is already attached.';
+  String fileAlreadyAttached(String name) =>
+      isId ? '"$name" sudah dilampirkan.' : '"$name" is already attached.';
 
   // --- Help / slash command descriptions ---
-  String get helpAvailableCommands => isId ? 'Perintah tersedia:' : 'Available commands:';
-  String get helpSlashClear => isId ? 'Bersihkan riwayat chat & konteks' : 'Clear chat history & context';
+  String get helpAvailableCommands =>
+      isId ? 'Perintah tersedia:' : 'Available commands:';
+  String get helpSlashClear => isId
+      ? 'Bersihkan riwayat chat & konteks'
+      : 'Clear chat history & context';
   String get helpSlashHelp => isId ? 'Tampilkan daftar ini' : 'Show this list';
-  String get helpSlashStatus => isId ? 'Tampilkan info agen & konteks' : 'Show agent & context info';
-  String get helpSlashContext => isId ? 'Tampilkan rincian token/konteks' : 'Show token/context breakdown';
-  String get helpSlashReset => isId ? 'Reset konteks saja' : 'Reset context only';
-  String get helpSlashModel => isId ? 'Tampilkan info model saat ini' : 'Show current model info';
-  String get helpSlashSetModel => isId ? 'Pilih model untuk agen ini' : 'Choose model for this agent';
-  String get helpSlashCompact => isId ? 'Kompresi jendela konteks' : 'Compact context window';
-  String get helpSlashCron => isId ? 'Tampilkan tugas terjadwal' : 'Show scheduled tasks';
-  String get helpSlashLog => isId ? 'Tampilkan runtime debug log terakhir' : 'Show last runtime debug log';
-  String get helpSlashClearlog => isId ? 'Bersihkan runtime debug log terakhir' : 'Clear last runtime debug log';
+  String get helpSlashStatus =>
+      isId ? 'Tampilkan info agen & konteks' : 'Show agent & context info';
+  String get helpSlashContext =>
+      isId ? 'Tampilkan rincian token/konteks' : 'Show token/context breakdown';
+  String get helpSlashReset =>
+      isId ? 'Reset konteks saja' : 'Reset context only';
+  String get helpSlashModel =>
+      isId ? 'Tampilkan info model saat ini' : 'Show current model info';
+  String get helpSlashSetModel =>
+      isId ? 'Pilih model untuk agen ini' : 'Choose model for this agent';
+  String get helpSlashCompact =>
+      isId ? 'Kompresi jendela konteks' : 'Compact context window';
+  String get helpSlashCron =>
+      isId ? 'Tampilkan tugas terjadwal' : 'Show scheduled tasks';
+  String get helpSlashLog => isId
+      ? 'Tampilkan runtime debug log terakhir'
+      : 'Show last runtime debug log';
+  String get helpSlashClearlog => isId
+      ? 'Bersihkan runtime debug log terakhir'
+      : 'Clear last runtime debug log';
 
   // --- Activity ---
-  String activityForAgent(String name) => isId ? 'untuk agent $name' : 'for agent $name';
+  String activityForAgent(String name) =>
+      isId ? 'untuk agent $name' : 'for agent $name';
   String get activityFromAll => isId ? 'dari semua agent' : 'from all agents';
-  String get activityClearTitle => isId ? 'Bersihkan Aktivitas?' : 'Clear Activity?';
+  String get activityClearTitle =>
+      isId ? 'Bersihkan Aktivitas?' : 'Clear Activity?';
   String activityClearBody(String scopeLabel) => isId
       ? 'Semua riwayat eksekusi $scopeLabel akan dihapus permanen. Lanjutkan?'
       : 'All execution history $scopeLabel will be permanently deleted. Continue?';
   String get activityClear => isId ? 'Bersihkan' : 'Clear';
-  String activityCleared(int removed) => isId
-      ? '$removed riwayat dibersihkan' : '$removed entries cleared';
+  String activityCleared(int removed) =>
+      isId ? '$removed riwayat dibersihkan' : '$removed entries cleared';
   String get activityOptions => isId ? 'Opsi' : 'Options';
   String get activityClearAll => isId ? 'Bersihkan Semua' : 'Clear All';
   String get activityAllAgents => isId ? 'Semua Agent' : 'All Agents';
@@ -665,20 +730,23 @@ class AppStrings {
   String get activityRetry => isId ? 'Coba Lagi' : 'Retry';
 
   // --- Workflow list ---
-  String get wfListDeleteTitle => isId ? 'Hapus Workflow?' : 'Delete Workflows?';
+  String get wfListDeleteTitle =>
+      isId ? 'Hapus Workflow?' : 'Delete Workflows?';
   String wfListDeleteMessage(int count) => isId
       ? '$count workflow akan dihapus permanen. Lanjutkan?'
       : '$count workflows will be permanently deleted. Continue?';
   String get wfListTemplates => isId ? 'Template' : 'Templates';
   String get wfListSelect => isId ? 'Pilih' : 'Select';
-  String wfListSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
+  String wfListSelectedCount(int count) =>
+      isId ? '$count dipilih' : '$count selected';
   String get wfListDeselectAll => isId ? 'Batal pilih semua' : 'Deselect all';
   String get wfListSelectAll => isId ? 'Pilih semua' : 'Select all';
   String get wfListEmpty => isId ? 'Belum ada workflow' : 'No workflows yet';
   String get wfListEmptyDesc => isId
       ? 'Buat workflow untuk menjalankan tugas otomatis'
       : 'Create workflows to run automated tasks';
-  String get wfListPickTemplate => isId ? 'Pilih dari Template' : 'Pick a Template';
+  String get wfListPickTemplate =>
+      isId ? 'Pilih dari Template' : 'Pick a Template';
   String get wfListLastRun => isId ? 'Terakhir:' : 'Last run:';
   String get wfListAlarm => isId ? 'Alarm' : 'Alarm';
   String get wfListNormal => isId ? 'Normal' : 'Normal';
@@ -695,7 +763,8 @@ class AppStrings {
 
   // --- Workflow log detail ---
   String get wfLogDetailTitle => isId ? 'Detail Log' : 'Log Detail';
-  String get wfLogSuccess => isId ? 'Berhasil dijalankan' : 'Successfully executed';
+  String get wfLogSuccess =>
+      isId ? 'Berhasil dijalankan' : 'Successfully executed';
   String get wfLogFailed => isId ? 'Gagal dijalankan' : 'Execution failed';
   String get wfLogInformation => isId ? 'Informasi' : 'Information';
   String get wfLogExecutedAt => isId ? 'Waktu Eksekusi' : 'Executed At';
@@ -704,8 +773,10 @@ class AppStrings {
   String get wfLogRunAgain => isId ? 'Jalankan ulang' : 'Run again';
   String get wfLogCollapse => isId ? 'Sembunyikan' : 'Collapse';
   String get wfLogShowMore => isId ? 'Lihat selengkapnya' : 'Show more';
-  String get wfLogNoRuntimeDetails => isId ? 'Tidak ada detail runtime.' : 'No runtime details.';
-  String get wfLogDeleted => isId ? 'Workflow sudah dihapus.' : 'Workflow has been deleted.';
+  String get wfLogNoRuntimeDetails =>
+      isId ? 'Tidak ada detail runtime.' : 'No runtime details.';
+  String get wfLogDeleted =>
+      isId ? 'Workflow sudah dihapus.' : 'Workflow has been deleted.';
   String get wfLogProcessLabel => isId ? 'PROSES' : 'PROCESS';
   String get wfLogStepLabel => isId ? 'LANGKAH' : 'STEP';
   String get wfLogHandoffLabel => isId ? 'DATA MASUK' : 'HANDOFF';
@@ -715,15 +786,15 @@ class AppStrings {
   String get wfLogStoppedLabel => isId ? 'BERHENTI' : 'STOPPED';
   String get wfLogFailedLabel => isId ? 'GAGAL' : 'FAILED';
   String get wfLogDoneLabel => isId ? 'SELESAI' : 'DONE';
-  String wfLogStartingStep(int num, String name) => isId
-      ? 'Memulai langkah $num: $name'
-      : 'Starting step $num: $name';
+  String wfLogStartingStep(int num, String name) =>
+      isId ? 'Memulai langkah $num: $name' : 'Starting step $num: $name';
   String wfLogProcessStopped(int num) => isId
       ? 'Proses berhenti di langkah $num karena gagal.'
       : 'Process stopped at step $num due to failure.';
 
   // --- Workflow templates ---
-  String get wfTemplatesTitle => isId ? 'Template Workflow' : 'Workflow Templates';
+  String get wfTemplatesTitle =>
+      isId ? 'Template Workflow' : 'Workflow Templates';
   String get wfTemplatesAll => isId ? 'Semua' : 'All';
   String get wfTemplatesProductivity => isId ? 'Produktivitas' : 'Productivity';
   String get wfTemplatesMonitoring => isId ? 'Monitoring' : 'Monitoring';
@@ -732,21 +803,29 @@ class AppStrings {
   String get wfTemplatesHealth => isId ? 'Kesehatan' : 'Health';
 
   // --- Notes list ---
-  String get notesExportNoAgent => isId ? 'Tidak ada agent tersedia untuk ekspor.' : 'No agent available for export.';
+  String get notesExportNoAgent => isId
+      ? 'Tidak ada agent tersedia untuk ekspor.'
+      : 'No agent available for export.';
   String notesExportedCount(int count, String agentName) => isId
       ? '$count note diekspor ke Documents/MeowAgent/Agents/$agentName/notes/'
       : '$count notes exported to Documents/MeowAgent/Agents/$agentName/notes/';
-  String get notesExportTitle => isId ? 'Pilih workspace agent' : 'Choose agent workspace';
+  String get notesExportTitle =>
+      isId ? 'Pilih workspace agent' : 'Choose agent workspace';
   String get notesTitle => isId ? 'Notes' : 'Notes';
-  String notesSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
-  String get notesExportToWorkspace => isId ? 'Export ke workspace' : 'Export to workspace';
+  String notesSelectedCount(int count) =>
+      isId ? '$count dipilih' : '$count selected';
+  String get notesExportToWorkspace =>
+      isId ? 'Export ke workspace' : 'Export to workspace';
   String get notesSelectMultiple => isId ? 'Pilih beberapa' : 'Select multiple';
   String get notesNewNote => isId ? 'Buat Note' : 'New Note';
   String get notesSearch => isId ? 'Cari note...' : 'Search notes...';
-  String get notesSelectHint => isId ? 'Pilih note untuk diekspor atau dihapus.' : 'Select notes to export or delete.';
+  String get notesSelectHint => isId
+      ? 'Pilih note untuk diekspor atau dihapus.'
+      : 'Select notes to export or delete.';
   String get notesNoResults => isId ? 'Tidak ada hasil' : 'No results';
   String get notesEmpty => isId ? 'Belum ada note' : 'No notes yet';
-  String get notesEmptyTryKeyword => isId ? 'Coba kata kunci lain.' : 'Try a different keyword.';
+  String get notesEmptyTryKeyword =>
+      isId ? 'Coba kata kunci lain.' : 'Try a different keyword.';
   String get notesEmptyCreateFirst => isId
       ? 'Buat note pertamamu atau minta agen mencatat sesuatu.'
       : 'Create your first note or ask your agent to jot something down.';
@@ -754,29 +833,38 @@ class AppStrings {
   String notesDeleteMessage(int count) => isId
       ? '$count note akan dihapus permanen. Lanjutkan?'
       : '$count notes will be permanently deleted. Continue?';
-  String notesDeletedCount(int count) => isId
-      ? '$count note dihapus' : '$count notes deleted';
+  String notesDeletedCount(int count) =>
+      isId ? '$count note dihapus' : '$count notes deleted';
 
   // --- Note editor ---
-  String get noteEditorTitleRequired => isId ? 'Judul wajib diisi' : 'Title is required';
+  String get noteEditorTitleRequired =>
+      isId ? 'Judul wajib diisi' : 'Title is required';
   String get noteEditorEditTitle => isId ? 'Edit Note' : 'Edit Note';
   String get noteEditorNewTitle => isId ? 'Note Baru' : 'New Note';
   String get noteEditorTitleHint => isId ? 'Judul note' : 'Note title';
-  String get noteEditorTagsHint => isId ? 'Tag (pisahkan dengan koma)' : 'Tags (comma separated)';
-  String get noteEditorContentHint => isId ? 'Tulis konten markdown di sini...' : 'Write markdown content here...';
+  String get noteEditorTagsHint =>
+      isId ? 'Tag (pisahkan dengan koma)' : 'Tags (comma separated)';
+  String get noteEditorContentHint => isId
+      ? 'Tulis konten markdown di sini...'
+      : 'Write markdown content here...';
 
   // --- Note detail ---
   String get noteDetailDeleteTitle => isId ? 'Hapus Note?' : 'Delete Note?';
   String get noteDetailDeleteMessage => isId
       ? 'Note ini akan dihapus permanen. Lanjutkan?'
       : 'This note will be permanently deleted. Continue?';
-  String get noteDetailNotFound => isId ? 'Note tidak ditemukan' : 'Note not found';
+  String get noteDetailNotFound =>
+      isId ? 'Note tidak ditemukan' : 'Note not found';
   String get noteDetailPin => isId ? 'Pin' : 'Pin';
   String get noteDetailUnpin => isId ? 'Unpin' : 'Unpin';
-  String noteDetailCreated(String date) => isId ? 'Dibuat: $date' : 'Created: $date';
-  String noteDetailUpdated(String date) => isId ? 'Diperbarui: $date' : 'Updated: $date';
-  String noteDetailSourceLabel(String source) => isId ? 'Sumber: $source' : 'Source: $source';
-  String get noteDetailEmptyContent => isId ? '_Tidak ada konten_' : '_No content_';
+  String noteDetailCreated(String date) =>
+      isId ? 'Dibuat: $date' : 'Created: $date';
+  String noteDetailUpdated(String date) =>
+      isId ? 'Diperbarui: $date' : 'Updated: $date';
+  String noteDetailSourceLabel(String source) =>
+      isId ? 'Sumber: $source' : 'Source: $source';
+  String get noteDetailEmptyContent =>
+      isId ? '_Tidak ada konten_' : '_No content_';
 
   // --- Workspace directory ---
   String get wdSkillsDesc => isId
@@ -795,7 +883,8 @@ class AppStrings {
   String get wdCannotOpenFileManager => isId
       ? 'Tidak bisa membuka file manager.'
       : 'Could not open file manager.';
-  String get wdOpenFileManager => isId ? 'Buka di File Manager' : 'Open in File Manager';
+  String get wdOpenFileManager =>
+      isId ? 'Buka di File Manager' : 'Open in File Manager';
   String get wdSaved => isId ? 'Tersimpan' : 'Saved';
   String get wdErrorSaving => isId ? 'Gagal menyimpan: ' : 'Error saving: ';
 
@@ -830,20 +919,21 @@ class AppStrings {
       : '⚠️ Selected agent not found.';
 
   // --- Provider list ---
-  String get providerListError => isId ? 'Gagal memuat provider' : 'Failed to load providers';
+  String get providerListError =>
+      isId ? 'Gagal memuat provider' : 'Failed to load providers';
 
   // --- Calendar ---
   String get calendarTitle => isId ? 'Kalender' : 'Calendar';
   String get calendarNewEvent => isId ? 'Buat Event' : 'New Event';
 
   // --- Calendar event editor ---
-  String get calendarEventTitleRequired => isId ? 'Judul tidak boleh kosong' : 'Title cannot be empty';
+  String get calendarEventTitleRequired =>
+      isId ? 'Judul tidak boleh kosong' : 'Title cannot be empty';
 
   // --- Home ---
   String get homeBrandName => 'MEOW AGENT';
-  String get homeModuleSubtitle => isId
-      ? 'Akses cepat untuk agenmu'
-      : 'Quick access for your agent';
+  String get homeModuleSubtitle =>
+      isId ? 'Akses cepat untuk agenmu' : 'Quick access for your agent';
 
   // --- Settings ---
   String get aboutTitle => isId ? 'Tentang Meow Agent' : 'About Meow Agent';
@@ -856,7 +946,8 @@ class AppStrings {
   String get apiStoreSelectAll => isId ? 'Pilih Semua' : 'Select All';
   String get apiStoreDeselectAll => isId ? 'Batal Pilih Semua' : 'Deselect All';
   String get apiStoreDeleteTooltip => isId ? 'Hapus' : 'Delete';
-  String apiStoreSelectedCount(int count) => isId ? '$count dipilih' : '$count selected';
+  String apiStoreSelectedCount(int count) =>
+      isId ? '$count dipilih' : '$count selected';
   String get apiStoreNoApis => isId ? 'Belum ada API' : 'No APIs yet';
   String get apiStoreNoApisDesc => isId
       ? 'Daftarkan endpoint API di sini, lalu agent mana pun bisa memanggilnya lewat chat atau workflow.'
@@ -867,9 +958,8 @@ class AppStrings {
       ? 'Hapus $count API yang dipilih dari store?'
       : 'Remove $count selected API${count > 1 ? 's' : ''} from the store?';
   String get apiStoreRemoveApiTitle => isId ? 'Hapus API?' : 'Remove API?';
-  String apiStoreRemoveApiMessage(String name) => isId
-      ? 'Hapus "$name" dari store?'
-      : 'Remove "$name" from the store?';
+  String apiStoreRemoveApiMessage(String name) =>
+      isId ? 'Hapus "$name" dari store?' : 'Remove "$name" from the store?';
   String get apiStoreRemove => isId ? 'Hapus' : 'Remove';
   String get apiStoreSectionName => isId ? 'Nama' : 'Name';
   String get apiStoreSectionUrl => 'URL';
@@ -878,23 +968,25 @@ class AppStrings {
   String get apiStoreSectionHeaders => 'Headers';
   String get apiStoreSectionQueryParams => 'Query Parameters';
   String get apiStoreSectionBody => 'Body';
-  String get apiStoreNameHint => isId ? 'mis. GitHub Search API' : 'e.g. GitHub Search API';
+  String get apiStoreNameHint =>
+      isId ? 'mis. GitHub Search API' : 'e.g. GitHub Search API';
   String get apiStoreUrlHint => 'https://api.example.com/endpoint';
   String get apiStoreBodyHint => '{"key": "value"}';
   String get apiStoreTokenHint => 'Token value';
-  String get apiStoreHeaderHint => isId
-      ? 'Nama header (mis. X-API-Key)'
-      : 'Header name (e.g. X-API-Key)';
+  String get apiStoreHeaderHint =>
+      isId ? 'Nama header (mis. X-API-Key)' : 'Header name (e.g. X-API-Key)';
   String get apiStoreKeyValueHint => isId ? 'Nilai key' : 'Key value';
   String get apiStoreBasicAuthHint => 'username:password';
   String get apiStoreKeyHint => 'Key';
   String get apiStoreValueHint => 'Value';
   String get apiStoreHintHint => 'Hint';
   String get apiStoreDefaultHint => 'Default';
-  String get apiStoreHintForAgent => isId ? 'Petunjuk untuk agent' : 'Hint for agent';
+  String get apiStoreHintForAgent =>
+      isId ? 'Petunjuk untuk agent' : 'Hint for agent';
   String get apiStoreAuthNone => isId ? 'Tidak Ada' : 'None';
   String get apiStoreAuthBearer => 'Bearer Token';
-  String get apiStoreAuthApiKey => isId ? 'API Key di Header' : 'API Key in Header';
+  String get apiStoreAuthApiKey =>
+      isId ? 'API Key di Header' : 'API Key in Header';
   String get apiStoreAuthBasic => 'Basic Auth';
   String get apiStoreModeDynamic => isId ? 'Dinamis' : 'Dynamic';
   String get apiStoreModeFixed => isId ? 'Tetap' : 'Fixed';
@@ -903,9 +995,8 @@ class AppStrings {
   String get apiStoreAddField => isId ? 'Tambah field' : 'Add field';
   String get apiStoreAddFieldTitle => isId ? 'Tambah Field' : 'Add Field';
   String get apiStoreAddItem => isId ? 'Tambah item' : 'Add item';
-  String get apiStoreNameUrlRequired => isId
-      ? 'Nama dan URL wajib diisi'
-      : 'Name and URL are required';
+  String get apiStoreNameUrlRequired =>
+      isId ? 'Nama dan URL wajib diisi' : 'Name and URL are required';
   String apiStoreDynamicParams(int count) => isId
       ? '$count parameter dinamis'
       : '$count dynamic param${count > 1 ? 's' : ''}';
@@ -915,30 +1006,57 @@ class AppStrings {
   String get apiStoreCancel => isId ? 'Batal' : 'Cancel';
 
   // --- Workflow event labels ---
-  String get wfEventBatteryLow => isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
-  String get wfEventBatteryHigh => isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
-  String get wfEventBatteryFull => isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
-  String get wfEventChargingStart => isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
-  String get wfEventChargingStop => isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
-  String get wfEventNotifKeyword => isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
+  String get wfEventBatteryLow =>
+      isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+  String get wfEventBatteryHigh =>
+      isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
+  String get wfEventBatteryFull =>
+      isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
+  String get wfEventChargingStart =>
+      isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
+  String get wfEventChargingStop =>
+      isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
+  String get wfEventNotifKeyword =>
+      isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
   String get wfEventAppOpened => isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
-  String get wfEventWifiConnected => isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
-  String get wfEventWifiDisconnected => isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+  String get wfEventWifiConnected =>
+      isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
+  String get wfEventWifiDisconnected =>
+      isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
 
   // --- Workflow event sub labels ---
-  String get wfEventBatteryLowSub => isId ? 'Jalan saat baterai turun di bawah 50%.' : 'Runs when battery drops below 50%.';
-  String get wfEventBatteryHighSub => isId ? 'Jalan saat baterai naik di atas 50%.' : 'Runs when battery rises above 50%.';
-  String get wfEventBatteryFullSub => isId ? 'Jalan saat baterai penuh.' : 'Runs when battery is full.';
-  String get wfEventChargingStartSub => isId ? 'Jalan saat perangkat mulai di-charge.' : 'Runs when device starts charging.';
-  String get wfEventChargingStopSub => isId ? 'Jalan saat perangkat berhenti di-charge.' : 'Runs when device stops charging.';
-  String get wfEventNotifKeywordSub => isId ? 'Jalan saat notifikasi mengandung kata kunci.' : 'Runs when a notification contains a keyword.';
-  String get wfEventAppOpenedSub => isId ? 'Jalan saat aplikasi tertentu dibuka.' : 'Runs when a specific app is opened.';
-  String get wfEventWifiConnectedSub => isId ? 'Jalan saat WiFi terhubung ke jaringan.' : 'Runs when WiFi connects to a network.';
-  String get wfEventWifiDisconnectedSub => isId ? 'Jalan saat WiFi terputus.' : 'Runs when WiFi disconnects.';
+  String get wfEventBatteryLowSub => isId
+      ? 'Jalan saat baterai turun di bawah 50%.'
+      : 'Runs when battery drops below 50%.';
+  String get wfEventBatteryHighSub => isId
+      ? 'Jalan saat baterai naik di atas 50%.'
+      : 'Runs when battery rises above 50%.';
+  String get wfEventBatteryFullSub =>
+      isId ? 'Jalan saat baterai penuh.' : 'Runs when battery is full.';
+  String get wfEventChargingStartSub => isId
+      ? 'Jalan saat perangkat mulai di-charge.'
+      : 'Runs when device starts charging.';
+  String get wfEventChargingStopSub => isId
+      ? 'Jalan saat perangkat berhenti di-charge.'
+      : 'Runs when device stops charging.';
+  String get wfEventNotifKeywordSub => isId
+      ? 'Jalan saat notifikasi mengandung kata kunci.'
+      : 'Runs when a notification contains a keyword.';
+  String get wfEventAppOpenedSub => isId
+      ? 'Jalan saat aplikasi tertentu dibuka.'
+      : 'Runs when a specific app is opened.';
+  String get wfEventWifiConnectedSub => isId
+      ? 'Jalan saat WiFi terhubung ke jaringan.'
+      : 'Runs when WiFi connects to a network.';
+  String get wfEventWifiDisconnectedSub =>
+      isId ? 'Jalan saat WiFi terputus.' : 'Runs when WiFi disconnects.';
 
   // --- Workflow editor misc ---
-  String get wfTitleRequired => isId ? 'Judul workflow tidak boleh kosong.' : 'Workflow title is required.';
-  String get wfMaxWorkflows => isId ? 'Maksimal 20 workflow.' : 'Max 20 workflows reached.';
+  String get wfTitleRequired => isId
+      ? 'Judul workflow tidak boleh kosong.'
+      : 'Workflow title is required.';
+  String get wfMaxWorkflows =>
+      isId ? 'Maksimal 20 workflow.' : 'Max 20 workflows reached.';
   String get wfAllowSensitiveDesc => isId
       ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi.'
       : 'Auto-approve actions that normally require confirmation.';
@@ -948,7 +1066,8 @@ class AppStrings {
   String get wfModuleDisabled => isId
       ? 'Pastikan modul Notification sudah aktif di Modules.'
       : 'Make sure the Notification module is enabled in Modules.';
-  String get wfApiCallLabel => isId ? 'Panggil API tersimpan' : 'Call a stored API';
+  String get wfApiCallLabel =>
+      isId ? 'Panggil API tersimpan' : 'Call a stored API';
   String get wfApiSelectLabel => isId ? 'Pilih API' : 'Select API';
   String get wfConditionOnlyIfPrevSuccess => isId
       ? 'Hanya jika langkah sebelumnya berhasil'
@@ -962,95 +1081,334 @@ class AppStrings {
   String get wfConditionIfPrevLong => isId
       ? 'Jika hasil sebelumnya panjang (> 200 karakter)'
       : 'If previous result is long (> 200 chars)';
-  String get wfConditionIfContainsSukses => isId
-      ? "Jika hasil mengandung 'sukses'"
-      : "If result contains 'success'";
-  String get wfConditionIfContainsError => isId
-      ? "Jika hasil mengandung 'error'"
-      : "If result contains 'error'";
+  String get wfConditionIfContainsSukses =>
+      isId ? "Jika hasil mengandung 'sukses'" : "If result contains 'success'";
+  String get wfConditionIfContainsError =>
+      isId ? "Jika hasil mengandung 'error'" : "If result contains 'error'";
 
   // --- Built-in variable categories ---
   String get wfVarCategoryTime => isId ? 'Waktu & Tanggal' : 'Time & Date';
   String get wfVarCategoryIdentity => isId ? 'Identitas' : 'Identity';
-  String get wfVarCategoryTriggerNotif => isId ? 'Pemicu: Notifikasi' : 'Trigger: Notification';
-  String get wfVarCategoryTriggerApp => isId ? 'Pemicu: Buka Aplikasi' : 'Trigger: App Opened';
-  String get wfVarCategoryTriggerBattery => isId ? 'Pemicu: Baterai' : 'Trigger: Battery';
+  String get wfVarCategoryTriggerNotif =>
+      isId ? 'Pemicu: Notifikasi' : 'Trigger: Notification';
+  String get wfVarCategoryTriggerApp =>
+      isId ? 'Pemicu: Buka Aplikasi' : 'Trigger: App Opened';
+  String get wfVarCategoryTriggerBattery =>
+      isId ? 'Pemicu: Baterai' : 'Trigger: Battery';
   String get wfVarCategoryStep => isId ? 'Multi-Langkah' : 'Multi-Step';
 
   // --- Module setting labels (used by module_detail_screen) ---
-  (String, String) moduleSetting(String moduleId, String key) => switch (moduleId) {
+  (String, String) moduleSetting(
+    String moduleId,
+    String key,
+  ) => switch (moduleId) {
     'clipboard_ai' => switch (key) {
-      'share_intent' => (isId ? 'Menu Share Android' : 'Share Intent', isId ? 'Terima teks dari menu Share Android.' : 'Receive text via Android Share menu.'),
-      'persistent_notification' => (isId ? 'Notifikasi Persisten' : 'Persistent Notification', isId ? 'Tampilkan notifikasi untuk memproses clipboard dengan cepat.' : 'Show a notification to quickly process clipboard.'),
+      'share_intent' => (
+        isId ? 'Menu Share Android' : 'Share Intent',
+        isId
+            ? 'Terima teks dari menu Share Android.'
+            : 'Receive text via Android Share menu.',
+      ),
+      'persistent_notification' => (
+        isId ? 'Notifikasi Persisten' : 'Persistent Notification',
+        isId
+            ? 'Tampilkan notifikasi untuk memproses clipboard dengan cepat.'
+            : 'Show a notification to quickly process clipboard.',
+      ),
       _ => (key, ''),
     },
     'app_control' => switch (key) {
-      'require_confirmation' => (isId ? 'Wajib Konfirmasi' : 'Require Confirmation', isId ? 'Minta konfirmasi sebelum membuka aplikasi atau URL.' : 'Ask before opening apps or URLs.'),
-      'allow_system_settings' => (isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings', isId ? 'AI dapat membuka halaman pengaturan sistem Android.' : 'AI can open Android system settings screens.'),
-      'allow_url_intents' => (isId ? 'Izinkan Buka URL' : 'Allow URL Intents', isId ? 'AI dapat membuka URL di browser.' : 'AI can open URLs in the browser.'),
-      'allow_background_launch' => (isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch', isId ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".' : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.'),
+      'require_confirmation' => (
+        isId ? 'Wajib Konfirmasi' : 'Require Confirmation',
+        isId
+            ? 'Minta konfirmasi sebelum membuka aplikasi atau URL.'
+            : 'Ask before opening apps or URLs.',
+      ),
+      'allow_system_settings' => (
+        isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings',
+        isId
+            ? 'AI dapat membuka halaman pengaturan sistem Android.'
+            : 'AI can open Android system settings screens.',
+      ),
+      'allow_url_intents' => (
+        isId ? 'Izinkan Buka URL' : 'Allow URL Intents',
+        isId
+            ? 'AI dapat membuka URL di browser.'
+            : 'AI can open URLs in the browser.',
+      ),
+      'allow_background_launch' => (
+        isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch',
+        isId
+            ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".'
+            : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.',
+      ),
       _ => (key, ''),
     },
     'device_context' => switch (key) {
-      'allow_battery' => (isId ? 'Info Baterai' : 'Battery Info', isId ? 'Agen dapat membaca level baterai dan status pengisian.' : 'Agent can read battery level and charging status.'),
-      'allow_network' => (isId ? 'Info Jaringan' : 'Network Info', isId ? 'Agen dapat membaca tipe koneksi. Opsional: izin Lokasi & Telepon mengaktifkan SSID WiFi dan deteksi 4G/5G.' : 'Agent can read connection type (WiFi, cellular, etc.). Optional: Location & Phone permissions enable WiFi SSID and 4G/5G detection.'),
-      'allow_storage' => (isId ? 'Info Penyimpanan' : 'Storage Info', isId ? 'Agen dapat membaca penggunaan penyimpanan internal.' : 'Agent can read internal storage usage.'),
-      'allow_time_locale' => (isId ? 'Waktu & Lokal' : 'Time & Locale', isId ? 'Agen dapat membaca waktu lokal, zona waktu, dan bahasa.' : 'Agent can read local time, timezone, and language.'),
-      'allow_foreground_app' => (isId ? 'Deteksi Aplikasi Aktif' : 'Foreground App Detection', isId ? 'Agen dapat mendeteksi aplikasi yang sedang aktif. Membutuhkan izin Usage Stats.' : 'Agent can detect which app is currently active. Requires Usage Stats permission.'),
-      'allow_charging' => (isId ? 'Info Pengisian Daya' : 'Charging Info', isId ? 'Agen dapat membaca status pengisian daya dan tipe charger.' : 'Agent can read charging state and plug type.'),
-      'allow_dnd' => (isId ? 'Status Jangan Ganggu' : 'Do Not Disturb Status', isId ? 'Agen dapat membaca mode DND. Membutuhkan akses kebijakan notifikasi.' : 'Agent can read DND mode. Requires notification policy access.'),
-      'allow_bluetooth' => (isId ? 'Status Bluetooth' : 'Bluetooth Status', isId ? 'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.' : 'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.'),
+      'allow_battery' => (
+        isId ? 'Info Baterai' : 'Battery Info',
+        isId
+            ? 'Agen dapat membaca level baterai dan status pengisian.'
+            : 'Agent can read battery level and charging status.',
+      ),
+      'allow_network' => (
+        isId ? 'Info Jaringan' : 'Network Info',
+        isId
+            ? 'Agen dapat membaca tipe koneksi. Opsional: izin Lokasi & Telepon mengaktifkan SSID WiFi dan deteksi 4G/5G.'
+            : 'Agent can read connection type (WiFi, cellular, etc.). Optional: Location & Phone permissions enable WiFi SSID and 4G/5G detection.',
+      ),
+      'allow_storage' => (
+        isId ? 'Info Penyimpanan' : 'Storage Info',
+        isId
+            ? 'Agen dapat membaca penggunaan penyimpanan internal.'
+            : 'Agent can read internal storage usage.',
+      ),
+      'allow_time_locale' => (
+        isId ? 'Waktu & Lokal' : 'Time & Locale',
+        isId
+            ? 'Agen dapat membaca waktu lokal, zona waktu, dan bahasa.'
+            : 'Agent can read local time, timezone, and language.',
+      ),
+      'allow_foreground_app' => (
+        isId ? 'Deteksi Aplikasi Aktif' : 'Foreground App Detection',
+        isId
+            ? 'Agen dapat mendeteksi aplikasi yang sedang aktif. Membutuhkan izin Usage Stats.'
+            : 'Agent can detect which app is currently active. Requires Usage Stats permission.',
+      ),
+      'allow_charging' => (
+        isId ? 'Info Pengisian Daya' : 'Charging Info',
+        isId
+            ? 'Agen dapat membaca status pengisian daya dan tipe charger.'
+            : 'Agent can read charging state and plug type.',
+      ),
+      'allow_dnd' => (
+        isId ? 'Status Jangan Ganggu' : 'Do Not Disturb Status',
+        isId
+            ? 'Agen dapat membaca mode DND. Membutuhkan akses kebijakan notifikasi.'
+            : 'Agent can read DND mode. Requires notification policy access.',
+      ),
+      'allow_bluetooth' => (
+        isId ? 'Status Bluetooth' : 'Bluetooth Status',
+        isId
+            ? 'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.'
+            : 'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.',
+      ),
       _ => (key, ''),
     },
     'notification_intelligence' => switch (key) {
-      'allow_read' => (isId ? 'Izinkan Baca Notifikasi' : 'Allow Read Notifications', isId ? 'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.' : 'Agent can read recent notifications. Requires Notification access permission.'),
-      'allow_summary' => (isId ? 'Izinkan Ringkasan Notifikasi' : 'Allow Notification Summaries', isId ? 'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.' : 'Agent can group and summarize recent notifications.'),
-      'allow_classify' => (isId ? 'Izinkan Deteksi Penting' : 'Allow Importance Detection', isId ? 'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.' : 'Agent can flag urgent or important notifications.'),
-      'allow_reply_suggestion' => (isId ? 'Izinkan Saran Balasan' : 'Allow Reply Suggestions', isId ? 'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.' : 'Agent can suggest replies. Will NOT auto-send.'),
-      'allow_open_source_app' => (isId ? 'Izinkan Buka Aplikasi Sumber' : 'Allow Open Source App', isId ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.' : 'Agent can open the app that sent a notification.'),
+      'allow_read' => (
+        isId ? 'Izinkan Baca Notifikasi' : 'Allow Read Notifications',
+        isId
+            ? 'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.'
+            : 'Agent can read recent notifications. Requires Notification access permission.',
+      ),
+      'allow_summary' => (
+        isId ? 'Izinkan Ringkasan Notifikasi' : 'Allow Notification Summaries',
+        isId
+            ? 'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.'
+            : 'Agent can group and summarize recent notifications.',
+      ),
+      'allow_classify' => (
+        isId ? 'Izinkan Deteksi Penting' : 'Allow Importance Detection',
+        isId
+            ? 'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.'
+            : 'Agent can flag urgent or important notifications.',
+      ),
+      'allow_reply_suggestion' => (
+        isId ? 'Izinkan Saran Balasan' : 'Allow Reply Suggestions',
+        isId
+            ? 'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.'
+            : 'Agent can suggest replies. Will NOT auto-send.',
+      ),
+      'allow_open_source_app' => (
+        isId ? 'Izinkan Buka Aplikasi Sumber' : 'Allow Open Source App',
+        isId
+            ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.'
+            : 'Agent can open the app that sent a notification.',
+      ),
       _ => (key, ''),
     },
     'notes' => switch (key) {
-      'allow_create' => (isId ? 'Izinkan Buat Note' : 'Allow Create Notes', isId ? 'Agen dapat membuat catatan baru.' : 'Agent can create new notes.'),
-      'allow_read' => (isId ? 'Izinkan Baca Note' : 'Allow Read Notes', isId ? 'Agen dapat membaca dan melihat daftar catatan.' : 'Agent can read and list notes.'),
-      'allow_search' => (isId ? 'Izinkan Cari Note' : 'Allow Search Notes', isId ? 'Agen dapat mencari catatan berdasarkan kata kunci.' : 'Agent can search notes by keyword.'),
-      'allow_export' => (isId ? 'Izinkan Export Note' : 'Allow Export Notes', isId ? 'Agen dapat mengekspor catatan sebagai file markdown ke workspace.' : 'Agent can export notes as markdown files to the workspace.'),
-      'require_confirm_sensitive' => (isId ? 'Konfirmasi Aksi Sensitif' : 'Confirm Sensitive Actions', isId ? 'Wajib konfirmasi pengguna sebelum update atau hapus catatan.' : 'Require user confirmation before updating or deleting notes.'),
+      'allow_create' => (
+        isId ? 'Izinkan Buat Note' : 'Allow Create Notes',
+        isId
+            ? 'Agen dapat membuat catatan baru.'
+            : 'Agent can create new notes.',
+      ),
+      'allow_read' => (
+        isId ? 'Izinkan Baca Note' : 'Allow Read Notes',
+        isId
+            ? 'Agen dapat membaca dan melihat daftar catatan.'
+            : 'Agent can read and list notes.',
+      ),
+      'allow_search' => (
+        isId ? 'Izinkan Cari Note' : 'Allow Search Notes',
+        isId
+            ? 'Agen dapat mencari catatan berdasarkan kata kunci.'
+            : 'Agent can search notes by keyword.',
+      ),
+      'allow_export' => (
+        isId ? 'Izinkan Export Note' : 'Allow Export Notes',
+        isId
+            ? 'Agen dapat mengekspor catatan sebagai file markdown ke workspace.'
+            : 'Agent can export notes as markdown files to the workspace.',
+      ),
+      'require_confirm_sensitive' => (
+        isId ? 'Konfirmasi Aksi Sensitif' : 'Confirm Sensitive Actions',
+        isId
+            ? 'Wajib konfirmasi pengguna sebelum update atau hapus catatan.'
+            : 'Require user confirmation before updating or deleting notes.',
+      ),
       _ => (key, ''),
     },
     'files' => switch (key) {
-      'allow_create' => (isId ? 'Izinkan Buat File' : 'Allow Create Files', isId ? 'Agen dapat membuat file dan direktori baru di workspace.' : 'Agent can create new files and directories in workspace.'),
-      'allow_read' => (isId ? 'Izinkan Baca File' : 'Allow Read Files', isId ? 'Agen dapat membaca isi file dan melihat daftar direktori.' : 'Agent can read file contents and list directories.'),
-      'allow_write' => (isId ? 'Izinkan Tulis File' : 'Allow Write Files', isId ? 'Agen dapat mengedit dan menimpa file yang ada.' : 'Agent can edit and overwrite existing files.'),
-      'allow_delete' => (isId ? 'Izinkan Hapus File' : 'Allow Delete Files', isId ? 'Agen dapat menghapus file dan direktori. Perlu konfirmasi.' : 'Agent can delete files and directories. Requires confirmation.'),
-      'allow_organize' => (isId ? 'Izinkan Organisasi File' : 'Allow Organize Files', isId ? 'Agen dapat memindahkan dan mengganti nama file di workspace.' : 'Agent can move and rename files within workspace.'),
+      'allow_create' => (
+        isId ? 'Izinkan Buat File' : 'Allow Create Files',
+        isId
+            ? 'Agen dapat membuat file dan direktori baru di workspace.'
+            : 'Agent can create new files and directories in workspace.',
+      ),
+      'allow_read' => (
+        isId ? 'Izinkan Baca File' : 'Allow Read Files',
+        isId
+            ? 'Agen dapat membaca isi file dan melihat daftar direktori.'
+            : 'Agent can read file contents and list directories.',
+      ),
+      'allow_write' => (
+        isId ? 'Izinkan Tulis File' : 'Allow Write Files',
+        isId
+            ? 'Agen dapat mengedit dan menimpa file yang ada.'
+            : 'Agent can edit and overwrite existing files.',
+      ),
+      'allow_delete' => (
+        isId ? 'Izinkan Hapus File' : 'Allow Delete Files',
+        isId
+            ? 'Agen dapat menghapus file dan direktori. Perlu konfirmasi.'
+            : 'Agent can delete files and directories. Requires confirmation.',
+      ),
+      'allow_organize' => (
+        isId ? 'Izinkan Organisasi File' : 'Allow Organize Files',
+        isId
+            ? 'Agen dapat memindahkan dan mengganti nama file di workspace.'
+            : 'Agent can move and rename files within workspace.',
+      ),
       _ => (key, ''),
     },
     'calendar' => switch (key) {
-      'allow_create' => (isId ? 'Izinkan Buat Event' : 'Allow Create Events', isId ? 'Agen dapat membuat event kalender baru.' : 'Agent can create new calendar events.'),
-      'allow_read' => (isId ? 'Izinkan Baca Event' : 'Allow Read Events', isId ? 'Agen dapat membaca dan melihat daftar event.' : 'Agent can read and list calendar events.'),
-      'allow_update' => (isId ? 'Izinkan Update Event' : 'Allow Update Events', isId ? 'Agen dapat mengubah event kalender yang ada.' : 'Agent can modify existing calendar events.'),
-      'allow_delete' => (isId ? 'Izinkan Hapus Event' : 'Allow Delete Events', isId ? 'Agen dapat menghapus event kalender. Perlu konfirmasi.' : 'Agent can delete calendar events. Requires confirmation.'),
+      'allow_create' => (
+        isId ? 'Izinkan Buat Event' : 'Allow Create Events',
+        isId
+            ? 'Agen dapat membuat event kalender baru.'
+            : 'Agent can create new calendar events.',
+      ),
+      'allow_read' => (
+        isId ? 'Izinkan Baca Event' : 'Allow Read Events',
+        isId
+            ? 'Agen dapat membaca dan melihat daftar event.'
+            : 'Agent can read and list calendar events.',
+      ),
+      'allow_update' => (
+        isId ? 'Izinkan Update Event' : 'Allow Update Events',
+        isId
+            ? 'Agen dapat mengubah event kalender yang ada.'
+            : 'Agent can modify existing calendar events.',
+      ),
+      'allow_delete' => (
+        isId ? 'Izinkan Hapus Event' : 'Allow Delete Events',
+        isId
+            ? 'Agen dapat menghapus event kalender. Perlu konfirmasi.'
+            : 'Agent can delete calendar events. Requires confirmation.',
+      ),
       _ => (key, ''),
     },
     'workflows' => switch (key) {
-      'allow_create' => (isId ? 'Izinkan Buat Workflow' : 'Allow Create Workflows', isId ? 'Agen dapat membuat workflow terjadwal baru.' : 'Agent can create new scheduled workflows.'),
-      'allow_read' => (isId ? 'Izinkan Baca Workflow' : 'Allow Read Workflows', isId ? 'Agen dapat melihat daftar dan detail workflow.' : 'Agent can list and view workflow details.'),
-      'allow_update' => (isId ? 'Izinkan Update Workflow' : 'Allow Update Workflows', isId ? 'Agen dapat mengubah workflow yang ada.' : 'Agent can modify existing workflows.'),
-      'allow_delete' => (isId ? 'Izinkan Hapus Workflow' : 'Allow Delete Workflows', isId ? 'Agen dapat menghapus workflow. Perlu konfirmasi.' : 'Agent can delete workflows. Requires confirmation.'),
+      'allow_create' => (
+        isId ? 'Izinkan Buat Workflow' : 'Allow Create Workflows',
+        isId
+            ? 'Agen dapat membuat workflow terjadwal baru.'
+            : 'Agent can create new scheduled workflows.',
+      ),
+      'allow_read' => (
+        isId ? 'Izinkan Baca Workflow' : 'Allow Read Workflows',
+        isId
+            ? 'Agen dapat melihat daftar dan detail workflow.'
+            : 'Agent can list and view workflow details.',
+      ),
+      'allow_update' => (
+        isId ? 'Izinkan Update Workflow' : 'Allow Update Workflows',
+        isId
+            ? 'Agen dapat mengubah workflow yang ada.'
+            : 'Agent can modify existing workflows.',
+      ),
+      'allow_delete' => (
+        isId ? 'Izinkan Hapus Workflow' : 'Allow Delete Workflows',
+        isId
+            ? 'Agen dapat menghapus workflow. Perlu konfirmasi.'
+            : 'Agent can delete workflows. Requires confirmation.',
+      ),
       _ => (key, ''),
     },
     'web' => switch (key) {
-      'allow_fetch' => (isId ? 'Izinkan Fetch URL' : 'Allow Fetch URLs', isId ? 'Agen dapat melakukan request HTTP ke URL publik.' : 'Agent can make HTTP requests to public URLs.'),
-      'allow_register' => (isId ? 'Izinkan Daftar API' : 'Allow Register APIs', isId ? 'Agen dapat menyimpan endpoint API baru ke store.' : 'Agent can save new API endpoints to the store.'),
-      'allow_call' => (isId ? 'Izinkan Panggil API' : 'Allow Call APIs', isId ? 'Agen dapat memanggil API yang tersimpan di store.' : 'Agent can call registered APIs from the store.'),
-      'allow_remove' => (isId ? 'Izinkan Hapus API' : 'Allow Remove APIs', isId ? 'Agen dapat menghapus API tersimpan. Perlu konfirmasi.' : 'Agent can delete registered APIs. Requires confirmation.'),
+      'allow_fetch' => (
+        isId ? 'Izinkan Fetch URL' : 'Allow Fetch URLs',
+        isId
+            ? 'Agen dapat melakukan request HTTP ke URL publik.'
+            : 'Agent can make HTTP requests to public URLs.',
+      ),
+      'allow_register' => (
+        isId ? 'Izinkan Daftar API' : 'Allow Register APIs',
+        isId
+            ? 'Agen dapat menyimpan endpoint API baru ke store.'
+            : 'Agent can save new API endpoints to the store.',
+      ),
+      'allow_call' => (
+        isId ? 'Izinkan Panggil API' : 'Allow Call APIs',
+        isId
+            ? 'Agen dapat memanggil API yang tersimpan di store.'
+            : 'Agent can call registered APIs from the store.',
+      ),
+      'allow_remove' => (
+        isId ? 'Izinkan Hapus API' : 'Allow Remove APIs',
+        isId
+            ? 'Agen dapat menghapus API tersimpan. Perlu konfirmasi.'
+            : 'Agent can delete registered APIs. Requires confirmation.',
+      ),
       _ => (key, ''),
     },
     'communication' => switch (key) {
-      'call_enabled' => (isId ? 'Telepon Otomatis' : 'Auto Phone Call', isId ? 'Langsung dial nomor telepon tanpa konfirmasi manual.' : 'Directly dial phone numbers without manual confirmation.'),
-      'sms_enabled' => (isId ? 'SMS Otomatis' : 'Auto SMS', isId ? 'Kirim SMS secara langsung tanpa buka aplikasi.' : 'Send SMS directly without opening the messaging app.'),
-      'contact_access' => (isId ? 'Akses Kontak' : 'Contact Access', isId ? 'Izinkan agen membaca buku kontak untuk resolve nama.' : 'Allow agent to read contacts to resolve names to numbers.'),
+      'call_enabled' => (
+        isId ? 'Telepon Otomatis' : 'Auto Phone Call',
+        isId
+            ? 'Langsung dial nomor telepon tanpa konfirmasi manual.'
+            : 'Directly dial phone numbers without manual confirmation.',
+      ),
+      'sms_enabled' => (
+        isId ? 'SMS Otomatis' : 'Auto SMS',
+        isId
+            ? 'Kirim SMS secara langsung tanpa buka aplikasi.'
+            : 'Send SMS directly without opening the messaging app.',
+      ),
+      'contact_access' => (
+        isId ? 'Akses Kontak' : 'Contact Access',
+        isId
+            ? 'Izinkan agen membaca buku kontak untuk resolve nama.'
+            : 'Allow agent to read contacts to resolve names to numbers.',
+      ),
+      _ => (key, ''),
+    },
+    'super_power' => switch (key) {
+      'overlay_bubble' => (
+        isId ? 'Bubble Mengambang' : 'Floating Bubble',
+        isId
+            ? 'Tampilkan bubble AI mengambang di atas semua aplikasi untuk akses cepat.'
+            : 'Show a floating AI bubble on top of all apps for quick access.',
+      ),
+      'app_agentic' => (
+        isId ? 'App Agentic (Shizuku)' : 'App Agentic (Shizuku)',
+        isId
+            ? 'Kontrol perangkat tingkat lanjut via Shizuku. Membutuhkan Shizuku aktif.'
+            : 'Advanced device control via Shizuku. Requires Shizuku to be running.',
+      ),
       _ => (key, ''),
     },
     _ => (key, ''),
@@ -1066,7 +1424,8 @@ class AppStrings {
 
   // --- Misc labels ---
   String get errorPrefix => 'Error';
-  String errorWithMessage(String message) => isId ? 'Error: $message' : 'Error: $message';
+  String errorWithMessage(String message) =>
+      isId ? 'Error: $message' : 'Error: $message';
   String get runtimeDebugTitle => 'Runtime Debug';
   String get runningLabel => isId ? 'berjalan' : 'running';
 }

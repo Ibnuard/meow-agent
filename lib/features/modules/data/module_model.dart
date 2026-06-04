@@ -208,6 +208,19 @@ class ModuleRegistry {
     },
   );
 
+  static const superPower = ModuleModel(
+    id: 'super_power',
+    name: 'Super Power',
+    description:
+        'Advanced overlay and device automation. '
+        'Enable floating bubble and Shizuku-powered app agentic control.',
+    icon: '⚡',
+    settings: {
+      'overlay_bubble': false,
+      'app_agentic': false,
+    },
+  );
+
   static const List<ModuleModel> available = [
     clipboardAi,
     appControl,
@@ -219,5 +232,6 @@ class ModuleRegistry {
     workflows,
     web,
     communication,
+    superPower,
   ];
 }

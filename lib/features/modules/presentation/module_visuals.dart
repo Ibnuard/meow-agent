@@ -17,6 +17,7 @@ class ModuleVisuals {
       'workflows' => Icons.bolt_rounded,
       'web' => Icons.cloud_rounded,
       'communication' => Icons.send_rounded,
+      'super_power' => Icons.auto_awesome_rounded,
       _ => Icons.extension_rounded,
     };
   }
@@ -33,6 +34,7 @@ class ModuleVisuals {
       'workflows' => const Color(0xFF3B82F6),
       'web' => const Color(0xFF06B6D4),
       'communication' => const Color(0xFF22C55E),
+      'super_power' => const Color(0xFFA855F7),
       _ => const Color(0xFF64748B),
     };
   }

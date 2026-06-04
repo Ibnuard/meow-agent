@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,6 +8,7 @@ import '../../../app/widgets/widgets.dart';
 import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
+import '../data/app_control_service.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
@@ -27,6 +29,9 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
 class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     with WidgetsBindingObserver {
   ModuleModel? _module;
+  _ShizukuStatus? _shizukuStatus;
+  bool _checkingShizuku = false;
+  bool _requestingShizukuPermission = false;
 
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
@@ -54,6 +59,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     // Re-check permissions when user returns from settings.
     if (state == AppLifecycleState.resumed) {
       _syncCommunicationState();
+      _syncSuperPowerBubble();
+      _refreshShizukuStatus();
     }
   }
 
@@ -64,6 +71,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       setState(() => _module = found);
       // Sync permission state immediately on load.
       _syncCommunicationState();
+      _refreshShizukuStatus();
     }
   }
 
@@ -80,9 +88,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (_module!.id == 'clipboard_ai') {
       if (key == 'persistent_notification') {
         if (value) {
-          final granted = await _permissionManager.request(
-                PermissionType.notification,
-              ) ==
+          final granted =
+              await _permissionManager.request(PermissionType.notification) ==
               PermissionResult.granted;
           if (!granted) {
             if (mounted) {
@@ -312,9 +319,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
       // SMS needs SEND_SMS permission.
       if (value && key == 'sms_enabled') {
-        final result = await _permissionManager.request(
-          PermissionType.sendSms,
-        );
+        final result = await _permissionManager.request(PermissionType.sendSms);
         if (result != PermissionResult.granted) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -351,6 +356,71 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             );
           }
           return;
+        }
+      }
+    }
+
+    // Super Power module — overlay bubble + Shizuku app agentic.
+    if (_module!.id == 'super_power') {
+      if (key == 'overlay_bubble') {
+        if (value) {
+          // Need POST_NOTIFICATIONS for the foreground service notification.
+          final notifGranted =
+              await _permissionManager.request(PermissionType.notification) ==
+              PermissionResult.granted;
+          if (!notifGranted) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(s.notificationPermissionRequired),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+            return;
+          }
+          // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
+          final canDraw = await _permissionManager.isGranted(
+            PermissionType.systemAlertWindow,
+          );
+          if (!canDraw) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(s.overlayPermissionRequired),
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+            await _permissionManager.request(PermissionType.systemAlertWindow);
+            // Don't toggle yet — will sync on resume.
+            return;
+          }
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .startBubbleService();
+        } else {
+          await ref
+              .read(clipboardServiceControllerProvider)
+              .stopBubbleService();
+        }
+      }
+
+      if (key == 'app_agentic') {
+        if (value) {
+          // Check Shizuku status before enabling.
+          final shizukuReady = await _checkShizukuStatus();
+          if (!shizukuReady) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(s.shizukuStatusPermissionNeeded),
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+            }
+            return;
+          }
         }
       }
     }
@@ -403,10 +473,147 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     await _permissionManager.openAlarmSettings();
   }
 
+  /// Check Shizuku status via the same MethodChannel API used by ShizukuTestScreen.
+  Future<bool> _checkShizukuStatus() async {
+    final status = await _refreshShizukuStatus();
+    return status.isReady;
+  }
+
+  Future<_ShizukuStatus> _refreshShizukuStatus() async {
+    if (_module == null || _module!.id != 'super_power') {
+      return const _ShizukuStatus.unknown();
+    }
+    if (mounted) {
+      setState(() => _checkingShizuku = true);
+    }
+    try {
+      const channel = MethodChannel('com.meowagent/shizuku');
+      final result = await channel.invokeMethod('getStatus');
+      final data = Map<String, dynamic>.from(result as Map);
+      final status = _ShizukuStatus(
+        available: data['shizuku_available'] == true,
+        permissionGranted: data['permission_granted'] == true,
+      );
+      if (mounted) {
+        setState(() {
+          _shizukuStatus = status;
+          _checkingShizuku = false;
+        });
+      }
+      return status;
+    } catch (e) {
+      final status = _ShizukuStatus(error: e.toString());
+      if (mounted) {
+        setState(() {
+          _shizukuStatus = status;
+          _checkingShizuku = false;
+        });
+      }
+      return status;
+    }
+  }
+
+  Future<void> _requestShizukuPermission() async {
+    if (_requestingShizukuPermission) return;
+    if (mounted) {
+      setState(() => _requestingShizukuPermission = true);
+    }
+    try {
+      const channel = MethodChannel('com.meowagent/shizuku');
+      await channel.invokeMethod('requestPermission');
+      if (mounted) {
+        setState(() {
+          _requestingShizukuPermission = false;
+          _shizukuStatus = _ShizukuStatus(
+            available: _shizukuStatus?.available,
+            permissionGranted: _shizukuStatus?.permissionGranted,
+            requestPending: true,
+          );
+        });
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      await _refreshShizukuStatus();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _requestingShizukuPermission = false;
+          _shizukuStatus = _ShizukuStatus(error: e.toString());
+        });
+      }
+    }
+  }
+
+  Widget _buildShizukuStatusPanel({
+    required ColorScheme cs,
+    required AppStrings s,
+  }) {
+    final status = _shizukuStatus;
+    final isChecking = _checkingShizuku && status == null;
+    final icon = isChecking
+        ? Icons.sync_rounded
+        : status?.icon ?? Icons.help_outline_rounded;
+    final color = isChecking ? cs.primary : status?.color(cs) ?? cs.outline;
+    final message = isChecking
+        ? s.shizukuStatusChecking
+        : status?.message(s) ?? s.shizukuStatusUnknown;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (isChecking)
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2, color: color),
+            )
+          else
+            Icon(icon, size: 18, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(fontSize: 12, color: cs.onSurface, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Sync bubble state on resume (for Super Power module).
+  Future<void> _syncSuperPowerBubble() async {
+    if (_module == null || _module!.id != 'super_power') return;
+    final wantsBubble = _module!.settings['overlay_bubble'] ?? false;
+    if (!wantsBubble) return;
+
+    final canDraw = await _permissionManager.isGranted(
+      PermissionType.systemAlertWindow,
+    );
+    final running = await ref
+        .read(clipboardServiceControllerProvider)
+        .isBubbleServiceRunning();
+    if (canDraw && !running) {
+      await ref.read(clipboardServiceControllerProvider).startBubbleService();
+    }
+  }
+
   Future<void> _uninstall() async {
     if (_module?.id == 'clipboard_ai') {
       final controller = ref.read(clipboardServiceControllerProvider);
       await controller.stopNotificationService();
+      await controller.stopBubbleService();
+    }
+    if (_module?.id == 'super_power') {
+      final controller = ref.read(clipboardServiceControllerProvider);
       await controller.stopBubbleService();
     }
 
@@ -704,6 +911,137 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // Super Power: Shizuku setup info section.
+          if (module.id == 'super_power' && module.enabled) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: extras.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: extras.subtleBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.memory_rounded, size: 18, color: cs.primary),
+                      const SizedBox(width: 8),
+                      Text(
+                        s.shizukuSectionTitle,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    s.shizukuSectionDesc,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: cs.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  _buildShizukuStatusPanel(cs: cs, s: s),
+                  const SizedBox(height: 14),
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                await _refreshShizukuStatus();
+                              },
+                              icon: const Icon(
+                                Icons.check_circle_outline,
+                                size: 16,
+                              ),
+                              label: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  s.checkStatus,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(
+                                  color: cs.primary.withValues(alpha: 0.4),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                await _requestShizukuPermission();
+                              },
+                              icon: const Icon(
+                                Icons.verified_user_outlined,
+                                size: 16,
+                              ),
+                              label: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  s.requestPermission,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: cs.primary,
+                                side: BorderSide(
+                                  color: cs.primary.withValues(alpha: 0.4),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            await AppControlService().openUrl(
+                              'https://shizuku.rikka.app/guide/setup/',
+                            );
+                          },
+                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                          label: Text(s.setupGuide),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: cs.onSurfaceVariant,
+                            side: BorderSide(
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           if (module.enabled) ...[
             Text(
               s.featurePermission,
@@ -784,6 +1122,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return s.moduleDescWorkflows;
       case 'web':
         return s.moduleDescWeb;
+      case 'super_power':
+        return s.moduleDescSuperPower;
       default:
         return module.description;
     }
@@ -799,5 +1139,53 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       labels[entry.key] = s.moduleSetting(moduleId, entry.key);
     }
     return labels;
+  }
+}
+
+class _ShizukuStatus {
+  const _ShizukuStatus({
+    this.available,
+    this.permissionGranted,
+    this.requestPending = false,
+    this.error,
+  });
+
+  const _ShizukuStatus.unknown()
+    : available = null,
+      permissionGranted = null,
+      requestPending = false,
+      error = null;
+
+  final bool? available;
+  final bool? permissionGranted;
+  final bool requestPending;
+  final String? error;
+
+  bool get isReady => available == true && permissionGranted == true;
+
+  IconData get icon {
+    if (error != null) return Icons.error_outline_rounded;
+    if (requestPending) return Icons.hourglass_top_rounded;
+    if (isReady) return Icons.check_circle_rounded;
+    if (available == true) return Icons.verified_user_outlined;
+    if (available == false) return Icons.power_settings_new_rounded;
+    return Icons.help_outline_rounded;
+  }
+
+  Color color(ColorScheme cs) {
+    if (error != null) return cs.error;
+    if (isReady) return const Color(0xFF22C55E);
+    if (requestPending || available == true) return const Color(0xFFF59E0B);
+    if (available == false) return cs.onSurfaceVariant;
+    return cs.outline;
+  }
+
+  String message(AppStrings s) {
+    if (error != null) return s.shizukuStatusError(error!);
+    if (requestPending) return s.shizukuStatusRequestPending;
+    if (isReady) return s.shizukuStatusReady;
+    if (available == true) return s.shizukuStatusPermissionNeeded;
+    if (available == false) return s.shizukuStatusUnavailable;
+    return s.shizukuStatusUnknown;
   }
 }
