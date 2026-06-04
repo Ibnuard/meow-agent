@@ -3,13 +3,17 @@ package com.meowagent.meow_agent
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
+import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.SparseArray
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
@@ -61,6 +65,28 @@ class MeowAccessibilityService : AccessibilityService() {
                     info.name == MeowAccessibilityService::class.java.name
                 }
             }
+        }
+
+        /**
+         * Capture accessibility tree from a specific display.
+         * Returns null if service not connected or API < 33.
+         */
+        fun captureTreeFromDisplay(displayId: Int): Map<String, Any?>? {
+            return instance?.captureTreeFromDisplayInternal(displayId)
+        }
+
+        /**
+         * Capture accessibility tree from the default (primary) display.
+         */
+        fun captureDefaultTree(): Map<String, Any?>? {
+            return instance?.captureDefaultTreeInternal()
+        }
+
+        /**
+         * Get all available display IDs that have accessibility windows.
+         */
+        fun getAvailableDisplays(): List<Int> {
+            return instance?.getAvailableDisplaysInternal() ?: emptyList()
         }
     }
 
@@ -533,6 +559,197 @@ class MeowAccessibilityService : AccessibilityService() {
         for (i in 0 until node.childCount.coerceAtMost(20)) {
             val child = node.getChild(i) ?: continue
             logNodeTree(child, depth + 1)
+        }
+    }
+
+    // ─── Virtual Display Tree Capture ────────────────────────────────────
+
+    /**
+     * Capture accessibility tree from a specific display using API 33+.
+     * Returns a map with display info, window count, and serialized node tree.
+     */
+    internal fun captureTreeFromDisplayInternal(displayId: Int): Map<String, Any?>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.w(TAG, "getWindowsOnAllDisplays requires API 33+, current: ${Build.VERSION.SDK_INT}")
+            return mapOf(
+                "error" to "API 33+ required",
+                "current_api" to Build.VERSION.SDK_INT
+            )
+        }
+
+        try {
+            val windowsMap = getWindowsOnAllDisplays()
+            val displayWindows = windowsMap[displayId]
+
+            if (displayWindows == null || displayWindows.isEmpty()) {
+                val availableKeys = (0 until windowsMap.size()).map { windowsMap.keyAt(it) }
+                Log.w(TAG, "No windows found on display $displayId. Available displays: $availableKeys")
+                val windowCounts = mutableMapOf<Int, Int>()
+                for (i in 0 until windowsMap.size()) {
+                    windowCounts[windowsMap.keyAt(i)] = windowsMap.valueAt(i).size
+                }
+                return mapOf(
+                    "error" to "no_windows_on_display",
+                    "target_display" to displayId,
+                    "available_displays" to availableKeys,
+                    "all_window_counts" to windowCounts
+                )
+            }
+
+            val result = mutableMapOf<String, Any?>()
+            result["display_id"] = displayId
+            result["window_count"] = displayWindows.size
+            result["success"] = true
+
+            val windowsList = mutableListOf<Map<String, Any?>>()
+            var totalNodes = 0
+
+            for (window in displayWindows) {
+                val root = window.root
+                val windowInfo = mutableMapOf<String, Any?>(
+                    "window_id" to window.id,
+                    "window_type" to windowTypeToString(window.type),
+                    "window_layer" to window.layer,
+                    "has_root" to (root != null)
+                )
+
+                if (root != null) {
+                    val nodes = mutableListOf<Map<String, Any?>>()
+                    val counter = intArrayOf(0)
+                    serializeNode(root, nodes, 0, 6, counter, 50)
+                    windowInfo["package"] = root.packageName?.toString()
+                    windowInfo["nodes"] = nodes
+                    windowInfo["node_count"] = nodes.size
+                    totalNodes += nodes.size
+                    root.recycle()
+                }
+
+                windowsList.add(windowInfo)
+            }
+
+            result["windows"] = windowsList
+            result["total_nodes"] = totalNodes
+            Log.d(TAG, "Captured tree from display $displayId: ${displayWindows.size} windows, $totalNodes nodes")
+            return result
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error capturing tree from display $displayId", e)
+            return mapOf(
+                "error" to "exception",
+                "message" to (e.message ?: "unknown"),
+                "display_id" to displayId
+            )
+        }
+    }
+
+    /**
+     * Capture accessibility tree from the primary display (default rootInActiveWindow).
+     */
+    internal fun captureDefaultTreeInternal(): Map<String, Any?>? {
+        val root = rootInActiveWindow ?: return mapOf(
+            "error" to "no_active_window",
+            "message" to "rootInActiveWindow returned null"
+        )
+
+        try {
+            val nodes = mutableListOf<Map<String, Any?>>()
+            val counter = intArrayOf(0)
+            serializeNode(root, nodes, 0, 6, counter, 50)
+
+            val result = mapOf<String, Any?>(
+                "success" to true,
+                "display_id" to 0,
+                "package" to (root.packageName?.toString()),
+                "node_count" to nodes.size,
+                "nodes" to nodes
+            )
+            root.recycle()
+            return result
+        } catch (e: Exception) {
+            Log.e(TAG, "Error capturing default tree", e)
+            return mapOf("error" to "exception", "message" to (e.message ?: "unknown"))
+        }
+    }
+
+    /**
+     * List all display IDs that currently have accessibility windows.
+     */
+    internal fun getAvailableDisplaysInternal(): List<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Fallback: only primary display
+            return if (rootInActiveWindow != null) listOf(0) else emptyList()
+        }
+        return try {
+            val sparse = getWindowsOnAllDisplays()
+            (0 until sparse.size()).map { sparse.keyAt(it) }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting displays", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Recursively serialize an AccessibilityNodeInfo into a map structure.
+     * Applies pruning: max depth, max total nodes, skips non-interesting nodes.
+     */
+    private fun serializeNode(
+        node: AccessibilityNodeInfo,
+        output: MutableList<Map<String, Any?>>,
+        depth: Int,
+        maxDepth: Int,
+        counter: IntArray,
+        maxNodes: Int
+    ) {
+        if (depth > maxDepth || counter[0] >= maxNodes) return
+
+        val text = node.text?.toString()
+        val desc = node.contentDescription?.toString()
+        val isClickable = node.isClickable
+        val isEditable = node.isEditable
+        val isScrollable = node.isScrollable
+
+        // Pruning: skip nodes that have no text, no desc, and are not interactive
+        val isInteresting = !text.isNullOrEmpty() || !desc.isNullOrEmpty() ||
+                isClickable || isEditable || isScrollable
+
+        if (isInteresting) {
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+
+            val nodeMap = mutableMapOf<String, Any?>(
+                "id" to counter[0],
+                "class" to (node.className?.toString() ?: ""),
+                "package" to (node.packageName?.toString() ?: ""),
+                "text" to (text ?: ""),
+                "desc" to (desc ?: ""),
+                "resource_id" to (node.viewIdResourceName ?: ""),
+                "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                "clickable" to isClickable,
+                "editable" to isEditable,
+                "scrollable" to isScrollable,
+                "focused" to node.isFocused,
+                "depth" to depth
+            )
+            output.add(nodeMap)
+            counter[0]++
+        }
+
+        // Recurse into children
+        for (i in 0 until node.childCount) {
+            if (counter[0] >= maxNodes) break
+            val child = node.getChild(i) ?: continue
+            serializeNode(child, output, depth + 1, maxDepth, counter, maxNodes)
+        }
+    }
+
+    private fun windowTypeToString(type: Int): String {
+        return when (type) {
+            AccessibilityWindowInfo.TYPE_APPLICATION -> "APPLICATION"
+            AccessibilityWindowInfo.TYPE_INPUT_METHOD -> "INPUT_METHOD"
+            AccessibilityWindowInfo.TYPE_SYSTEM -> "SYSTEM"
+            AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY -> "ACCESSIBILITY_OVERLAY"
+            AccessibilityWindowInfo.TYPE_SPLIT_SCREEN_DIVIDER -> "SPLIT_SCREEN_DIVIDER"
+            else -> "UNKNOWN($type)"
         }
     }
 }
