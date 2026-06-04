@@ -199,6 +199,8 @@ Tool result:
 
 ${PromptConstants.reviewRulesFor(language)}
 
+${PromptConstants.appAgenticReviewRules}
+
 ${PromptConstants.reviewResponseFormat}''';
   }
 

@@ -42,6 +42,30 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Allow URL Intents',
     actionLabel: 'open URLs',
   ),
+  'app_agent.inspect': ToolPermissionRequirement(
+    moduleId: 'super_power',
+    settingKey: 'app_agentic',
+    settingLabel: 'App Agentic',
+    actionLabel: 'inspect the current app screen',
+  ),
+  'app_agent.click': ToolPermissionRequirement(
+    moduleId: 'super_power',
+    settingKey: 'app_agentic',
+    settingLabel: 'App Agentic',
+    actionLabel: 'click app screen controls',
+  ),
+  'app_agent.set_text': ToolPermissionRequirement(
+    moduleId: 'super_power',
+    settingKey: 'app_agentic',
+    settingLabel: 'App Agentic',
+    actionLabel: 'type into app fields',
+  ),
+  'app_agent.scroll': ToolPermissionRequirement(
+    moduleId: 'super_power',
+    settingKey: 'app_agentic',
+    settingLabel: 'App Agentic',
+    actionLabel: 'scroll app screens',
+  ),
   'device.battery': ToolPermissionRequirement(
     moduleId: 'device_context',
     settingKey: 'allow_battery',

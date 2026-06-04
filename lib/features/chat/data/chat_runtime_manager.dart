@@ -111,6 +111,13 @@ class ChatRuntimeManager extends ChangeNotifier {
   /// Used by the home FAB to show a live activity indicator.
   bool get hasAnyRunning => _sessions.values.any((s) => s.isRunning);
 
+  /// ID of the first agent that is currently running, or null.
+  String? get runningAgentId =>
+      _sessions.entries
+          .where((e) => e.value.isRunning)
+          .map((e) => e.key)
+          .firstOrNull;
+
   void _set(String agentId, ChatRuntimeSession s) {
     _sessions[agentId] = s;
     notifyListeners();
@@ -193,21 +200,13 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     if (provider == null || !provider.isComplete) {
       // Fallback: agent's provider disappeared mid-flight → surface with action.
-      final agents = ref.read(agentListProvider);
-      final agent = agents.where((a) => a.id == agentId).firstOrNull;
-      final agentName = agent?.name ?? agentId;
       final lang = _languageForUserMessage(userMessage);
-      final isId = lang == 'id';
       final fallbackMsg = ChatMessage(
         role: 'assistant',
-        content: isId
-            ? '⚠️ Agen "$agentName" memerlukan provider dan model. '
-                'Provider mungkin telah dihapus. Silakan atur ulang di halaman Provider.'
-            : '⚠️ Agent "$agentName" needs a valid provider and model. '
-                'The provider may have been removed. Please reconfigure in the Provider page.',
+        content: I18nFallback.get('provider_missing', lang),
         actions: [
           ResultAction(
-            label: isId ? 'Atur Provider' : 'Manage Providers',
+            label: I18nFallback.get('manage_providers', lang),
             icon: 'dns_outlined',
             type: 'navigate',
             target: '/providers',
@@ -335,7 +334,8 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
       if (historicalLedger != null &&
-          historicalLedger.goalTree.subgoals.length > 1) {
+          historicalLedger.goalTree.subgoals.length > 1 &&
+          !isConfirm) {
         await history.addMessage(
           agentId,
           ChatMessage(
@@ -348,7 +348,12 @@ class ChatRuntimeManager extends ChangeNotifier {
 
       await history.addMessage(agentId, replyMsg);
       await UnreadService.instance.increment(agentId);
-      _maybeNotify(agentId: agentId, agentName: agentName, reply: replyMsg);
+      _maybeNotify(
+        agentId: agentId,
+        agentName: agentName,
+        reply: replyMsg,
+        forceNotify: historicalLedger != null,
+      );
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
 
@@ -390,6 +395,12 @@ class ChatRuntimeManager extends ChangeNotifier {
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
       await UnreadService.instance.increment(agentId);
+      _maybeNotify(
+        agentId: agentId,
+        agentName: agentName,
+        reply: ChatMessage(role: 'assistant', content: 'Error: $e'),
+        forceNotify: sessionFor(agentId).activeTaskLedger != null,
+      );
       _set(
         agentId,
         sessionFor(agentId).copyWith(
@@ -412,15 +423,12 @@ class ChatRuntimeManager extends ChangeNotifier {
     if (provider == null || !provider.isComplete) {
       // Fallback: provider disappeared after confirmation was requested.
       final lang = engine.languageCode;
-      final isId = lang == 'id';
       final fallbackMsg = ChatMessage(
         role: 'assistant',
-        content: isId
-            ? '⚠️ Provider tidak tersedia — aksi dibatalkan. Silakan atur ulang di halaman Provider.'
-            : '⚠️ Provider unavailable — action cancelled. Please reconfigure in the Provider page.',
+        content: I18nFallback.get('provider_unavailable', lang),
         actions: [
           ResultAction(
-            label: isId ? 'Atur Provider' : 'Manage Providers',
+            label: I18nFallback.get('manage_providers', lang),
             icon: 'dns_outlined',
             type: 'navigate',
             target: '/providers',
@@ -529,7 +537,8 @@ class ChatRuntimeManager extends ChangeNotifier {
           response.state == AgentRuntimeState.waitingConfirmation;
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
       if (historicalLedger != null &&
-          historicalLedger.goalTree.subgoals.length > 1) {
+          historicalLedger.goalTree.subgoals.length > 1 &&
+          !isNextConfirm) {
         await history.addMessage(
           agentId,
           ChatMessage(
@@ -558,6 +567,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           role: 'assistant',
           content: response.finalMessage,
         ),
+        forceNotify: historicalLedger != null,
       );
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
@@ -593,6 +603,12 @@ class ChatRuntimeManager extends ChangeNotifier {
         ChatMessage(role: 'assistant', content: 'Error: $e'),
       );
       await UnreadService.instance.increment(agentId);
+      _maybeNotify(
+        agentId: agentId,
+        agentName: agentName,
+        reply: ChatMessage(role: 'assistant', content: 'Error: $e'),
+        forceNotify: sessionFor(agentId).activeTaskLedger != null,
+      );
       _set(
         agentId,
         sessionFor(agentId).copyWith(
@@ -663,7 +679,10 @@ class ChatRuntimeManager extends ChangeNotifier {
     await engine.abortActiveTask(agentId);
     await history.addMessage(
       agentId,
-      ChatMessage(role: 'assistant', content: '⏹️ Proses dibatalkan.'),
+      ChatMessage(
+        role: 'assistant',
+        content: I18nFallback.get('task_cancelled', engine.languageCode),
+      ),
     );
     _set(
       agentId,
@@ -711,12 +730,15 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   /// Fire a local notification for a new agent reply, but ONLY when the user
   /// is NOT currently viewing that agent's chat screen.
+  /// When [forceNotify] is true (e.g. app agent tasks where the user is in
+  /// another app), bypass the isActive check.
   void _maybeNotify({
     required String agentId,
     required String agentName,
     required ChatMessage reply,
+    bool forceNotify = false,
   }) {
-    if (UnreadService.instance.isActive(agentId)) return;
+    if (!forceNotify && UnreadService.instance.isActive(agentId)) return;
     final body = _stripMarkdown(reply.content);
     final preview = body.length > 120 ? '${body.substring(0, 120)}…' : body;
     final soundPref = ref.read(notificationSoundProvider);

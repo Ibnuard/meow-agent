@@ -1,3 +1,4 @@
+import '../app_agent/app_agent_overlay_service.dart';
 import 'completion_verifier.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
@@ -105,6 +106,7 @@ class ExecuteLoopRunner {
       // Cooperative cancellation check.
       if (_taskScope.isCancelled(request.agentId)) {
         _taskScope.clearCancellation(request.agentId);
+        AppAgentOverlayService.hide();
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,
@@ -177,6 +179,14 @@ class ExecuteLoopRunner {
       if (selectNarrative.isNotEmpty) {
         logger.logNarrative('select_tool', selectNarrative);
         emit(logger.events.last);
+        // Realtime narrator surface for app agent automation only.
+        final overlayOp = _selectionOperationTag(selection);
+        if (overlayOp != null) {
+          AppAgentOverlayService.show(
+            operation: overlayOp,
+            narrative: selectNarrative,
+          );
+        }
       }
 
       final status = selection['status'] as String? ?? '';
@@ -194,14 +204,18 @@ class ExecuteLoopRunner {
         }
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           // Count how many times LLM returned "done" without any tool executed.
-          final toolsExecutedSoFar = previousResults.where(
-            (r) => r.containsKey('tool'),
-          ).length;
-          final prematureDoneCount = previousResults.where(
-            (r) =>
-                r['note']?.toString().contains('status=done but subgoals') ==
-                true,
-          ).length;
+          final toolsExecutedSoFar = previousResults
+              .where((r) => r.containsKey('tool'))
+              .length;
+          final prematureDoneCount = previousResults
+              .where(
+                (r) =>
+                    r['note']?.toString().contains(
+                      'status=done but subgoals',
+                    ) ==
+                    true,
+              )
+              .length;
 
           // If LLM has said "done" 2+ times with zero tools executed, abort.
           if (prematureDoneCount >= 2 && toolsExecutedSoFar == 0) {
@@ -273,6 +287,7 @@ class ExecuteLoopRunner {
           task: request.userMessage,
           lastResult: 'success',
         );
+        AppAgentOverlayService.hide();
         return AgentRuntimeResponse(
           finalMessage: finalResponse,
           success: true,
@@ -654,6 +669,7 @@ class ExecuteLoopRunner {
               request,
               LedgerStatus.completed,
             );
+            AppAgentOverlayService.hide();
             return AgentRuntimeResponse(
               finalMessage: finalMsg,
               success: true,
@@ -677,12 +693,14 @@ class ExecuteLoopRunner {
         logger.logStateChange(state, 'Executing ${toolRequest.name}');
         emit(logger.events.last);
         logger.logToolCall(toolRequest);
+        await _sendAppAgenticNarrativeBefore(toolRequest);
 
         final result = autoApproveSensitive
             ? await _toolRouter.forceExecute(toolRequest)
             : await _toolRouter.execute(toolRequest);
         logger.logToolResult(result);
         emit(logger.events.last);
+        await _sendAppAgenticNarrativeAfter(toolRequest, result);
 
         _memory.record(
           agentId: request.agentId,
@@ -878,6 +896,7 @@ class ExecuteLoopRunner {
             request,
             LedgerStatus.completed,
           );
+          AppAgentOverlayService.hide();
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -946,6 +965,17 @@ class ExecuteLoopRunner {
           if (reviewNarrative.isNotEmpty) {
             logger.logNarrative('review', reviewNarrative);
             emit(logger.events.last);
+            // Surface review narrative on the overlay only if the just-
+            // executed tool was an app agent operation, so we don't
+            // overlay borders during normal chat-only tool flows.
+            if (toolRequest.name.startsWith('app_agent.') ||
+                toolRequest.name == 'app.open' ||
+                toolRequest.name == 'app.resolve') {
+              AppAgentOverlayService.show(
+                operation: 'review',
+                narrative: reviewNarrative,
+              );
+            }
           }
         }
 
@@ -979,6 +1009,40 @@ class ExecuteLoopRunner {
           } else {
             final active = goalTree.nextActionable;
             if (active != null) active.status = SubgoalStatus.inProgress;
+          }
+
+          // State invalidation: reviewer can revert earlier "done" subgoals
+          // back to in_progress when live tool data contradicts their
+          // precondition (e.g. app_agent.inspect shows a different package
+          // than the target the prior subgoal claimed to open).
+          final batch = review['subgoal_updates'];
+          if (batch is List && batch.isNotEmpty) {
+            var anyApplied = false;
+            for (final entry in batch) {
+              if (entry is! Map) continue;
+              final id = (entry['id'] ?? '').toString();
+              if (id.isEmpty) continue;
+              final newStatus = SubgoalStatusX.fromLabel(
+                entry['status'] as String?,
+              );
+              final applied = goalTree.applyStatusUpdate(
+                subgoalId: id,
+                status: newStatus,
+                resultRef: entry['result_ref']?.toString(),
+                notes: entry['notes']?.toString(),
+              );
+              if (applied) {
+                anyApplied = true;
+                logger.logStateChange(
+                  state,
+                  'Subgoal $id reverted to ${newStatus.label} by reviewer (live state mismatch).',
+                );
+                emit(logger.events.last);
+              }
+            }
+            if (anyApplied) {
+              _emitTaskLedger(emit, request, goalTree);
+            }
           }
         }
 
@@ -1081,6 +1145,7 @@ class ExecuteLoopRunner {
             request,
             LedgerStatus.completed,
           );
+          AppAgentOverlayService.hide();
           return AgentRuntimeResponse(
             finalMessage: completedFinal,
             success: true,
@@ -1273,6 +1338,7 @@ class ExecuteLoopRunner {
   /// Build a failure response.
   AgentRuntimeResponse fail(String message, RuntimeLogger logger) {
     logger.logError(message);
+    AppAgentOverlayService.hide();
     return AgentRuntimeResponse(
       finalMessage: message,
       success: false,
@@ -1391,7 +1457,9 @@ class ExecuteLoopRunner {
       languageCode: _languageCode,
       originalUserMessage: request.userMessage,
       goalTree: goalTree,
-      status: goalTree.isComplete ? LedgerStatus.completed : LedgerStatus.active,
+      status: goalTree.isComplete
+          ? LedgerStatus.completed
+          : LedgerStatus.active,
     );
     emit(
       RuntimeEvent(
@@ -1678,6 +1746,56 @@ class ExecuteLoopRunner {
         text.contains('capability') ||
         text.contains('unavailable') ||
         text.contains('unsupported');
+  }
+
+  String? _selectionOperationTag(Map<String, dynamic> selection) {
+    final tool = selection['tool'];
+    if (tool is Map) {
+      final name = (tool['name'] ?? '').toString();
+      if (name.startsWith('app_agent.')) {
+        return name.substring('app_agent.'.length);
+      }
+      if (name == 'app.open' || name == 'app.resolve') {
+        return 'open';
+      }
+    }
+    return null;
+  }
+
+  String _appAgentOperationTag(String toolName) {
+    if (toolName.startsWith('app_agent.')) {
+      return toolName.substring('app_agent.'.length);
+    }
+    return toolName;
+  }
+
+  Future<void> _sendAppAgenticNarrativeBefore(ToolCallRequest tool) async {
+    if (!tool.name.startsWith('app_agent.')) return;
+    final fallback = switch (tool.name) {
+      'app_agent.inspect' => _runtimePhrase('app_agent_reading_screen'),
+      'app_agent.click' => _runtimePhrase('app_agent_tapping'),
+      'app_agent.set_text' => _runtimePhrase('app_agent_typing'),
+      'app_agent.scroll' => _runtimePhrase('app_agent_scrolling'),
+      _ => '',
+    };
+    AppAgentOverlayService.show(
+      operation: _appAgentOperationTag(tool.name),
+      narrative: fallback,
+    );
+  }
+
+  Future<void> _sendAppAgenticNarrativeAfter(
+    ToolCallRequest tool,
+    ToolExecutionResult result,
+  ) async {
+    if (!tool.name.startsWith('app_agent.')) return;
+    final phraseKey = result.success
+        ? 'app_agent_checking_result'
+        : 'app_agent_action_failed';
+    AppAgentOverlayService.show(
+      operation: 'review',
+      narrative: _runtimePhrase(phraseKey),
+    );
   }
 
   // ---------------------------------------------------------------------------

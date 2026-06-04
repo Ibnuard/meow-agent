@@ -80,8 +80,7 @@ class PromptConstants {
   // ─── Reflector (delegated to prompt_reflect.dart) ──────────────────────────
 
   static const reflectIntro = promptReflectIntro;
-  static String reflectRules(String language) =>
-      promptReflectRules(language);
+  static String reflectRules(String language) => promptReflectRules(language);
   static const reflectResponseFormat = promptReflectResponseFormat;
 
   // ─── Planner (delegated to prompt_plan.dart) ───────────────────────────────
@@ -100,6 +99,7 @@ class PromptConstants {
   static const reviewIntro = promptReviewIntro;
   static String reviewRulesFor(String language) =>
       promptReviewRulesFor(language);
+  static const appAgenticReviewRules = promptAppAgenticReviewRules;
   static const reviewResponseFormat = promptReviewResponseFormat;
 
   // ─── Context / misc (delegated to prompt_context.dart) ─────────────────────

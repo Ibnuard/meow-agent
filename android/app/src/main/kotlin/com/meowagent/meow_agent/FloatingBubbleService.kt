@@ -97,16 +97,6 @@ class FloatingBubbleService : Service() {
         }
 
         /**
-         * Show narrative progress text in the chat response area (while loading).
-         */
-        fun showNarrativeText(text: String) {
-            instance?.handler?.post {
-                instance?.chatResponseText?.text = text
-                instance?.chatResponseText?.setTextColor(Color.parseColor("#94A3B8"))
-            }
-        }
-
-        /**
          * Show narrative text on the bubble (for automation progress).
          */
         fun showNarrative(text: String) {

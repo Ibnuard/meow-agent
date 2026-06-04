@@ -23,19 +23,31 @@ class I18nFallback {
       'confirm': 'Saya ingin menjalankan sebuah aksi. Lanjutkan?',
       'success': 'Selesai.',
       'cancel': 'Aksi dibatalkan.',
+      'task_cancelled': '⏹️ Proses dibatalkan.',
       'preview': 'Berikut pratinjau hasilnya.',
       'abort':
           'Saya berhenti — sepertinya saya berputar pada langkah yang sama. Coba ulangi atau ubah permintaannya.',
       'error': 'Terjadi kesalahan saat memproses permintaan.',
+      'provider_missing':
+          '⚠️ Agen memerlukan provider dan model. Provider mungkin telah dihapus. Silakan atur ulang di halaman Provider.',
+      'provider_unavailable':
+          '⚠️ Provider tidak tersedia — aksi dibatalkan. Silakan atur ulang di halaman Provider.',
+      'manage_providers': 'Atur Provider',
     },
     'en': {
       'confirm': 'I want to run an action. Proceed?',
       'success': 'Done.',
       'cancel': 'Action cancelled.',
+      'task_cancelled': '⏹️ Process cancelled.',
       'preview': "Here's a preview of the result.",
       'abort':
           "I'm stopping — I seem to be looping on the same step. Try rephrasing or breaking it down.",
       'error': 'Something went wrong while handling that request.',
+      'provider_missing':
+          '⚠️ This agent needs a valid provider and model. The provider may have been removed. Please reconfigure in the Provider page.',
+      'provider_unavailable':
+          '⚠️ Provider unavailable — action cancelled. Please reconfigure in the Provider page.',
+      'manage_providers': 'Manage Providers',
     },
     'ja': {
       'confirm': '操作を実行してもよろしいですか？',

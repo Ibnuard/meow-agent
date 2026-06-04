@@ -79,6 +79,12 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
+        <!-- App Agent Overlay Service: full-screen border + narrator bar
+             rendered while the App Agent runtime is in flight. -->
+        <service
+            android:name=".AppAgentOverlayService"
+            android:exported="false" />
+
         <!-- Notification Listener Service (read-only). User must enable in
              Settings → Notifications → Notification access. -->
         <service

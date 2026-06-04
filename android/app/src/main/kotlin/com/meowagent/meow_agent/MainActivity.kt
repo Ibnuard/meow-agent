@@ -72,6 +72,39 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CommunicationPlugin.CHANNEL)
             .setMethodCallHandler(CommunicationPlugin(this))
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_agent")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isAccessibilityEnabled" -> {
+                        result.success(MeowAccessibilityService.isEnabled(this))
+                    }
+                    "captureScreen" -> {
+                        result.success(
+                            MeowAccessibilityService.captureDefaultTree()
+                                ?: mapOf(
+                                    "success" to false,
+                                    "error" to "accessibility_service_not_connected"
+                                )
+                        )
+                    }
+                    "performAction" -> {
+                        val nodeId = call.argument<Int>("node_id") ?: -1
+                        val action = call.argument<String>("action") ?: ""
+                        val text = call.argument<String>("text")
+                        val direction = call.argument<String>("direction")
+                        result.success(
+                            MeowAccessibilityService.performNodeAction(
+                                nodeId,
+                                action,
+                                text,
+                                direction
+                            )
+                        )
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_control")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -178,14 +211,51 @@ class MainActivity : FlutterActivity() {
                     FloatingBubbleService.updateChatInfo(info)
                     result.success(true)
                 }
-                "sendNarrative" -> {
-                    // Flutter → Bubble: show narrative progress text while processing
-                    val text = call.argument<String>("text") ?: ""
-                    FloatingBubbleService.showNarrativeText(text)
+                else -> result.notImplemented()
+            }
+        }
+
+        // App Agent overlay bridge — full-screen border + bottom narrator bar
+        // rendered while the App Agent runtime is in flight.
+        val appAgentOverlayChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.meowagent/app_agent_overlay"
+        )
+        appAgentOverlayChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "show" -> {
+                    val operation = call.argument<String>("operation")
+                    val narrative = call.argument<String>("narrative") ?: ""
+                    AppAgentOverlayService.show(this, operation, narrative)
+                    result.success(true)
+                }
+                "hide" -> {
+                    AppAgentOverlayService.hide(this)
                     result.success(true)
                 }
                 else -> result.notImplemented()
             }
+        }
+
+        // Listen for stop button press from the App Agent overlay.
+        val cancelFilter = android.content.IntentFilter("com.meowagent.APP_AGENT_CANCEL")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: android.content.Context, i: android.content.Intent) {
+                    Handler(Looper.getMainLooper()).post {
+                        appAgentOverlayChannel.invokeMethod("onStopPressed", null)
+                    }
+                }
+            }, cancelFilter, android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(object : android.content.BroadcastReceiver() {
+                override fun onReceive(ctx: android.content.Context, i: android.content.Intent) {
+                    Handler(Looper.getMainLooper()).post {
+                        appAgentOverlayChannel.invokeMethod("onStopPressed", null)
+                    }
+                }
+            }, cancelFilter)
         }
 
         // Wire up Bubble → Flutter: when user sends message from bubble

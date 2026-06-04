@@ -50,6 +50,12 @@ class MeowAccessibilityService : AccessibilityService() {
         private val actionQueue = ConcurrentLinkedQueue<MeowAccessibilityAction>()
         private var instance: MeowAccessibilityService? = null
 
+        @Volatile
+        private var foregroundPackage: String? = null
+
+        /** Last package name observed in a TYPE_WINDOW_STATE_CHANGED event. */
+        fun currentForegroundPackage(): String? = foregroundPackage
+
         fun queueAction(action: MeowAccessibilityAction) {
             Log.d(TAG, "Queued action: $action")
             actionQueue.add(action)
@@ -88,6 +94,19 @@ class MeowAccessibilityService : AccessibilityService() {
         fun getAvailableDisplays(): List<Int> {
             return instance?.getAvailableDisplaysInternal() ?: emptyList()
         }
+
+        fun performNodeAction(
+            nodeId: Int,
+            action: String,
+            text: String?,
+            direction: String?
+        ): Map<String, Any?> {
+            return instance?.performNodeActionInternal(nodeId, action, text, direction)
+                ?: mapOf(
+                    "success" to false,
+                    "error" to "accessibility_service_not_connected"
+                )
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -121,14 +140,28 @@ class MeowAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+
+        // Track the foreground package for the overlay gating logic. We do
+        // this regardless of whether anything is queued so the overlay
+        // service can decide when to draw.
+        // IMPORTANT: ignore events from our own package — these are triggered
+        // by our overlay windows being added/removed and must NOT reset the
+        // foreground state (which would cause the overlay to hide itself).
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val pkg = event.packageName?.toString()
+            if (!pkg.isNullOrEmpty() && pkg != applicationContext.packageName) {
+                foregroundPackage = pkg
+                AppAgentOverlayService.notifyForegroundChanged(applicationContext, pkg)
+            }
+        }
+
         if (actionQueue.isEmpty()) return
 
         val packageName = event.packageName?.toString() ?: return
 
-        // Only process events from WhatsApp.
+        // Only process queued actions when the target (WhatsApp) is in front.
         if (packageName != WA_PACKAGE) return
 
-        // Process on window state change (screen ready).
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             handler.postDelayed({ processQueue() }, 400)
@@ -616,7 +649,7 @@ class MeowAccessibilityService : AccessibilityService() {
                 if (root != null) {
                     val nodes = mutableListOf<Map<String, Any?>>()
                     val counter = intArrayOf(0)
-                    serializeNode(root, nodes, 0, 6, counter, 50)
+                    serializeNode(root, nodes, 0, 15, counter, 200)
                     windowInfo["package"] = root.packageName?.toString()
                     windowInfo["nodes"] = nodes
                     windowInfo["node_count"] = nodes.size
@@ -646,20 +679,40 @@ class MeowAccessibilityService : AccessibilityService() {
      * Capture accessibility tree from the primary display (default rootInActiveWindow).
      */
     internal fun captureDefaultTreeInternal(): Map<String, Any?>? {
-        val root = rootInActiveWindow ?: return mapOf(
-            "error" to "no_active_window",
-            "message" to "rootInActiveWindow returned null"
-        )
+        val root = rootInActiveWindow
+        if (root == null) {
+            Log.w(TAG, "captureDefaultTree: rootInActiveWindow is null")
+            return mapOf(
+                "error" to "no_active_window",
+                "message" to "rootInActiveWindow returned null"
+            )
+        }
+
+        val pkg = root.packageName?.toString() ?: "unknown"
+        val childCount = root.childCount
+        Log.d(TAG, "captureDefaultTree: package=$pkg, rootChildCount=$childCount, " +
+                "className=${root.className}, text=${root.text}, " +
+                "clickable=${root.isClickable}, scrollable=${root.isScrollable}")
 
         try {
             val nodes = mutableListOf<Map<String, Any?>>()
             val counter = intArrayOf(0)
-            serializeNode(root, nodes, 0, 6, counter, 50)
+            val visited = intArrayOf(0)
+            serializeNode(root, nodes, 0, 15, counter, 200, visited)
+
+            Log.d(TAG, "captureDefaultTree: serialized ${nodes.size} interesting nodes " +
+                    "out of ${visited[0]} visited (package=$pkg)")
+
+            if (nodes.isEmpty() && childCount > 0) {
+                Log.w(TAG, "captureDefaultTree: ROOT HAS CHILDREN ($childCount) BUT " +
+                        "ZERO INTERESTING NODES. Dumping first 3 levels...")
+                dumpTreeDebug(root, 0, 3)
+            }
 
             val result = mapOf<String, Any?>(
                 "success" to true,
                 "display_id" to 0,
-                "package" to (root.packageName?.toString()),
+                "package" to pkg,
                 "node_count" to nodes.size,
                 "nodes" to nodes
             )
@@ -668,6 +721,91 @@ class MeowAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             Log.e(TAG, "Error capturing default tree", e)
             return mapOf("error" to "exception", "message" to (e.message ?: "unknown"))
+        }
+    }
+
+    /** Debug helper: dump raw tree structure to logcat without any pruning. */
+    private fun dumpTreeDebug(node: AccessibilityNodeInfo, depth: Int, maxDepth: Int) {
+        if (depth > maxDepth) return
+        val indent = "  ".repeat(depth)
+        val text = node.text?.toString()?.take(30)
+        val desc = node.contentDescription?.toString()?.take(30)
+        val cls = node.className?.toString()?.substringAfterLast('.') ?: "?"
+        val pkg = node.packageName?.toString() ?: "?"
+        Log.d(TAG, "${indent}[$depth] $cls pkg=$pkg text=$text desc=$desc " +
+                "click=${node.isClickable} edit=${node.isEditable} " +
+                "scroll=${node.isScrollable} children=${node.childCount}")
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            dumpTreeDebug(child, depth + 1, maxDepth)
+        }
+    }
+
+    internal fun performNodeActionInternal(
+        nodeId: Int,
+        action: String,
+        text: String?,
+        direction: String?
+    ): Map<String, Any?> {
+        val root = rootInActiveWindow ?: return mapOf(
+            "success" to false,
+            "error" to "no_active_window",
+            "message" to "rootInActiveWindow returned null"
+        )
+
+        return try {
+            val node = findSerializedNodeById(root, nodeId)
+            if (node == null) {
+                mapOf(
+                    "success" to false,
+                    "error" to "node_not_found",
+                    "node_id" to nodeId
+                )
+            } else {
+                val performed = when (action) {
+                    "click" -> node.performAction(AccessibilityNodeInfo.ACTION_CLICK) ||
+                            (findClickableParent(node)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+                    "set_text" -> {
+                        val args = Bundle().apply {
+                            putCharSequence(
+                                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                                text ?: ""
+                            )
+                        }
+                        node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                    }
+                    "scroll_forward", "scroll_down" ->
+                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                    "scroll_backward", "scroll_up" ->
+                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                    "focus" -> node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+                    else -> false
+                }
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
+                mapOf(
+                    "success" to performed,
+                    "action" to action,
+                    "node_id" to nodeId,
+                    "text" to (node.text?.toString() ?: ""),
+                    "desc" to (node.contentDescription?.toString() ?: ""),
+                    "class" to (node.className?.toString() ?: ""),
+                    "package" to (node.packageName?.toString() ?: ""),
+                    "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    "direction" to direction
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error performing app-agent action", e)
+            mapOf(
+                "success" to false,
+                "error" to "exception",
+                "message" to (e.message ?: "unknown"),
+                "node_id" to nodeId,
+                "action" to action
+            )
+        } finally {
+            root.recycle()
         }
     }
 
@@ -698,9 +836,11 @@ class MeowAccessibilityService : AccessibilityService() {
         depth: Int,
         maxDepth: Int,
         counter: IntArray,
-        maxNodes: Int
+        maxNodes: Int,
+        visited: IntArray = intArrayOf(0)
     ) {
         if (depth > maxDepth || counter[0] >= maxNodes) return
+        visited[0]++
 
         val text = node.text?.toString()
         val desc = node.contentDescription?.toString()
@@ -738,8 +878,38 @@ class MeowAccessibilityService : AccessibilityService() {
         for (i in 0 until node.childCount) {
             if (counter[0] >= maxNodes) break
             val child = node.getChild(i) ?: continue
-            serializeNode(child, output, depth + 1, maxDepth, counter, maxNodes)
+            serializeNode(child, output, depth + 1, maxDepth, counter, maxNodes, visited)
         }
+    }
+
+    private fun findSerializedNodeById(
+        node: AccessibilityNodeInfo,
+        targetId: Int,
+        depth: Int = 0,
+        maxDepth: Int = 15,
+        counter: IntArray = intArrayOf(0),
+        maxNodes: Int = 200
+    ): AccessibilityNodeInfo? {
+        if (depth > maxDepth || counter[0] >= maxNodes) return null
+
+        val text = node.text?.toString()
+        val desc = node.contentDescription?.toString()
+        val isInteresting = !text.isNullOrEmpty() || !desc.isNullOrEmpty() ||
+                node.isClickable || node.isEditable || node.isScrollable
+
+        if (isInteresting) {
+            val currentId = counter[0]
+            counter[0]++
+            if (currentId == targetId) return node
+        }
+
+        for (i in 0 until node.childCount) {
+            if (counter[0] >= maxNodes) break
+            val child = node.getChild(i) ?: continue
+            val found = findSerializedNodeById(child, targetId, depth + 1, maxDepth, counter, maxNodes)
+            if (found != null) return found
+        }
+        return null
     }
 
     private fun windowTypeToString(type: Int): String {

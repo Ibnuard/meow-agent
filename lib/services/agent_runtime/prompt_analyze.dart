@@ -83,6 +83,8 @@ const promptAnalyzeExamples =
 - "open whatsapp" → app.resolve("whatsapp") then app.open(packageName)
 - "open youtube" → app.resolve("youtube") then app.open(packageName)
 - "open google.com" → intent.open_url
+- "tap the Send button in the current app" -> app_agent.inspect then app_agent.click
+- "type hello into this app's message field" -> app_agent.inspect then app_agent.set_text
 - "read clipboard" → clipboard.read
 - "write to clipboard" → clipboard.write
 - "open wifi settings" → settings.open
@@ -127,6 +129,7 @@ Rules:
 - detected_language: the ISO 639-1 code of the language the USER wrote in (e.g. "en", "id", "es", "fr", "ja", "ar"). Judge from the user's actual message text, not the app setting. This drives every user-facing reply, so be accurate. If the message is too short or ambiguous to tell, repeat the language of the recent conversation, else default to "en".
 - tool_groups: when requires_tools is true, list the tool CATEGORY/CATEGORIES most relevant to the request, chosen ONLY from this fixed English enum:
     app          \\u2014 open apps/URLs, list installed apps, open settings
+    app_agent    \\u2014 inspect and control the currently visible Android app screen via Accessibility
     clipboard    \\u2014 read/write the clipboard
     device       \\u2014 battery, network/wifi/cellular, storage, time, locale, bluetooth, do-not-disturb, foreground app, usage
     notification \\u2014 read/summarize/classify/reply notifications, post a local notification

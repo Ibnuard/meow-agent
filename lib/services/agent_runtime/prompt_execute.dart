@@ -3,8 +3,7 @@ library;
 
 // ─── Tool Selector ───────────────────────────────────────────────────────────
 
-const promptSelectToolIntro =
-    '''You are an AI agent tool selector.
+const promptSelectToolIntro = '''You are an AI agent tool selector.
 
 CRITICAL — TASK BOUNDARY RULE:
 - "Previous results (this turn)" below is the ONLY source of truth for what has been executed in THIS task.
@@ -16,7 +15,10 @@ CRITICAL — TASK BOUNDARY RULE:
 const promptSelectToolResponseFormat =
     '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you're about to do or have decided. NO tool names, NO IDs, NO internal jargon. First-person, present-progressive (e.g. 'One sec, removing the agent you mentioned.' / 'Picking the right step for this now.').
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing SPECIFICALLY what you're about to do. RULES:
+- Be CONCRETE: mention the target element, screen, or action (e.g. 'Scrolling the chat list to find the group.' / 'Tapping the search icon at the top.').
+- NEVER repeat the same narrative across steps. Each narrative must reflect THIS step's unique action.
+- NO tool names, NO IDs, NO internal jargon. First-person, present-progressive.
 
 If a tool is needed:
 {
@@ -48,6 +50,14 @@ If you need more info from the user:
 CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
 - If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Use text reading for text files and image description for image files. Do not infer file contents from filenames or prior narrative.
+- App Agentic screen automation loop:
+  * If the user wants to control the currently visible Android app, inspect the screen first.
+  * If app_agent.inspect shows the wrong package/app for the goal, do NOT inspect again. Use app.resolve/app.open for the target app, then app_agent.inspect.
+  * After app_agent.inspect, choose exactly one concrete action from the visible node tree: app_agent.click, app_agent.set_text, or app_agent.scroll.
+  * Use only node_id values from the latest app_agent.inspect result. Do not invent node IDs.
+  * After every successful app_agent.click, app_agent.set_text, or app_agent.scroll, inspect again before deciding the next action or declaring done.
+  * Never return status="done" immediately after app_agent.inspect unless the user only asked what is visible on screen.
+  * For opening a target app first, use app.resolve then app.open, then app_agent.inspect.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
@@ -77,13 +87,37 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
 - Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.''';
 
+const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
+- For app_agent.inspect: return status="continue" when the original user goal requires any action. Choose done only if the user merely asked to inspect/read the current screen.
+- For app_agent.click, app_agent.set_text, and app_agent.scroll: if the tool succeeded, return status="continue" so the next step inspects the screen again.
+- Do not declare success for external app automation until a later app_agent.inspect result shows evidence that the goal is complete.
+- If a node action failed because node_not_found, stale screen, no_active_window, or the UI changed, return status="retry" or "continue" with another app_agent.inspect.
+- If the screen lacks the required target after reasonable scrolling/searching, ask the user for help instead of claiming success.
+- PRE-EXISTING STATE COUNTS AS COMPLETION:
+  * If app_agent.inspect shows that the goal state is ALREADY satisfied (e.g. the target text already exists in the input field, the target screen is already visible, the desired item is already selected), declare the relevant subgoals as done immediately. Do NOT attempt to re-execute an action whose outcome is already present on screen. The user's intent is the END STATE, not the act of performing each step.
+  * Example: user asks "type Meow Test in the message field" and inspect shows text="Meow Test" already in an editable node → that subgoal is done.
+- STATE INVALIDATION (critical for multi-step app automation):
+  * If the current tool result reveals that a precondition of an earlier subgoal marked "done" is no longer true (e.g. inspect returns a different package than the target app, registry shows the entity does not exist, snapshot shows the state is missing), you MUST revert that earlier subgoal back to "in_progress" via `subgoal_updates`.
+  * Do NOT advance subgoals when the live state contradicts a prior step. Selector will naturally re-execute the earliest non-terminal subgoal next.
+  * Example signal: app_agent.inspect returns package="com.example.foo" but an earlier subgoal "Open com.target.app" is marked done — revert that subgoal to in_progress with a note.''';
+
 const promptReviewResponseFormat =
     '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
 
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
   "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you observed and what's next (e.g. 'Done! Now on to the second one.' / 'That worked, moving on to the next step.'). NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
+When the live tool result invalidates ONE OR MORE earlier subgoals, also include `subgoal_updates` (array) to revert them. Each entry has the same shape as `subgoal_update`:
+  "subgoal_updates": [
+    {"id": "sg1", "status": "in_progress", "notes": "current package is not the target app"},
+    {"id": "sg2", "status": "in_progress", "notes": "target chat not visible"}
+  ]
+Entries in `subgoal_updates` are applied in order and override `subgoal_update` for the same id.
+
+ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing CONCRETELY what you observed and the immediate next action. RULES:
+- Be SPECIFIC to what the tool result showed (e.g. 'The chat list is visible but the group isn't here yet, scrolling down.' / 'Found the message field, typing now.').
+- NEVER repeat a previous narrative verbatim. Each step must have a unique observation.
+- NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
 
 If the active subgoal succeeded but other subgoals are still pending: status=continue.
 Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
