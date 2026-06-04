@@ -7,7 +7,6 @@ import '../../../app/widgets/widgets.dart';
 import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
-import '../communication/communication_service.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
@@ -54,7 +53,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Re-check permissions when user returns from settings.
     if (state == AppLifecycleState.resumed) {
-      _syncBubbleState();
       _syncCommunicationState();
     }
   }
@@ -69,49 +67,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
   }
 
-  /// If user enabled floating_bubble but overlay permission was just granted,
-  /// start the service automatically.
-  Future<void> _syncBubbleState() async {
-    if (_module == null || _module!.id != 'clipboard_ai') return;
-    final wantsBubble = _module!.settings['floating_bubble'] ?? false;
-    if (!wantsBubble) return;
-
-    final canDraw = await _permissionManager.isGranted(
-      PermissionType.systemAlertWindow,
-    );
-    final running = await ref
-        .read(clipboardServiceControllerProvider)
-        .isBubbleServiceRunning();
-    if (canDraw && !running) {
-      await ref.read(clipboardServiceControllerProvider).startBubbleService();
-    }
-  }
-
-  /// Sync communication module toggles with actual accessibility state.
-  /// If accessibility got revoked externally, turn off WA toggles.
-  /// If accessibility was just granted (user returned from settings), turn them on.
+  /// Sync communication module state when returning from settings.
   Future<void> _syncCommunicationState() async {
     if (_module == null || _module!.id != 'communication') return;
-
-    final waEnabled = _module!.settings['whatsapp_enabled'] ?? false;
-    final waCallEnabled = _module!.settings['wa_call_enabled'] ?? false;
-    if (!waEnabled && !waCallEnabled) return;
-
-    final accessibilityOn = await CommunicationService.isAccessibilityEnabled();
-
-    if (!accessibilityOn) {
-      // Accessibility revoked — disable WA toggles.
-      final updated = _module!.copyWith(
-        settings: {
-          ..._module!.settings,
-          'whatsapp_enabled': false,
-          'wa_call_enabled': false,
-        },
-      );
-      await ref.read(moduleRepositoryProvider).update(updated);
-      ref.invalidate(installedModulesProvider);
-      if (mounted) setState(() => _module = updated);
-    }
+    // No WA/Telegram state to sync anymore — call/sms/contacts
+    // permissions are handled inline on toggle.
   }
 
   Future<void> _toggleSetting(String key, bool value) async {
@@ -142,51 +102,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           await ref
               .read(clipboardServiceControllerProvider)
               .stopNotificationService();
-        }
-      }
-
-      if (key == 'floating_bubble') {
-        if (value) {
-          // Need POST_NOTIFICATIONS for the foreground service notification.
-          final notifGranted = await _permissionManager.request(
-                PermissionType.notification,
-              ) ==
-              PermissionResult.granted;
-          if (!notifGranted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.notificationPermissionRequired),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            return;
-          }
-          // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
-          final canDraw = await _permissionManager.isGranted(
-            PermissionType.systemAlertWindow,
-          );
-          if (!canDraw) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.overlayPermissionRequired),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-            await _permissionManager.request(PermissionType.systemAlertWindow);
-            // Don't toggle yet — will sync on resume.
-            return;
-          }
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .startBubbleService();
-        } else {
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .stopBubbleService();
         }
       }
     }
@@ -373,61 +288,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
     // Communication module — permission gating per feature.
     if (_module!.id == 'communication') {
-      // Telegram: Coming Soon — block toggle.
-      if (key == 'telegram_enabled') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                s.isId
-                    ? 'Integrasi Telegram segera hadir!'
-                    : 'Telegram integration coming soon!',
-              ),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-        return;
-      }
-
-      // WhatsApp features need Accessibility Service.
-      if (value &&
-          (key == 'whatsapp_enabled' || key == 'wa_call_enabled')) {
-        final alreadyEnabled =
-            await CommunicationService.isAccessibilityEnabled();
-        if (!alreadyEnabled && mounted) {
-          final goSettings = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Text(s.permissionRequired),
-              content: Text(
-                s.isId
-                    ? 'Fitur otomasi WhatsApp membutuhkan "Layanan Aksesibilitas".\n\n'
-                          'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan.\n\n'
-                          'Kembali ke sini setelah mengaktifkan.'
-                    : 'WhatsApp automation requires the "Accessibility Service".\n\n'
-                          'Tap "Open Settings", find "Meow Agent" in the list, and enable it.\n\n'
-                          'Come back here after enabling.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: Text(s.cancel),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(s.openSettings),
-                ),
-              ],
-            ),
-          );
-          if (goSettings != true) return;
-          await _permissionManager.openAccessibilitySettings();
-          // Don't toggle yet — user returns after enabling.
-          return;
-        }
-      }
-
       // Phone call needs CALL_PHONE permission.
       if (value && key == 'call_enabled') {
         final result = await _permissionManager.request(
@@ -473,7 +333,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       }
 
       // Contacts needs READ_CONTACTS permission.
-      if (value && key == 'contacts_enabled') {
+      if (value && key == 'contact_access') {
         final result = await _permissionManager.request(
           PermissionType.contacts,
         );
@@ -855,6 +715,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             ),
             const SizedBox(height: 10),
             Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: extras.card,
                 borderRadius: BorderRadius.circular(14),

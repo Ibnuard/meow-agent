@@ -67,7 +67,6 @@ class ModuleRegistry {
     settings: {
       'share_intent': true,
       'persistent_notification': false,
-      'floating_bubble': false,
     },
   );
 
@@ -82,7 +81,6 @@ class ModuleRegistry {
       'allow_system_settings': false,
       'allow_url_intents': true,
       'allow_background_launch': false,
-      'show_execution_toast': true,
     },
   );
 
@@ -101,7 +99,6 @@ class ModuleRegistry {
       'allow_charging': true,
       'allow_dnd': true,
       'allow_bluetooth': true,
-      'show_logs': true,
     },
   );
 
@@ -117,7 +114,6 @@ class ModuleRegistry {
       'allow_classify': false,
       'allow_reply_suggestion': false,
       'allow_open_source_app': false,
-      'show_logs': false,
     },
   );
 
@@ -133,8 +129,7 @@ class ModuleRegistry {
       'allow_read': true,
       'allow_search': true,
       'allow_export': true,
-      'require_confirm_update': true,
-      'require_confirm_delete': true,
+      'require_confirm_sensitive': true,
     },
   );
 
@@ -203,16 +198,13 @@ class ModuleRegistry {
     id: 'communication',
     name: 'Communication',
     description:
-        'Automate messaging and calls. Send WhatsApp messages, '
-        'make phone calls, send SMS, and resolve contacts hands-free.',
+        'Automate calls, SMS, and contact resolution. '
+        'Make phone calls, send SMS, and resolve contacts hands-free.',
     icon: '📲',
     settings: {
-      'whatsapp_enabled': false,
-      'wa_call_enabled': false,
       'call_enabled': false,
       'sms_enabled': false,
       'contact_access': false,
-      'telegram_enabled': false,
     },
   );
 

@@ -982,7 +982,6 @@ class AppStrings {
     'clipboard_ai' => switch (key) {
       'share_intent' => (isId ? 'Menu Share Android' : 'Share Intent', isId ? 'Terima teks dari menu Share Android.' : 'Receive text via Android Share menu.'),
       'persistent_notification' => (isId ? 'Notifikasi Persisten' : 'Persistent Notification', isId ? 'Tampilkan notifikasi untuk memproses clipboard dengan cepat.' : 'Show a notification to quickly process clipboard.'),
-      'floating_bubble' => (isId ? 'Bubble Mengambang' : 'Floating Bubble', isId ? 'Bubble yang bisa digeser di atas aplikasi lain.' : 'Draggable bubble overlay on top of all apps.'),
       _ => (key, ''),
     },
     'app_control' => switch (key) {
@@ -990,7 +989,6 @@ class AppStrings {
       'allow_system_settings' => (isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings', isId ? 'AI dapat membuka halaman pengaturan sistem Android.' : 'AI can open Android system settings screens.'),
       'allow_url_intents' => (isId ? 'Izinkan Buka URL' : 'Allow URL Intents', isId ? 'AI dapat membuka URL di browser.' : 'AI can open URLs in the browser.'),
       'allow_background_launch' => (isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch', isId ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".' : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.'),
-      'show_execution_toast' => (isId ? 'Tampilkan Toast Eksekusi' : 'Show Execution Toast', isId ? 'Tampilkan notifikasi singkat saat aksi dijalankan.' : 'Show a brief notification when an action runs.'),
       _ => (key, ''),
     },
     'device_context' => switch (key) {
@@ -1002,7 +1000,6 @@ class AppStrings {
       'allow_charging' => (isId ? 'Info Pengisian Daya' : 'Charging Info', isId ? 'Agen dapat membaca status pengisian daya dan tipe charger.' : 'Agent can read charging state and plug type.'),
       'allow_dnd' => (isId ? 'Status Jangan Ganggu' : 'Do Not Disturb Status', isId ? 'Agen dapat membaca mode DND. Membutuhkan akses kebijakan notifikasi.' : 'Agent can read DND mode. Requires notification policy access.'),
       'allow_bluetooth' => (isId ? 'Status Bluetooth' : 'Bluetooth Status', isId ? 'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.' : 'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.'),
-      'show_logs' => (isId ? 'Tampilkan di Log Runtime' : 'Show in Runtime Logs', isId ? 'Sertakan data perangkat di log debug agen.' : 'Include device data in agent debug logs.'),
       _ => (key, ''),
     },
     'notification_intelligence' => switch (key) {
@@ -1011,7 +1008,6 @@ class AppStrings {
       'allow_classify' => (isId ? 'Izinkan Deteksi Penting' : 'Allow Importance Detection', isId ? 'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.' : 'Agent can flag urgent or important notifications.'),
       'allow_reply_suggestion' => (isId ? 'Izinkan Saran Balasan' : 'Allow Reply Suggestions', isId ? 'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.' : 'Agent can suggest replies. Will NOT auto-send.'),
       'allow_open_source_app' => (isId ? 'Izinkan Buka Aplikasi Sumber' : 'Allow Open Source App', isId ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.' : 'Agent can open the app that sent a notification.'),
-      'show_logs' => (isId ? 'Tampilkan Data Notifikasi di Log' : 'Show Notification Data in Logs', isId ? 'Sertakan konten notifikasi di log runtime (default mati untuk privasi).' : 'Include notification content in runtime logs (privacy off by default).'),
       _ => (key, ''),
     },
     'notes' => switch (key) {
@@ -1019,8 +1015,7 @@ class AppStrings {
       'allow_read' => (isId ? 'Izinkan Baca Note' : 'Allow Read Notes', isId ? 'Agen dapat membaca dan melihat daftar catatan.' : 'Agent can read and list notes.'),
       'allow_search' => (isId ? 'Izinkan Cari Note' : 'Allow Search Notes', isId ? 'Agen dapat mencari catatan berdasarkan kata kunci.' : 'Agent can search notes by keyword.'),
       'allow_export' => (isId ? 'Izinkan Export Note' : 'Allow Export Notes', isId ? 'Agen dapat mengekspor catatan sebagai file markdown ke workspace.' : 'Agent can export notes as markdown files to the workspace.'),
-      'require_confirm_update' => (isId ? 'Konfirmasi Sebelum Update' : 'Confirm Before Update', isId ? 'Wajib konfirmasi pengguna sebelum menimpa konten catatan.' : 'Require user confirmation before overwriting note content.'),
-      'require_confirm_delete' => (isId ? 'Konfirmasi Sebelum Hapus' : 'Confirm Before Delete', isId ? 'Wajib konfirmasi pengguna sebelum menghapus catatan.' : 'Require user confirmation before deleting a note.'),
+      'require_confirm_sensitive' => (isId ? 'Konfirmasi Aksi Sensitif' : 'Confirm Sensitive Actions', isId ? 'Wajib konfirmasi pengguna sebelum update atau hapus catatan.' : 'Require user confirmation before updating or deleting notes.'),
       _ => (key, ''),
     },
     'files' => switch (key) {
@@ -1053,12 +1048,9 @@ class AppStrings {
       _ => (key, ''),
     },
     'communication' => switch (key) {
-      'whatsapp_enabled' => (isId ? 'WhatsApp Auto-Send' : 'WhatsApp Auto-Send', isId ? 'Kirim pesan WhatsApp otomatis via Accessibility Service.' : 'Auto-send WhatsApp messages via Accessibility Service.'),
-      'wa_call_enabled' => (isId ? 'WhatsApp Auto-Call' : 'WhatsApp Auto-Call', isId ? 'Lakukan panggilan suara/video WhatsApp otomatis.' : 'Auto-initiate WhatsApp voice/video calls.'),
       'call_enabled' => (isId ? 'Telepon Otomatis' : 'Auto Phone Call', isId ? 'Langsung dial nomor telepon tanpa konfirmasi manual.' : 'Directly dial phone numbers without manual confirmation.'),
       'sms_enabled' => (isId ? 'SMS Otomatis' : 'Auto SMS', isId ? 'Kirim SMS secara langsung tanpa buka aplikasi.' : 'Send SMS directly without opening the messaging app.'),
       'contact_access' => (isId ? 'Akses Kontak' : 'Contact Access', isId ? 'Izinkan agen membaca buku kontak untuk resolve nama.' : 'Allow agent to read contacts to resolve names to numbers.'),
-      'telegram_enabled' => (isId ? 'Telegram (Coming Soon)' : 'Telegram (Coming Soon)', isId ? 'Integrasi Telegram sedang dalam pengembangan.' : 'Telegram integration is under development.'),
       _ => (key, ''),
     },
     _ => (key, ''),

@@ -4,8 +4,8 @@ import 'communication_service.dart';
 
 /// Communication Automation module plugin.
 ///
-/// Provides tools for automated messaging (WhatsApp, SMS), calling,
-/// and contact resolution via Android Accessibility Service and intents.
+/// Provides tools for automated calling, SMS, and contact resolution
+/// via Android intents.
 class CommunicationModulePlugin extends ModulePlugin {
   const CommunicationModulePlugin();
 
@@ -17,16 +17,12 @@ class CommunicationModulePlugin extends ModulePlugin {
 
   @override
   List<String> get capabilityHints => const [
-        'whatsapp',
-        'wa',
         'call',
         'phone',
         'sms',
         'message',
         'text',
         'contact',
-        'telegram',
-        'video call',
         'voice call',
       ];
 
@@ -59,57 +55,6 @@ class CommunicationModulePlugin extends ModulePlugin {
           },
         ),
 
-        // ─── WhatsApp Messaging ────────────────────────────────────
-        ToolDefinition(
-          name: 'communication.send_whatsapp',
-          description:
-              'Send a WhatsApp message to a contact. Requires phone number '
-              '(use communication.resolve_contact first if only name is known). '
-              'Uses Accessibility Service for fully automated sending.',
-          risk: 'sensitive',
-          requiresConfirmation: true,
-          inputSchema: {
-            'phone': 'string (phone number with country code, e.g. +6281234567890)',
-            'message': 'string (message text to send)',
-          },
-        ),
-        ToolDefinition(
-          name: 'communication.send_whatsapp_group',
-          description:
-              'Send a WhatsApp message to a group by group name. '
-              'Uses Accessibility Service to find the group and send.',
-          risk: 'sensitive',
-          requiresConfirmation: true,
-          inputSchema: {
-            'group_name': 'string (exact or partial group name)',
-            'message': 'string (message text to send)',
-          },
-        ),
-
-        // ─── WhatsApp Calling ──────────────────────────────────────
-        ToolDefinition(
-          name: 'communication.wa_voice_call',
-          description:
-              'Initiate a WhatsApp voice call to a contact. '
-              'Requires phone number (resolve first if only name).',
-          risk: 'sensitive',
-          requiresConfirmation: true,
-          inputSchema: {
-            'phone': 'string (phone number with country code)',
-          },
-        ),
-        ToolDefinition(
-          name: 'communication.wa_video_call',
-          description:
-              'Initiate a WhatsApp video call to a contact. '
-              'Requires phone number (resolve first if only name).',
-          risk: 'sensitive',
-          requiresConfirmation: true,
-          inputSchema: {
-            'phone': 'string (phone number with country code)',
-          },
-        ),
-
         // ─── Phone Call ────────────────────────────────────────────
         ToolDefinition(
           name: 'communication.call',
@@ -135,19 +80,6 @@ class CommunicationModulePlugin extends ModulePlugin {
             'message': 'string (SMS text, max 160 chars recommended)',
           },
         ),
-
-        // ─── Telegram (Coming Soon) ───────────────────────────────
-        ToolDefinition(
-          name: 'communication.send_telegram',
-          description:
-              '[COMING SOON] Send a Telegram message. This feature is under development.',
-          risk: 'sensitive',
-          requiresConfirmation: true,
-          inputSchema: {
-            'contact': 'string (contact name or username)',
-            'message': 'string (message text)',
-          },
-        ),
       ];
 
   @override
@@ -162,20 +94,10 @@ class CommunicationModulePlugin extends ModulePlugin {
         return service.resolveContact(request.args);
       case 'communication.list_contacts':
         return service.listContacts(request.args);
-      case 'communication.send_whatsapp':
-        return service.sendWhatsApp(request.args);
-      case 'communication.send_whatsapp_group':
-        return service.sendWhatsAppGroup(request.args);
-      case 'communication.wa_voice_call':
-        return service.waVoiceCall(request.args);
-      case 'communication.wa_video_call':
-        return service.waVideoCall(request.args);
       case 'communication.call':
         return service.makeCall(request.args);
       case 'communication.send_sms':
         return service.sendSms(request.args);
-      case 'communication.send_telegram':
-        return _comingSoon(request.name, 'Telegram');
       default:
         return ToolExecutionResult(
           success: false,
@@ -183,15 +105,5 @@ class CommunicationModulePlugin extends ModulePlugin {
           error: 'CommunicationModulePlugin cannot handle ${request.name}',
         );
     }
-  }
-
-  ToolExecutionResult _comingSoon(String toolName, String feature) {
-    return ToolExecutionResult(
-      success: false,
-      toolName: toolName,
-      error: '$feature integration is coming soon. '
-          'This feature is currently under development.',
-      data: {'status': 'coming_soon', 'feature': feature},
-    );
   }
 }
