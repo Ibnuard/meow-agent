@@ -202,6 +202,13 @@ class MainActivity : FlutterActivity() {
             }
         }
 
+        // Wire up Bubble → Flutter: cancel active task
+        FloatingBubbleService.onCancelMessage = {
+            Handler(Looper.getMainLooper()).post {
+                bubbleChannel.invokeMethod("onCancelBubbleChat", null)
+            }
+        }
+
         val notificationsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
         notificationsChannel.setMethodCallHandler { call, result ->
             when (call.method) {

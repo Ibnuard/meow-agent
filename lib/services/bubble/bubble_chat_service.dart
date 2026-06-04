@@ -35,6 +35,16 @@ class BubbleChatService {
         case 'onRequestInfo':
           await _sendChatInfo();
           return null;
+        case 'onCancelBubbleChat':
+          // Abort the active runtime task for default agent
+          final agents = _ref.read(agentRepositoryProvider).loadAll();
+          final defaultAgent = agents.firstWhere(
+            (a) => a.id == 'default',
+            orElse: () => agents.first,
+          );
+          final engine = _ref.read(agentRuntimeEngineProvider);
+          await engine.abortActiveTask(defaultAgent.id);
+          return null;
         default:
           throw MissingPluginException('Not implemented: ${call.method}');
       }

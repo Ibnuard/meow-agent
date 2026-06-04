@@ -57,6 +57,9 @@ class FloatingBubbleService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var menuShowing = false
     private var chatShowing = false
+    private var chatProcessing = false
+    private var hasUnreadResponse = false
+    private var pendingResponse: String? = null
 
     // Chat UI references
     private var chatResponseText: TextView? = null
@@ -64,6 +67,8 @@ class FloatingBubbleService : Service() {
     private var chatInput: EditText? = null
     private var chatProgress: ProgressBar? = null
     private var chatSendBtn: View? = null
+    private var chatSendIcon: ImageView? = null
+    private var dotView: View? = null
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -78,6 +83,7 @@ class FloatingBubbleService : Service() {
         var onChatResponse: ((String) -> Unit)? = null
         var onSendMessage: ((String) -> Unit)? = null
         var onRequestInfo: (() -> Unit)? = null
+        var onCancelMessage: (() -> Unit)? = null
 
         private var instance: FloatingBubbleService? = null
 
@@ -214,6 +220,23 @@ class FloatingBubbleService : Service() {
             setPadding(padding, padding, padding, padding)
         }
         container.addView(icon)
+
+        // Unread dot indicator (hidden by default)
+        dotView = View(this).apply {
+            val dotSize = dp(10)
+            val lp = FrameLayout.LayoutParams(dotSize, dotSize).apply {
+                gravity = Gravity.TOP or Gravity.END
+                topMargin = dp(6)
+                rightMargin = dp(6)
+            }
+            layoutParams = lp
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(Color.parseColor("#3B82F6"))
+            }
+            visibility = View.GONE
+        }
+        container.addView(dotView)
 
         val sizePx = dp(52)
 
@@ -390,18 +413,11 @@ class FloatingBubbleService : Service() {
         menuShowing = false
         val wm = windowManager ?: return
 
-        menuView?.animate()?.alpha(0f)?.scaleX(0.8f)?.scaleY(0.8f)
-            ?.setDuration(150)
-            ?.withEndAction {
-                try { menuView?.let { wm.removeView(it) } } catch (_: Exception) {}
-                menuView = null
-            }?.start()
-
-        scrimView?.animate()?.alpha(0f)?.setDuration(150)
-            ?.withEndAction {
-                try { scrimView?.let { wm.removeView(it) } } catch (_: Exception) {}
-                scrimView = null
-            }?.start()
+        // Remove instantly to prevent flickering
+        try { menuView?.let { wm.removeView(it) } } catch (_: Exception) {}
+        menuView = null
+        try { scrimView?.let { wm.removeView(it) } } catch (_: Exception) {}
+        scrimView = null
     }
 
     private fun buildMenuLayout(): View {
@@ -536,20 +552,18 @@ class FloatingBubbleService : Service() {
     private fun dismissChat() {
         if (!chatShowing) return
         chatShowing = false
+        chatProcessing = false
         val wm = windowManager ?: return
 
-        chatView?.animate()
-            ?.alpha(0f)
-            ?.translationY(dp(20).toFloat())
-            ?.setDuration(150)
-            ?.withEndAction {
-                try { chatView?.let { wm.removeView(it) } } catch (_: Exception) {}
-                chatView = null
-                chatResponseText = null
-                chatInput = null
-                chatProgress = null
-                chatSendBtn = null
-            }?.start()
+        // Remove instantly
+        try { chatView?.let { wm.removeView(it) } } catch (_: Exception) {}
+        chatView = null
+        chatResponseText = null
+        chatHeaderSubtitle = null
+        chatInput = null
+        chatProgress = null
+        chatSendBtn = null
+        chatSendIcon = null
     }
 
     private fun buildChatCard(): View {
@@ -670,7 +684,7 @@ class FloatingBubbleService : Service() {
         }
         inputRow.addView(chatInput)
 
-        // Send button
+        // Send / Stop button
         chatSendBtn = FrameLayout(this).apply {
             val size = dp(40)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
@@ -681,14 +695,14 @@ class FloatingBubbleService : Service() {
             )
             elevation = 4f
 
-            val sendIcon = ImageView(this@FloatingBubbleService).apply {
+            chatSendIcon = ImageView(this@FloatingBubbleService).apply {
                 setImageResource(android.R.drawable.ic_menu_send)
                 setColorFilter(Color.WHITE)
                 val p = dp(9)
                 setPadding(p, p, p, p)
             }
-            addView(sendIcon)
-            setOnClickListener { sendChatMessage() }
+            addView(chatSendIcon)
+            setOnClickListener { onSendOrStop() }
         }
         inputRow.addView(chatSendBtn)
 
@@ -705,18 +719,33 @@ class FloatingBubbleService : Service() {
         return card
     }
 
+    private fun onSendOrStop() {
+        if (chatProcessing) {
+            // Stop: cancel the active task
+            chatProcessing = false
+            chatProgress?.visibility = View.GONE
+            chatSendIcon?.setImageResource(android.R.drawable.ic_menu_send)
+            chatResponseText?.text = "⏹ Cancelled."
+            chatResponseText?.setTextColor(Color.parseColor("#94A3B8"))
+            onCancelMessage?.invoke()
+        } else {
+            sendChatMessage()
+        }
+    }
+
     private fun sendChatMessage() {
         val message = chatInput?.text?.toString()?.trim() ?: return
         if (message.isEmpty()) return
 
         Log.d(TAG, "Sending chat: $message")
 
-        // Update UI
+        // Update UI — switch to processing state
+        chatProcessing = true
         chatInput?.text?.clear()
         chatResponseText?.text = ""
         chatResponseText?.setTextColor(Color.parseColor("#E5E7EB"))
         chatProgress?.visibility = View.VISIBLE
-        chatSendBtn?.isEnabled = false
+        chatSendIcon?.setImageResource(android.R.drawable.ic_media_pause)
 
         // Send to Flutter via static callback
         onSendMessage?.invoke(message)
@@ -724,12 +753,19 @@ class FloatingBubbleService : Service() {
 
     private fun showChatResponse(response: String, header: String? = null) {
         Log.d(TAG, "Showing response: ${response.take(50)}")
-        chatProgress?.visibility = View.GONE
-        chatSendBtn?.isEnabled = true
+        chatProcessing = false
 
         if (chatShowing && chatResponseText != null) {
+            // Chat is visible — show response directly
+            chatProgress?.visibility = View.GONE
+            chatSendIcon?.setImageResource(android.R.drawable.ic_menu_send)
             chatResponseText?.text = response
             chatResponseText?.setTextColor(Color.parseColor("#E5E7EB"))
+        } else {
+            // Chat was hidden during processing — store response, show dot
+            pendingResponse = response
+            hasUnreadResponse = true
+            dotView?.visibility = View.VISIBLE
         }
     }
 
