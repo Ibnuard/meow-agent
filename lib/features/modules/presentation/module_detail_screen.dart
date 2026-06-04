@@ -32,6 +32,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   _ShizukuStatus? _shizukuStatus;
   bool _checkingShizuku = false;
   bool _requestingShizukuPermission = false;
+  bool _pendingAppAgenticEnable = false;
 
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
@@ -60,6 +61,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (state == AppLifecycleState.resumed) {
       _syncCommunicationState();
       _syncSuperPowerBubble();
+      _syncSuperPowerPermissions();
       _refreshShizukuStatus();
     }
   }
@@ -71,6 +73,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       setState(() => _module = found);
       // Sync permission state immediately on load.
       _syncCommunicationState();
+      _syncSuperPowerPermissions();
       _refreshShizukuStatus();
     }
   }
@@ -406,28 +409,64 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         }
       }
 
-      if (key == 'app_agentic') {
-        if (value) {
-          // Check Shizuku status before enabling.
-          final shizukuReady = await _checkShizukuStatus();
-          if (!shizukuReady) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.shizukuStatusPermissionNeeded),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-            return;
+      if (key == 'app_agentic' && value) {
+        final accessibilityEnabled = await _isAccessibilityEnabled();
+        if (!accessibilityEnabled) {
+          _pendingAppAgenticEnable = true;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(s.accessibilityRequired),
+                duration: const Duration(seconds: 3),
+              ),
+            );
           }
+          await _permissionManager.openAccessibilitySettings();
+          return;
+        }
+      }
+
+      if ((key == 'app_agentic_support_shizuku' ||
+              key == 'run_locked_device') &&
+          value) {
+        if (_module!.settings['app_agentic'] != true) return;
+        if (key == 'run_locked_device' &&
+            _module!.settings['app_agentic_support_shizuku'] != true) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(s.shizukuSupportRequired),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+          return;
+        }
+        final shizukuReady = await _checkShizukuStatus();
+        if (!shizukuReady) {
+          if (_shizukuStatus?.available == true) {
+            await _requestShizukuPermission();
+          }
+          if (_shizukuStatus?.isReady != true) return;
         }
       }
     }
 
-    final updated = _module!.copyWith(
-      settings: {..._module!.settings, key: value},
-    );
+    var nextSettings = {..._module!.settings, key: value};
+    if (_module!.id == 'super_power') {
+      if (key == 'app_agentic' && !value) {
+        nextSettings = {
+          ...nextSettings,
+          'app_agentic_support_shizuku': false,
+          'run_locked_device': false,
+        };
+      }
+      if (key == 'app_agentic_support_shizuku' && !value) {
+        nextSettings = {...nextSettings, 'run_locked_device': false};
+      }
+    }
+
+    final updated = _module!.copyWith(settings: nextSettings);
     await ref.read(moduleRepositoryProvider).update(updated);
     ref.invalidate(installedModulesProvider);
     setState(() => _module = updated);
@@ -471,6 +510,57 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   /// Open system alarm permission settings.
   Future<void> _openAlarmSettings() async {
     await _permissionManager.openAlarmSettings();
+  }
+
+  Future<bool> _isAccessibilityEnabled() async {
+    try {
+      const channel = MethodChannel('com.meowagent/shizuku');
+      return await channel.invokeMethod<bool>('isAccessibilityEnabled') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _syncSuperPowerPermissions() async {
+    if (_module == null || _module!.id != 'super_power') return;
+    final settings = Map<String, bool>.from(_module!.settings);
+    var changed = false;
+
+    final accessibilityEnabled = await _isAccessibilityEnabled();
+    if (_pendingAppAgenticEnable && accessibilityEnabled) {
+      settings['app_agentic'] = true;
+      changed = true;
+    }
+    _pendingAppAgenticEnable = false;
+
+    if (settings['app_agentic'] == true && !accessibilityEnabled) {
+      settings['app_agentic'] = false;
+      settings['app_agentic_support_shizuku'] = false;
+      settings['run_locked_device'] = false;
+      changed = true;
+    }
+
+    if (settings['app_agentic'] != true) {
+      if (settings['app_agentic_support_shizuku'] == true ||
+          settings['run_locked_device'] == true) {
+        settings['app_agentic_support_shizuku'] = false;
+        settings['run_locked_device'] = false;
+        changed = true;
+      }
+    } else if (settings['app_agentic_support_shizuku'] != true &&
+        settings['run_locked_device'] == true) {
+      settings['run_locked_device'] = false;
+      changed = true;
+    }
+
+    if (!changed || !mounted) return;
+    final updated = _module!.copyWith(settings: settings);
+    await ref.read(moduleRepositoryProvider).update(updated);
+    ref.invalidate(installedModulesProvider);
+    if (mounted) {
+      setState(() => _module = updated);
+    }
   }
 
   /// Check Shizuku status via the same MethodChannel API used by ShizukuTestScreen.
@@ -911,133 +1001,18 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
-          // Super Power: Shizuku setup info section.
-          if (module.id == 'super_power' && module.enabled) ...[
+          if (module.id == 'super_power' &&
+              module.enabled &&
+              module.settings['app_agentic'] == true) ...[
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: extras.card,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: extras.subtleBorder),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.memory_rounded, size: 18, color: cs.primary),
-                      const SizedBox(width: 8),
-                      Text(
-                        s.shizukuSectionTitle,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: cs.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    s.shizukuSectionDesc,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cs.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  _buildShizukuStatusPanel(cs: cs, s: s),
-                  const SizedBox(height: 14),
-                  Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                await _refreshShizukuStatus();
-                              },
-                              icon: const Icon(
-                                Icons.check_circle_outline,
-                                size: 16,
-                              ),
-                              label: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  s.checkStatus,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.primary,
-                                side: BorderSide(
-                                  color: cs.primary.withValues(alpha: 0.4),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () async {
-                                await _requestShizukuPermission();
-                              },
-                              icon: const Icon(
-                                Icons.verified_user_outlined,
-                                size: 16,
-                              ),
-                              label: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  s.requestPermission,
-                                  maxLines: 1,
-                                  softWrap: false,
-                                ),
-                              ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: cs.primary,
-                                side: BorderSide(
-                                  color: cs.primary.withValues(alpha: 0.4),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            await AppControlService().openUrl(
-                              'https://shizuku.rikka.app/guide/setup/',
-                            );
-                          },
-                          icon: const Icon(Icons.open_in_new_rounded, size: 16),
-                          label: Text(s.setupGuide),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: cs.onSurfaceVariant,
-                            side: BorderSide(
-                              color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              child: _buildShizukuSupportPanel(cs: cs, s: s),
             ),
             const SizedBox(height: 20),
           ],
@@ -1061,43 +1036,144 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 border: Border.all(color: extras.subtleBorder),
               ),
               child: Column(
-                children: module.settings.entries.map((entry) {
-                  final label = settingLabels[entry.key];
-                  return SwitchListTile(
-                    title: Text(
-                      label?.$1 ?? entry.key,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: cs.onSurface,
-                      ),
+                children: _visibleSettingEntries(module).expand((entry) {
+                  return [
+                    _buildSettingSwitch(
+                      entry: entry,
+                      label: settingLabels[entry.key],
+                      cs: cs,
                     ),
-                    subtitle: label != null
-                        ? Text(
-                            label.$2,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: cs.onSurfaceVariant,
-                            ),
-                          )
-                        : null,
-                    value: entry.value,
-                    activeTrackColor: cs.primary.withValues(alpha: 0.82),
-                    activeThumbColor: Colors.white,
-                    inactiveTrackColor: cs.onSurfaceVariant.withValues(
-                      alpha: 0.22,
-                    ),
-                    inactiveThumbColor: cs.onSurfaceVariant.withValues(
-                      alpha: 0.72,
-                    ),
-                    onChanged: (v) => _toggleSetting(entry.key, v),
-                  );
+                  ];
                 }).toList(),
               ),
             ),
           ],
         ],
       ),
+    );
+  }
+
+  Iterable<MapEntry<String, bool>> _visibleSettingEntries(ModuleModel module) {
+    if (module.id != 'super_power') return module.settings.entries;
+    final appAgenticOn = module.settings['app_agentic'] == true;
+    final shizukuSupportOn =
+        module.settings['app_agentic_support_shizuku'] == true;
+    return module.settings.entries.where((entry) {
+      if (entry.key == 'app_agentic_support_shizuku') return appAgenticOn;
+      if (entry.key == 'run_locked_device') {
+        return appAgenticOn && shizukuSupportOn;
+      }
+      return true;
+    });
+  }
+
+  Widget _buildSettingSwitch({
+    required MapEntry<String, bool> entry,
+    required (String, String)? label,
+    required ColorScheme cs,
+  }) {
+    return SwitchListTile(
+      title: Text(
+        label?.$1 ?? entry.key,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: cs.onSurface,
+        ),
+      ),
+      subtitle: label != null
+          ? Text(
+              label.$2,
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+            )
+          : null,
+      value: entry.value,
+      activeTrackColor: cs.primary.withValues(alpha: 0.82),
+      activeThumbColor: Colors.white,
+      inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.22),
+      inactiveThumbColor: cs.onSurfaceVariant.withValues(alpha: 0.72),
+      onChanged: (v) => _toggleSetting(entry.key, v),
+    );
+  }
+
+  Widget _buildShizukuSupportPanel({
+    required ColorScheme cs,
+    required AppStrings s,
+  }) {
+    return Column(
+      children: [
+        _buildShizukuStatusPanel(cs: cs, s: s),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await _refreshShizukuStatus();
+                },
+                icon: const Icon(Icons.check_circle_outline, size: 16),
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(s.checkStatus, maxLines: 1, softWrap: false),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await _requestShizukuPermission();
+                },
+                icon: const Icon(Icons.verified_user_outlined, size: 16),
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    s.requestPermission,
+                    maxLines: 1,
+                    softWrap: false,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () async {
+              await AppControlService().openUrl(
+                'https://shizuku.rikka.app/guide/setup/',
+              );
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 16),
+            label: Text(s.setupGuide),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: cs.onSurfaceVariant,
+              side: BorderSide(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

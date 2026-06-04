@@ -325,6 +325,12 @@ class AppStrings {
   String shizukuStatusError(String message) => isId
       ? 'Gagal mengecek Shizuku: $message'
       : 'Could not check Shizuku: $message';
+  String get accessibilityRequired => isId
+      ? 'Aktifkan Meow Agent Accessibility Service, lalu kembali ke Meow Agent.'
+      : 'Enable Meow Agent Accessibility Service, then return to Meow Agent.';
+  String get shizukuSupportRequired => isId
+      ? 'Aktifkan dukungan Shizuku terlebih dahulu.'
+      : 'Enable Shizuku support first.';
   String get checkStatus => isId ? 'Cek Status' : 'Check Status';
   String get requestPermission => 'Request Permission';
   String get setupGuide => 'Setup Guide';
@@ -1404,10 +1410,26 @@ class AppStrings {
             : 'Show a floating AI bubble on top of all apps for quick access.',
       ),
       'app_agentic' => (
-        isId ? 'App Agentic (Shizuku)' : 'App Agentic (Shizuku)',
+        'App Agentic',
         isId
-            ? 'Kontrol perangkat tingkat lanjut via Shizuku. Membutuhkan Shizuku aktif.'
-            : 'Advanced device control via Shizuku. Requires Shizuku to be running.',
+            ? 'Izinkan agen membaca dan mengontrol layar aplikasi lain via Accessibility.'
+            : 'Allow the agent to read and control other app screens via Accessibility.',
+      ),
+      'app_agentic_support_shizuku' => (
+        isId
+            ? 'Dukungan App Agentic (Shizuku)'
+            : 'App Agentic Support (Shizuku)',
+        isId
+            ? 'Tambahkan kontrol shell-level untuk membuka aplikasi, tombol sistem, dan fallback gesture.'
+            : 'Add shell-level control for app launch, system keys, and gesture fallback.',
+      ),
+      'run_locked_device' => (
+        isId
+            ? 'Jalankan Saat Perangkat Terkunci'
+            : 'Run While Device Is Locked',
+        isId
+            ? 'Gunakan Shizuku untuk membangunkan, membuka kunci, menjalankan automation, lalu mengunci lagi.'
+            : 'Use Shizuku to wake, unlock, run automation, then lock the device again.',
       ),
       _ => (key, ''),
     },
