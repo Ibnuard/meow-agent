@@ -53,7 +53,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  bool _showScrollToBottom = false;
+  final ValueNotifier<bool> _showScrollToBottom = ValueNotifier(false);
   // Per-agent message history Ã¢â‚¬â€ paginated from local storage.
   final Map<String, List<ChatMessage>> _messagesByAgent = {};
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
@@ -290,6 +290,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _stickyDateTimer?.cancel();
     _stickyDate.dispose();
     _stickyDateVisible.dispose();
+    _showScrollToBottom.dispose();
     WidgetsBinding.instance.removeObserver(this);
     UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
@@ -305,8 +306,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (!_scroll.hasClients) return;
     // Reversed list: pixels=0 is bottom, maxScrollExtent is top.
     final showFab = _scroll.position.pixels > 200;
-    if (showFab != _showScrollToBottom) {
-      setState(() => _showScrollToBottom = showFab);
+    if (showFab != _showScrollToBottom.value) {
+      _showScrollToBottom.value = showFab;
     }
     _updateStickyDate();
     if (!_hasMore || _loadingOlder) return;
@@ -383,7 +384,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // ---------------------------------------------------------------------------
 
   /// Total item count for reversed list.
-  /// Order (bottom→top): tail items → messages (newest→oldest) → loading.
+  /// Order (bottom→top): tail items → messages (newest→oldest) → top indicator.
+  /// The top indicator is ALWAYS present when more history exists — no layout
+  /// shift from widget insertion/removal during load cycles.
   int get _itemCount {
     final session = _manager?.sessionFor(_activeAgentId);
     final hasLedger =
@@ -394,7 +397,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         (hasNarrative ? 1 : 0) +
         (hasLedger ? 1 : 0) +
         _messages.length +
-        (_loadingOlder ? 1 : 0);
+        (_hasMore ? 1 : 0); // permanent top anchor
   }
 
   /// Build a single item for the reversed ListView.
@@ -475,14 +478,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       );
     }
 
-    // Loading indicator at the very top (highest index in reversed).
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 8),
+    // Top anchor: always present when more history exists.
+    // Shows active spinner during load, subtle idle dot otherwise.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Center(
         child: SizedBox(
           width: 20,
           height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          child: _loadingOlder
+              ? const CircularProgressIndicator(strokeWidth: 2)
+              : const SizedBox.shrink(),
         ),
       ),
     );
@@ -1035,6 +1041,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   ListView.builder(
                                     controller: _scroll,
                                     reverse: true,
+                                    // Elastic overscroll at edges so the user never
+                                    // feels "stuck" at maxScrollExtent during loading.
+                                    physics: const AlwaysScrollableScrollPhysics(
+                                      parent: BouncingScrollPhysics(),
+                                    ),
                                     // Larger cacheExtent reduces rebuilds when
                                     // scrolling through variable-height markdown
                                     // bubbles. We provide RepaintBoundary manually
@@ -1053,8 +1064,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     itemBuilder: (context, i) =>
                                         _buildReversedItem(i, isId),
                                   ),
-                                  if (_showScrollToBottom)
-                                    Positioned(
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _showScrollToBottom,
+                                    builder: (context, show, child) {
+                                      if (!show) return const SizedBox.shrink();
+                                      return child!;
+                                    },
+                                    child: Positioned(
                                       right: 16,
                                       bottom: 16,
                                       child: _ScrollToBottomFab(
@@ -1069,6 +1085,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         },
                                       ),
                                     ),
+                                  ),
                                   ValueListenableBuilder<bool>(
                                     valueListenable: _stickyDateVisible,
                                     builder: (context, visible, _) {

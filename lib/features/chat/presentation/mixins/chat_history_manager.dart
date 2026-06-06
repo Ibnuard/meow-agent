@@ -249,8 +249,9 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       return;
     }
 
+    // Set guard flag — no setState needed because the top indicator is always
+    // in the tree (controlled by hasMore, not loadingOlder).
     loadingOlder = true;
-    setState(() {});
 
     final service = ref.read(chatHistoryServiceProvider);
     final older = await service.loadOlder(
@@ -260,10 +261,10 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
     );
 
     if (!mounted || older.isEmpty) {
-      if (mounted) {
+      loadingOlder = false;
+      if (mounted && older.isEmpty) {
         setState(() {
-          loadingOlder = false;
-          if (older.isEmpty) fullyLoaded.add(activeAgentId);
+          fullyLoaded.add(activeAgentId);
         });
       }
       return;
