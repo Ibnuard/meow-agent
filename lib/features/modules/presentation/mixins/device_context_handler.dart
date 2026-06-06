@@ -1,0 +1,87 @@
+import 'package:flutter/material.dart';
+
+import '../../../../services/permission/permission_manager.dart';
+import '../../../settings/data/app_language_provider.dart';
+import '../../data/module_model.dart';
+
+/// Handles logic specific to the Device Context module.
+mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
+  ModuleModel? get module;
+  AppStrings get s;
+  PermissionManager get permissionManager;
+
+  Future<void> handleDeviceContextToggle(String key, bool value) async {
+    if (module == null || module!.id != 'device_context') return;
+
+    if (key == 'allow_foreground_app' && value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
+                      'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                  : 'Foreground app detection requires the "Usage Access" '
+                      'permission.\n\n'
+                      'Tap "Open Settings" to grant it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(s.cancel),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(s.openSettings),
+              ),
+            ],
+          ),
+        );
+        if (goSettings != true) return;
+        await permissionManager.openUsageAccessSettings();
+      }
+    }
+
+    if (key == 'allow_bluetooth' && value) {
+      await permissionManager.request(PermissionType.bluetoothConnect);
+    }
+
+    if (key == 'allow_dnd' && value) {
+      if (mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
+                      'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
+                  : 'Reading Do Not Disturb status requires '
+                      '"Do Not Disturb access" permission.\n\n'
+                      'Tap "Open Settings" to grant it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(s.cancel),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(s.openSettings),
+              ),
+            ],
+          ),
+        );
+        if (goSettings != true) return;
+        await permissionManager.openNotificationPolicySettings();
+      }
+    }
+
+    if (key == 'allow_network' && value) {
+      await permissionManager.request(PermissionType.location);
+      await permissionManager.request(PermissionType.phoneState);
+    }
+  }
+}

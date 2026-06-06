@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -10,11 +9,17 @@ import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
 import '../data/app_control_service.dart';
 import '../data/clipboard_service_controller.dart';
+import '../data/shizuku_status.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
 import '../web/presentation/api_store_screen.dart';
 import '../workflows/workflow_list_screen.dart';
 import 'module_visuals.dart';
+import 'mixins/super_power_handler.dart';
+import 'mixins/device_context_handler.dart';
+import 'mixins/communication_handler.dart';
+import 'mixins/notification_intelligence_handler.dart';
+import 'mixins/clipboard_ai_handler.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -27,20 +32,73 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
-    with WidgetsBindingObserver {
+    with
+        WidgetsBindingObserver,
+        SuperPowerHandlerMixin,
+        DeviceContextHandlerMixin,
+        CommunicationHandlerMixin,
+        NotificationIntelligenceHandlerMixin,
+        ClipboardAiHandlerMixin {
   ModuleModel? _module;
-  _ShizukuStatus? _shizukuStatus;
+  ShizukuStatus? _shizukuStatus;
   bool _checkingShizuku = false;
   bool _requestingShizukuPermission = false;
   bool _pendingAppAgenticEnable = false;
 
+  @override
+  ModuleModel? get module => _module;
+  
+  @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
   }
+  
+  @override
+  PermissionManager get permissionManager => ref.read(permissionManagerProvider);
 
-  PermissionManager get _permissionManager =>
-      ref.read(permissionManagerProvider);
+  @override
+  ShizukuStatus? get shizukuStatus => _shizukuStatus;
+  @override
+  set shizukuStatus(ShizukuStatus? value) {
+    if (mounted) {
+      setState(() => _shizukuStatus = value);
+    }
+  }
+
+  @override
+  bool get checkingShizuku => _checkingShizuku;
+  @override
+  set checkingShizuku(bool value) {
+    if (mounted) {
+      setState(() => _checkingShizuku = value);
+    }
+  }
+
+  @override
+  bool get requestingShizukuPermission => _requestingShizukuPermission;
+  @override
+  set requestingShizukuPermission(bool value) {
+    if (mounted) {
+      setState(() => _requestingShizukuPermission = value);
+    }
+  }
+
+  @override
+  bool get pendingAppAgenticEnable => _pendingAppAgenticEnable;
+  @override
+  set pendingAppAgenticEnable(bool value) {
+    if (mounted) {
+      setState(() => _pendingAppAgenticEnable = value);
+    }
+  }
+
+  @override
+  void onModuleUpdated(ModuleModel updated) {
+    if (mounted) {
+      setState(() => _module = updated);
+    }
+  }
 
   @override
   void initState() {
@@ -61,8 +119,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (state == AppLifecycleState.resumed) {
       _syncCommunicationState();
       _syncSuperPowerBubble();
-      _syncSuperPowerPermissions();
-      _refreshShizukuStatus();
+      syncSuperPowerPermissions();
+      refreshShizukuStatus();
     }
   }
 
@@ -73,8 +131,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       setState(() => _module = found);
       // Sync permission state immediately on load.
       _syncCommunicationState();
-      _syncSuperPowerPermissions();
-      _refreshShizukuStatus();
+      syncSuperPowerPermissions();
+      refreshShizukuStatus();
     }
   }
 
@@ -88,38 +146,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
 
-    if (_module!.id == 'clipboard_ai') {
-      if (key == 'persistent_notification') {
-        if (value) {
-          final granted =
-              await _permissionManager.request(PermissionType.notification) ==
-              PermissionResult.granted;
-          if (!granted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.notificationPermissionRequired),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            return;
-          }
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .startNotificationService();
-        } else {
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .stopNotificationService();
-        }
-      }
-    }
+    await handleClipboardAiToggle(key, value);
+    await handleDeviceContextToggle(key, value);
+    await handleCommunicationToggle(key, value);
+    await handleNotificationIntelligenceToggle(key, value);
+    await handleSuperPowerToggle(key, value);
 
     // App Control — settings are purely preference toggles, no native service.
-    // The runtime engine reads these before executing app control tools.
     if (_module!.id == 'app_control') {
-      // No native service to start/stop — just persist the toggle.
       if (value && key == 'allow_url_intents') {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -131,10 +165,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         }
       }
 
-      // Background launch needs SYSTEM_ALERT_WINDOW. Without it Android 10+
-      // will silently drop activity launches when Meow Agent is backgrounded.
       if (value && key == 'allow_background_launch') {
-        final canDraw = await _permissionManager.isGranted(
+        final canDraw = await permissionManager.isGranted(
           PermissionType.systemAlertWindow,
         );
         if (!canDraw) {
@@ -165,289 +197,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               ),
             );
             if (goSettings != true) return;
-            await _permissionManager.request(PermissionType.systemAlertWindow);
-            // Don't toggle yet — wait for user to grant and return.
-            // Re-check on the next interaction; user can tap again.
+            await permissionManager.request(PermissionType.systemAlertWindow);
             return;
           }
-        }
-      }
-    }
-
-    // Device Context — foreground app needs PACKAGE_USAGE_STATS permission.
-    if (_module!.id == 'device_context' &&
-        key == 'allow_foreground_app' &&
-        value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
-                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Foreground app detection requires the "Usage Access" '
-                        'permission.\n\n'
-                        'Tap "Open Settings" to grant it, then come back.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.cancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings != true) return;
-        // Open Usage Access settings screen.
-        await _permissionManager.openUsageAccessSettings();
-        // Fall through — save toggle as true so it reflects user intent.
-        // If permission wasn't granted, the tool returns available:false gracefully.
-      }
-    }
-
-    // Device Context — Bluetooth needs BLUETOOTH_CONNECT on Android 12+.
-    if (_module!.id == 'device_context' && key == 'allow_bluetooth' && value) {
-      final result = await _permissionManager.request(
-        PermissionType.bluetoothConnect,
-      );
-      if (result != PermissionResult.granted) {
-        // If denied or error, toggle still saves; tools degrade gracefully.
-      }
-    }
-
-    // Device Context — DND needs notification policy access.
-    if (_module!.id == 'device_context' && key == 'allow_dnd' && value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
-                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Reading Do Not Disturb status requires '
-                        '"Do Not Disturb access" permission.\n\n'
-                        'Tap "Open Settings" to grant it, then come back.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.cancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings != true) return;
-        await _permissionManager.openNotificationPolicySettings();
-      }
-    }
-
-    // Device Context — Network Info needs Location (WiFi SSID) + Phone (cellular type) on Android 10+.
-    if (_module!.id == 'device_context' && key == 'allow_network' && value) {
-      await _permissionManager.request(PermissionType.location);
-      await _permissionManager.request(PermissionType.phoneState);
-    }
-
-    // Notification Intelligence — needs Notification access (Special Access).
-    // Cannot be granted via runtime dialog — must redirect to settings.
-    if (_module!.id == 'notification_intelligence' &&
-        key == 'allow_read' &&
-        value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
-                        'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
-                        'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
-                  : 'Reading notifications requires "Notification access" permission.\n\n'
-                        'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
-                        'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.skip),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings == true) {
-          await _permissionManager.openNotificationListenerSettings();
-        }
-      }
-    }
-
-    // Communication module — permission gating per feature.
-    if (_module!.id == 'communication') {
-      // Phone call needs CALL_PHONE permission.
-      if (value && key == 'call_enabled') {
-        final result = await _permissionManager.request(
-          PermissionType.callPhone,
-        );
-        if (result != PermissionResult.granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  s.isId
-                      ? 'Izin telepon diperlukan untuk fitur ini'
-                      : 'Phone call permission required for this feature',
-                ),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-          return;
-        }
-      }
-
-      // SMS needs SEND_SMS permission.
-      if (value && key == 'sms_enabled') {
-        final result = await _permissionManager.request(PermissionType.sendSms);
-        if (result != PermissionResult.granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  s.isId
-                      ? 'Izin SMS diperlukan untuk fitur ini'
-                      : 'SMS permission required for this feature',
-                ),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-          return;
-        }
-      }
-
-      // Contacts needs READ_CONTACTS permission.
-      if (value && key == 'contact_access') {
-        final result = await _permissionManager.request(
-          PermissionType.contacts,
-        );
-        if (result != PermissionResult.granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  s.isId
-                      ? 'Izin kontak diperlukan untuk fitur ini'
-                      : 'Contacts permission required for this feature',
-                ),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-          return;
-        }
-      }
-    }
-
-    // Super Power module — overlay bubble + Shizuku app agentic.
-    if (_module!.id == 'super_power') {
-      if (key == 'overlay_bubble') {
-        if (value) {
-          // Need POST_NOTIFICATIONS for the foreground service notification.
-          final notifGranted =
-              await _permissionManager.request(PermissionType.notification) ==
-              PermissionResult.granted;
-          if (!notifGranted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.notificationPermissionRequired),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
-            }
-            return;
-          }
-          // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
-          final canDraw = await _permissionManager.isGranted(
-            PermissionType.systemAlertWindow,
-          );
-          if (!canDraw) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(s.overlayPermissionRequired),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            }
-            await _permissionManager.request(PermissionType.systemAlertWindow);
-            // Don't toggle yet — will sync on resume.
-            return;
-          }
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .startBubbleService();
-        } else {
-          await ref
-              .read(clipboardServiceControllerProvider)
-              .stopBubbleService();
-        }
-      }
-
-      if (key == 'app_agentic' && value) {
-        final accessibilityEnabled = await _isAccessibilityEnabled();
-        if (!accessibilityEnabled) {
-          _pendingAppAgenticEnable = true;
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(s.accessibilityRequired),
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          }
-          await _permissionManager.openAccessibilitySettings();
-          return;
-        }
-      }
-
-      if ((key == 'app_agentic_support_shizuku' ||
-              key == 'run_locked_device') &&
-          value) {
-        if (_module!.settings['app_agentic'] != true) return;
-        if (key == 'run_locked_device' &&
-            _module!.settings['app_agentic_support_shizuku'] != true) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(s.shizukuSupportRequired),
-                duration: const Duration(seconds: 2),
-              ),
-            );
-          }
-          return;
-        }
-        final shizukuReady = await _checkShizukuStatus();
-        if (!shizukuReady) {
-          if (_shizukuStatus?.available == true) {
-            await _requestShizukuPermission();
-          }
-          if (_shizukuStatus?.isReady != true) return;
         }
       }
     }
@@ -501,7 +253,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   /// Check if SCHEDULE_EXACT_ALARM permission is granted.
   Future<bool> _checkAlarmPermission() async {
-    final result = await _permissionManager.check(
+    final result = await permissionManager.check(
       PermissionType.scheduleExactAlarm,
     );
     return result == PermissionResult.granted;
@@ -509,174 +261,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   /// Open system alarm permission settings.
   Future<void> _openAlarmSettings() async {
-    await _permissionManager.openAlarmSettings();
-  }
-
-  Future<bool> _isAccessibilityEnabled() async {
-    try {
-      const channel = MethodChannel('com.meowagent/shizuku');
-      return await channel.invokeMethod<bool>('isAccessibilityEnabled') ??
-          false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> _syncSuperPowerPermissions() async {
-    if (_module == null || _module!.id != 'super_power') return;
-    final settings = Map<String, bool>.from(_module!.settings);
-    var changed = false;
-
-    final accessibilityEnabled = await _isAccessibilityEnabled();
-    if (_pendingAppAgenticEnable && accessibilityEnabled) {
-      settings['app_agentic'] = true;
-      changed = true;
-    }
-    _pendingAppAgenticEnable = false;
-
-    if (settings['app_agentic'] == true && !accessibilityEnabled) {
-      settings['app_agentic'] = false;
-      settings['app_agentic_support_shizuku'] = false;
-      settings['run_locked_device'] = false;
-      changed = true;
-    }
-
-    if (settings['app_agentic'] != true) {
-      if (settings['app_agentic_support_shizuku'] == true ||
-          settings['run_locked_device'] == true) {
-        settings['app_agentic_support_shizuku'] = false;
-        settings['run_locked_device'] = false;
-        changed = true;
-      }
-    } else if (settings['app_agentic_support_shizuku'] != true &&
-        settings['run_locked_device'] == true) {
-      settings['run_locked_device'] = false;
-      changed = true;
-    }
-
-    if (!changed || !mounted) return;
-    final updated = _module!.copyWith(settings: settings);
-    await ref.read(moduleRepositoryProvider).update(updated);
-    ref.invalidate(installedModulesProvider);
-    if (mounted) {
-      setState(() => _module = updated);
-    }
-  }
-
-  /// Check Shizuku status via the same MethodChannel API used by ShizukuTestScreen.
-  Future<bool> _checkShizukuStatus() async {
-    final status = await _refreshShizukuStatus();
-    return status.isReady;
-  }
-
-  Future<_ShizukuStatus> _refreshShizukuStatus() async {
-    if (_module == null || _module!.id != 'super_power') {
-      return const _ShizukuStatus.unknown();
-    }
-    if (mounted) {
-      setState(() => _checkingShizuku = true);
-    }
-    try {
-      const channel = MethodChannel('com.meowagent/shizuku');
-      final result = await channel.invokeMethod('getStatus');
-      final data = Map<String, dynamic>.from(result as Map);
-      final status = _ShizukuStatus(
-        available: data['shizuku_available'] == true,
-        permissionGranted: data['permission_granted'] == true,
-      );
-      if (mounted) {
-        setState(() {
-          _shizukuStatus = status;
-          _checkingShizuku = false;
-        });
-      }
-      return status;
-    } catch (e) {
-      final status = _ShizukuStatus(error: e.toString());
-      if (mounted) {
-        setState(() {
-          _shizukuStatus = status;
-          _checkingShizuku = false;
-        });
-      }
-      return status;
-    }
-  }
-
-  Future<void> _requestShizukuPermission() async {
-    if (_requestingShizukuPermission) return;
-    if (mounted) {
-      setState(() => _requestingShizukuPermission = true);
-    }
-    try {
-      const channel = MethodChannel('com.meowagent/shizuku');
-      await channel.invokeMethod('requestPermission');
-      if (mounted) {
-        setState(() {
-          _requestingShizukuPermission = false;
-          _shizukuStatus = _ShizukuStatus(
-            available: _shizukuStatus?.available,
-            permissionGranted: _shizukuStatus?.permissionGranted,
-            requestPending: true,
-          );
-        });
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 700));
-      await _refreshShizukuStatus();
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _requestingShizukuPermission = false;
-          _shizukuStatus = _ShizukuStatus(error: e.toString());
-        });
-      }
-    }
-  }
-
-  Widget _buildShizukuStatusPanel({
-    required ColorScheme cs,
-    required AppStrings s,
-  }) {
-    final status = _shizukuStatus;
-    final isChecking = _checkingShizuku && status == null;
-    final icon = isChecking
-        ? Icons.sync_rounded
-        : status?.icon ?? Icons.help_outline_rounded;
-    final color = isChecking ? cs.primary : status?.color(cs) ?? cs.outline;
-    final message = isChecking
-        ? s.shizukuStatusChecking
-        : status?.message(s) ?? s.shizukuStatusUnknown;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.24)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (isChecking)
-            SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2, color: color),
-            )
-          else
-            Icon(icon, size: 18, color: color),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(fontSize: 12, color: cs.onSurface, height: 1.35),
-            ),
-          ),
-        ],
-      ),
-    );
+    await permissionManager.openAlarmSettings();
   }
 
   /// Sync bubble state on resume (for Super Power module).
@@ -685,7 +270,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final wantsBubble = _module!.settings['overlay_bubble'] ?? false;
     if (!wantsBubble) return;
 
-    final canDraw = await _permissionManager.isGranted(
+    final canDraw = await permissionManager.isGranted(
       PermissionType.systemAlertWindow,
     );
     final running = await ref
@@ -1056,13 +641,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   Iterable<MapEntry<String, bool>> _visibleSettingEntries(ModuleModel module) {
     if (module.id != 'super_power') return module.settings.entries;
     final appAgenticOn = module.settings['app_agentic'] == true;
-    final shizukuSupportOn =
-        module.settings['app_agentic_support_shizuku'] == true;
     return module.settings.entries.where((entry) {
-      if (entry.key == 'app_agentic_support_shizuku') return appAgenticOn;
-      if (entry.key == 'run_locked_device') {
-        return appAgenticOn && shizukuSupportOn;
-      }
+      if (entry.key == 'app_agentic_support_shizuku') return false;
+      if (entry.key == 'run_locked_device') return appAgenticOn;
       return true;
     });
   }
@@ -1102,14 +683,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   }) {
     return Column(
       children: [
-        _buildShizukuStatusPanel(cs: cs, s: s),
+        buildShizukuStatusPanel(cs: cs),
         const SizedBox(height: 10),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () async {
-                  await _refreshShizukuStatus();
+                  await refreshShizukuStatus();
                 },
                 icon: const Icon(Icons.check_circle_outline, size: 16),
                 label: FittedBox(
@@ -1129,7 +710,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: () async {
-                  await _requestShizukuPermission();
+                  await requestShizukuPermission();
                 },
                 icon: const Icon(Icons.verified_user_outlined, size: 16),
                 label: FittedBox(
@@ -1215,53 +796,5 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       labels[entry.key] = s.moduleSetting(moduleId, entry.key);
     }
     return labels;
-  }
-}
-
-class _ShizukuStatus {
-  const _ShizukuStatus({
-    this.available,
-    this.permissionGranted,
-    this.requestPending = false,
-    this.error,
-  });
-
-  const _ShizukuStatus.unknown()
-    : available = null,
-      permissionGranted = null,
-      requestPending = false,
-      error = null;
-
-  final bool? available;
-  final bool? permissionGranted;
-  final bool requestPending;
-  final String? error;
-
-  bool get isReady => available == true && permissionGranted == true;
-
-  IconData get icon {
-    if (error != null) return Icons.error_outline_rounded;
-    if (requestPending) return Icons.hourglass_top_rounded;
-    if (isReady) return Icons.check_circle_rounded;
-    if (available == true) return Icons.verified_user_outlined;
-    if (available == false) return Icons.power_settings_new_rounded;
-    return Icons.help_outline_rounded;
-  }
-
-  Color color(ColorScheme cs) {
-    if (error != null) return cs.error;
-    if (isReady) return const Color(0xFF22C55E);
-    if (requestPending || available == true) return const Color(0xFFF59E0B);
-    if (available == false) return cs.onSurfaceVariant;
-    return cs.outline;
-  }
-
-  String message(AppStrings s) {
-    if (error != null) return s.shizukuStatusError(error!);
-    if (requestPending) return s.shizukuStatusRequestPending;
-    if (isReady) return s.shizukuStatusReady;
-    if (available == true) return s.shizukuStatusPermissionNeeded;
-    if (available == false) return s.shizukuStatusUnavailable;
-    return s.shizukuStatusUnknown;
   }
 }

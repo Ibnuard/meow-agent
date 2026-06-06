@@ -1,40 +1,36 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
-import '../data/token_usage_service.dart';
-import '../../../services/agent_runtime/context_report.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
-import '../../../services/workspace/workspace_file_service.dart';
 import '../../../services/workspace/storage_permission_service.dart';
 import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
-import '../../agents/data/workspace_service.dart';
-import '../../modules/calendar/calendar_screen.dart';
-import '../../modules/workflows/workflow_list_screen.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
-import '../data/chat_runtime_log_service.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
 import 'chat_shimmer.dart';
 import 'widgets/task_ledger_bubble.dart';
 import 'widgets/meow_bubble.dart';
+import 'mixins/chat_message_actions.dart';
+import 'mixins/chat_debug_sheet.dart';
+import 'mixins/chat_history_manager.dart';
+import 'mixins/chat_send_handler.dart';
+import 'mixins/chat_command_handler.dart';
+import 'mixins/chat_report_builder.dart';
+import 'mixins/chat_compactor.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -47,7 +43,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, ChatMessageActionsMixin, ChatDebugSheetMixin, ChatHistoryManagerMixin, ChatSendHandlerMixin, ChatCommandHandlerMixin, ChatReportBuilderMixin, ChatCompactorMixin {
+  @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
@@ -73,6 +70,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// Message currently being replied to (WhatsApp-style quote). Null when no
   /// active reply context. Cleared after send or when user taps the X.
   ChatMessage? _replyTo;
+
+  // Mixin interface delegates.
+  @override
+  List<ChatMessage> get messagesList => _messages;
+  @override
+  ChatMessage? get replyToContext => _replyTo;
+  @override
+  set replyToContext(ChatMessage? value) => _replyTo = value;
+  @override
+  Future<ChatMessage> persistMessage(ChatMessage message) => _persistMessage(message);
+  @override
+  void scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+    });
+  }
+
+  // ChatDebugSheetMixin interface delegates.
+  @override
+  String get activeAgentId => _activeAgentId;
+  @override
+  ChatRuntimeManager ensureManager() => _ensureManager();
+
+  // ChatHistoryManagerMixin interface delegates.
+  @override
+  Map<String, List<ChatMessage>> get messagesByAgent => _messagesByAgent;
+  @override
+  Set<String> get fullyLoaded => _fullyLoaded;
+  @override
+  ChatRuntimeManager? get manager => _manager;
+  @override
+  bool get initialLoading => _initialLoading;
+  @override
+  set initialLoading(bool value) => _initialLoading = value;
+  @override
+  bool get loadingOlder => _loadingOlder;
+  @override
+  set loadingOlder(bool value) => _loadingOlder = value;
+  @override
+  bool get hasMore => _hasMore;
+  ScrollController get scrollController => _scroll;
+
+  // ChatSendHandlerMixin interface delegates.
+  @override
+  List<AttachedFile> get attachments => _attachments;
+  @override
+  set attachments(List<AttachedFile> value) => _attachments = value;
+  @override
+  GlobalKey<_ChatInputState> get chatInputKey => _chatInputKey;
+  @override
+  TextEditingController get inputController => _input;
+  @override
+  bool get sending => _sending;
+  @override
+  ProviderConfig? resolveProvider() => _resolveProvider();
+  @override
+  Future<bool> autoCompactIfNeeded() => _autoCompactIfNeeded();
+  @override
+  Future<void> handleCommand(String text) => _handleCommand(text);
+  @override
+  String buildReplyPayload(ChatMessage quoted, String userText) => buildReplyPayload(quoted, userText);
+
+  // ChatCommandHandlerMixin interface delegates.
+  @override
+  bool get debugMode => ref.read(llmDebugModeProvider);
 
   /// Attached files for the next send (synced from _ChatInput).
   List<AttachedFile> _attachments = [];
@@ -117,7 +180,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _permissionChecking = false;
     });
     if (granted) {
-      _loadHistory(_activeAgentId);
+      loadHistory(_activeAgentId);
     }
   }
 
@@ -133,7 +196,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (!mounted) return;
     setState(() => _permissionGranted = granted);
     if (granted) {
-      _loadHistory(_activeAgentId);
+      loadHistory(_activeAgentId);
     }
   }
 
@@ -193,14 +256,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (session.lastReplyAt != null &&
         session.lastReplyAt != _lastSeenReplyAt) {
       _lastSeenReplyAt = session.lastReplyAt;
-      _reloadHistory(_activeAgentId);
+      reloadHistory(_activeAgentId);
     } else {
       // Rebuild for debug/running state changes.
       setState(() {});
     }
     // Always nudge to the bottom so new bubbles (debug, thinking, replies)
     // remain visible without manual scrolling.
-    _scrollToEnd();
+    scrollToEnd();
   }
 
   List<ChatMessage> get _messages =>
@@ -223,7 +286,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _onScroll() {
     if (!_hasMore || _loadingOlder) return;
     if (_scroll.position.pixels <= 80) {
-      _loadOlderMessages();
+      loadOlderMessages();
     }
   }
 
@@ -276,7 +339,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// by long-pressing the agent name in the AppBar. Subscribes to the chat
   /// runtime manager so new events appear live without re-opening the sheet.
   /// Replaces the old behavior of injecting debug bubbles into the chat list.
-  void _showDebugBottomSheet() {
+  @override
+  void showDebugBottomSheet() {
     final mgr = _ensureManager();
     final cs = Theme.of(context).colorScheme;
     showModalBottomSheet<void>(
@@ -436,378 +500,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
-  /// Show long-press action sheet for a chat bubble.
-  void _showMessageActions(ChatMessage msg) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  ctx,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.reply_rounded),
-              title: Text(s.reply),
-              onTap: () {
-                Navigator.pop(ctx);
-                _handleReply(msg);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: Text(s.copyText),
-              onTap: () {
-                Navigator.pop(ctx);
-                _handleCopy(msg);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _handleCopy(ChatMessage msg) {
-    final text = _cleanContent(msg.content);
-    Clipboard.setData(ClipboardData(text: text));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.copiedToClipboard),
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _handleReply(ChatMessage msg) {
-    final clean = _cleanContent(msg.content);
-    if (clean.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.cannotReplyEmpty),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    setState(() => _replyTo = msg);
-    // Auto-focus the input.
-    FocusScope.of(context).requestFocus(FocusNode());
-  }
-
-  void _cancelReply() {
-    setState(() => _replyTo = null);
-  }
-
-  /// Strip all sentinels (confirmation, reply-quote opening + closing) and
-  /// trim whitespace. Used everywhere we need the "clean" user-visible text.
-  static String _cleanContent(String raw) {
-    return raw
-        .replaceAll(
-          RegExp(
-            r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
-            dotAll: true,
-          ),
-          '',
-        )
-        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
-        .trim();
-  }
-
-  /// Wrap user text with a quote sentinel so the LLM and the UI both see
-  /// what's being referenced. Sentinels are stripped from display by [_Bubble]
-  /// which renders the quote as a styled inline chip above the user's text.
-  String _buildReplyPayload(ChatMessage quoted, String userText) {
-    final quotedText = _cleanContent(quoted.content);
-    // Truncate very long quotes so we don't blow up context.
-    final truncated = quotedText.length > 280
-        ? '${quotedText.substring(0, 280)}Ã¢â‚¬Â¦'
-        : quotedText;
-    final role = quoted.role == 'user' ? 'You' : 'Agent';
-    return '[[REPLY_QUOTE:$role]]$truncated[[/REPLY_QUOTE]]\n$userText';
-  }
-
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
-    FocusManager.instance.primaryFocus?.unfocus();
-
-    // Slash commands handled locally.
-    if (text.startsWith('/')) {
-      _handleCommand(text);
-      return;
-    }
-
-    final provider = _resolveProvider();
-    if (provider == null || !provider.isComplete) {
-      final agents = ref.read(agentListProvider);
-      final agent = _activeAgentId == 'default'
-          ? (agents.isNotEmpty ? agents.first : null)
-          : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-      final agentName = agent?.name ?? _activeAgentId;
-      final userMsg = ChatMessage(role: 'user', content: text);
-      final botMsg = ChatMessage(
-        role: 'assistant',
-        content: 'Ã¢Å¡Â Ã¯Â¸Â ${s.providerMissingBody(agentName)}',
-        actions: [
-          ResultAction(
-            label: s.manageProvidersAction,
-            icon: 'dns_outlined',
-            type: 'navigate',
-            target: AppRoutes.providerList,
-          ),
-        ],
-      );
-      setState(() {
-        _messages.add(userMsg);
-        _messages.add(botMsg);
-      });
-      _input.clear();
-      _persistMessage(userMsg);
-      _persistMessage(botMsg);
-      _scrollToEnd();
-      return;
-    }
-
-    _input.clear();
-    final replyContext = _replyTo;
-    if (replyContext != null) {
-      setState(() => _replyTo = null);
-    }
-
-    // Build the user-visible message with an optional reply quote.
-    // The quote is included in both the displayed bubble and the LLM payload
-    // so the agent has the full context of what was referenced.
-    final messageText = replyContext == null
-        ? text
-        : _buildReplyPayload(replyContext, text);
-
-    // Append attached file names so the chat bubble shows what was sent.
-    final attachmentNames =
-        _chatInputKey.currentState?._attachmentsSnapshot ?? _attachments;
-    final displayText = _attachments.isEmpty
-        ? messageText
-        : '$messageText\n\nÃ°Å¸â€œÅ½ ${attachmentNames.map((a) => a.name).join(", ")}';
-
-    // Collect image paths for thumbnail rendering in the bubble.
-    final imageExts = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
-    final imgPaths = _attachments
-        .where((a) {
-          final dot = a.path.lastIndexOf('.');
-          if (dot < 0) return false;
-          return imageExts.contains(a.path.substring(dot).toLowerCase());
-        })
-        .map((a) => a.path)
-        .toList();
-
-    // Optimistically show the user message immediately Ã¢â‚¬â€ it always lands
-    // in history regardless of context exhaustion.
-    final userMsg = ChatMessage(role: 'user', content: displayText, imagePaths: imgPaths);
-    setState(() => _messages.add(userMsg));
-    _scrollToEnd();
-
-    // Check context BEFORE calling the runtime. If the threshold was hit
-    // and auto-compact is off, surface a warning but DO NOT send the user
-    // message to the agent Ã¢â‚¬â€ there is no point because it will fail. The
-    // user message is already visible in the chat.
-    final blocked = await _autoCompactIfNeeded();
-    if (blocked) return;
-
-    // Manager persists user msg + final reply, listener reloads history.
-    final mgr = _ensureManager();
-    final recent = _messages.where((m) => m.id != null).toList();
-    mgr.send(
-      agentId: _activeAgentId,
-      userMessage: messageText,
-      recentMessages: recent,
-      attachments: _attachments,
-    );
-    _attachments = [];
-    _chatInputKey.currentState?.clearAttachments();
-    return;
-  }
-
-  /// Reload history from disk after manager persists a reply.
-  /// Full replacement of the 10 newest messages keeps order correct and
-  /// avoids duplicate-detection bugs from incremental append.
-  Future<void> _reloadHistory(String agentId) async {
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    final hasPending = _manager?.sessionFor(agentId).pendingTool != null;
-    // Find the index of the last assistant message (where the live
-    // confirmation marker, if any, lives).
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _messagesByAgent[agentId] = cleaned;
-    });
-    _scrollToEnd();
-  }
-
-  void _handleConfirmation(String action, int msgIndex) {
-    if (msgIndex < 0 || msgIndex >= _messages.length) return;
-
-    // Destroy the confirmation bubble entirely after action.
-    // Also delete it from persistent history so it doesn't reappear.
-    final msg = _messages[msgIndex];
-    setState(() => _messages.removeAt(msgIndex));
-    if (msg.id != null) {
-      _deletePersistedMessage(msg.id!);
-    }
-
-    final mgr = _ensureManager();
-
-    switch (action) {
-      case 'accept':
-      case 'always_accept':
-        mgr.confirm(_activeAgentId);
-        break;
-      case 'reject':
-        mgr.reject(_activeAgentId);
-        break;
-    }
-  }
-
-  Future<void> _handleResultAction(
-    ResultAction action, [
-    ChatMessage? sourceMessage,
-  ]) async {
-    switch (action.type) {
-      case 'select_model':
-        await _handleSelectModelAction(action, sourceMessage);
-        break;
-      case 'navigate':
-        // Special-case screens not in the router Ã¢â€ â€™ push directly.
-        if (action.target == '/modules/calendar') {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CalendarScreen()),
-          );
-        } else if (action.target == '/modules/workflows') {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const WorkflowListScreen()),
-          );
-        } else {
-          if (!mounted) return;
-          context.push(action.target);
-        }
-        break;
-      case 'open_folder':
-        // target = agentName.
-        final ws = ref.read(workspaceServiceProvider);
-        await ws.openInFileManager(action.target);
-        break;
-      case 'open_url':
-        // Reserved for future use.
-        break;
-    }
-  }
-
-  Future<void> _handleSelectModelAction(
-    ResultAction action,
-    ChatMessage? sourceMessage,
-  ) async {
-    final model = action.target.trim();
-    if (model.isEmpty) return;
-    final agents = ref.read(agentListProvider);
-    final providers = ref.read(providerListProvider).value ?? [];
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    if (agent == null) return;
-    final provider = providers
-        .where((p) => p.id == agent.providerId)
-        .firstOrNull;
-    if (provider == null || !provider.models.contains(model)) return;
-
-    await ref
-        .read(agentListProvider.notifier)
-        .save(agent.copyWith(model: model));
-    final fixed = ChatMessage(
-      id: sourceMessage?.id,
-      role: 'assistant',
-      timestamp: sourceMessage?.timestamp,
-      content: s.modelUpdated(provider.nickname, model),
-    );
-    if (!mounted) return;
-    setState(() {
-      final idx = sourceMessage == null
-          ? -1
-          : _messages.indexWhere(
-              (m) => identical(m, sourceMessage) || m.id == sourceMessage.id,
-            );
-      if (idx >= 0) {
-        _messages[idx] = fixed;
-      }
-    });
-    if (fixed.id != null) {
-      await ref.read(chatHistoryServiceProvider).updateMessage(fixed);
-    }
-  }
-
-  /// Delete a single message from SQLite by its row id.
-  Future<void> _deletePersistedMessage(int id) async {
-    final service = ref.read(chatHistoryServiceProvider);
-    await service.deleteMessage(id);
-  }
-
-  void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients) return;
-      _scroll.jumpTo(_scroll.position.maxScrollExtent);
-    });
-  }
-
   Future<void> _handleCommand(String text) async {
     final cmd = text.split(' ').first.toLowerCase();
     _input.clear();
@@ -820,7 +512,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (cmd != '/clear') {
       _persistMessage(userMsg);
     }
-    _scrollToEnd();
+    scrollToEnd();
 
     String response;
     bool shouldPersist = true;
@@ -842,7 +534,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
         return;
       case '/help':
-        response = _buildCommandHelp(ref.read(llmDebugModeProvider));
+        response = buildCommandHelp(ref.read(llmDebugModeProvider));
       case '/reset':
         // Soft reset: clear context measurement so the next message is a fresh
         // slate, but keep the visible chat history intact.
@@ -870,21 +562,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           response = s.noProviderConnected;
         }
       case '/set-model':
-        await _showModelsCommandBubble();
+        await showModelsCommandBubble();
         return;
       case '/compact':
-        await _performCompaction();
+        await performCompaction();
         return;
       case '/status':
-        response = _buildStatusInfo();
+        response = buildStatusInfo();
       case '/context':
-        response = await _buildContextReport();
+        response = await buildContextReport();
       case '/cron':
         response = s.cronNoJobs;
       case '/log':
-        response = await _buildRuntimeLogReport();
+        response = await buildRuntimeLogReport();
       case '/clearlog':
-        response = await _clearRuntimeLog();
+        response = await clearRuntimeLog();
       default:
         response = s.unknownCommand(cmd);
     }
@@ -892,378 +584,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final botMsg = ChatMessage(role: 'assistant', content: response);
     setState(() => _messages.add(botMsg));
     if (shouldPersist) await _persistMessage(botMsg);
-    _scrollToEnd();
-  }
-
-  Future<void> _showModelsCommandBubble() async {
-    final agents = ref.read(agentListProvider);
-    final providers = ref.read(providerListProvider).value ?? [];
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final provider = agent == null
-        ? null
-        : providers.where((p) => p.id == agent.providerId).firstOrNull;
-
-    final ChatMessage botMsg;
-    if (agent == null || provider == null || provider.models.isEmpty) {
-      botMsg = ChatMessage(
-        role: 'assistant',
-        content: s.noProviderOrModel,
-      );
-    } else {
-      final selected = provider.effectiveModel(agent.model);
-      botMsg = ChatMessage(
-        role: 'assistant',
-        content: s.chooseModelPrompt(selected),
-        actions: [
-          for (final model in provider.models)
-            ResultAction(
-              label: model == selected ? '$model Ã¢Å“â€œ' : model,
-              icon: provider.visionModels.contains(model)
-                  ? 'visibility_rounded'
-                  : 'memory_rounded',
-              type: 'select_model',
-              target: model,
-              params: {'providerId': provider.id},
-            ),
-        ],
-      );
-    }
-
-    setState(() => _messages.add(botMsg));
-    final persisted = await _persistMessage(botMsg);
-    if (!mounted) return;
-    setState(() {
-      final idx = _messages.indexWhere((m) => identical(m, botMsg));
-      if (idx >= 0) _messages[idx] = persisted;
-    });
-    _scrollToEnd();
-  }
-
-String _buildCommandHelp(bool debugMode) {
-    final buffer = StringBuffer()
-      ..writeln(s.helpAvailableCommands)
-      ..writeln('- /clear - ${s.helpSlashClear}')
-      ..writeln('- /help - ${s.helpSlashHelp}')
-      ..writeln('- /status - ${s.helpSlashStatus}')
-      ..writeln('- /context - ${s.helpSlashContext}')
-      ..writeln('- /reset - ${s.helpSlashReset}')
-      ..writeln('- /model - ${s.helpSlashModel}')
-      ..writeln('- /set-model - ${s.helpSlashSetModel}')
-      ..writeln('- /compact - ${s.helpSlashCompact}')
-      ..write('- /cron - ${s.helpSlashCron}');
-    if (debugMode) {
-      buffer
-        ..writeln()
-        ..writeln('- /log - ${s.helpSlashLog}')
-        ..write('- /clearlog - ${s.helpSlashClearlog}');
-    }
-    return buffer.toString();
-  }
-
-  Future<String> _buildRuntimeLogReport() async {
-    if (!ref.read(llmDebugModeProvider)) {
-      return s.debugOffForLog;
-    }
-
-    final events = await ref
-        .read(chatRuntimeLogServiceProvider)
-        .loadLast(_activeAgentId);
-    if (events.isEmpty) {
-      return s.noRuntimeLog;
-    }
-
-    String? userMessage;
-    final stepEvents = <ChatRuntimeLogEvent>[];
-    for (final event in events) {
-      if (event.isUserRequest) {
-        userMessage = event.data?['message']?.toString();
-      } else {
-        stepEvents.add(event);
-      }
-    }
-
-    final buffer = StringBuffer(s.runtimeLogHeader);
-    if (userMessage != null && userMessage.trim().isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('Command: ${_truncateLogText(userMessage, 220)}');
-    }
-
-    if (stepEvents.isEmpty) {
-      buffer
-        ..writeln()
-        ..write(s.noRuntimeSteps);
-      return buffer.toString();
-    }
-
-    for (var i = 0; i < stepEvents.length; i++) {
-      final event = stepEvents[i];
-      buffer
-        ..writeln()
-        ..write('${i + 1}. ${_formatRuntimeLogLine(event)}');
-      final details = _formatRuntimeLogDetails(event);
-      if (details.isNotEmpty) {
-        buffer
-          ..writeln()
-          ..write('   $details');
-      }
-    }
-
-    return buffer.toString();
-  }
-
-  Future<String> _clearRuntimeLog() async {
-    if (!ref.read(llmDebugModeProvider)) {
-      return s.debugOffForClearlog;
-    }
-
-    await ref.read(chatRuntimeLogServiceProvider).clear(_activeAgentId);
-    return s.runtimeLogCleared;
-  }
-
-  String _formatRuntimeLogLine(ChatRuntimeLogEvent event) {
-    final label = switch (event.type) {
-      'state_change' => event.data?['state']?.toString() ?? 'state',
-      'llm_decision' => 'llm',
-      'tool_call' => 'tool call',
-      'tool_result' => 'tool result',
-      'narrative' => 'narrative',
-      'error' => 'error',
-      'confirmation' => 'confirmation',
-      'cancelled' => 'cancelled',
-      _ => event.type,
-    };
-    return '[$label] ${_truncateLogText(event.message, 260)}';
-  }
-
-  String _formatRuntimeLogDetails(ChatRuntimeLogEvent event) {
-    final data = event.data;
-    if (data == null || data.isEmpty) return '';
-
-    switch (event.type) {
-      case 'state_change':
-        return '';
-      case 'tool_call':
-        return _compactLogJson({
-          'tool': data['name'],
-          'args': data['args'],
-          'risk': data['risk'],
-        });
-      case 'tool_result':
-        final details = <String, dynamic>{
-          'tool': data['tool'],
-          'success': data['success'],
-        };
-        if (data['error'] != null) {
-          details['error'] = data['error'];
-        }
-        if (data['data'] != null) {
-          details['data'] = data['data'];
-        }
-        return _compactLogJson(details);
-      case 'error':
-        return _truncateLogText(data['error']?.toString() ?? '', 700);
-      default:
-        return _compactLogJson(data);
-    }
-  }
-
-  String _compactLogJson(Object? value, {int maxChars = 700}) {
-    if (value == null) return '';
-    try {
-      return _truncateLogText(jsonEncode(value), maxChars);
-    } catch (_) {
-      return _truncateLogText(value.toString(), maxChars);
-    }
-  }
-
-  String _truncateLogText(String text, int maxChars) {
-    final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (compact.length <= maxChars) return compact;
-    return '${compact.substring(0, maxChars)}...';
-  }
-
-  Future<String> _buildContextReport() async {
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    if (agent == null) {
-      return s.noActiveAgent;
-    }
-
-    final languagePref = ref.read(appLanguageProvider);
-    final languageCode = resolveLanguageCode(languagePref);
-    return ContextReport.build(
-      agentName: agent.name,
-      languageCode: languageCode,
-      messages: _messages,
-      maxContextLength: agent.maxContextLength,
-      userMessageHint: _input.text,
-    );
-  }
-
-  /// Build /status info string.
-  String _buildStatusInfo() {
-    final agents = ref.read(agentListProvider);
-    final providers = ref.read(providerListProvider).value ?? [];
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final provider = agent != null
-        ? providers.where((p) => p.id == agent.providerId).firstOrNull
-        : null;
-
-    final maxCtx = agent?.maxContextLength ?? 8191;
-    final usage = ContextCompactor.getUsageInfo(
-      messages: _messages,
-      maxContextLength: maxCtx,
-    );
-
-    final pct = usage.percentage.toStringAsFixed(1);
-    final compactNote = usage.needsCompact
-        ? s.autoCompactThresholdNote
-        : s.autoCompactOkNote;
-
-    // Cumulative token usage from all LLM calls this session.
-    final records = OpenAiCompatibleClient.usageRecords;
-    var totalInput = 0;
-    var totalOutput = 0;
-    for (final r in records) {
-      totalInput += r.inputTokens;
-      totalOutput += r.outputTokens ?? 0;
-    }
-    final totalTokens = totalInput + totalOutput;
-    final totalCalls = records.length;
-
-    final agentName = agent?.name ?? 'default';
-    final providerName = provider?.nickname ?? '-';
-    final providerModel = provider?.model ?? '-';
-
-    final buf = StringBuffer()
-      ..writeln(s.statusAgentTitle(agentName))
-      ..writeln()
-      ..writeln(s.statusConnected(providerName, providerModel))
-      ..writeln()
-      ..writeln(s.statusDetails)
-      ..writeln()
-      ..writeln('- ${s.statusApp}')
-      ..writeln('- ${s.statusActiveAgent(agentName)}')
-      ..writeln('- ${s.statusProvider(providerName)}')
-      ..writeln('- ${s.statusModel(providerModel)}')
-      ..writeln('- ${s.statusMessages(_messages.length)}')
-      ..writeln()
-      ..writeln('Token Usage (session):')
-      ..writeln()
-      ..writeln('- Total: $totalTokens tokens ($totalCalls LLM calls)')
-      ..writeln('- Input: $totalInput tokens')
-      ..writeln('- Output: $totalOutput tokens')
-      ..writeln('- Context pressure: ${usage.estimated}/$maxCtx ($pct%)')
-      ..writeln()
-      ..writeln(compactNote);
-
-    return buf.toString().trim();
-  }
-
-  /// Perform manual /compact.
-  Future<void> _performCompaction() async {
-    final provider = _resolveProvider();
-    if (provider == null) {
-      final msg = ChatMessage(
-        role: 'assistant',
-        content: s.cannotCompact,
-      );
-      setState(() => _messages.add(msg));
-      _persistMessage(msg);
-      _scrollToEnd();
-      return;
-    }
-
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final maxCtx = agent?.maxContextLength ?? 8191;
-
-    if (_messages.length <= 8) {
-      final msg = ChatMessage(
-        role: 'assistant',
-        content: s.contextAlreadyCompact(
-          _messages.length,
-          ContextCompactor.estimateChatTokens(_messages),
-          maxCtx,
-        ),
-      );
-      setState(() => _messages.add(msg));
-      _persistMessage(msg);
-      _scrollToEnd();
-      return;
-    }
-
-    // Show compacting indicator.
-    final loadingMsg = ChatMessage(
-      role: 'assistant',
-      content: s.compacting,
-    );
-    setState(() => _messages.add(loadingMsg));
-    _scrollToEnd();
-
-    try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-      );
-      final compactor = ContextCompactor();
-      final compacted = await compactor.compact(
-        messages: _messages,
-        config: llmConfig,
-        keepRecent: 6,
-      );
-
-      // Clear old history and replace with compacted.
-      await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
-      for (final msg in compacted) {
-        await ref
-            .read(chatHistoryServiceProvider)
-            .addMessage(_activeAgentId, msg);
-      }
-
-      // Remove loading indicator and reload.
-      setState(() {
-        _messages.remove(loadingMsg);
-        _messagesByAgent[_activeAgentId] = compacted;
-      });
-
-      // Write summary snapshot to workspace.
-      final summaryText = compacted.first.content;
-      final agentName = agent?.name ?? '';
-      if (agentName.isNotEmpty) {
-        WorkspaceFileService.writeSummarySnapshot(agentName, summaryText);
-      }
-
-      final doneMsg = ChatMessage(
-        role: 'assistant',
-        content: s.contextCompacted(
-          compacted.length,
-          ContextCompactor.estimateChatTokens(compacted),
-        ),
-      );
-      setState(() => _messages.add(doneMsg));
-      _persistMessage(doneMsg);
-      _scrollToEnd();
-    } catch (e) {
-      setState(() => _messages.remove(loadingMsg));
-      final errMsg = ChatMessage(
-        role: 'assistant',
-        content: s.compactFailed(e.toString()),
-      );
-      setState(() => _messages.add(errMsg));
-      _persistMessage(errMsg);
-      _scrollToEnd();
-    }
+    scrollToEnd();
   }
 
   /// Auto-compact if context exceeds 80% threshold.
@@ -1340,153 +661,8 @@ String _buildCommandHelp(bool debugMode) {
     if (agentId == _activeAgentId) return;
     UnreadService.instance.clearActive(_activeAgentId);
     UnreadService.instance.setActive(agentId);
-    _loadHistory(agentId);
+    loadHistory(_activeAgentId);
     setState(() => _activeAgentId = agentId);
-  }
-
-  /// Load the latest page of messages for an agent.
-  /// Preserves the [[CONFIRMATION_REQUIRED]] marker on the most recent
-  /// assistant message when the manager has an active pending tool, so
-  /// the action buttons reappear when re-entering a chat mid-confirmation.
-  Future<void> _loadHistory(String agentId) async {
-    if (_messagesByAgent.containsKey(agentId)) {
-      if (_initialLoading) setState(() => _initialLoading = false);
-      return;
-    }
-    // Mark the slot immediately so concurrent _send() calls don't trigger
-    // a second putIfAbsent from the _messages getter while we're loading.
-    _messagesByAgent[agentId] = [];
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    // Resolve manager (may be null if not subscribed yet); pending state
-    // determines whether to keep the live confirmation marker.
-    final ChatRuntimeManager mgr =
-        _manager ?? ref.read(chatRuntimeManagerProvider);
-    final hasPending = mgr.sessionFor(agentId).pendingTool != null;
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (mounted) {
-      _initialLoading = false;
-      setState(() {
-        // Merge: prepend loaded history before any messages added during load.
-        final live = _messagesByAgent[agentId] ?? [];
-        _messagesByAgent[agentId] = [...cleaned, ...live];
-      });
-      if (cleaned.length < kMessagePageSize) {
-        _fullyLoaded.add(agentId);
-      }
-      // Single-frame jump to bottom. Multi-frame settle was needed before
-      // when markdown bubbles re-parsed on every rebuild causing layout
-      // jitter; now that the stylesheet is cached and items have stable
-      // keys, ListView.builder reports the correct extent on the first
-      // post-frame callback.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients || !mounted) return;
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      });
-    }
-
-    // Load persisted peak for accurate compaction on cold start.
-    final tokenService = ref.read(tokenUsageServiceProvider);
-    final peak = await tokenService.getPersistedPeak(agentId);
-    if (peak > 0) ContextCompactor.setPersistedPeak(peak);
-  }
-
-  /// Load older messages when scrolling to the top.
-  ///
-  /// Loads exactly one page (kMessagePageSize) per call rather than 30 at
-  /// once. The smaller batch keeps each older-load fast (less DB work, less
-  /// markdown layout work). After insertion we preserve the user's visual
-  /// scroll position so the screen doesn't jerk upward as content streams
-  /// in above their viewport.
-  Future<void> _loadOlderMessages() async {
-    if (_loadingOlder || !_hasMore) return;
-    final messages = _messages;
-    if (messages.isEmpty) return;
-
-    final oldestId = messages.first.id;
-    if (oldestId == null) {
-      _fullyLoaded.add(_activeAgentId);
-      return;
-    }
-
-    _loadingOlder = true;
-    setState(() {}); // Show loading indicator.
-
-    // Capture pre-insertion extent so we can restore the user's visual
-    // anchor after the new bubbles are laid out.
-    final beforeExtent = _scroll.hasClients
-        ? _scroll.position.maxScrollExtent
-        : 0.0;
-    final beforePixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(
-      _activeAgentId,
-      beforeId: oldestId,
-      limit: kMessagePageSize,
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      if (older.isEmpty) {
-        _fullyLoaded.add(_activeAgentId);
-      } else {
-        messages.insertAll(0, older);
-        if (older.length < kMessagePageSize) {
-          _fullyLoaded.add(_activeAgentId);
-        }
-      }
-      _loadingOlder = false;
-    });
-
-    // Preserve scroll anchor: keep the previously visible bubble at the
-    // same screen position by silently shifting pixels by the layout
-    // delta. We use position.correctPixels rather than jumpTo because
-    // jumpTo fires scroll listeners and interrupts any in-progress user
-    // drag, which manifested as a brief "blank state" flicker mid-scroll.
-    // correctPixels is the framework-sanctioned way to shift the scroll
-    // origin invisibly when content is added above the viewport.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients || !mounted) return;
-      final position = _scroll.position;
-      final afterExtent = position.maxScrollExtent;
-      final delta = afterExtent - beforeExtent;
-      if (delta > 0) {
-        position.correctPixels(beforePixels + delta);
-        position.notifyListeners();
-      }
-    });
   }
 
   Future<ChatMessage> _persistMessage(ChatMessage message) async {
@@ -1548,7 +724,7 @@ String _buildCommandHelp(bool debugMode) {
             // debug bottom sheet, but only when LLM debug mode is enabled.
             // This replaces the previous behavior of mixing debug bubbles
             // into the chat list, which polluted the conversation view.
-            onLongPress: debugMode ? _showDebugBottomSheet : null,
+            onLongPress: debugMode ? showDebugBottomSheet : null,
             behavior: HitTestBehavior.opaque,
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1743,13 +919,13 @@ String _buildCommandHelp(bool debugMode) {
                                               msg: current,
                                               isId: isId,
                                               onConfirmAction: (action) =>
-                                                  _handleConfirmation(
+                                                  handleConfirmation(
                                                     action,
                                                     msgIndex,
                                                   ),
-                                              onActionTap: _handleResultAction,
+                                              onActionTap: handleResultAction,
                                               onLongPress: () =>
-                                                  _showMessageActions(current),
+                                                  showMessageActions(current),
                                             ),
                                     );
                                     if (!showDate) return bubble;
@@ -1800,10 +976,10 @@ String _buildCommandHelp(bool debugMode) {
                         controller: _input,
                         sending: _sending,
                         debugMode: debugMode,
-                        onSend: _send,
+                        onSend: send,
                         onStop: _stop,
                         replyTo: _replyTo,
-                        onCancelReply: _cancelReply,
+                        onCancelReply: cancelReply,
                         onAttachmentsChanged: (files) {
                           setState(() => _attachments = files);
                         },
