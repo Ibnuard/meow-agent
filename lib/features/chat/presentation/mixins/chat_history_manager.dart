@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/chat_history_service.dart';
+import '../../data/chat_messages_notifier.dart';
 import '../../data/chat_runtime_manager.dart';
 import '../../../../services/agent_runtime/context_compactor.dart';
 import '../../../../services/agent_runtime/runtime_models.dart';
@@ -18,62 +19,50 @@ import '../../data/token_usage_service.dart';
 mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   AppStrings get s;
   String get activeAgentId;
-  List<ChatMessage> get messagesList;
-  Map<String, List<ChatMessage>> get messagesByAgent;
-  Set<String> get fullyLoaded;
   ChatRuntimeManager? get manager;
   ChatRuntimeManager ensureManager();
   void scrollToEnd();
   Future<ChatMessage> persistMessage(ChatMessage message);
   WidgetRef get ref;
+  ScrollController get chatScroll;
+  void Function() get rebuildDateBoundaries;
+
+  /// Convenience accessor for the active agent's message notifier.
+  ChatMessagesNotifier get _notifier =>
+      ref.read(chatMessagesProvider(activeAgentId).notifier);
+
+  /// Current messages from the notifier (read-only snapshot).
+  List<ChatMessage> get messagesList =>
+      ref.read(chatMessagesProvider(activeAgentId)).messages;
+
+  /// Whether more older messages might exist.
+  bool get hasMore => ref.read(chatMessagesProvider(activeAgentId)).hasMore;
+
+  /// Whether older messages are currently being fetched.
+  bool get loadingOlder =>
+      ref.read(chatMessagesProvider(activeAgentId)).loadingOlder;
+
+  /// Whether initial history is still loading.
+  bool get initialLoading =>
+      ref.read(chatMessagesProvider(activeAgentId)).initialLoading;
 
   /// Reload history from disk after manager persists a reply.
-  Future<void> reloadHistory(String agentId) async {
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    final hasPending = manager?.sessionFor(agentId).pendingTool != null;
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      messagesByAgent[agentId] = cleaned;
-    });
-    scrollToEnd();
+  Future<void> reloadHistory(
+    String agentId, {
+    bool scrollToBottom = true,
+  }) async {
+    final notifier = ref.read(chatMessagesProvider(agentId).notifier);
+    await notifier.reload(manager: manager);
+    rebuildDateBoundaries();
+    if (scrollToBottom) scrollToEnd();
   }
 
   void handleConfirmation(String action, int msgIndex) {
-    if (msgIndex < 0 || msgIndex >= messagesList.length) return;
+    final messages = messagesList;
+    if (msgIndex < 0 || msgIndex >= messages.length) return;
 
-    final msg = messagesList[msgIndex];
-    setState(() => messagesList.removeAt(msgIndex));
+    final msg = messages[msgIndex];
+    _notifier.removeAt(msgIndex);
     if (msg.id != null) {
       deletePersistedMessage(msg.id!);
     }
@@ -151,16 +140,17 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       content: s.modelUpdated(provider.nickname, model),
     );
     if (!mounted) return;
-    setState(() {
-      final idx = sourceMessage == null
-          ? -1
-          : messagesList.indexWhere(
-              (m) => identical(m, sourceMessage) || m.id == sourceMessage.id,
-            );
-      if (idx >= 0) {
-        messagesList[idx] = fixed;
-      }
-    });
+
+    final messages = messagesList;
+    final idx = sourceMessage == null
+        ? -1
+        : messages.indexWhere(
+            (m) => identical(m, sourceMessage) || m.id == sourceMessage.id,
+          );
+    if (idx >= 0) {
+      _notifier.replaceAt(idx, fixed);
+    }
+
     if (fixed.id != null) {
       await ref.read(chatHistoryServiceProvider).updateMessage(fixed);
     }
@@ -173,59 +163,9 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
   /// Load the latest page of messages for an agent.
   Future<void> loadHistory(String agentId) async {
-    if (messagesByAgent.containsKey(agentId)) {
-      if (initialLoading) setState(() => initialLoading = false);
-      return;
-    }
-    messagesByAgent[agentId] = [];
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    final ChatRuntimeManager mgr =
-        manager ?? ref.read(chatRuntimeManagerProvider);
-    final hasPending = mgr.sessionFor(agentId).pendingTool != null;
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        final live = messagesByAgent[agentId] ?? [];
-        messagesByAgent[agentId] = [...cleaned, ...live];
-        initialLoading = false;
-      });
-      rebuildDateBoundaries();
-      if (cleaned.length < kMessagePageSize) {
-        fullyLoaded.add(agentId);
-      }
-      // Reversed list starts at position 0 = bottom (newest). No jump needed.
-    }
+    final notifier = ref.read(chatMessagesProvider(agentId).notifier);
+    await notifier.loadInitial(manager: manager);
+    rebuildDateBoundaries();
 
     final tokenService = ref.read(tokenUsageServiceProvider);
     final peak = await tokenService.getPersistedPeak(agentId);
@@ -239,54 +179,9 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   /// (visually at the top). The viewport never shifts, so zero scroll
   /// correction is needed. This is the standard Flutter chat pattern.
   Future<void> loadOlderMessages() async {
-    if (loadingOlder || !hasMore) return;
-    final messages = messagesList;
-    if (messages.isEmpty) return;
-
-    final oldestId = messages.first.id;
-    if (oldestId == null) {
-      fullyLoaded.add(activeAgentId);
-      return;
+    final count = await _notifier.loadOlder();
+    if (count > 0) {
+      rebuildDateBoundaries();
     }
-
-    // Set guard flag — no setState needed because the top indicator is always
-    // in the tree (controlled by hasMore, not loadingOlder).
-    loadingOlder = true;
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(
-      activeAgentId,
-      beforeId: oldestId,
-      limit: kMessagePageSize,
-    );
-
-    if (!mounted || older.isEmpty) {
-      loadingOlder = false;
-      if (mounted && older.isEmpty) {
-        setState(() {
-          fullyLoaded.add(activeAgentId);
-        });
-      }
-      return;
-    }
-
-    setState(() {
-      messages.insertAll(0, older);
-      loadingOlder = false;
-      if (older.length < kMessagePageSize) {
-        fullyLoaded.add(activeAgentId);
-      }
-    });
-
-    rebuildDateBoundaries();
   }
-
-  // State accessors needed by this mixin.
-  bool get initialLoading;
-  set initialLoading(bool value);
-  bool get loadingOlder;
-  set loadingOlder(bool value);
-  bool get hasMore;
-  ScrollController get chatScroll;
-  void Function() get rebuildDateBoundaries;
 }

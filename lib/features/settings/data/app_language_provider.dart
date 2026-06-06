@@ -339,24 +339,24 @@ class AppStrings {
       : 'This PIN will be used to automatically unlock the device. '
             'PIN must match the one you use to unlock your device. '
             'PIN will be stored with secure encryption.';
-  String get devicePinInputHint => isId
-      ? 'Masukkan PIN perangkat Anda'
-      : 'Enter your device PIN';
+  String get devicePinInputHint =>
+      isId ? 'Masukkan PIN perangkat Anda' : 'Enter your device PIN';
   String get devicePinNewTitle => isId ? 'PIN Baru' : 'New PIN';
   String get devicePinSave => isId ? 'Simpan' : 'Save';
   String get devicePinCancel => isId ? 'Batal' : 'Cancel';
-  String get devicePinEmpty => isId ? 'PIN tidak boleh kosong' : 'PIN cannot be empty';
-  String get devicePinMinLength => isId ? 'PIN minimal 4 digit' : 'PIN must be at least 4 digits';
+  String get devicePinEmpty =>
+      isId ? 'PIN tidak boleh kosong' : 'PIN cannot be empty';
+  String get devicePinMinLength =>
+      isId ? 'PIN minimal 4 digit' : 'PIN must be at least 4 digits';
   String get devicePinVerifyTitle => isId ? 'Verifikasi PIN' : 'Verify PIN';
-  String get devicePinVerifyHint => isId
-      ? 'Masukkan PIN yang sudah tersimpan'
-      : 'Enter the stored PIN';
+  String get devicePinVerifyHint =>
+      isId ? 'Masukkan PIN yang sudah tersimpan' : 'Enter the stored PIN';
   String get devicePinVerifyButton => isId ? 'Verifikasi' : 'Verify';
   String get devicePinEdit => isId ? 'Edit' : 'Edit';
-  String get devicePinMismatch => isId ? 'PIN tidak sesuai' : 'PIN does not match';
-  String get devicePinVerifyRequired => isId
-      ? 'Masukkan PIN yang sudah tersimpan'
-      : 'Enter the stored PIN';
+  String get devicePinMismatch =>
+      isId ? 'PIN tidak sesuai' : 'PIN does not match';
+  String get devicePinVerifyRequired =>
+      isId ? 'Masukkan PIN yang sudah tersimpan' : 'Enter the stored PIN';
   String get devicePinEncrypted => '[Encrypted PIN]';
   String get checkStatus => isId ? 'Cek Status' : 'Check Status';
   String get requestPermission => 'Request Permission';
@@ -579,6 +579,8 @@ class AppStrings {
   // Chat action strings (moved from inline isId checks)
   String get reply => isId ? 'Balas' : 'Reply';
   String get copyText => isId ? 'Salin teks' : 'Copy text';
+  String get viewMarkdown => isId ? 'Lihat Markdown' : 'View Markdown';
+  String get seeMore => isId ? 'Lihat selengkapnya' : 'See more';
   String get cannotReplyEmpty => isId
       ? 'Tidak bisa membalas pesan kosong.'
       : 'Cannot reply to an empty message.';
@@ -623,9 +625,12 @@ class AppStrings {
   String unknownCommand(String cmd) => isId
       ? 'Perintah tidak dikenal: $cmd\nKetik /help untuk daftar perintah yang tersedia.'
       : 'Unknown command: $cmd\nType /help for available commands.';
-  String get cronNoJobs => isId
-      ? '📋 Tugas Terjadwal (HEARTBEAT.md):\nTidak ada cron job aktif.\nEdit HEARTBEAT.md di workspace agen untuk menambahkan tugas terjadwal.'
-      : '📋 Scheduled Tasks (HEARTBEAT.md):\nNo active cron jobs configured.\nEdit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
+  String noWorkflows(String agentName) => isId
+      ? '📋 Agent *$agentName* belum memiliki workflow.\nBuka modul Workflow untuk membuat workflow otomatis.'
+      : '📋 Agent *$agentName* has no workflows assigned.\nOpen the Workflow module to create automated workflows.';
+  String workflowListHeader(int count) => isId
+      ? '📋 Workflow ($count) untuk agent ini:'
+      : '📋 Workflows ($count) for this agent:';
   String get debugOffForLog => isId
       ? 'Debug LLM (Dev) mati. Nyalakan di Pengaturan untuk menggunakan /log.'
       : 'Debug LLM (Dev) is off. Turn it on in Settings to use /log.';
@@ -731,8 +736,8 @@ class AppStrings {
       isId ? 'Pilih model untuk agen ini' : 'Choose model for this agent';
   String get helpSlashCompact =>
       isId ? 'Kompresi jendela konteks' : 'Compact context window';
-  String get helpSlashCron =>
-      isId ? 'Tampilkan tugas terjadwal' : 'Show scheduled tasks';
+  String get helpSlashWorkflow =>
+      isId ? 'Tampilkan workflow agen ini' : 'Show workflows for this agent';
   String get helpSlashLog => isId
       ? 'Tampilkan runtime debug log terakhir'
       : 'Show last runtime debug log';
@@ -1474,51 +1479,41 @@ class AppStrings {
   // --- Workflow runner status / error strings ---
   String workflowAgentNotFound(String agentId) =>
       isId ? 'Agent tidak ditemukan: $agentId' : 'Agent not found: $agentId';
-  String workflowProviderNotFound(String providerId, String agentName) =>
-      isId
-          ? 'Provider LLM "$providerId" tidak ditemukan untuk agent "$agentName".'
-          : 'LLM provider "$providerId" not found for agent "$agentName".';
-  String workflowTimeoutSeconds(int seconds) =>
-      isId
-          ? 'Timeout: eksekusi melebihi $seconds detik.'
-          : 'Timeout: execution exceeded $seconds.';
-  String get workflowStepAgentNotFound =>
-      isId
-          ? 'Agent tidak ditemukan untuk langkah ini.'
-          : 'Agent not found for this step.';
-  String workflowStepProviderNotFound(String agentName) =>
-      isId
-          ? 'Provider tidak ditemukan untuk agent "$agentName".'
-          : 'Provider not found for agent "$agentName".';
+  String workflowProviderNotFound(String providerId, String agentName) => isId
+      ? 'Provider LLM "$providerId" tidak ditemukan untuk agent "$agentName".'
+      : 'LLM provider "$providerId" not found for agent "$agentName".';
+  String workflowTimeoutSeconds(int seconds) => isId
+      ? 'Timeout: eksekusi melebihi $seconds detik.'
+      : 'Timeout: execution exceeded $seconds.';
+  String get workflowStepAgentNotFound => isId
+      ? 'Agent tidak ditemukan untuk langkah ini.'
+      : 'Agent not found for this step.';
+  String workflowStepProviderNotFound(String agentName) => isId
+      ? 'Provider tidak ditemukan untuk agent "$agentName".'
+      : 'Provider not found for agent "$agentName".';
   String get workflowSensitiveFallbackTool =>
       isId ? 'aksi sensitif' : 'sensitive action';
-  String workflowSensitiveBlocked(int step, String tool) =>
-      isId
-          ? 'Langkah $step perlu izin aksi sensitif ($tool). '
-              'Aktifkan "Izinkan aksi sensitif" di pengaturan workflow lalu jalankan ulang.'
-          : 'Step $step needs sensitive permission ($tool). '
-              'Enable "Allow sensitive actions" in workflow settings and re-run.';
+  String workflowSensitiveBlocked(int step, String tool) => isId
+      ? 'Langkah $step perlu izin aksi sensitif ($tool). '
+            'Aktifkan "Izinkan aksi sensitif" di pengaturan workflow lalu jalankan ulang.'
+      : 'Step $step needs sensitive permission ($tool). '
+            'Enable "Allow sensitive actions" in workflow settings and re-run.';
   String get workflowErrorGeneric => 'Error';
-  String workflowSingleSuccess(String title) =>
-      isId
-          ? '✅ Workflow **$title** berhasil dijalankan.'
-          : '✅ Workflow **$title** completed successfully.';
-  String workflowSingleFailed(String title) =>
-      isId
-          ? '❌ Workflow **$title** gagal dijalankan.'
-          : '❌ Workflow **$title** failed to run.';
-  String workflowChainedSuccess(String title, int steps) =>
-      isId
-          ? '✅ Workflow **$title** selesai — $steps langkah.'
-          : '✅ Workflow **$title** completed — $steps steps.';
-  String workflowChainedFailed(String title, String overall) =>
-      isId
-          ? '❌ Workflow **$title** — $overall'
-          : '❌ Workflow **$title** — $overall';
-  String workflowFailedStatus(String title, String error) =>
-      isId
-          ? '❌ Workflow **$title** gagal: $error'
-          : '❌ Workflow **$title** failed: $error';
+  String workflowSingleSuccess(String title) => isId
+      ? '✅ Workflow **$title** berhasil dijalankan.'
+      : '✅ Workflow **$title** completed successfully.';
+  String workflowSingleFailed(String title) => isId
+      ? '❌ Workflow **$title** gagal dijalankan.'
+      : '❌ Workflow **$title** failed to run.';
+  String workflowChainedSuccess(String title, int steps) => isId
+      ? '✅ Workflow **$title** selesai — $steps langkah.'
+      : '✅ Workflow **$title** completed — $steps steps.';
+  String workflowChainedFailed(String title, String overall) => isId
+      ? '❌ Workflow **$title** — $overall'
+      : '❌ Workflow **$title** — $overall';
+  String workflowFailedStatus(String title, String error) => isId
+      ? '❌ Workflow **$title** gagal: $error'
+      : '❌ Workflow **$title** failed: $error';
 
   // --- Misc labels ---
   String get errorPrefix => 'Error';

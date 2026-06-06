@@ -34,6 +34,7 @@ class ChatRuntimeSession {
     this.lastReplyAt,
     this.narrativeMessage,
     this.activeTaskLedger,
+    this.lastPersistedMessages = const [],
   });
 
   final String agentId;
@@ -51,6 +52,10 @@ class ChatRuntimeSession {
   /// Live multi-goal task ledger for complex chat requests.
   final TaskLedger? activeTaskLedger;
 
+  /// Messages persisted by the latest completed runtime transition. The UI can
+  /// upsert these directly instead of reloading the latest page from SQLite.
+  final List<ChatMessage> lastPersistedMessages;
+
   ChatRuntimeSession copyWith({
     bool? isRunning,
     List<ChatMessage>? debugMessages,
@@ -59,6 +64,7 @@ class ChatRuntimeSession {
     DateTime? lastReplyAt,
     String? narrativeMessage,
     TaskLedger? activeTaskLedger,
+    List<ChatMessage>? lastPersistedMessages,
     bool clearPending = false,
     bool clearNarrative = false,
     bool clearTaskLedger = false,
@@ -78,6 +84,8 @@ class ChatRuntimeSession {
       activeTaskLedger: clearTaskLedger
           ? null
           : (activeTaskLedger ?? this.activeTaskLedger),
+      lastPersistedMessages:
+          lastPersistedMessages ?? this.lastPersistedMessages,
     );
   }
 }
@@ -98,6 +106,7 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   final Map<String, ChatRuntimeSession> _sessions = {};
   final Map<String, Future<void>> _runtimeLogWrites = {};
+  final Map<String, Future<void>> _sendQueues = {};
 
   /// Agents whose current in-flight send was cancelled by the user.
   /// Used to suppress trailing events and empty responses that arrive
@@ -112,11 +121,10 @@ class ChatRuntimeManager extends ChangeNotifier {
   bool get hasAnyRunning => _sessions.values.any((s) => s.isRunning);
 
   /// ID of the first agent that is currently running, or null.
-  String? get runningAgentId =>
-      _sessions.entries
-          .where((e) => e.value.isRunning)
-          .map((e) => e.key)
-          .firstOrNull;
+  String? get runningAgentId => _sessions.entries
+      .where((e) => e.value.isRunning)
+      .map((e) => e.key)
+      .firstOrNull;
 
   void _set(String agentId, ChatRuntimeSession s) {
     _sessions[agentId] = s;
@@ -176,6 +184,39 @@ class ChatRuntimeManager extends ChangeNotifier {
     required String userMessage,
     required List<ChatMessage> recentMessages,
     List<AttachedFile> attachments = const [],
+    ChatMessage? persistedUserMessage,
+  }) {
+    final previous = _sendQueues[agentId] ?? Future<void>.value();
+    late final Future<void> queued;
+    queued = previous
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Queued chat send failed before next turn: $error');
+        })
+        .then(
+          (_) => _runSend(
+            agentId: agentId,
+            userMessage: userMessage,
+            recentMessages: recentMessages,
+            attachments: attachments,
+            persistedUserMessage: persistedUserMessage,
+          ),
+        );
+    late final Future<void> tracked;
+    tracked = queued.whenComplete(() {
+      if (identical(_sendQueues[agentId], tracked)) {
+        _sendQueues.remove(agentId);
+      }
+    });
+    _sendQueues[agentId] = tracked;
+    return tracked;
+  }
+
+  Future<void> _runSend({
+    required String agentId,
+    required String userMessage,
+    required List<ChatMessage> recentMessages,
+    List<AttachedFile> attachments = const [],
+    ChatMessage? persistedUserMessage,
   }) async {
     final provider = await _resolveProvider(agentId);
 
@@ -186,7 +227,15 @@ class ChatRuntimeManager extends ChangeNotifier {
     final displayContent = attachments.isEmpty
         ? userMessage
         : '$userMessage\n\n📎 ${attachments.map((a) => a.name).join(", ")}';
-    final imageExtensions = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
+    final imageExtensions = const {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
     final imagePaths = attachments
         .where((a) {
           final dot = a.name.lastIndexOf('.');
@@ -195,12 +244,36 @@ class ChatRuntimeManager extends ChangeNotifier {
         })
         .map((a) => a.path)
         .toList();
-    final userMsg = ChatMessage(role: 'user', content: displayContent, imagePaths: imagePaths);
-    await history.addMessage(agentId, userMsg);
+    var userMsg =
+        persistedUserMessage ??
+        ChatMessage(
+          role: 'user',
+          content: displayContent,
+          imagePaths: imagePaths,
+          deliveryStatus: ChatMessageDeliveryStatus.sending,
+        );
+    if (userMsg.id == null) {
+      final id = await history.addMessage(agentId, userMsg);
+      userMsg = userMsg.copyWith(id: id);
+    } else {
+      userMsg = userMsg.copyWith(
+        deliveryStatus:
+            userMsg.deliveryStatus == ChatMessageDeliveryStatus.pending
+            ? ChatMessageDeliveryStatus.sending
+            : userMsg.deliveryStatus,
+        clearErrorMessage: true,
+      );
+      await history.updateMessage(userMsg);
+    }
 
     if (provider == null || !provider.isComplete) {
       // Fallback: agent's provider disappeared mid-flight → surface with action.
       final lang = _languageForUserMessage(userMessage);
+      final sentUserMsg = userMsg.copyWith(
+        deliveryStatus: ChatMessageDeliveryStatus.sent,
+        clearErrorMessage: true,
+      );
+      await history.updateMessage(sentUserMsg);
       final fallbackMsg = ChatMessage(
         role: 'assistant',
         content: I18nFallback.get('provider_missing', lang),
@@ -213,7 +286,8 @@ class ChatRuntimeManager extends ChangeNotifier {
           ),
         ],
       );
-      await history.addMessage(agentId, fallbackMsg);
+      final fallbackId = await history.addMessage(agentId, fallbackMsg);
+      final persistedFallback = fallbackMsg.copyWith(id: fallbackId);
       await UnreadService.instance.increment(agentId);
       _set(
         agentId,
@@ -222,6 +296,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           debugMessages: [],
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          lastPersistedMessages: [sentUserMsg, persistedFallback],
         ),
       );
       return;
@@ -255,12 +330,24 @@ class ChatRuntimeManager extends ChangeNotifier {
     final agentName = agent?.name ?? '';
 
     try {
+      var runtimeRecentMessages = recentMessages;
+      try {
+        final latest = await history.loadLatest(agentId);
+        runtimeRecentMessages = latest
+            .where(
+              (m) =>
+                  (userMsg.id == null || m.id != userMsg.id) &&
+                  (userMsg.clientId == null || m.clientId != userMsg.clientId),
+            )
+            .toList();
+      } catch (_) {}
+
       final response = await engine.run(
         AgentRuntimeRequest(
           agentId: agentId,
           agentName: agentName,
           userMessage: userMessage,
-          recentMessages: recentMessages,
+          recentMessages: runtimeRecentMessages,
           attachments: attachments,
         ),
         provider: provider,
@@ -333,25 +420,32 @@ class ChatRuntimeManager extends ChangeNotifier {
         actions: response.actions,
       );
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
+      final sentUserMsg = userMsg.copyWith(
+        deliveryStatus: ChatMessageDeliveryStatus.sent,
+        clearErrorMessage: true,
+      );
+      await history.updateMessage(sentUserMsg);
+      final persistedMessages = <ChatMessage>[sentUserMsg];
       if (historicalLedger != null &&
           historicalLedger.goalTree.subgoals.length > 1 &&
           !isConfirm) {
-        await history.addMessage(
-          agentId,
-          ChatMessage(
-            role: 'assistant',
-            content:
-                '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
-          ),
+        final ledgerMsg = ChatMessage(
+          role: 'assistant',
+          content:
+              '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
         );
+        final ledgerId = await history.addMessage(agentId, ledgerMsg);
+        persistedMessages.add(ledgerMsg.copyWith(id: ledgerId));
       }
 
-      await history.addMessage(agentId, replyMsg);
+      final replyId = await history.addMessage(agentId, replyMsg);
+      final persistedReply = replyMsg.copyWith(id: replyId);
+      persistedMessages.add(persistedReply);
       await UnreadService.instance.increment(agentId);
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,
-        reply: replyMsg,
+        reply: persistedReply,
         forceNotify: historicalLedger != null,
       );
       // Persist cumulative token usage stats for this agent.
@@ -367,6 +461,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          lastPersistedMessages: persistedMessages,
         ),
       );
     } catch (e) {
@@ -390,15 +485,19 @@ class ChatRuntimeManager extends ChangeNotifier {
         );
         await _flushRuntimeLog(agentId);
       }
-      await history.addMessage(
-        agentId,
-        ChatMessage(role: 'assistant', content: 'Error: $e'),
+      final sentUserMsg = userMsg.copyWith(
+        deliveryStatus: ChatMessageDeliveryStatus.sent,
+        clearErrorMessage: true,
       );
+      await history.updateMessage(sentUserMsg);
+      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
+      final errorId = await history.addMessage(agentId, errorMsg);
+      final persistedError = errorMsg.copyWith(id: errorId);
       await UnreadService.instance.increment(agentId);
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,
-        reply: ChatMessage(role: 'assistant', content: 'Error: $e'),
+        reply: persistedError,
         forceNotify: sessionFor(agentId).activeTaskLedger != null,
       );
       _set(
@@ -409,6 +508,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          lastPersistedMessages: [sentUserMsg, persistedError],
         ),
       );
     }
@@ -435,7 +535,8 @@ class ChatRuntimeManager extends ChangeNotifier {
           ),
         ],
       );
-      await history.addMessage(agentId, fallbackMsg);
+      final fallbackId = await history.addMessage(agentId, fallbackMsg);
+      final persistedFallback = fallbackMsg.copyWith(id: fallbackId);
       _set(
         agentId,
         s.copyWith(
@@ -444,6 +545,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           clearPending: true,
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          lastPersistedMessages: [persistedFallback],
         ),
       );
       return;
@@ -536,17 +638,17 @@ class ChatRuntimeManager extends ChangeNotifier {
       final isNextConfirm =
           response.state == AgentRuntimeState.waitingConfirmation;
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
+      final persistedMessages = <ChatMessage>[];
       if (historicalLedger != null &&
           historicalLedger.goalTree.subgoals.length > 1 &&
           !isNextConfirm) {
-        await history.addMessage(
-          agentId,
-          ChatMessage(
-            role: 'assistant',
-            content:
-                '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
-          ),
+        final ledgerMsg = ChatMessage(
+          role: 'assistant',
+          content:
+              '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
         );
+        final ledgerId = await history.addMessage(agentId, ledgerMsg);
+        persistedMessages.add(ledgerMsg.copyWith(id: ledgerId));
       }
 
       await history.addMessage(
@@ -563,14 +665,24 @@ class ChatRuntimeManager extends ChangeNotifier {
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,
-        reply: ChatMessage(
-          role: 'assistant',
-          content: response.finalMessage,
-        ),
+        reply: ChatMessage(role: 'assistant', content: response.finalMessage),
         forceNotify: historicalLedger != null,
       );
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
+      persistedMessages
+        ..clear()
+        ..addAll(
+          await history.loadLatest(
+            agentId,
+            limit:
+                historicalLedger != null &&
+                    historicalLedger.goalTree.subgoals.length > 1 &&
+                    !isNextConfirm
+                ? 2
+                : 1,
+          ),
+        );
 
       _set(
         agentId,
@@ -583,6 +695,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          lastPersistedMessages: persistedMessages,
         ),
       );
     } catch (e) {
@@ -598,15 +711,14 @@ class ChatRuntimeManager extends ChangeNotifier {
         );
         await _flushRuntimeLog(agentId);
       }
-      await history.addMessage(
-        agentId,
-        ChatMessage(role: 'assistant', content: 'Error: $e'),
-      );
+      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
+      final errorId = await history.addMessage(agentId, errorMsg);
+      final persistedError = errorMsg.copyWith(id: errorId);
       await UnreadService.instance.increment(agentId);
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,
-        reply: ChatMessage(role: 'assistant', content: 'Error: $e'),
+        reply: persistedError,
         forceNotify: sessionFor(agentId).activeTaskLedger != null,
       );
       _set(
@@ -617,6 +729,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          lastPersistedMessages: [persistedError],
         ),
       );
     }
@@ -643,10 +756,9 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
     await engine.abortActiveTask(agentId);
     final rejectMsg = I18nFallback.get('cancel', lang);
-    await history.addMessage(
-      agentId,
-      ChatMessage(role: 'assistant', content: rejectMsg),
-    );
+    final persistedReject = ChatMessage(role: 'assistant', content: rejectMsg);
+    final rejectId = await history.addMessage(agentId, persistedReject);
+    final rejectBubble = persistedReject.copyWith(id: rejectId);
     _set(
       agentId,
       sessionFor(agentId).copyWith(
@@ -655,6 +767,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearPending: true,
         lastReplyAt: DateTime.now(),
         clearNarrative: true,
+        lastPersistedMessages: [rejectBubble],
       ),
     );
   }
@@ -677,13 +790,12 @@ class ChatRuntimeManager extends ChangeNotifier {
       await _flushRuntimeLog(agentId);
     }
     await engine.abortActiveTask(agentId);
-    await history.addMessage(
-      agentId,
-      ChatMessage(
-        role: 'assistant',
-        content: I18nFallback.get('task_cancelled', engine.languageCode),
-      ),
+    final cancelMsg = ChatMessage(
+      role: 'assistant',
+      content: I18nFallback.get('task_cancelled', engine.languageCode),
     );
+    final cancelId = await history.addMessage(agentId, cancelMsg);
+    final cancelBubble = cancelMsg.copyWith(id: cancelId);
     _set(
       agentId,
       s.copyWith(
@@ -693,6 +805,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         lastReplyAt: DateTime.now(),
         clearNarrative: true,
         clearTaskLedger: true,
+        lastPersistedMessages: [cancelBubble],
       ),
     );
   }

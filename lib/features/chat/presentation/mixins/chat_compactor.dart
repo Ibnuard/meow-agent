@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/chat_history_service.dart';
+import '../../data/chat_messages_notifier.dart';
 import '../../../../services/agent_runtime/context_compactor.dart';
 import '../../../../services/workspace/workspace_file_service.dart';
 import '../../../settings/data/app_language_provider.dart';
@@ -13,12 +14,18 @@ import '../../../agents/data/agent_repository.dart';
 mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
   AppStrings get s;
   String get activeAgentId;
-  List<ChatMessage> get messagesList;
-  Map<String, List<ChatMessage>> get messagesByAgent;
   ProviderConfig? resolveProvider();
   Future<ChatMessage> persistMessage(ChatMessage message);
   void scrollToEnd();
   WidgetRef get ref;
+
+  /// Convenience accessor for the notifier.
+  ChatMessagesNotifier get _compactNotifier =>
+      ref.read(chatMessagesProvider(activeAgentId).notifier);
+
+  /// Current messages snapshot from notifier.
+  List<ChatMessage> get _compactMessages =>
+      ref.read(chatMessagesProvider(activeAgentId)).messages;
 
   /// Perform manual /compact.
   Future<void> performCompaction() async {
@@ -28,7 +35,7 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
         role: 'assistant',
         content: s.cannotCompact,
       );
-      setState(() => messagesList.add(msg));
+      _compactNotifier.addMessage(msg);
       persistMessage(msg);
       scrollToEnd();
       return;
@@ -40,16 +47,17 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
         : agents.where((a) => a.id == activeAgentId).firstOrNull;
     final maxCtx = agent?.maxContextLength ?? 8191;
 
-    if (messagesList.length <= 8) {
+    final messages = _compactMessages;
+    if (messages.length <= 8) {
       final msg = ChatMessage(
         role: 'assistant',
         content: s.contextAlreadyCompact(
-          messagesList.length,
-          ContextCompactor.estimateChatTokens(messagesList),
+          messages.length,
+          ContextCompactor.estimateChatTokens(messages),
           maxCtx,
         ),
       );
-      setState(() => messagesList.add(msg));
+      _compactNotifier.addMessage(msg);
       persistMessage(msg);
       scrollToEnd();
       return;
@@ -60,7 +68,7 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
       role: 'assistant',
       content: s.compacting,
     );
-    setState(() => messagesList.add(loadingMsg));
+    _compactNotifier.addMessage(loadingMsg);
     scrollToEnd();
 
     try {
@@ -71,7 +79,7 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
       );
       final compactor = ContextCompactor();
       final compacted = await compactor.compact(
-        messages: messagesList,
+        messages: _compactMessages,
         config: llmConfig,
         keepRecent: 6,
       );
@@ -84,11 +92,8 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
             .addMessage(activeAgentId, msg);
       }
 
-      // Remove loading indicator and reload.
-      setState(() {
-        messagesList.remove(loadingMsg);
-        messagesByAgent[activeAgentId] = compacted;
-      });
+      // Replace messages with compacted set.
+      _compactNotifier.replaceAll(compacted);
 
       // Write summary snapshot to workspace.
       final summaryText = compacted.first.content;
@@ -104,88 +109,22 @@ mixin ChatCompactorMixin<T extends StatefulWidget> on State<T> {
           ContextCompactor.estimateChatTokens(compacted),
         ),
       );
-      setState(() => messagesList.add(doneMsg));
+      _compactNotifier.addMessage(doneMsg);
       persistMessage(doneMsg);
       scrollToEnd();
     } catch (e) {
-      setState(() => messagesList.remove(loadingMsg));
+      // Remove loading indicator by reloading current state without it.
+      final current = _compactMessages;
+      final idx = current.indexWhere((m) => identical(m, loadingMsg));
+      if (idx >= 0) _compactNotifier.removeAt(idx);
+
       final errMsg = ChatMessage(
         role: 'assistant',
         content: s.compactFailed(e.toString()),
       );
-      setState(() => messagesList.add(errMsg));
+      _compactNotifier.addMessage(errMsg);
       persistMessage(errMsg);
       scrollToEnd();
     }
-  }
-
-  /// Auto-compact if context exceeds 80% threshold.
-  ///
-  /// Returns `true` when the send was BLOCKED (auto-compact off + context full),
-  /// and the caller should not proceed with the user's request.
-  Future<bool> autoCompactIfNeeded() async {
-    final agents = ref.read(agentListProvider);
-    final agent = activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == activeAgentId).firstOrNull;
-    final maxCtx = agent?.maxContextLength ?? 8191;
-
-    if (!ContextCompactor.needsCompaction(
-      messages: messagesList,
-      maxContextLength: maxCtx,
-    )) {
-      return false;
-    }
-
-    if (agent?.autoCompact == false) {
-      final msg = ChatMessage(
-        role: 'assistant',
-        content: s.contextExhausted(agent!.maxContextLength),
-      );
-      setState(() => messagesList.add(msg));
-      persistMessage(msg);
-      return true;
-    }
-
-    final provider = resolveProvider();
-    if (provider == null) return false;
-
-    try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-      );
-      final compactor = ContextCompactor();
-      final compacted = await compactor.compact(
-        messages: messagesList,
-        config: llmConfig,
-        keepRecent: 8,
-      );
-
-      // Persist compacted history.
-      await ref.read(chatHistoryServiceProvider).clear(activeAgentId);
-      for (final msg in compacted) {
-        await ref
-            .read(chatHistoryServiceProvider)
-            .addMessage(activeAgentId, msg);
-      }
-
-      setState(() {
-        messagesByAgent[activeAgentId] = compacted;
-      });
-
-      // Notify user.
-      final infoMsg = ChatMessage(
-        role: 'assistant',
-        content: s.autoCompacted(compacted.length),
-      );
-      setState(() => messagesList.add(infoMsg));
-      persistMessage(infoMsg);
-      return false;
-    } catch (_) {
-      // Silent fail for auto-compact — don't block the user's message.
-    }
-    return false;
   }
 }

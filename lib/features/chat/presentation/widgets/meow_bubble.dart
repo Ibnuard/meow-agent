@@ -12,18 +12,8 @@ import '../../data/chat_history_service.dart';
 
 /// Reusable chat bubble for Meow Agent.
 ///
-/// Two layout paths to avoid the Flutter `RenderDivider computeDryBaseline`
-/// crash that triggers when GptMarkdown (which contains Dividers) is placed
-/// under intrinsic-width measurement:
-///
-/// - **Plain layout** — IntrinsicWidth shrink + inline timestamp (WhatsApp).
-///   Used for user messages and short assistant replies that have no markdown
-///   syntax. Bubble sizes to content.
-///
-/// - **Markdown layout** — fixed max width, timestamp on its own row below.
-///   Used for assistant messages containing markdown (lists, code, headings,
-///   bold, links, etc.). Does NOT measure intrinsic width, so Divider-bearing
-///   widgets are safe.
+/// Chat list bubbles always render as plain text to keep scrolling cheap.
+/// Markdown is rendered only in the on-demand detail sheet.
 class MeowBubble extends StatelessWidget {
   const MeowBubble({
     super.key,
@@ -45,7 +35,8 @@ class MeowBubble extends StatelessWidget {
     r'\[\[REPLY_QUOTE:([^\]]+)\]\](.*?)\[\[/REPLY_QUOTE\]\]\n?',
     dotAll: true,
   );
-
+  static const int _longMessageChars = 600;
+  static const int _longMessageLines = 20;
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +66,8 @@ class MeowBubble extends StatelessWidget {
         !isConfirmation;
     if (hasNothingToShow) return const SizedBox.shrink();
 
-    final useMarkdown = !isUser;
+    final hasMarkdown = !isUser && _looksLikeMarkdown(displayContent);
+    final isLong = !isUser && _isLongContent(displayContent);
     final maxWidth = MediaQuery.of(context).size.width * 0.78;
 
     final container = Container(
@@ -91,50 +83,58 @@ class MeowBubble extends StatelessWidget {
         ),
         border: isUser ? null : Border.all(color: extras.subtleBorder),
       ),
-      child: useMarkdown
-          ? _MarkdownLayout(
-              content: displayContent,
-              quoteRole: quoteRole,
-              quoteText: quoteText,
-              isConfirmation: isConfirmation,
-              isId: isId,
-              msg: msg,
-              onConfirmAction: onConfirmAction,
-              onActionTap: onActionTap,
-              onLongPress: onLongPress,
-            )
-          : _PlainLayout(
-              content: displayContent,
-              quoteRole: quoteRole,
-              quoteText: quoteText,
-              isUser: isUser,
-              isConfirmation: isConfirmation,
-              isId: isId,
-              msg: msg,
-              onConfirmAction: onConfirmAction,
-              onActionTap: onActionTap,
-            ),
+      child: _PlainLayout(
+        content: displayContent,
+        quoteRole: quoteRole,
+        quoteText: quoteText,
+        isUser: isUser,
+        isConfirmation: isConfirmation,
+        isId: isId,
+        msg: msg,
+        hasMarkdown: hasMarkdown,
+        isLong: isLong,
+        onConfirmAction: onConfirmAction,
+        onActionTap: onActionTap,
+        onReplyFromSheet: onLongPress,
+      ),
     );
 
-    final sized = useMarkdown
-        ? ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: maxWidth),
-            child: container,
-          )
-        : ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: isUser ? 72 : 0,
-              maxWidth: maxWidth,
-            ),
-            child: IntrinsicWidth(child: container),
-          );
+    final shouldMeasureIntrinsic = isUser || (!hasMarkdown && !isLong);
+    final constrained = ConstrainedBox(
+      constraints: BoxConstraints(
+        minWidth: isUser ? 72 : 0,
+        maxWidth: maxWidth,
+      ),
+      child: shouldMeasureIntrinsic
+          ? IntrinsicWidth(child: container)
+          : container,
+    );
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: onLongPress != null
-          ? GestureDetector(onLongPress: onLongPress, child: sized)
-          : sized,
+          ? GestureDetector(onLongPress: onLongPress, child: constrained)
+          : constrained,
     );
+  }
+
+  static bool _looksLikeMarkdown(String content) {
+    if (content.isEmpty) return false;
+    if (content.contains('```') ||
+        content.contains('**') ||
+        content.contains('__') ||
+        content.contains('`') ||
+        content.contains(RegExp(r'\[[^\]]+\]\([^)]+\)'))) {
+      return true;
+    }
+    return content.contains(
+      RegExp(r'(^|\n)\s{0,3}(#{1,6}\s|[-*+]\s|\d+\.\s|>\s|\|)'),
+    );
+  }
+
+  static bool _isLongContent(String content) {
+    return content.length > _longMessageChars ||
+        '\n'.allMatches(content).length > _longMessageLines;
   }
 }
 
@@ -155,8 +155,11 @@ class _PlainLayout extends StatelessWidget {
     required this.isConfirmation,
     required this.isId,
     required this.msg,
+    required this.hasMarkdown,
+    required this.isLong,
     required this.onConfirmAction,
     required this.onActionTap,
+    required this.onReplyFromSheet,
   });
 
   final String content;
@@ -166,9 +169,12 @@ class _PlainLayout extends StatelessWidget {
   final bool isConfirmation;
   final bool isId;
   final ChatMessage msg;
+  final bool hasMarkdown;
+  final bool isLong;
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action, ChatMessage sourceMessage)?
   onActionTap;
+  final VoidCallback? onReplyFromSheet;
 
   @override
   Widget build(BuildContext context) {
@@ -197,13 +203,39 @@ class _PlainLayout extends StatelessWidget {
           _ImageThumbnails(paths: msg.imagePaths),
           const SizedBox(height: 6),
         ],
-        Text(content, style: textStyle),
+        Text(
+          content,
+          maxLines: isLong ? 12 : null,
+          overflow: isLong ? TextOverflow.ellipsis : TextOverflow.visible,
+          style: textStyle,
+        ),
+        if (!isUser && (isLong || hasMarkdown)) ...[
+          const SizedBox(height: 8),
+          _BubbleContentAction(
+            icon: isLong
+                ? Icons.keyboard_arrow_down_rounded
+                : Icons.article_outlined,
+            label: isLong ? s.seeMore : s.viewMarkdown,
+            onTap: () => _showMarkdownSheet(
+              context,
+              content: content,
+              s: s,
+              onReply: onReplyFromSheet,
+            ),
+          ),
+        ],
         const SizedBox(height: 3),
         Align(
           alignment: Alignment.bottomRight,
-          child: Text(
-            formatBubbleTime(context, msg.timestamp),
-            style: timeStyle,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(formatBubbleTime(context, msg.timestamp), style: timeStyle),
+              if (isUser) ...[
+                const SizedBox(width: 4),
+                _DeliveryMark(status: msg.deliveryStatus),
+              ],
+            ],
           ),
         ),
         if (isConfirmation && onConfirmAction != null) ...[
@@ -219,226 +251,152 @@ class _PlainLayout extends StatelessWidget {
   }
 }
 
-class _MarkdownLayout extends StatefulWidget {
-  const _MarkdownLayout({
-    required this.content,
-    required this.quoteRole,
-    required this.quoteText,
-    required this.isConfirmation,
-    required this.isId,
-    required this.msg,
-    required this.onConfirmAction,
-    required this.onActionTap,
-    this.onLongPress,
-  });
+class _DeliveryMark extends StatelessWidget {
+  const _DeliveryMark({required this.status});
 
-  final String content;
-  final String? quoteRole;
-  final String? quoteText;
-  final bool isConfirmation;
-  final bool isId;
-  final ChatMessage msg;
-  final void Function(String action)? onConfirmAction;
-  final void Function(ResultAction action, ChatMessage sourceMessage)?
-  onActionTap;
-  final VoidCallback? onLongPress;
+  final ChatMessageDeliveryStatus status;
 
   @override
-  State<_MarkdownLayout> createState() => _MarkdownLayoutState();
+  Widget build(BuildContext context) {
+    final icon = switch (status) {
+      ChatMessageDeliveryStatus.pending ||
+      ChatMessageDeliveryStatus.sending => Icons.schedule_rounded,
+      ChatMessageDeliveryStatus.sent => Icons.done_rounded,
+      ChatMessageDeliveryStatus.failed => Icons.error_outline_rounded,
+    };
+    final color = status == ChatMessageDeliveryStatus.failed
+        ? Colors.redAccent
+        : Colors.white.withValues(alpha: 0.76);
+    return Icon(icon, size: 12, color: color);
+  }
 }
 
-class _MarkdownLayoutState extends State<_MarkdownLayout>
-    with AutomaticKeepAliveClientMixin {
-  /// Max visible height for markdown content before clipping.
-  static const double _maxVisibleHeight = 400;
+class _BubbleContentAction extends StatelessWidget {
+  const _BubbleContentAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
 
-  /// Content is considered "long" if it exceeds this char count or line count.
-  static const int _maxChars = 600;
-  static const int _maxLines = 20;
-
-  /// Cache the length check to avoid re-computing on every build.
-  late final bool _isLong = widget.content.length > _maxChars ||
-      '\n'.allMatches(widget.content).length > _maxLines;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
 
   @override
-  bool get wantKeepAlive => true;
-
-  void _showFullContent() {
-    final cs = Theme.of(context).colorScheme;
-    final extras = context.extras;
-    final s = AppStrings(widget.isId ? 'id' : 'en');
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: extras.card,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.85,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (ctx, scrollController) => Column(
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
+            Icon(icon, size: 16, color: cs.primary),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: cs.primary,
               ),
             ),
-            const SizedBox(height: 12),
-            // Action row: Copy + Reply.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  _SheetAction(
-                    icon: Icons.copy_rounded,
-                    label: s.copyTooltip,
-                    onTap: () {
-                      Clipboard.setData(
-                        ClipboardData(text: widget.content),
-                      );
-                      Navigator.of(ctx).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(s.copied),
-                          duration: const Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 12),
-                  _SheetAction(
-                    icon: Icons.reply_rounded,
-                    label: widget.isId ? 'Balas' : 'Reply',
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      widget.onLongPress?.call();
-                    },
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Divider(height: 1),
-            const SizedBox(height: 8),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: GptMarkdown(
-                  widget.content,
-                  style: TextStyle(
-                    color: cs.onSurface,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
-              ),
-            ),
-            SizedBox(height: 16 + MediaQuery.of(ctx).padding.bottom),
           ],
         ),
       ),
     );
   }
+}
 
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    final cs = context.cs;
-    final s = AppStrings(widget.isId ? 'id' : 'en');
-    final textStyle = TextStyle(
-      color: cs.onSurface,
-      fontSize: 14,
-      height: 1.4,
-    );
-
-    final markdownWidget = GptMarkdown(widget.content, style: textStyle);
-    final isLong = _isLong;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (widget.quoteText != null && widget.quoteText!.isNotEmpty) ...[
-          _QuoteChip(
-            role: widget.quoteRole ?? '',
-            text: widget.quoteText!,
-            isUser: false,
-          ),
-        ],
-        if (isLong) ...[
-          ClipRect(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: _maxVisibleHeight),
-              child: markdownWidget,
-            ),
-          ),
-          // Fade gradient overlay hint.
+void _showMarkdownSheet(
+  BuildContext context, {
+  required String content,
+  required AppStrings s,
+  VoidCallback? onReply,
+}) {
+  final cs = Theme.of(context).colorScheme;
+  final extras = context.extras;
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: extras.card,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (ctx, scrollController) => Column(
+        children: [
+          const SizedBox(height: 12),
           Container(
-            height: 32,
+            width: 40,
+            height: 4,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  (context.extras.card).withValues(alpha: 0),
-                  context.extras.card,
-                ],
-              ),
+              color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          // "See more" button.
-          GestureDetector(
-            onTap: _showFullContent,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 4, bottom: 2),
-              child: Text(
-                widget.isId ? 'Lihat selengkapnya' : 'See more',
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _SheetAction(
+                  icon: Icons.copy_rounded,
+                  label: s.copyTooltip,
+                  onTap: () {
+                    Clipboard.setData(ClipboardData(text: content));
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(s.copied),
+                        duration: const Duration(seconds: 1),
+                      ),
+                    );
+                  },
+                ),
+                if (onReply != null) ...[
+                  const SizedBox(width: 12),
+                  _SheetAction(
+                    icon: Icons.reply_rounded,
+                    label: s.reply,
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      onReply();
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: scrollController,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: GptMarkdown(
+                content,
                 style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.primary,
+                  color: cs.onSurface,
+                  fontSize: 14,
+                  height: 1.5,
                 ),
               ),
             ),
           ),
-        ] else ...[
-          markdownWidget,
+          SizedBox(height: 16 + MediaQuery.of(ctx).padding.bottom),
         ],
-        if (widget.isConfirmation && widget.onConfirmAction != null) ...[
-          const SizedBox(height: 12),
-          _ConfirmRow(s: s, onAction: widget.onConfirmAction!),
-        ],
-        if (widget.msg.actions.isNotEmpty && widget.onActionTap != null) ...[
-          const SizedBox(height: 10),
-          _ActionRow(
-            actions: widget.msg.actions,
-            msg: widget.msg,
-            onTap: widget.onActionTap!,
-          ),
-        ],
-        const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Text(
-            formatBubbleTime(context, widget.msg.timestamp),
-            style: TextStyle(
-              fontSize: 10,
-              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+      ),
+    ),
+  );
 }
 
 class _QuoteChip extends StatelessWidget {
@@ -519,6 +477,8 @@ class _ImageThumbnails extends StatelessWidget {
                 File(p),
                 width: 48,
                 height: 48,
+                cacheWidth: 96,
+                cacheHeight: 96,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stack) => Container(
                   width: 48,
@@ -674,11 +634,7 @@ class _ActionRow extends ConsumerWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _iconFor(a.icon),
-                      size: 16,
-                      color: cs.primary,
-                    ),
+                    Icon(_iconFor(a.icon), size: 16, color: cs.primary),
                     const SizedBox(width: 6),
                     Text(
                       a.label,

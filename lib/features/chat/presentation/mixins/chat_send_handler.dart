@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/chat_history_service.dart';
+import '../../data/chat_messages_notifier.dart';
 import '../../data/chat_runtime_manager.dart';
 import '../../../../services/agent_runtime/runtime_models.dart';
 import '../../../settings/data/app_language_provider.dart';
@@ -13,7 +14,6 @@ import '../../../agents/data/agent_repository.dart';
 mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
   AppStrings get s;
   String get activeAgentId;
-  List<ChatMessage> get messagesList;
   ChatMessage? get replyToContext;
   set replyToContext(ChatMessage? value);
   List<AttachedFile> get attachments;
@@ -30,9 +30,13 @@ mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
   String buildReplyPayload(ChatMessage quoted, String userText);
   WidgetRef get ref;
 
+  /// Convenience accessor for the active agent's message notifier.
+  ChatMessagesNotifier get _msgNotifier =>
+      ref.read(chatMessagesProvider(activeAgentId).notifier);
+
   Future<void> send() async {
     final text = inputController.text.trim();
-    if (text.isEmpty || sending) return;
+    if (text.isEmpty) return;
     FocusManager.instance.primaryFocus?.unfocus();
 
     // Slash commands handled locally.
@@ -61,10 +65,8 @@ mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
           ),
         ],
       );
-      setState(() {
-        messagesList.add(userMsg);
-        messagesList.add(botMsg);
-      });
+      _msgNotifier.addMessage(userMsg);
+      _msgNotifier.addMessage(botMsg);
       inputController.clear();
       persistMessage(userMsg);
       persistMessage(botMsg);
@@ -75,7 +77,7 @@ mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
     inputController.clear();
     final replyContext = replyToContext;
     if (replyContext != null) {
-      setState(() => replyToContext = null);
+      replyToContext = null;
     }
 
     // Build the user-visible message with an optional reply quote.
@@ -85,15 +87,20 @@ mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
         ? text
         : buildReplyPayload(replyContext, text);
 
-    // Append attached file names so the chat bubble shows what was sent.
-    final attachmentNames =
-        chatInputKey.currentState?._attachmentsSnapshot ?? attachments;
     final displayText = attachments.isEmpty
         ? messageText
-        : '$messageText\n\n📎 ${attachmentNames.map((a) => a.name).join(", ")}';
+        : '$messageText\n\n📎 ${attachments.map((a) => a.name).join(", ")}';
 
     // Collect image paths for thumbnail rendering in the bubble.
-    final imageExts = const {'.png','.jpg','.jpeg','.webp','.gif','.bmp','.heic'};
+    final imageExts = const {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
     final imgPaths = attachments
         .where((a) {
           final dot = a.path.lastIndexOf('.');
@@ -105,28 +112,82 @@ mixin ChatSendHandlerMixin<T extends StatefulWidget> on State<T> {
 
     // Optimistically show the user message immediately — it always lands
     // in history regardless of context exhaustion.
-    final userMsg = ChatMessage(role: 'user', content: displayText, imagePaths: imgPaths);
-    setState(() => messagesList.add(userMsg));
+    final userMsg = ChatMessage.outgoing(
+      content: displayText,
+      imagePaths: imgPaths,
+    );
+    final clientId = userMsg.clientId!;
+    _msgNotifier.addMessage(userMsg);
     scrollToEnd();
 
-    // Check context BEFORE calling the runtime. If the threshold was hit
-    // and auto-compact is off, surface a warning but DO NOT send the user
-    // message to the agent — there is no point because it will fail. The
-    // user message is already visible in the chat.
-    final blocked = await autoCompactIfNeeded();
-    if (blocked) return;
-
-    // Manager persists user msg + final reply, listener reloads history.
-    final mgr = ensureManager();
-    final recent = messagesList.where((m) => m.id != null).toList();
-    mgr.send(
-      agentId: activeAgentId,
-      userMessage: messageText,
-      recentMessages: recent,
-      attachments: attachments,
-    );
+    // Snapshot attachments and clear the input UI now so the chat composer
+    // resets instantly. The actual send happens after the next frame paints.
+    final attachmentsSnapshot = List<AttachedFile>.from(attachments);
     attachments = [];
     chatInputKey.currentState?.clearAttachments();
+
+    // Defer ALL heavy work to AFTER this frame paints. Without this, the
+    // synchronous prelude inside ChatRuntimeManager.send() (provider resolve,
+    // disk write of the user message, isRunning state flip that triggers a
+    // full ChatScreen setState via the manager listener) executes via
+    // microtasks before Flutter gets a chance to render the optimistic
+    // bubble — causing a perceptible freeze/bounce on tap. WhatsApp-style
+    // instant feedback requires forcing a paint between the optimistic add
+    // and the heavy work.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+
+      late ChatMessage persistedUserMsg;
+      try {
+        persistedUserMsg = await persistMessage(userMsg);
+        if (!mounted) return;
+        _msgNotifier.replaceByClientId(clientId, persistedUserMsg);
+      } catch (e) {
+        if (!mounted) return;
+        _msgNotifier.updateDeliveryStatus(
+          clientId,
+          ChatMessageDeliveryStatus.failed,
+          errorMessage: e.toString(),
+        );
+        return;
+      }
+
+      // Check context BEFORE calling the runtime. If the threshold was hit
+      // and auto-compact is off, surface a warning but DO NOT send the user
+      // message to the agent — there is no point because it will fail. The
+      // user message is already visible in the chat.
+      final blocked = await autoCompactIfNeeded();
+      if (blocked) {
+        final failedMsg = persistedUserMsg.copyWith(
+          deliveryStatus: ChatMessageDeliveryStatus.failed,
+        );
+        _msgNotifier.replaceByClientId(clientId, failedMsg);
+        await ref.read(chatHistoryServiceProvider).updateMessage(failedMsg);
+        return;
+      }
+
+      final acceptedUserMsg = persistedUserMsg.copyWith(
+        deliveryStatus: ChatMessageDeliveryStatus.sent,
+        clearErrorMessage: true,
+      );
+      _msgNotifier.replaceByClientId(clientId, acceptedUserMsg);
+      await ref.read(chatHistoryServiceProvider).updateMessage(acceptedUserMsg);
+
+      // Manager processes this persisted user message and publishes persisted
+      // assistant replies back through its lightweight session payload.
+      final mgr = ensureManager();
+      final messages = ref.read(chatMessagesProvider(activeAgentId)).messages;
+      final recent = messages
+          .where((m) => m.id != null && m.clientId != clientId)
+          .toList();
+      mgr.send(
+        agentId: activeAgentId,
+        userMessage: messageText,
+        recentMessages: recent,
+        attachments: attachmentsSnapshot,
+        persistedUserMessage: acceptedUserMsg,
+      );
+    });
     return;
   }
 }

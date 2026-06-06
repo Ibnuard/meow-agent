@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../services/agent_runtime/runtime_models.dart';
 
@@ -24,7 +25,7 @@ class ChatHistoryService {
     final dbPath = '$dbDir/meow_chat.db';
     return openDatabase(
       dbPath,
-      version: 3,
+      version: 4,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -34,11 +35,20 @@ class ChatHistoryService {
             content TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             actions TEXT,
-            image_paths TEXT
+            image_paths TEXT,
+            client_id TEXT,
+            delivery_status TEXT NOT NULL DEFAULT 'sent',
+            error_message TEXT
           )
         ''');
         await db.execute('''
           CREATE INDEX idx_messages_agent ON messages(agent_id)
+        ''');
+        await db.execute('''
+          CREATE INDEX idx_messages_agent_id ON messages(agent_id, id)
+        ''');
+        await db.execute('''
+          CREATE INDEX idx_messages_client_id ON messages(client_id)
         ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
@@ -47,6 +57,21 @@ class ChatHistoryService {
         }
         if (oldVersion < 3) {
           await db.execute('ALTER TABLE messages ADD COLUMN image_paths TEXT');
+        }
+        if (oldVersion < 4) {
+          await db.execute('ALTER TABLE messages ADD COLUMN client_id TEXT');
+          await db.execute(
+            "ALTER TABLE messages ADD COLUMN delivery_status TEXT NOT NULL DEFAULT 'sent'",
+          );
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN error_message TEXT',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_messages_agent_id ON messages(agent_id, id)',
+          );
+          await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_messages_client_id ON messages(client_id)',
+          );
         }
       },
     );
@@ -122,6 +147,9 @@ class ChatHistoryService {
       'image_paths': message.imagePaths.isEmpty
           ? null
           : jsonEncode(message.imagePaths),
+      'client_id': message.clientId,
+      'delivery_status': message.deliveryStatus.label,
+      'error_message': message.errorMessage,
     });
   }
 
@@ -141,6 +169,9 @@ class ChatHistoryService {
         'image_paths': message.imagePaths.isEmpty
             ? null
             : jsonEncode(message.imagePaths),
+        'client_id': message.clientId,
+        'delivery_status': message.deliveryStatus.label,
+        'error_message': message.errorMessage,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -163,6 +194,9 @@ class ChatHistoryService {
         'image_paths': msg.imagePaths.isEmpty
             ? null
             : jsonEncode(msg.imagePaths),
+        'client_id': msg.clientId,
+        'delivery_status': msg.deliveryStatus.label,
+        'error_message': msg.errorMessage,
       });
     }
     await batch.commit(noResult: true);
@@ -194,6 +228,29 @@ class ChatHistoryService {
   }
 }
 
+enum ChatMessageDeliveryStatus {
+  pending,
+  sending,
+  sent,
+  failed;
+
+  String get label => switch (this) {
+    ChatMessageDeliveryStatus.pending => 'pending',
+    ChatMessageDeliveryStatus.sending => 'sending',
+    ChatMessageDeliveryStatus.sent => 'sent',
+    ChatMessageDeliveryStatus.failed => 'failed',
+  };
+
+  static ChatMessageDeliveryStatus fromLabel(String? raw) {
+    return switch (raw) {
+      'pending' => ChatMessageDeliveryStatus.pending,
+      'sending' => ChatMessageDeliveryStatus.sending,
+      'failed' => ChatMessageDeliveryStatus.failed,
+      _ => ChatMessageDeliveryStatus.sent,
+    };
+  }
+}
+
 /// A single chat message.
 class ChatMessage {
   ChatMessage({
@@ -203,7 +260,23 @@ class ChatMessage {
     DateTime? timestamp,
     this.actions = const [],
     this.imagePaths = const [],
+    this.clientId,
+    this.deliveryStatus = ChatMessageDeliveryStatus.sent,
+    this.errorMessage,
   }) : timestamp = timestamp ?? DateTime.now();
+
+  factory ChatMessage.outgoing({
+    required String content,
+    List<String> imagePaths = const [],
+  }) {
+    return ChatMessage(
+      role: 'user',
+      content: content,
+      imagePaths: imagePaths,
+      clientId: const Uuid().v4(),
+      deliveryStatus: ChatMessageDeliveryStatus.pending,
+    );
+  }
 
   final int? id;
   final String role;
@@ -215,6 +288,42 @@ class ChatMessage {
 
   /// File paths for attached images. Persisted as JSON for thumbnail rendering.
   final List<String> imagePaths;
+
+  /// Stable client-side identity used before SQLite assigns an autoincrement ID.
+  final String? clientId;
+
+  /// Local delivery state for optimistic chat UX.
+  final ChatMessageDeliveryStatus deliveryStatus;
+
+  /// Optional delivery error detail for failed optimistic messages.
+  final String? errorMessage;
+
+  ChatMessage copyWith({
+    int? id,
+    String? role,
+    String? content,
+    DateTime? timestamp,
+    List<ResultAction>? actions,
+    List<String>? imagePaths,
+    String? clientId,
+    ChatMessageDeliveryStatus? deliveryStatus,
+    String? errorMessage,
+    bool clearErrorMessage = false,
+  }) {
+    return ChatMessage(
+      id: id ?? this.id,
+      role: role ?? this.role,
+      content: content ?? this.content,
+      timestamp: timestamp ?? this.timestamp,
+      actions: actions ?? this.actions,
+      imagePaths: imagePaths ?? this.imagePaths,
+      clientId: clientId ?? this.clientId,
+      deliveryStatus: deliveryStatus ?? this.deliveryStatus,
+      errorMessage: clearErrorMessage
+          ? null
+          : (errorMessage ?? this.errorMessage),
+    );
+  }
 
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final actionsRaw = row['actions'] as String?;
@@ -246,6 +355,11 @@ class ChatMessage {
       timestamp: DateTime.tryParse(row['timestamp'] as String? ?? ''),
       actions: actions,
       imagePaths: imagePaths,
+      clientId: row['client_id'] as String?,
+      deliveryStatus: ChatMessageDeliveryStatus.fromLabel(
+        row['delivery_status'] as String?,
+      ),
+      errorMessage: row['error_message'] as String?,
     );
   }
 }

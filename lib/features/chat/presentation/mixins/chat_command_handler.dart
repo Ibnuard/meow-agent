@@ -2,17 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/chat_history_service.dart';
+import '../../data/chat_messages_notifier.dart';
 import '../../../../services/agent_runtime/runtime_models.dart';
 import '../../../../services/llm/openai_compatible_client.dart';
 import '../../../settings/data/app_language_provider.dart';
 import '../../../providers/data/provider_repository.dart';
 import '../../../agents/data/agent_repository.dart';
+import '../../../modules/workflows/workflow_repository.dart';
 
 /// Slash command handling.
 mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
   AppStrings get s;
   String get activeAgentId;
-  List<ChatMessage> get messagesList;
   TextEditingController get inputController;
   bool get debugMode;
   Future<void> performCompaction();
@@ -24,6 +25,10 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
   void scrollToEnd();
   WidgetRef get ref;
 
+  /// Convenience accessor for the notifier.
+  ChatMessagesNotifier get _cmdNotifier =>
+      ref.read(chatMessagesProvider(activeAgentId).notifier);
+
   Future<void> handleCommand(String text) async {
     final cmd = text.split(' ').first.toLowerCase();
     inputController.clear();
@@ -32,7 +37,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
     // what they ran (and scroll back to it later). For /clear we deliberately
     // skip persistence because the next step wipes the agent's history.
     final userMsg = ChatMessage(role: 'user', content: text);
-    setState(() => messagesList.add(userMsg));
+    _cmdNotifier.addMessage(userMsg);
     if (cmd != '/clear') {
       persistMessage(userMsg);
     }
@@ -44,10 +49,8 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
     switch (cmd) {
       case '/clear':
         await ref.read(chatHistoryServiceProvider).clear(activeAgentId);
-        // Note: messagesByAgent and fullyLoaded need to be accessible
-        // This will be handled by the history manager mixin
+        _cmdNotifier.clear();
         OpenAiCompatibleClient.clearUsageRecords();
-        setState(() {});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -95,8 +98,9 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
         response = buildStatusInfo();
       case '/context':
         response = await buildContextReport();
-      case '/cron':
-        response = s.cronNoJobs;
+      case '/workflow':
+        response = await buildWorkflowList();
+        break;
       case '/log':
         response = await buildRuntimeLogReport();
       case '/clearlog':
@@ -106,7 +110,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
     }
 
     final botMsg = ChatMessage(role: 'assistant', content: response);
-    setState(() => messagesList.add(botMsg));
+    _cmdNotifier.addMessage(botMsg);
     if (shouldPersist) await persistMessage(botMsg);
     scrollToEnd();
   }
@@ -122,7 +126,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
       ..writeln('- /model - ${s.helpSlashModel}')
       ..writeln('- /set-model - ${s.helpSlashSetModel}')
       ..writeln('- /compact - ${s.helpSlashCompact}')
-      ..write('- /cron - ${s.helpSlashCron}');
+      ..write('- /workflow - ${s.helpSlashWorkflow}');
     if (debugMode) {
       buffer
         ..writeln()
@@ -168,13 +172,38 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
       );
     }
 
-    setState(() => messagesList.add(botMsg));
+    _cmdNotifier.addMessage(botMsg);
     final persisted = await persistMessage(botMsg);
     if (!mounted) return;
-    setState(() {
-      final idx = messagesList.indexWhere((m) => identical(m, botMsg));
-      if (idx >= 0) messagesList[idx] = persisted;
-    });
+    // Replace the temporary message with the persisted version (which has an ID).
+    final messages = ref.read(chatMessagesProvider(activeAgentId)).messages;
+    final idx = messages.indexWhere((m) => identical(m, botMsg));
+    if (idx >= 0) {
+      _cmdNotifier.replaceAt(idx, persisted);
+    }
     scrollToEnd();
+  }
+
+  /// Build a human-readable list of workflows assigned to the active agent.
+  Future<String> buildWorkflowList() async {
+    final repo = ref.read(workflowRepositoryProvider);
+    final allWorkflows = await repo.list(agentId: activeAgentId);
+
+    if (allWorkflows.isEmpty) {
+      return s.noWorkflows(activeAgentId);
+    }
+
+    final buf = StringBuffer()
+      ..writeln(s.workflowListHeader(allWorkflows.length));
+
+    for (final w in allWorkflows) {
+      final status = w.enabled ? '✅' : '⏸️';
+      final trigger = w.trigger.summary;
+      final steps =
+          w.isChained ? ' (${w.steps.length} steps)' : '';
+      buf.writeln('$status ${w.title}$steps — $trigger');
+    }
+
+    return buf.toString();
   }
 }

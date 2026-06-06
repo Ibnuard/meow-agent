@@ -280,6 +280,9 @@ class ExecuteLoopRunner {
         );
         if (verificationBlocker != null) return verificationBlocker;
 
+        if (goalTree.isNotEmpty && goalTree.isComplete) {
+          _emitTaskLedger(emit, request, goalTree);
+        }
         logger.logFinalResponse(finalResponse);
         await _workspaceLoader.updateHeartbeat(
           request.agentName.isNotEmpty ? request.agentName : request.agentId,

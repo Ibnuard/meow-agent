@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,7 +13,6 @@ import '../../../app/widgets/widgets.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/storage_permission_service.dart';
-import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
@@ -20,6 +21,7 @@ import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
+import '../data/chat_messages_notifier.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
 import 'chat_shimmer.dart';
@@ -44,7 +46,15 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen>
-    with WidgetsBindingObserver, ChatMessageActionsMixin, ChatDebugSheetMixin, ChatHistoryManagerMixin, ChatSendHandlerMixin, ChatCommandHandlerMixin, ChatReportBuilderMixin, ChatCompactorMixin {
+    with
+        WidgetsBindingObserver,
+        ChatMessageActionsMixin,
+        ChatDebugSheetMixin,
+        ChatHistoryManagerMixin,
+        ChatSendHandlerMixin,
+        ChatCommandHandlerMixin,
+        ChatReportBuilderMixin,
+        ChatCompactorMixin {
   @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
@@ -53,12 +63,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  final _listKey = GlobalKey();
   final ValueNotifier<bool> _showScrollToBottom = ValueNotifier(false);
-  // Per-agent message history Ã¢â‚¬â€ paginated from local storage.
-  final Map<String, List<ChatMessage>> _messagesByAgent = {};
-  final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
-  bool _loadingOlder = false;
-  bool _initialLoading = true;
   late String _activeAgentId;
 
   // Storage permission state.
@@ -74,14 +80,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   ChatMessage? _replyTo;
 
   // Mixin interface delegates.
-  @override
-  List<ChatMessage> get messagesList => _messages;
+
   @override
   ChatMessage? get replyToContext => _replyTo;
   @override
   set replyToContext(ChatMessage? value) => _replyTo = value;
   @override
-  Future<ChatMessage> persistMessage(ChatMessage message) => _persistMessage(message);
+  Future<ChatMessage> persistMessage(ChatMessage message) =>
+      _persistMessage(message);
   @override
   void scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -98,21 +104,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   // ChatHistoryManagerMixin interface delegates.
   @override
-  Map<String, List<ChatMessage>> get messagesByAgent => _messagesByAgent;
-  @override
-  Set<String> get fullyLoaded => _fullyLoaded;
-  @override
   ChatRuntimeManager? get manager => _manager;
-  @override
-  bool get initialLoading => _initialLoading;
-  @override
-  set initialLoading(bool value) => _initialLoading = value;
-  @override
-  bool get loadingOlder => _loadingOlder;
-  @override
-  set loadingOlder(bool value) => _loadingOlder = value;
-  @override
-  bool get hasMore => _hasMore;
   @override
   ScrollController get chatScroll => _scroll;
   @override
@@ -123,6 +115,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final ValueNotifier<DateTime?> _stickyDate = ValueNotifier(null);
   final ValueNotifier<bool> _stickyDateVisible = ValueNotifier(false);
   Timer? _stickyDateTimer;
+  Timer? _stickyDateThrottle;
+  Timer? _loadMoreThrottle;
+  bool _rebuildScheduled = false;
   final Map<int, DateTime> _dateBoundaries = {};
 
   // ChatSendHandlerMixin interface delegates.
@@ -140,10 +135,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   ProviderConfig? resolveProvider() => _resolveProvider();
   @override
   Future<bool> autoCompactIfNeeded() => _autoCompactIfNeeded();
-  @override
-  Future<void> handleCommand(String text) => _handleCommand(text);
-  @override
-  String buildReplyPayload(ChatMessage quoted, String userText) => buildReplyPayload(quoted, userText);
 
   // ChatCommandHandlerMixin interface delegates.
   @override
@@ -264,20 +255,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _onManagerChanged() {
     if (!mounted) return;
     final session = _manager!.sessionFor(_activeAgentId);
+    final wasNearBottom = _isNearBottom;
     if (session.lastReplyAt != null &&
         session.lastReplyAt != _lastSeenReplyAt) {
       _lastSeenReplyAt = session.lastReplyAt;
-      reloadHistory(_activeAgentId);
-    } else {
-      setState(() {});
+      final persistedMessages = session.lastPersistedMessages;
+      if (persistedMessages.isNotEmpty) {
+        ref
+            .read(chatMessagesProvider(_activeAgentId).notifier)
+            .upsertMessages(persistedMessages);
+        _rebuildDateBoundaries();
+        if (wasNearBottom) scrollToEnd();
+      } else {
+        reloadHistory(_activeAgentId, scrollToBottom: wasNearBottom);
+      }
     }
-    if (_isNearBottom) scrollToEnd();
+    // Coalesce rebuilds: the runtime fires notifyListeners on every LLM
+    // event (state, narrative, ledger, debug). Without coalescing, dozens
+    // of setStates per second cascade into frame drops and OOM. We schedule
+    // a single rebuild after the next frame; further notifications in the
+    // same window are no-ops.
+    if (!_rebuildScheduled) {
+      _rebuildScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _rebuildScheduled = false;
+        if (!mounted) return;
+        setState(() {});
+        if (wasNearBottom) scrollToEnd();
+      });
+    }
   }
 
+  /// Messages from the Riverpod notifier (read-only snapshot for local use).
   List<ChatMessage> get _messages =>
-      _messagesByAgent.putIfAbsent(_activeAgentId, () => []);
+      ref.read(chatMessagesProvider(_activeAgentId)).messages;
 
-  bool get _hasMore => !_fullyLoaded.contains(_activeAgentId);
+  bool get _hasMore => ref.read(chatMessagesProvider(_activeAgentId)).hasMore;
 
   bool get _isNearBottom {
     if (!_scroll.hasClients) return true;
@@ -288,6 +301,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   void dispose() {
     _stickyDateTimer?.cancel();
+    _stickyDateThrottle?.cancel();
+    _loadMoreThrottle?.cancel();
     _stickyDate.dispose();
     _stickyDateVisible.dispose();
     _showScrollToBottom.dispose();
@@ -309,15 +324,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (showFab != _showScrollToBottom.value) {
       _showScrollToBottom.value = showFab;
     }
-    _updateStickyDate();
-    if (!_hasMore || _loadingOlder) return;
-    // Trigger load-more well BEFORE the user reaches the visual top.
-    // 500px gives enough runway for data to arrive while the user still
-    // has scroll room — they never hit the hard edge.
-    final distFromTop = _scroll.position.maxScrollExtent - _scroll.position.pixels;
-    if (distFromTop <= 500) {
-      loadOlderMessages();
+    _scheduleStickyDateUpdate();
+    if (!_hasMore || loadingOlder) return;
+    // Trigger load-more with large runway (1500px) so the user NEVER sees
+    // the loading edge — WhatsApp-style seamless preload.
+    final distFromTop =
+        _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (distFromTop <= 1500) {
+      _throttledLoadOlder();
     }
+  }
+
+  /// Throttled load-older: ensures only one request fires per 300ms window,
+  /// preventing rapid-fire calls during fast scroll momentum.
+  void _throttledLoadOlder() {
+    if (_loadMoreThrottle?.isActive == true) return;
+    loadOlderMessages();
+    _loadMoreThrottle = Timer(const Duration(milliseconds: 300), () {});
+  }
+
+  void _scheduleStickyDateUpdate() {
+    if (_stickyDateThrottle?.isActive == true) return;
+    _stickyDateThrottle = Timer(const Duration(milliseconds: 90), () {
+      if (mounted) _updateStickyDate();
+    });
   }
 
   void _updateStickyDate() {
@@ -325,27 +355,75 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       if (_stickyDateVisible.value) _stickyDateVisible.value = false;
       return;
     }
+    if (_messages.isEmpty) return;
+
+    // --- Determine the topmost visible builder index by inspecting the
+    // actual RenderSliverList children. This avoids the inaccurate
+    // average-height estimation that broke sticky dates for variable-height
+    // bubbles.
+    int topBuilderIdx = 0;
+    final listContext = _listKey.currentContext;
+    if (listContext != null) {
+      // Walk from the ListView's Element to find the RenderSliverList.
+      bool found = false;
+      void visitor(Element el) {
+        if (found) return;
+        final ro = el.renderObject;
+        if (ro is RenderSliverMultiBoxAdaptor) {
+          found = true;
+          // Use LIVE scroll offset (not constraints, which lag by one frame
+          // during active scroll). Children layout offsets are stable mid-scroll
+          // since the viewport just translates painted output, so these stay
+          // valid while pixels updates synchronously.
+          final visibleStart = _scroll.position.pixels;
+          final visibleEnd = visibleStart + _scroll.position.viewportDimension;
+
+          // Only count children whose scroll offset places them within the
+          // actual viewport, NOT the cache-extent zone beyond it.
+          var child = ro.firstChild;
+          while (child != null) {
+            final childOffset = ro.childScrollOffset(child);
+            if (childOffset != null && childOffset < visibleEnd) {
+              final childExtent = child.size.height;
+              // Child overlaps viewport if it ends after visibleStart.
+              if (childOffset + childExtent > visibleStart) {
+                final idx = ro.indexOf(child);
+                topBuilderIdx = math.max(topBuilderIdx, idx);
+              }
+            }
+            child = ro.childAfter(child);
+          }
+          return;
+        }
+        el.visitChildren(visitor);
+      }
+
+      listContext.visitChildElements(visitor);
+    }
+
+    // Account for tail items (thinking, narrative, ledger) offset.
+    final session = _manager?.sessionFor(_activeAgentId);
+    final hasLedger = _sending && (session?.activeTaskLedger != null);
+    final hasNarrative =
+        _sending && (session?.narrativeMessage?.isNotEmpty == true);
+    final tailCount =
+        (_sending ? 1 : 0) + (hasNarrative ? 1 : 0) + (hasLedger ? 1 : 0);
+
+    final msgOffset = topBuilderIdx - tailCount;
+    if (msgOffset < 0 || msgOffset >= _messages.length) {
+      if (_stickyDateVisible.value) _stickyDateVisible.value = false;
+      return;
+    }
+
+    // Convert reversed builder offset → chronological array index.
+    final topArrayIdx = (_messages.length - 1 - msgOffset).clamp(
+      0,
+      _messages.length - 1,
+    );
+
+    // Find the date boundary at or before topArrayIdx.
     final keys = _dateBoundaries.keys.toList()..sort();
     if (keys.isEmpty) return;
-    // Reversed list: pixels=0 is bottom (newest), maxScrollExtent is top (oldest).
-    // We want the date of the message at the VISUAL TOP of the viewport.
-    final totalExtent = _scroll.position.maxScrollExtent +
-        _scroll.position.viewportDimension;
-    final avgItemHeight = _messages.isNotEmpty
-        ? totalExtent / _messages.length
-        : 80.0;
-    // Builder items from bottom: pixels/avgHeight items are below viewport bottom.
-    // Top edge of viewport is at pixels + viewportDimension from position 0.
-    final topEdgeItems = ((_scroll.position.pixels +
-            _scroll.position.viewportDimension) /
-        avgItemHeight)
-        .floor();
-    // Convert from reversed-builder index to chronological array index.
-    // Builder idx 0 = newest = _messages.length-1; builder idx N = oldest = 0.
-    final topArrayIdx =
-        (_messages.length - 1 - topEdgeItems).clamp(0, _messages.length - 1);
-
-    // Find the largest boundary index <= topArrayIdx.
     int lo = 0, hi = keys.length - 1;
     DateTime? found;
     while (lo <= hi) {
@@ -391,8 +469,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// shift from widget insertion/removal during load cycles.
   int get _itemCount {
     final session = _manager?.sessionFor(_activeAgentId);
-    final hasLedger =
-        _sending && (session?.activeTaskLedger != null);
+    final hasLedger = _sending && (session?.activeTaskLedger != null);
     final hasNarrative =
         _sending && (session?.narrativeMessage?.isNotEmpty == true);
     return (_sending ? 1 : 0) + // thinking
@@ -442,7 +519,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
       // Date separator: show when day changes from the message ABOVE (older).
       final olderMsg = msgIndex > 0 ? _messages[msgIndex - 1] : null;
-      final showDate = olderMsg == null ||
+      final showDate =
+          olderMsg == null ||
           !_isSameDay(
             olderMsg.timestamp.toLocal(),
             current.timestamp.toLocal(),
@@ -450,14 +528,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
       final ledger = taskLedgerFromSentinel(current.content);
       final bubble = RepaintBoundary(
-        key: ValueKey(
-          'msg-${current.id ?? identityHashCode(current)}',
-        ),
+        key: ValueKey('msg-${current.id ?? identityHashCode(current)}'),
         child: ledger != null
-            ? TaskLedgerBubble(
-                ledger: ledger,
-                timestamp: current.timestamp,
-              )
+            ? TaskLedgerBubble(ledger: ledger, timestamp: current.timestamp)
             : MeowBubble(
                 msg: current,
                 isId: isId,
@@ -488,7 +561,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         child: SizedBox(
           width: 20,
           height: 20,
-          child: _loadingOlder
+          child: ref.read(chatMessagesProvider(_activeAgentId)).loadingOlder
               ? const CircularProgressIndicator(strokeWidth: 2)
               : const SizedBox.shrink(),
         ),
@@ -585,8 +658,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
                       child: Row(
                         children: [
-                          Icon(Icons.bug_report_outlined,
-                              size: 18, color: cs.primary),
+                          Icon(
+                            Icons.bug_report_outlined,
+                            size: 18,
+                            color: cs.primary,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             s.runtimeDebugTitle,
@@ -600,7 +676,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           if (isRunning)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3),
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
                               decoration: BoxDecoration(
                                 color: cs.primary.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
@@ -628,7 +706,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 10),
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: cs.primary.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(12),
@@ -668,7 +748,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           : ListView.separated(
                               controller: scrollCtrl,
                               padding: const EdgeInsets.fromLTRB(
-                                  16, 12, 16, 24),
+                                16,
+                                12,
+                                16,
+                                24,
+                              ),
                               itemCount: events.length,
                               separatorBuilder: (_, _) =>
                                   const SizedBox(height: 6),
@@ -676,12 +760,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                 final e = events[i];
                                 return Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 9),
+                                    horizontal: 12,
+                                    vertical: 9,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: cs.surfaceContainerHighest
                                         .withValues(alpha: 0.5),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
                                     e.content,
@@ -704,93 +789,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         );
       },
     );
-  }
-
-  Future<void> _handleCommand(String text) async {
-    final cmd = text.split(' ').first.toLowerCase();
-    _input.clear();
-
-    // Show the slash command itself in the chat history so the user can see
-    // what they ran (and scroll back to it later). For /clear we deliberately
-    // skip persistence because the next step wipes the agent's history.
-    final userMsg = ChatMessage(role: 'user', content: text);
-    setState(() => _messages.add(userMsg));
-    if (cmd != '/clear') {
-      _persistMessage(userMsg);
-    }
-    scrollToEnd();
-
-    String response;
-    bool shouldPersist = true;
-
-    switch (cmd) {
-      case '/clear':
-        await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
-        _messagesByAgent.remove(_activeAgentId);
-        _fullyLoaded.remove(_activeAgentId);
-        OpenAiCompatibleClient.clearUsageRecords();
-        setState(() {});
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(s.chatHistoryCleared),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-        return;
-      case '/help':
-        response = buildCommandHelp(ref.read(llmDebugModeProvider));
-      case '/reset':
-        // Soft reset: clear context measurement so the next message is a fresh
-        // slate, but keep the visible chat history intact.
-        OpenAiCompatibleClient.clearUsageRecords();
-        response = s.contextReset;
-      case '/model':
-        final agents = ref.read(agentListProvider);
-        final providers = ref.read(providerListProvider).value ?? [];
-        final agent = _activeAgentId == 'default'
-            ? (agents.isNotEmpty ? agents.first : null)
-            : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-        final provider = agent != null
-            ? providers.where((p) => p.id == agent.providerId).firstOrNull
-            : null;
-        if (provider != null) {
-          final agentModel = agent?.model ?? '';
-          final modelInfo = agentModel.isNotEmpty
-              ? '\nÃ¢â‚¬Â¢ Model: ${provider.effectiveModel(agentModel)}'
-              : '\nÃ¢â‚¬Â¢ Model: (provider default)';
-          response =
-              'Ã°Å¸Â¤â€“ Model Info:\n'
-              'Ã¢â‚¬Â¢ Provider: ${provider.nickname}$modelInfo\n'
-              'Ã¢â‚¬Â¢ Endpoint: ${provider.baseUrl}';
-        } else {
-          response = s.noProviderConnected;
-        }
-      case '/set-model':
-        await showModelsCommandBubble();
-        return;
-      case '/compact':
-        await performCompaction();
-        return;
-      case '/status':
-        response = buildStatusInfo();
-      case '/context':
-        response = await buildContextReport();
-      case '/cron':
-        response = s.cronNoJobs;
-      case '/log':
-        response = await buildRuntimeLogReport();
-      case '/clearlog':
-        response = await clearRuntimeLog();
-      default:
-        response = s.unknownCommand(cmd);
-    }
-
-    final botMsg = ChatMessage(role: 'assistant', content: response);
-    setState(() => _messages.add(botMsg));
-    if (shouldPersist) await _persistMessage(botMsg);
-    scrollToEnd();
   }
 
   /// Auto-compact if context exceeds 80% threshold.
@@ -816,7 +814,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         role: 'assistant',
         content: s.contextExhausted(agent!.maxContextLength),
       );
-      setState(() => _messages.add(msg));
+      ref.read(chatMessagesProvider(_activeAgentId).notifier).addMessage(msg);
       _persistMessage(msg);
       return true;
     }
@@ -845,20 +843,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             .addMessage(_activeAgentId, msg);
       }
 
-      setState(() {
-        _messagesByAgent[_activeAgentId] = compacted;
-      });
+      final notifier = ref.read(chatMessagesProvider(_activeAgentId).notifier);
+      notifier.replaceAll(compacted);
 
       // Notify user.
       final infoMsg = ChatMessage(
         role: 'assistant',
         content: s.autoCompacted(compacted.length),
       );
-      setState(() => _messages.add(infoMsg));
+      notifier.addMessage(infoMsg);
       _persistMessage(infoMsg);
       return false;
     } catch (_) {
-      // Silent fail for auto-compact Ã¢â‚¬â€ don't block the user's message.
+      // Silent fail for auto-compact - don't block the user's message.
     }
     return false;
   }
@@ -867,8 +864,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (agentId == _activeAgentId) return;
     UnreadService.instance.clearActive(_activeAgentId);
     UnreadService.instance.setActive(agentId);
-    loadHistory(_activeAgentId);
     setState(() => _activeAgentId = agentId);
+    loadHistory(agentId);
     _rebuildDateBoundaries();
   }
 
@@ -882,6 +879,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       content: message.content,
       timestamp: message.timestamp,
       actions: message.actions,
+      imagePaths: message.imagePaths,
+      clientId: message.clientId,
+      deliveryStatus: message.deliveryStatus,
+      errorMessage: message.errorMessage,
     );
   }
 
@@ -1034,79 +1035,89 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 : Column(
                     children: [
                       Expanded(
-                        child: _initialLoading
-                            ? const ChatShimmer()
-                            : _messages.isEmpty && !_sending
-                            ? _ChatEmptyState(s: s)
-                            : Stack(
-                                children: [
-                                  ListView.builder(
-                                    controller: _scroll,
-                                    reverse: true,
-                                    // Elastic overscroll at edges so the user never
-                                    // feels "stuck" at maxScrollExtent during loading.
-                                    physics: const AlwaysScrollableScrollPhysics(
-                                      parent: BouncingScrollPhysics(),
-                                    ),
-                                    // Larger cacheExtent reduces rebuilds when
-                                    // scrolling through variable-height markdown
-                                    // bubbles. We provide RepaintBoundary manually
-                                    // around each bubble below.
-                                    cacheExtent: 2500,
-                                    addAutomaticKeepAlives: true,
-                                    addRepaintBoundaries: false,
-                                    padding: const EdgeInsets.fromLTRB(
-                                      16,
-                                      12,
-                                      16,
-                                      12,
-                                    ),
-                                    // Reversed order: tail items (bottom) → messages → loading (top).
-                                    itemCount: _itemCount,
-                                    itemBuilder: (context, i) =>
-                                        _buildReversedItem(i, isId),
+                        child: Consumer(
+                          builder: (context, cRef, _) {
+                            final chatState = cRef.watch(
+                              chatMessagesProvider(_activeAgentId),
+                            );
+                            if (chatState.initialLoading) {
+                              return const ChatShimmer();
+                            }
+                            if (chatState.messages.isEmpty && !_sending) {
+                              return _ChatEmptyState(s: s);
+                            }
+                            return Stack(
+                              children: [
+                                ListView.builder(
+                                  key: _listKey,
+                                  controller: _scroll,
+                                  reverse: true,
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                    parent: BouncingScrollPhysics(),
                                   ),
-                                  ValueListenableBuilder<bool>(
-                                    valueListenable: _showScrollToBottom,
-                                    builder: (context, show, child) {
-                                      if (!show) return const SizedBox.shrink();
-                                      return child!;
-                                    },
-                                    child: Positioned(
-                                      right: 16,
-                                      bottom: 16,
-                                      child: _ScrollToBottomFab(
-                                        onTap: () {
-                                          if (_scroll.hasClients) {
-                                            _scroll.animateTo(
-                                              0, // Reversed list: 0 = bottom.
-                                              duration: const Duration(milliseconds: 300),
-                                              curve: Curves.easeOut,
-                                            );
-                                          }
-                                        },
+                                  cacheExtent: 1200,
+                                  addAutomaticKeepAlives: false,
+                                  addRepaintBoundaries: true,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    12,
+                                    16,
+                                    12,
+                                  ),
+                                  itemCount: _itemCount,
+                                  itemBuilder: (context, i) =>
+                                      _buildReversedItem(i, isId),
+                                ),
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: _showScrollToBottom,
+                                  builder: (context, show, child) {
+                                    if (!show) return const SizedBox.shrink();
+                                    return child!;
+                                  },
+                                  child: Positioned(
+                                    right: 16,
+                                    bottom: 16,
+                                    child: _ScrollToBottomFab(
+                                      onTap: () {
+                                        if (_scroll.hasClients) {
+                                          _scroll.animateTo(
+                                            0,
+                                            duration: const Duration(
+                                              milliseconds: 300,
+                                            ),
+                                            curve: Curves.easeOut,
+                                          );
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                ListenableBuilder(
+                                  listenable: Listenable.merge([
+                                    _stickyDateVisible,
+                                    _stickyDate,
+                                  ]),
+                                  builder: (context, _) {
+                                    final visible = _stickyDateVisible.value;
+                                    final date = _stickyDate.value;
+                                    if (!visible || date == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Positioned(
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: _StickyDatePill(
+                                        date: date,
+                                        isId: isId,
                                       ),
-                                    ),
-                                  ),
-                                  ValueListenableBuilder<bool>(
-                                    valueListenable: _stickyDateVisible,
-                                    builder: (context, visible, _) {
-                                      if (!visible || _stickyDate.value == null) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      return Positioned(
-                                        top: 0,
-                                        left: 0,
-                                        right: 0,
-                                        child: _StickyDatePill(
-                                          date: _stickyDate.value!,
-                                          isId: isId,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
                       _ChatInput(
                         key: _chatInputKey,
@@ -1173,12 +1184,32 @@ class _DateSeparator extends StatelessWidget {
     if (diff == 1) return s.yesterday;
 
     const monthsId = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
     const monthsEn = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final months = isId ? monthsId : monthsEn;
     final mon = months[date.month - 1];
@@ -1238,12 +1269,32 @@ class _StickyDatePill extends StatelessWidget {
     if (diff == 1) return s.yesterday;
 
     const monthsId = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'Mei',
+      'Jun',
+      'Jul',
+      'Agu',
+      'Sep',
+      'Okt',
+      'Nov',
+      'Des',
     ];
     const monthsEn = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final months = isId ? monthsId : monthsEn;
     final mon = months[date.month - 1];
@@ -1509,19 +1560,19 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/model', widget.s.helpSlashModel),
     _SlashCommand('/set-model', widget.s.helpSlashSetModel),
     _SlashCommand('/compact', widget.s.helpSlashCompact),
-    _SlashCommand('/cron', widget.s.helpSlashCron),
+    _SlashCommand('/workflow', widget.s.helpSlashWorkflow),
   ];
   List<_SlashCommand> get _debugCommands => [
     _SlashCommand('/log', widget.s.helpSlashLog),
     _SlashCommand('/clearlog', widget.s.helpSlashClearlog),
   ];
 
-  List<_SlashCommand> get _commands => widget.debugMode
-      ? [..._baseCommands, ..._debugCommands]
-      : _baseCommands;
+  List<_SlashCommand> get _commands =>
+      widget.debugMode ? [..._baseCommands, ..._debugCommands] : _baseCommands;
 
   List<_SlashCommand> _filtered = [];
   bool _showSuggestions = false;
+  bool _hasText = false;
   final List<_AttachedFile> _attachments = [];
   static const _maxFiles = 2;
   static const _maxFileBytes = 5 * 1024 * 1024; // 5 MB
@@ -1547,6 +1598,7 @@ class _ChatInputState extends State<_ChatInput> {
   @override
   void initState() {
     super.initState();
+    _hasText = widget.controller.text.trim().isNotEmpty;
     widget.controller.addListener(_onTextChanged);
   }
 
@@ -1619,12 +1671,20 @@ class _ChatInputState extends State<_ChatInput> {
     setState(() => _attachments.removeAt(index));
     _notifyAttachments();
   }
+
   bool _isImageExtension(String name) {
     final dot = name.lastIndexOf('.');
     if (dot < 0) return false;
     final ext = name.substring(dot).toLowerCase();
-    return const {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'}
-        .contains(ext);
+    return const {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    }.contains(ext);
   }
 
   void _showImagePreview(BuildContext context, File file) {
@@ -1661,18 +1721,23 @@ class _ChatInputState extends State<_ChatInput> {
 
   void _onTextChanged() {
     final text = widget.controller.text;
+    final hasText = text.trim().isNotEmpty;
     if (text.startsWith('/')) {
       final query = text.toLowerCase();
       final matches = _commands
           .where((c) => c.command.startsWith(query))
           .toList();
       setState(() {
+        _hasText = hasText;
         _filtered = matches;
         _showSuggestions = matches.isNotEmpty;
       });
     } else {
-      if (_showSuggestions) {
-        setState(() => _showSuggestions = false);
+      if (_showSuggestions || _hasText != hasText) {
+        setState(() {
+          _hasText = hasText;
+          _showSuggestions = false;
+        });
       }
     }
   }
@@ -1700,6 +1765,7 @@ class _ChatInputState extends State<_ChatInput> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final showStop = widget.sending && !_hasText;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1792,10 +1858,10 @@ class _ChatInputState extends State<_ChatInput> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-Text(
-                                      widget.replyTo!.role == 'user'
-                                          ? widget.s.you
-                                          : widget.s.agentLabel,
+                                  Text(
+                                    widget.replyTo!.role == 'user'
+                                        ? widget.s.you
+                                        : widget.s.agentLabel,
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
@@ -1880,6 +1946,8 @@ Text(
                               a.file,
                               width: 56,
                               height: 56,
+                              cacheWidth: 112,
+                              cacheHeight: 112,
                               fit: BoxFit.cover,
                               errorBuilder: (_, e, s) => Container(
                                 width: 56,
@@ -1943,10 +2011,7 @@ Text(
                           constraints: const BoxConstraints(maxWidth: 200),
                           child: Text(
                             a.name,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: cs.onSurface,
-                            ),
+                            style: TextStyle(fontSize: 12, color: cs.onSurface),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -2018,15 +2083,15 @@ Text(
               ),
               const SizedBox(width: 6),
               Material(
-                color: widget.sending ? Colors.red.shade400 : cs.primary,
+                color: showStop ? Colors.red.shade400 : cs.primary,
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: widget.sending ? widget.onStop : widget.onSend,
+                  onTap: showStop ? widget.onStop : widget.onSend,
                   child: SizedBox(
                     width: 48,
                     height: 48,
-                    child: widget.sending
+                    child: showStop
                         ? const Icon(
                             Icons.stop_rounded,
                             color: Colors.white,
@@ -2303,7 +2368,8 @@ class _ScrollToBottomFab extends StatelessWidget {
     );
   }
 }
-  /// Internal wrapper for a picked file.
+
+/// Internal wrapper for a picked file.
 class _AttachedFile {
   const _AttachedFile({
     required this.file,
