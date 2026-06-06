@@ -66,4 +66,20 @@ class ShizukuDeviceService {
       return false;
     }
   }
+
+  // ── Key injection ───────────────────────────────────────────────────────
+
+  /// Inject an Android key event via the native Shizuku shell.
+  /// Common codes: 66=Enter/Send, 4=Back, 3=Home, 26=Power, 24=VolumeUp.
+  /// Returns true when the key was dispatched successfully.
+  Future<bool> keyEvent(int keycode) async {
+    try {
+      final result = await _channel.invokeMethod<Map>('keyEvent', {
+        'keycode': keycode,
+      });
+      return result?['success'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
 }

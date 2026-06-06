@@ -102,6 +102,24 @@ class AppAgentModulePlugin extends ModulePlugin {
         'reason': 'string optional why this search is needed',
       },
     ),
+    ToolDefinition(
+      name: 'app_agent.key',
+      description:
+          'Simulate an Android key event via Shizuku. '
+          'Use keycode 66 (Enter / IME_ACTION_SEND) to commit typed text — '
+          'sends a message, submits a search, or confirms an input. '
+          'Also supports 4 (Back), 3 (Home), 24 (VolumeUp), 25 (VolumeDown). '
+          'PREFER clicking a visible send/submit/search button first via '
+          'find_by_text + click — use key only when no clickable button is '
+          'available or when the soft-keyboard IME action is more reliable.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'keycode':
+            'int Android keycode. 66 = Enter / Send / IME action. 4 = Back. 3 = Home.',
+        'reason': 'string optional reason for the key press',
+      },
+    ),
   ];
 
   @override
@@ -123,6 +141,8 @@ class AppAgentModulePlugin extends ModulePlugin {
         return service.back(request.args);
       case 'app_agent.find_by_text':
         return service.findByText(request.args);
+      case 'app_agent.key':
+        return service.key(request.args);
       default:
         return Future.value(
           ToolExecutionResult(

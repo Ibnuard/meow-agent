@@ -237,8 +237,8 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       }
       // Single-frame jump to bottom.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scroll.hasClients || !mounted) return;
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+        if (!chatScroll.hasClients || !mounted) return;
+        chatScroll.jumpTo(chatScroll.position.maxScrollExtent);
       });
     }
 
@@ -265,10 +265,10 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
     // Capture pre-insertion extent so we can restore the user's visual
     // anchor after the new bubbles are laid out.
-    final beforeExtent = _scroll.hasClients
-        ? _scroll.position.maxScrollExtent
+    final beforeExtent = chatScroll.hasClients
+        ? chatScroll.position.maxScrollExtent
         : 0.0;
-    final beforePixels = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+    final beforePixels = chatScroll.hasClients ? chatScroll.position.pixels : 0.0;
 
     final service = ref.read(chatHistoryServiceProvider);
     final older = await service.loadOlder(
@@ -295,8 +295,8 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
     // same screen position by silently shifting pixels by the layout
     // delta.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scroll.hasClients || !mounted) return;
-      final position = _scroll.position;
+      if (!chatScroll.hasClients || !mounted) return;
+      final position = chatScroll.position;
       final afterExtent = position.maxScrollExtent;
       final delta = afterExtent - beforeExtent;
       if (delta > 0) {
@@ -312,5 +312,5 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   bool get loadingOlder;
   set loadingOlder(bool value);
   bool get hasMore;
-  ScrollController get _scroll;
+  ScrollController get chatScroll;
 }

@@ -52,6 +52,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
+  bool _showScrollToBottom = false;
   // Per-agent message history Ã¢â‚¬â€ paginated from local storage.
   final Map<String, List<ChatMessage>> _messagesByAgent = {};
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
@@ -111,6 +112,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   set loadingOlder(bool value) => _loadingOlder = value;
   @override
   bool get hasMore => _hasMore;
+  @override
+  ScrollController get chatScroll => _scroll;
   ScrollController get scrollController => _scroll;
 
   // ChatSendHandlerMixin interface delegates.
@@ -284,6 +287,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   /// Detect scroll to top Ã¢â€ â€™ load older messages.
   void _onScroll() {
+    if (!_scroll.hasClients) return;
+    final pixelsFromBottom = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    final showFab = pixelsFromBottom > 200;
+    if (showFab != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = showFab);
+    }
     if (!_hasMore || _loadingOlder) return;
     if (_scroll.position.pixels <= 80) {
       loadOlderMessages();
@@ -831,7 +840,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             ? const ChatShimmer()
                             : _messages.isEmpty && !_sending
                             ? _ChatEmptyState(s: s)
-                            : ListView.builder(
+                            : Stack(
+                                children: [
+                                  ListView.builder(
                                 controller: _scroll,
                                 // Larger cacheExtent reduces rebuilds when
                                 // scrolling through variable-height markdown
@@ -969,6 +980,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   // Thinking bubble at very bottom.
                                   return const _ThinkingBubble();
                                 },
+                              ),
+                                  if (_showScrollToBottom)
+                                    Positioned(
+                                      right: 16,
+                                      bottom: 16,
+                                      child: _ScrollToBottomFab(
+                                        onTap: () {
+                                          if (_scroll.hasClients) {
+                                            _scroll.animateTo(
+                                              _scroll.position.maxScrollExtent,
+                                              duration: const Duration(milliseconds: 300),
+                                              curve: Curves.easeOut,
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                ],
                               ),
                       ),
                       _ChatInput(
@@ -2066,7 +2095,42 @@ class _DrawerUnreadChip extends StatelessWidget {
   }
 }
 
-/// Internal wrapper for a picked file.
+/// Close button that appears when scrolled away from the bottom — scrolls
+/// back to the latest message with animation.
+class _ScrollToBottomFab extends StatelessWidget {
+  const _ScrollToBottomFab({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: cs.primary.withValues(alpha: 0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.keyboard_arrow_down_rounded,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+    );
+  }
+}
+  /// Internal wrapper for a picked file.
 class _AttachedFile {
   const _AttachedFile({
     required this.file,

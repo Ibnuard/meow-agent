@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/shizuku/shizuku_device_service.dart';
 
 class AppAgentService {
   static const _channel = MethodChannel('com.meowagent/app_agent');
@@ -109,6 +110,36 @@ class AppAgentService {
         success: false,
         toolName: 'app_agent.find_by_text',
         error: 'Failed to find by text: $e',
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> key(Map<String, dynamic> args) async {
+    final keycodeRaw = args['keycode'];
+    final keycode = keycodeRaw is int
+        ? keycodeRaw
+        : (keycodeRaw is num ? keycodeRaw.toInt() : null);
+    if (keycode == null || keycode <= 0) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'app_agent.key',
+        error: 'keycode must be a positive integer (e.g. 66 for Enter/Send).',
+      );
+    }
+    try {
+      final svc = ShizukuDeviceService();
+      final ok = await svc.keyEvent(keycode);
+      return ToolExecutionResult(
+        success: ok,
+        toolName: 'app_agent.key',
+        data: {'keycode': keycode, 'dispatched': ok},
+        error: ok ? null : 'keyEvent returned false (Shizuku may not be ready).',
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'app_agent.key',
+        error: 'Failed to inject key event: $e',
       );
     }
   }
