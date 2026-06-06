@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../data/module_repository.dart';
 import 'device_context_repository.dart';
@@ -439,5 +441,73 @@ class DeviceTools {
         error: e.toString(),
       );
     }
+  }
+
+  Future<ToolExecutionResult> executeClipboardRead() async {
+    final gate = await _checkClipboardSetting('allow_clipboard_read');
+    if (gate != null) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'clipboard.read',
+        error: gate,
+      );
+    }
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text ?? '';
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'clipboard.read',
+        data: {'text': text},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'clipboard.read',
+        error: e.toString(),
+      );
+    }
+  }
+
+  Future<ToolExecutionResult> executeClipboardWrite(
+    Map<String, dynamic> args,
+  ) async {
+    final gate = await _checkClipboardSetting('allow_clipboard_write');
+    if (gate != null) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'clipboard.write',
+        error: gate,
+      );
+    }
+    try {
+      final text = args['text'] as String? ?? '';
+      await Clipboard.setData(ClipboardData(text: text));
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'clipboard.write',
+        data: {'written': true},
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'clipboard.write',
+        error: e.toString(),
+      );
+    }
+  }
+
+  /// Returns null if the clipboard setting is allowed, or an error string
+  /// describing why it is blocked.
+  Future<String?> _checkClipboardSetting(String settingKey) async {
+    final modules = await moduleRepository.getInstalled();
+    final mod = modules.where((m) => m.id == 'device_context').firstOrNull;
+    if (mod == null || !mod.enabled) {
+      return 'Device Context module is disabled.';
+    }
+    if (mod.settings[settingKey] != true) {
+      return 'Clipboard access is not enabled in Device Context settings.';
+    }
+    return null;
   }
 }

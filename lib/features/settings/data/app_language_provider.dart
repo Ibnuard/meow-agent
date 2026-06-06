@@ -458,18 +458,15 @@ class AppStrings {
       : 'Tap "Add" to browse available modules.';
 
   // Module descriptions (store & detail screens).
-  String get moduleDescClipboard => isId
-      ? 'Proses teks dari clipboard dengan AI. Terjemahkan, rangkum, tulis ulang, atau jelaskan teks apapun.'
-      : 'Process copied text with AI. Translate, summarize, rewrite, or explain any text from any app.';
   String get moduleDescAppControl => isId
       ? 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.'
       : 'Let AI open apps, URLs, and system settings on your behalf.';
   String get moduleDescDeviceContext => isId
-      ? 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.'
-      : 'Let agents read battery, network, storage, time, locale, charging, DND, and Bluetooth.';
+      ? 'Biarkan agen membaca status perangkat, aplikasi aktif, koneksi, dan papan klip.'
+      : 'Let agents read device state, active app context, connectivity, and clipboard data.';
   String get moduleDescNotification => isId
-      ? 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca - tidak membalas otomatis.'
-      : 'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.';
+      ? 'Kelola notifikasi agen: baca dan ringkas notifikasi Android, kirim notifikasi lokal, dan tampilkan tombol cepat papan klip.'
+      : 'Manage agent notifications: read and summarize Android notifications, send local notifications, and show a clipboard quick action.';
   String get moduleDescNotes => isId
       ? 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.'
       : 'Create and manage markdown notes for you and your agents. Local-first persistent memory layer.';
@@ -1151,25 +1148,53 @@ class AppStrings {
   String get wfVarCategoryStep => isId ? 'Multi-Langkah' : 'Multi-Step';
 
   // --- Module setting labels (used by module_detail_screen) ---
+  String moduleSettingGroupTitle(String moduleId, String groupKey) {
+    if (moduleId == 'device_context') {
+      return switch (groupKey) {
+        'power' => isId ? 'Daya' : 'Power',
+        'connectivity' => isId ? 'Koneksi' : 'Connectivity',
+        'apps' => isId ? 'Aplikasi' : 'Apps',
+        'system' => isId ? 'Perangkat' : 'Device',
+        'clipboard' => isId ? 'Papan Klip' : 'Clipboard',
+        _ => groupKey,
+      };
+    }
+    return groupKey;
+  }
+
+  String moduleSettingGroupDescription(String moduleId, String groupKey) {
+    if (moduleId == 'device_context') {
+      return switch (groupKey) {
+        'power' =>
+          isId
+              ? 'Status baterai dan pengisian daya.'
+              : 'Battery and charging state.',
+        'connectivity' =>
+          isId
+              ? 'Jaringan, WiFi, seluler, dan Bluetooth.'
+              : 'Network, WiFi, cellular, and Bluetooth.',
+        'apps' =>
+          isId
+              ? 'Aplikasi aktif dan statistik penggunaan.'
+              : 'Active app and usage statistics.',
+        'system' =>
+          isId
+              ? 'Penyimpanan, waktu, bahasa, dan mode sistem.'
+              : 'Storage, time, language, and system mode.',
+        'clipboard' =>
+          isId
+              ? 'Baca atau ubah isi papan klip lewat agen.'
+              : 'Let agents read or update clipboard contents.',
+        _ => '',
+      };
+    }
+    return '';
+  }
+
   (String, String) moduleSetting(
     String moduleId,
     String key,
   ) => switch (moduleId) {
-    'clipboard_ai' => switch (key) {
-      'share_intent' => (
-        isId ? 'Menu Share Android' : 'Share Intent',
-        isId
-            ? 'Terima teks dari menu Share Android.'
-            : 'Receive text via Android Share menu.',
-      ),
-      'persistent_notification' => (
-        isId ? 'Notifikasi Persisten' : 'Persistent Notification',
-        isId
-            ? 'Tampilkan notifikasi untuk memproses clipboard dengan cepat.'
-            : 'Show a notification to quickly process clipboard.',
-      ),
-      _ => (key, ''),
-    },
     'app_control' => switch (key) {
       'require_confirmation' => (
         isId ? 'Wajib Konfirmasi' : 'Require Confirmation',
@@ -1246,6 +1271,18 @@ class AppStrings {
             ? 'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.'
             : 'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.',
       ),
+      'allow_clipboard_read' => (
+        isId ? 'Baca Papan Klip' : 'Read Clipboard',
+        isId
+            ? 'Agen dapat membaca teks yang sedang tersimpan di papan klip.'
+            : 'Agent can read the text currently stored in the clipboard.',
+      ),
+      'allow_clipboard_write' => (
+        isId ? 'Mengupdate Papan Klip' : 'Update Clipboard',
+        isId
+            ? 'Agen dapat mengganti isi papan klip dengan teks baru. Aksi ini tetap butuh konfirmasi.'
+            : 'Agent can replace clipboard contents with new text. This still requires confirmation.',
+      ),
       _ => (key, ''),
     },
     'notification_intelligence' => switch (key) {
@@ -1278,6 +1315,12 @@ class AppStrings {
         isId
             ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.'
             : 'Agent can open the app that sent a notification.',
+      ),
+      'persistent_notification' => (
+        isId ? 'Tombol Cepat Papan Klip' : 'Clipboard Quick Action',
+        isId
+            ? 'Tampilkan notifikasi tetap berisi tombol untuk memproses teks papan klip kapan saja.'
+            : 'Show an ongoing notification with a button to process clipboard text anytime.',
       ),
       _ => (key, ''),
     },

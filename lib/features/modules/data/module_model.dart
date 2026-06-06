@@ -59,16 +59,6 @@ class ModuleModel {
 
 /// Registry of all available modules that can be installed.
 class ModuleRegistry {
-  static const clipboardAi = ModuleModel(
-    id: 'clipboard_ai',
-    name: 'Clipboard',
-    description:
-        'Process copied text with AI. Translate, summarize, rewrite, '
-        'or explain any text from any app.',
-    icon: '📋',
-    settings: {'share_intent': true, 'persistent_notification': false},
-  );
-
   static const appControl = ModuleModel(
     id: 'app_control',
     name: 'App Control',
@@ -86,7 +76,7 @@ class ModuleRegistry {
     id: 'device_context',
     name: 'Device Context',
     description:
-        'Let agents read battery, network, storage, time, locale, charging, DND, and Bluetooth.',
+        'Let agents read device state, app context, connectivity, and clipboard data.',
     icon: '📊',
     settings: {
       'allow_battery': true,
@@ -97,6 +87,8 @@ class ModuleRegistry {
       'allow_charging': true,
       'allow_dnd': true,
       'allow_bluetooth': true,
+      'allow_clipboard_read': false,
+      'allow_clipboard_write': false,
     },
   );
 
@@ -104,7 +96,7 @@ class ModuleRegistry {
     id: 'notification_intelligence',
     name: 'Notification',
     description:
-        'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.',
+        'Manage agent notifications, read Android notifications, and keep a clipboard quick action ready.',
     icon: '🔔',
     settings: {
       'allow_read': false,
@@ -112,6 +104,7 @@ class ModuleRegistry {
       'allow_classify': false,
       'allow_reply_suggestion': false,
       'allow_open_source_app': false,
+      'persistent_notification': false,
     },
   );
 
@@ -222,7 +215,6 @@ class ModuleRegistry {
   );
 
   static const List<ModuleModel> available = [
-    clipboardAi,
     appControl,
     deviceContext,
     notificationIntelligence,

@@ -139,8 +139,6 @@ class ModuleStoreScreen extends ConsumerWidget {
 
   String _moduleDescription(ModuleModel module, AppStrings s) {
     switch (module.id) {
-      case 'clipboard_ai':
-        return s.moduleDescClipboard;
       case 'app_control':
         return s.moduleDescAppControl;
       case 'device_context':

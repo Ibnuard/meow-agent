@@ -26,6 +26,10 @@ class DeviceModulePlugin extends ModulePlugin {
     'bluetooth',
     'wifi',
     'cellular',
+    'clipboard',
+    'copy',
+    'paste',
+    'copied text',
   ];
 
   @override
@@ -164,6 +168,20 @@ class DeviceModulePlugin extends ModulePlugin {
       requiresConfirmation: false,
       isRetrieval: true,
     ),
+    ToolDefinition(
+      name: 'clipboard.read',
+      description: 'Read current clipboard text.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      isRetrieval: true,
+    ),
+    ToolDefinition(
+      name: 'clipboard.write',
+      description: 'Write text to clipboard.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'text': 'string'},
+    ),
   ];
 
   @override
@@ -205,6 +223,10 @@ class DeviceModulePlugin extends ModulePlugin {
         return tools.executeWifi();
       case 'device.cellular':
         return tools.executeCellular();
+      case 'clipboard.read':
+        return tools.executeClipboardRead();
+      case 'clipboard.write':
+        return tools.executeClipboardWrite(request.args);
       default:
         return Future.value(
           ToolExecutionResult(

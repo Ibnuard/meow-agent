@@ -19,7 +19,6 @@ import 'mixins/super_power_handler.dart';
 import 'mixins/device_context_handler.dart';
 import 'mixins/communication_handler.dart';
 import 'mixins/notification_intelligence_handler.dart';
-import 'mixins/clipboard_ai_handler.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -37,8 +36,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         SuperPowerHandlerMixin,
         DeviceContextHandlerMixin,
         CommunicationHandlerMixin,
-        NotificationIntelligenceHandlerMixin,
-        ClipboardAiHandlerMixin {
+        NotificationIntelligenceHandlerMixin {
   ModuleModel? _module;
   ShizukuStatus? _shizukuStatus;
   bool _checkingShizuku = false;
@@ -48,15 +46,16 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   @override
   ModuleModel? get module => _module;
-  
+
   @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
   }
-  
+
   @override
-  PermissionManager get permissionManager => ref.read(permissionManagerProvider);
+  PermissionManager get permissionManager =>
+      ref.read(permissionManagerProvider);
 
   @override
   ShizukuStatus? get shizukuStatus => _shizukuStatus;
@@ -165,10 +164,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
 
-    await handleClipboardAiToggle(key, value);
     await handleDeviceContextToggle(key, value);
     await handleCommunicationToggle(key, value);
-    await handleNotificationIntelligenceToggle(key, value);
+    final shouldContinueNotification =
+        await handleNotificationIntelligenceToggle(key, value);
+    if (!shouldContinueNotification) return;
     await handleSuperPowerToggle(key, value);
 
     // App Control — settings are purely preference toggles, no native service.
@@ -224,14 +224,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
 
     var nextSettings = {..._module!.settings, key: value};
-      if (_module!.id == 'super_power') {
-        if (key == 'app_agentic' && !value) {
-          nextSettings = {
-            ...nextSettings,
-            'run_locked_device': false,
-          };
-        }
+    if (_module!.id == 'super_power') {
+      if (key == 'app_agentic' && !value) {
+        nextSettings = {...nextSettings, 'run_locked_device': false};
       }
+    }
 
     final updated = _module!.copyWith(settings: nextSettings);
     await ref.read(moduleRepositoryProvider).update(updated);
@@ -297,10 +294,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   }
 
   Future<void> _uninstall() async {
-    if (_module?.id == 'clipboard_ai') {
-      final controller = ref.read(clipboardServiceControllerProvider);
-      await controller.stopNotificationService();
-      await controller.stopBubbleService();
+    if (_module?.id == 'notification_intelligence') {
+      await ref
+          .read(clipboardServiceControllerProvider)
+          .stopNotificationService();
     }
     if (_module?.id == 'super_power') {
       final controller = ref.read(clipboardServiceControllerProvider);
@@ -341,6 +338,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final langCode = resolveLanguageCode(languagePref);
     final isId = langCode == 'id';
     final settingLabels = _settingLabels(module.id, isId: isId);
+    final visibleSettingEntries = module.settings.entries
+        .where((entry) => _settingVisible(module, entry))
+        .toList(growable: false);
 
     return Scaffold(
       backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
@@ -617,43 +617,13 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
-          if (module.enabled) ...[
-            Text(
-              s.featurePermission,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: cs.onSurface,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: extras.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: extras.subtleBorder),
-              ),
-              child: Column(
-                children: [
-                  for (final entry in module.settings.entries)
-                    if (_settingVisible(module, entry)) ...[
-                      _buildSettingSwitch(
-                        entry: entry,
-                        label: settingLabels[entry.key],
-                        cs: cs,
-                      ),
-                      if (module.id == 'super_power' &&
-                          entry.key == 'run_locked_device')
-                        FutureBuilder<Widget?>(
-                          future: _pinStatusFuture,
-                          builder: (ctx, snap) =>
-                              snap.data ?? const SizedBox.shrink(),
-                        ),
-                    ],
-                ],
-              ),
+          if (module.enabled && visibleSettingEntries.isNotEmpty) ...[
+            _buildSettingsSection(
+              module: module,
+              entries: visibleSettingEntries,
+              settingLabels: settingLabels,
+              cs: cs,
+              extras: extras,
             ),
           ],
         ],
@@ -669,6 +639,230 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       return module.settings['app_agentic'] == true;
     }
     return true;
+  }
+
+  Widget _buildSettingsSection({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          s.featurePermission,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (module.id == 'device_context')
+          _buildGroupedSettings(
+            module: module,
+            entries: entries,
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          )
+        else
+          _buildFlatSettingsCard(
+            module: module,
+            entries: entries,
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFlatSettingsCard({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        children: [
+          for (final entry in entries) ...[
+            _buildSettingSwitch(
+              entry: entry,
+              label: settingLabels[entry.key],
+              cs: cs,
+            ),
+            if (module.id == 'super_power' && entry.key == 'run_locked_device')
+              FutureBuilder<Widget?>(
+                future: _pinStatusFuture,
+                builder: (ctx, snap) => snap.data ?? const SizedBox.shrink(),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupedSettings({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    final groups = _settingGroupsFor(module, entries);
+    return Column(
+      children: [
+        for (var i = 0; i < groups.length; i++) ...[
+          _buildSettingGroupCard(
+            group: groups[i],
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          ),
+          if (i != groups.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSettingGroupCard({
+    required _ModuleSettingGroup group,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Container(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(group.icon, size: 18, color: cs.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      if (group.description.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          group.description,
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.25,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in group.entries)
+            _buildSettingSwitch(
+              entry: entry,
+              label: settingLabels[entry.key],
+              cs: cs,
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<_ModuleSettingGroup> _settingGroupsFor(
+    ModuleModel module,
+    List<MapEntry<String, bool>> entries,
+  ) {
+    if (module.id != 'device_context') {
+      return [
+        _ModuleSettingGroup(
+          title: s.featurePermission,
+          description: '',
+          icon: Icons.tune_rounded,
+          entries: entries,
+        ),
+      ];
+    }
+
+    final grouped = <String, List<MapEntry<String, bool>>>{};
+    for (final entry in entries) {
+      grouped
+          .putIfAbsent(_deviceContextGroupKey(entry.key), () => [])
+          .add(entry);
+    }
+
+    const order = ['power', 'connectivity', 'apps', 'system', 'clipboard'];
+    return [
+      for (final key in order)
+        if ((grouped[key] ?? const <MapEntry<String, bool>>[]).isNotEmpty)
+          _ModuleSettingGroup(
+            title: s.moduleSettingGroupTitle(module.id, key),
+            description: s.moduleSettingGroupDescription(module.id, key),
+            icon: _deviceContextGroupIcon(key),
+            entries: grouped[key]!,
+          ),
+    ];
+  }
+
+  String _deviceContextGroupKey(String settingKey) {
+    return switch (settingKey) {
+      'allow_battery' || 'allow_charging' => 'power',
+      'allow_network' || 'allow_bluetooth' => 'connectivity',
+      'allow_foreground_app' => 'apps',
+      'allow_storage' || 'allow_time_locale' || 'allow_dnd' => 'system',
+      'allow_clipboard_read' || 'allow_clipboard_write' => 'clipboard',
+      _ => 'system',
+    };
+  }
+
+  IconData _deviceContextGroupIcon(String groupKey) {
+    return switch (groupKey) {
+      'power' => Icons.battery_charging_full_rounded,
+      'connectivity' => Icons.hub_rounded,
+      'apps' => Icons.apps_rounded,
+      'clipboard' => Icons.content_paste_rounded,
+      _ => Icons.memory_rounded,
+    };
   }
 
   Widget _buildSettingSwitch({
@@ -784,8 +978,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   String _moduleDescription(ModuleModel module, {required bool isId}) {
     final s = AppStrings(isId ? 'id' : 'en');
     switch (module.id) {
-      case 'clipboard_ai':
-        return s.moduleDescClipboard;
       case 'app_control':
         return s.moduleDescAppControl;
       case 'device_context':
@@ -820,4 +1012,18 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
     return labels;
   }
+}
+
+class _ModuleSettingGroup {
+  const _ModuleSettingGroup({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.entries,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+  final List<MapEntry<String, bool>> entries;
 }

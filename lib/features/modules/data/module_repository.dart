@@ -29,9 +29,15 @@ class ModuleRepository {
     final stored = raw
         .map((s) => ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>))
         .toList();
+    final legacyClipboardPersistentNotification = stored
+        .where((m) => m.id == 'clipboard_ai')
+        .map((m) => m.settings['persistent_notification'])
+        .firstOrNull;
 
     // Migrate: reconcile stored settings against the current registry so the
-    // UI reflects schema changes (added/removed keys) without reinstall.
+    // UI reflects schema changes (added/removed keys) without reinstall. If a
+    // stored module no longer exists in the registry (e.g. retired modules)
+    // we drop it so it disappears from the installed list on next load.
     var migrated = false;
     final reconciled = <ModuleModel>[];
     for (final m in stored) {
@@ -39,14 +45,21 @@ class ModuleRepository {
           .where((r) => r.id == m.id)
           .firstOrNull;
       if (spec == null) {
-        reconciled.add(m);
+        migrated = true;
         continue;
       }
       final merged = <String, bool>{};
       for (final entry in spec.settings.entries) {
         // Keep existing user toggles. New keys must default OFF to avoid silently
         // enabling newly shipped permissions/tools after app updates.
-        merged[entry.key] = m.settings[entry.key] ?? false;
+        if (m.id == 'notification_intelligence' &&
+            entry.key == 'persistent_notification' &&
+            !m.settings.containsKey(entry.key) &&
+            legacyClipboardPersistentNotification != null) {
+          merged[entry.key] = legacyClipboardPersistentNotification;
+        } else {
+          merged[entry.key] = m.settings[entry.key] ?? false;
+        }
       }
       if (merged.length != m.settings.length ||
           !merged.keys.every(m.settings.containsKey) ||

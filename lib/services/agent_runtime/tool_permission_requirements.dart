@@ -11,11 +11,15 @@ import 'tool_permission_policy.dart';
 /// on runtime checks rather than data declaration.
 const toolPermissionRequirements = <String, ToolPermissionRequirement>{
   'clipboard.read': ToolPermissionRequirement(
-    moduleId: 'clipboard_ai',
+    moduleId: 'device_context',
+    settingKey: 'allow_clipboard_read',
+    settingLabel: 'Read Clipboard',
     actionLabel: 'read the clipboard',
   ),
   'clipboard.write': ToolPermissionRequirement(
-    moduleId: 'clipboard_ai',
+    moduleId: 'device_context',
+    settingKey: 'allow_clipboard_write',
+    settingLabel: 'Update Clipboard',
     actionLabel: 'write to the clipboard',
   ),
   'app.resolve': ToolPermissionRequirement(

@@ -7,7 +7,6 @@ class ModuleVisuals {
 
   static IconData iconFor(String id) {
     return switch (id) {
-      'clipboard_ai' => Icons.content_paste_rounded,
       'app_control' => Icons.apps_rounded,
       'device_context' => Icons.monitor_heart_rounded,
       'notification_intelligence' => Icons.notifications_rounded,
@@ -24,7 +23,6 @@ class ModuleVisuals {
 
   static Color accentFor(String id) {
     return switch (id) {
-      'clipboard_ai' => const Color(0xFF38BDF8),
       'app_control' => const Color(0xFF6366F1),
       'device_context' => const Color(0xFF14B8A6),
       'notification_intelligence' => const Color(0xFFF59E0B),
