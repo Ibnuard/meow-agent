@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -58,6 +59,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
   bool _loadingOlder = false;
   bool _initialLoading = true;
+  bool _suppressScrollHandling = false;
   late String _activeAgentId;
 
   // Storage permission state.
@@ -113,8 +115,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   bool get hasMore => _hasMore;
   @override
+  bool get suppressScrollHandling => _suppressScrollHandling;
+  @override
+  set suppressScrollHandling(bool value) => _suppressScrollHandling = value;
+  @override
   ScrollController get chatScroll => _scroll;
+  @override
+  void Function() get rebuildDateBoundaries => _rebuildDateBoundaries;
   ScrollController get scrollController => _scroll;
+
+  // Sticky date overlay state.
+  DateTime? _stickyDate;
+  Timer? _stickyDateTimer;
+  bool _stickyDateVisible = false;
+  final Map<int, DateTime> _dateBoundaries = {};
 
   // ChatSendHandlerMixin interface delegates.
   @override
@@ -255,18 +269,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void _onManagerChanged() {
     if (!mounted) return;
     final session = _manager!.sessionFor(_activeAgentId);
-    // When a new reply lands, reload history to pick up persisted messages.
     if (session.lastReplyAt != null &&
         session.lastReplyAt != _lastSeenReplyAt) {
       _lastSeenReplyAt = session.lastReplyAt;
       reloadHistory(_activeAgentId);
     } else {
-      // Rebuild for debug/running state changes.
       setState(() {});
     }
-    // Always nudge to the bottom so new bubbles (debug, thinking, replies)
-    // remain visible without manual scrolling.
-    scrollToEnd();
+    if (_isNearBottom) scrollToEnd();
   }
 
   List<ChatMessage> get _messages =>
@@ -274,8 +284,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   bool get _hasMore => !_fullyLoaded.contains(_activeAgentId);
 
+  bool get _isNearBottom {
+    if (!_scroll.hasClients) return true;
+    final extent = _scroll.position.maxScrollExtent;
+    final pixels = _scroll.position.pixels;
+    return (extent - pixels) <= 200;
+  }
+
   @override
   void dispose() {
+    _stickyDateTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
@@ -285,17 +303,73 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.dispose();
   }
 
-  /// Detect scroll to top Ã¢â€ â€™ load older messages.
+  /// Detect scroll to top — load older messages. Also toggle scroll-to-bottom FAB
+  /// and update the sticky date overlay.
   void _onScroll() {
-    if (!_scroll.hasClients) return;
+    if (!_scroll.hasClients || _suppressScrollHandling) return;
     final pixelsFromBottom = _scroll.position.maxScrollExtent - _scroll.position.pixels;
     final showFab = pixelsFromBottom > 200;
     if (showFab != _showScrollToBottom) {
       setState(() => _showScrollToBottom = showFab);
     }
+    _updateStickyDate();
     if (!_hasMore || _loadingOlder) return;
     if (_scroll.position.pixels <= 80) {
       loadOlderMessages();
+    }
+  }
+
+  void _updateStickyDate() {
+    if (_dateBoundaries.isEmpty || !_scroll.hasClients) {
+      if (_stickyDateVisible) setState(() => _stickyDateVisible = false);
+      return;
+    }
+    final keys = _dateBoundaries.keys.toList()..sort();
+    if (keys.isEmpty) return;
+    // Use dynamic average height based on actual rendered extent for accuracy
+    // after load-more changes the total content size.
+    final totalExtent = _scroll.position.maxScrollExtent +
+        _scroll.position.viewportDimension;
+    final avgItemHeight = _messages.isNotEmpty
+        ? totalExtent / _messages.length
+        : 80.0;
+    final estIndex = (_scroll.position.pixels / avgItemHeight)
+        .floor()
+        .clamp(0, _messages.length - 1);
+    // Find the largest boundary index <= estIndex (the date group the user sees at top).
+    int lo = 0, hi = keys.length - 1;
+    DateTime? found;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      if (keys[mid] <= estIndex) {
+        found = _dateBoundaries[keys[mid]];
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    found ??= _dateBoundaries[keys.first];
+    final changed = found != _stickyDate || !_stickyDateVisible;
+    _stickyDate = found;
+    if (changed) setState(() => _stickyDateVisible = true);
+
+    // Auto-hide after 1.5s of no scroll activity.
+    _stickyDateTimer?.cancel();
+    _stickyDateTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _stickyDateVisible = false);
+    });
+  }
+
+  void _rebuildDateBoundaries() {
+    _dateBoundaries.clear();
+    DateTime? lastDay;
+    for (var i = 0; i < _messages.length; i++) {
+      final t = _messages[i].timestamp.toLocal();
+      final day = DateTime(t.year, t.month, t.day);
+      if (lastDay == null || day != lastDay) {
+        _dateBoundaries[i] = t;
+        lastDay = day;
+      }
     }
   }
 
@@ -672,6 +746,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     UnreadService.instance.setActive(agentId);
     loadHistory(_activeAgentId);
     setState(() => _activeAgentId = agentId);
+    _rebuildDateBoundaries();
   }
 
   Future<ChatMessage> _persistMessage(ChatMessage message) async {
@@ -997,6 +1072,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         },
                                       ),
                                     ),
+                                  if (_stickyDateVisible && _stickyDate != null)
+                                    Positioned(
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: _StickyDatePill(
+                                        date: _stickyDate!,
+                                        isId: isId,
+                                      ),
+                                    ),
                                 ],
                               ),
                       ),
@@ -1049,6 +1134,71 @@ class _DateSeparator extends StatelessWidget {
             fontWeight: FontWeight.w600,
             color: cs.onSurfaceVariant,
             letterSpacing: 0.2,
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _label() {
+    final s = AppStrings(isId ? 'id' : 'en');
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(that).inDays;
+    if (diff == 0) return s.today;
+    if (diff == 1) return s.yesterday;
+
+    const monthsId = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+    ];
+    const monthsEn = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final months = isId ? monthsId : monthsEn;
+    final mon = months[date.month - 1];
+    if (date.year == now.year) return '${date.day} $mon';
+    return '${date.day} $mon ${date.year}';
+  }
+}
+
+/// WhatsApp/Telegram-style sticky date pill — appears at the top of the
+/// chat when the date separator scrolls off-screen.
+class _StickyDatePill extends StatelessWidget {
+  const _StickyDatePill({required this.date, required this.isId});
+
+  final DateTime date;
+  final bool isId;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          decoration: BoxDecoration(
+            color: cs.primary,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            _label(),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: 0.2,
+            ),
           ),
         ),
       ),

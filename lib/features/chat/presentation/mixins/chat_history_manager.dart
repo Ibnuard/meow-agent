@@ -33,8 +33,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
     final history = await service.loadLatest(agentId);
 
     final hasPending = manager?.sessionFor(agentId).pendingTool != null;
-    // Find the index of the last assistant message (where the live
-    // confirmation marker, if any, lives).
     int lastAssistantIdx = -1;
     for (var i = history.length - 1; i >= 0; i--) {
       if (history[i].role == 'assistant') {
@@ -74,8 +72,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   void handleConfirmation(String action, int msgIndex) {
     if (msgIndex < 0 || msgIndex >= messagesList.length) return;
 
-    // Destroy the confirmation bubble entirely after action.
-    // Also delete it from persistent history so it doesn't reappear.
     final msg = messagesList[msgIndex];
     setState(() => messagesList.removeAt(msgIndex));
     if (msg.id != null) {
@@ -104,7 +100,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
         await handleSelectModelAction(action, sourceMessage);
         break;
       case 'navigate':
-        // Special-case screens not in the router → push directly.
         if (action.target == '/modules/calendar') {
           await Navigator.push(
             context,
@@ -121,12 +116,10 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
         }
         break;
       case 'open_folder':
-        // target = agentName.
         final ws = ref.read(workspaceServiceProvider);
         await ws.openInFileManager(action.target);
         break;
       case 'open_url':
-        // Reserved for future use.
         break;
     }
   }
@@ -173,7 +166,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
     }
   }
 
-  /// Delete a single message from SQLite by its row id.
   Future<void> deletePersistedMessage(int id) async {
     final service = ref.read(chatHistoryServiceProvider);
     await service.deleteMessage(id);
@@ -185,15 +177,11 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       if (initialLoading) setState(() => initialLoading = false);
       return;
     }
-    // Mark the slot immediately so concurrent _send() calls don't trigger
-    // a second putIfAbsent from the _messages getter while we're loading.
     messagesByAgent[agentId] = [];
 
     final service = ref.read(chatHistoryServiceProvider);
     final history = await service.loadLatest(agentId);
 
-    // Resolve manager (may be null if not subscribed yet); pending state
-    // determines whether to keep the live confirmation marker.
     final ChatRuntimeManager mgr =
         manager ?? ref.read(chatRuntimeManagerProvider);
     final hasPending = mgr.sessionFor(agentId).pendingTool != null;
@@ -228,28 +216,31 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
     if (mounted) {
       setState(() {
-        // Merge: prepend loaded history before any messages added during load.
         final live = messagesByAgent[agentId] ?? [];
         messagesByAgent[agentId] = [...cleaned, ...live];
         initialLoading = false;
       });
+      rebuildDateBoundaries();
       if (cleaned.length < kMessagePageSize) {
         fullyLoaded.add(agentId);
       }
-      // Single-frame jump to bottom.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!chatScroll.hasClients || !mounted) return;
         chatScroll.jumpTo(chatScroll.position.maxScrollExtent);
       });
     }
 
-    // Load persisted peak for accurate compaction on cold start.
     final tokenService = ref.read(tokenUsageServiceProvider);
     final peak = await tokenService.getPersistedPeak(agentId);
     if (peak > 0) ContextCompactor.setPersistedPeak(peak);
   }
 
   /// Load older messages when scrolling to the top.
+  ///
+  /// Matches WhatsApp/Telegram smoothness: captures the scroll anchor before
+  /// insertion, applies the data change, then restores the anchor in a single
+  /// frame using correctPixels (which does NOT trigger scroll notifications)
+  /// so the user never sees a layout jump or recursive handler calls.
   Future<void> loadOlderMessages() async {
     if (loadingOlder || !hasMore) return;
     final messages = messagesList;
@@ -262,14 +253,11 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
     }
 
     loadingOlder = true;
-    setState(() {}); // Show loading indicator.
+    setState(() {});
 
-    // Capture pre-insertion extent so we can restore the user's visual
-    // anchor after the new bubbles are laid out.
-    final beforeExtent = chatScroll.hasClients
-        ? chatScroll.position.maxScrollExtent
-        : 0.0;
-    final beforePixels = chatScroll.hasClients ? chatScroll.position.pixels : 0.0;
+    final hadClients = chatScroll.hasClients;
+    final beforeExtent = hadClients ? chatScroll.position.maxScrollExtent : 0.0;
+    final beforePixels = hadClients ? chatScroll.position.pixels : 0.0;
 
     final service = ref.read(chatHistoryServiceProvider);
     final older = await service.loadOlder(
@@ -278,32 +266,40 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       limit: kMessagePageSize,
     );
 
-    if (!mounted) return;
+    if (!mounted || older.isEmpty) {
+      if (mounted) {
+        setState(() {
+          loadingOlder = false;
+          if (older.isEmpty) fullyLoaded.add(activeAgentId);
+        });
+      }
+      return;
+    }
+
+    // Suppress scroll handling during data insertion + position correction
+    // to prevent recursive loadOlderMessages and sticky date recalculations.
+    suppressScrollHandling = true;
 
     setState(() {
-      if (older.isEmpty) {
-        fullyLoaded.add(activeAgentId);
-      } else {
-        messages.insertAll(0, older);
-        if (older.length < kMessagePageSize) {
-          fullyLoaded.add(activeAgentId);
-        }
-      }
+      messages.insertAll(0, older);
       loadingOlder = false;
+      if (older.length < kMessagePageSize) {
+        fullyLoaded.add(activeAgentId);
+      }
     });
 
-    // Preserve scroll anchor: keep the previously visible bubble at the
-    // same screen position by silently shifting pixels by the layout
-    // delta.
+    // Restore scroll anchor in a single post-frame pass using correctPixels
+    // which silently adjusts position without firing scroll notifications.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!chatScroll.hasClients || !mounted) return;
-      final position = chatScroll.position;
-      final afterExtent = position.maxScrollExtent;
+      final afterExtent = chatScroll.position.maxScrollExtent;
       final delta = afterExtent - beforeExtent;
       if (delta > 0) {
-        position.correctPixels(beforePixels + delta);
-        position.notifyListeners();
+        chatScroll.position.correctPixels(beforePixels + delta);
+        chatScroll.position.notifyListeners();
       }
+      suppressScrollHandling = false;
+      rebuildDateBoundaries();
     });
   }
 
@@ -313,5 +309,8 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   bool get loadingOlder;
   set loadingOlder(bool value);
   bool get hasMore;
+  bool get suppressScrollHandling;
+  set suppressScrollHandling(bool value);
   ScrollController get chatScroll;
+  void Function() get rebuildDateBoundaries;
 }
