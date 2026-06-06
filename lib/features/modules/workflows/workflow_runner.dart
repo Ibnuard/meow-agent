@@ -19,6 +19,8 @@ import 'workflow_repository.dart';
 import '../../settings/data/notification_sound_provider.dart';
 import '../../modules/data/module_repository.dart';
 import '../../../services/shizuku/shizuku_device_service.dart';
+import '../../../services/agent_runtime/prompt_constants.dart';
+import '../../settings/data/app_language_provider.dart';
 
 /// Runs in the main isolate. Uses dynamic scheduling to check for due workflows
 /// and executes them via RuntimeEngine with priority queue ordering.
@@ -43,6 +45,11 @@ class WorkflowRunner {
   /// Enforce minimum floor on step timeout.
   static int _effectiveTimeout(int stored) =>
       stored < _minStepTimeoutSeconds ? _minStepTimeoutSeconds : stored;
+
+  AppStrings get _s {
+    final langPref = _ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   /// Priority-ordered execution queue. Each entry pairs a workflow with the
   /// optional trigger context that fired it (e.g. notification metadata).
@@ -251,7 +258,7 @@ class WorkflowRunner {
       if (agent == null) {
         await _handleFailure(
           wf,
-          'Agent tidak ditemukan: ${wf.agentId}',
+          _s.workflowAgentNotFound(wf.agentId),
           0,
           capturedEvents,
         );
@@ -263,7 +270,7 @@ class WorkflowRunner {
       if (provider == null) {
         await _handleFailure(
           wf,
-          'Provider LLM "${agent.providerId}" tidak ditemukan untuk agent "${agent.name}".',
+          _s.workflowProviderNotFound(agent.providerId, agent.name),
           0,
           capturedEvents,
         );
@@ -300,7 +307,7 @@ class WorkflowRunner {
       stopwatch.stop();
       await _handleFailure(
         wf,
-        'Timeout: eksekusi melebihi ${_effectiveTimeout(wf.timeoutSeconds)} detik.',
+        _s.workflowTimeoutSeconds(_effectiveTimeout(wf.timeoutSeconds)),
         stopwatch.elapsedMilliseconds,
         capturedEvents,
       );
@@ -310,7 +317,7 @@ class WorkflowRunner {
       print('[WorkflowRunner] ${wf.title} error: $e\n$st');
       await _handleFailure(
         wf,
-        'Error: $e',
+        '${_s.workflowErrorGeneric}: $e',
         stopwatch.elapsedMilliseconds,
         capturedEvents,
       );
@@ -416,8 +423,8 @@ class WorkflowRunner {
       await _injectToChat(
         wf.agentId,
         response.success
-            ? '✅ Workflow **${wf.title}** berhasil dijalankan.'
-            : '❌ Workflow **${wf.title}** gagal dijalankan.',
+            ? _s.workflowSingleSuccess(wf.title)
+            : _s.workflowSingleFailed(wf.title),
       );
     }
   }
@@ -500,8 +507,8 @@ class WorkflowRunner {
 
       if (stepAgent == null || stepProvider == null) {
         final reason = stepAgent == null
-            ? 'Agent tidak ditemukan untuk langkah ini.'
-            : 'Provider tidak ditemukan untuk agent "${stepAgent.name}".';
+            ? _s.workflowStepAgentNotFound
+            : _s.workflowStepProviderNotFound(stepAgent.name);
         stepResults.add(
           StepResult(stepId: step.id, status: 'failed', result: reason),
         );
@@ -773,11 +780,9 @@ class WorkflowRunner {
         // sensitive/confirmation action but the workflow's "Allow sensitive
         // actions" toggle is off. This is terminal regardless of onFailure.
         if (response.state == AgentRuntimeState.blockedSensitive) {
-          final tool = response.pendingTool ?? 'aksi sensitif';
+          final tool = response.pendingTool ?? _s.workflowSensitiveFallbackTool;
           final reason =
-              'Langkah ${i + 1} perlu izin aksi sensitif ($tool). '
-              'Aktifkan "Izinkan aksi sensitif" di pengaturan workflow lalu '
-              'jalankan ulang.';
+              _s.workflowSensitiveBlocked(i + 1, tool);
           previousResult = reason;
           stepResults.add(
             StepResult(
@@ -899,11 +904,9 @@ class WorkflowRunner {
               stepOutputs[i + 1] = previousResult;
 
               if (retryResponse.state == AgentRuntimeState.blockedSensitive) {
-                final tool = retryResponse.pendingTool ?? 'aksi sensitif';
+                final tool = retryResponse.pendingTool ?? _s.workflowSensitiveFallbackTool;
                 final reason =
-                    'Langkah ${i + 1} perlu izin aksi sensitif ($tool). '
-                    'Aktifkan "Izinkan aksi sensitif" di pengaturan workflow '
-                    'lalu jalankan ulang.';
+                    _s.workflowSensitiveBlocked(i + 1, tool);
                 previousResult = reason;
                 chainFailed = true;
                 stepResults.last = StepResult(
@@ -1064,7 +1067,7 @@ class WorkflowRunner {
         id: notifId,
         title: overallStatus == 'success'
             ? '✅ ${wf.title} (${stepResults.length} steps)'
-            : '❌ ${wf.title} — $overallStatus',
+            : _s.workflowChainedFailed(wf.title, overallStatus),
         body: previousResult.isNotEmpty ? previousResult : summaryResult,
         style: wf.notification.style.name,
         payload: 'workflow:${wf.id}',
@@ -1076,7 +1079,7 @@ class WorkflowRunner {
       final emoji = overallStatus == 'success' ? '✅' : '❌';
       await _injectToChat(
         wf.agentId,
-        '$emoji Workflow **${wf.title}** ($overallStatus) — ${stepResults.length} steps completed.',
+        '$emoji ${_s.workflowChainedSuccess(wf.title, stepResults.length)}',
       );
     }
   }
@@ -1135,51 +1138,18 @@ class WorkflowRunner {
     required int stepIndex,
     required int totalSteps,
     required String userInstruction,
-  }) {
-    final buf = StringBuffer()
-      ..writeln('[CHAINED WORKFLOW STEP ${stepIndex + 1} of $totalSteps]')
-      ..writeln(
-        'The previous step\'s output is in the conversation above (most '
-        'recent assistant turn). Treat it as data already retrieved — do '
-        'NOT call any tool to fetch, read, list, or summarize the same '
-        'kind of data again.',
-      )
-      ..writeln(
-        'If this step asks to send / share / save / write / forward / post / '
-        'deliver the data, choose a delivery tool that takes a content body '
-        '(chat.send, notes.create, files.write, intent.open_url, etc.). '
-        'Decide the body from the instruction: if it asks to relay / forward '
-        'the data as-is, use the previous turn\'s content verbatim; if it '
-        'asks you to respond / react / reply / comment on / rephrase the '
-        'data, WRITE YOUR OWN new text that builds on it (do not just resend '
-        'the same content). Either way, stay grounded in the real facts '
-        '(items, names, numbers, dates) — never invent details that are not '
-        'in the previous output.',
-      )
-      ..writeln('')
-      ..writeln('Instruction for this step:')
-      ..write(userInstruction);
-    return buf.toString();
-  }
+  }) =>
+      PromptConstants.workflowChainedUserMessage(
+        stepIndex: stepIndex,
+        totalSteps: totalSteps,
+        userInstruction: userInstruction,
+      );
 
-  /// Synthetic user turn placed BEFORE the assistant turn that holds the
-  /// previous step output. Gives the conversation history a coherent shape
-  /// (user asked → assistant produced output) so the planner sees natural
-  /// turn-taking instead of an orphaned assistant turn.
-  String _previousStepInstructionMarker(int stepIndex) {
-    return '[Previous workflow step $stepIndex output below — already '
-        'produced for this chain. Use it as authoritative data for the '
-        'next step instead of fetching again.]';
-  }
+  String _previousStepInstructionMarker(int stepIndex) =>
+      PromptConstants.workflowPreviousStepMarker(stepIndex);
 
-  /// Synthetic user turn placed BEFORE the assistant turn that holds an
-  /// explicitly-referenced EARLIER step's output (`@stepN`, n < current). The
-  /// label lets the agent attribute the following content to the right step.
-  String _earlierStepMarker(int stepNumber) {
-    return '[Workflow step $stepNumber output below — referenced via @step'
-        '$stepNumber. Authoritative data already produced earlier in this '
-        'chain; use it directly, do not re-fetch.]';
-  }
+  String _earlierStepMarker(int stepNumber) =>
+      PromptConstants.workflowEarlierStepMarker(stepNumber);
 
   /// Trigger-var keys that, when referenced in a user's prompt, should be
   /// masked with a reference marker rather than substituted with the live
@@ -1239,45 +1209,14 @@ class WorkflowRunner {
   ) {
     final notif = triggerVars['notif'] ?? '';
     if (notif.isEmpty) return prompt;
-    final app = triggerVars['notif_app'] ?? '';
-    final keyword = triggerVars['notif_keyword'] ?? '';
-    final title = triggerVars['notif_title'] ?? '';
-    final body = triggerVars['notif_body'] ?? '';
-
-    final buf = StringBuffer()
-      ..writeln('[TRIGGER CONTEXT]')
-      ..writeln(
-        'This workflow run was fired by ONE specific incoming Android '
-        'notification — the single one that matched your trigger keyword. '
-        'That notification is delivered to you INLINE below and is the '
-        'COMPLETE and ONLY input for this step. You already have it; you do '
-        'NOT need any tool to read, fetch, or look it up.',
-      )
-      ..writeln(
-        'CRITICAL: Do NOT call notification.read_recent, '
-        'notification.summarize, notification.classify, or any other tool '
-        'that reads the notification tray. Those return DIFFERENT, unrelated '
-        'notifications and will produce the wrong result (a general digest of '
-        'everything instead of this one item). Work ONLY from the single '
-        'inline notification below.',
-      )
-      ..writeln(
-        'Treat the inline notification text as the authoritative source. '
-        'When summarizing / extracting, work directly from this text and '
-        'preserve only facts that are actually present in it. Do NOT invent '
-        'items, names, numbers, or details that are not in the notification, '
-        'and do NOT ask the user to forward / paste the content again.',
-      );
-    if (app.isNotEmpty) buf.writeln('- App: $app');
-    if (keyword.isNotEmpty) buf.writeln('- Matched keyword: $keyword');
-    if (title.isNotEmpty) buf.writeln('- Title: $title');
-    if (body.isNotEmpty) buf.writeln('- Body: $body');
-    buf
-      ..writeln('[/TRIGGER CONTEXT]')
-      ..writeln()
-      ..writeln('[USER PROMPT]')
-      ..write(prompt);
-    return buf.toString();
+    return PromptConstants.workflowTriggerContextWrapper(
+      prompt: prompt,
+      notif: notif,
+      app: triggerVars['notif_app'] ?? '',
+      keyword: triggerVars['notif_keyword'] ?? '',
+      title: triggerVars['notif_title'] ?? '',
+      body: triggerVars['notif_body'] ?? '',
+    );
   }
 
   /// Simple condition evaluator for step conditions.
@@ -1378,7 +1317,7 @@ class WorkflowRunner {
     if (wf.sendToChat) {
       await _injectToChat(
         wf.agentId,
-        '❌ Workflow **${wf.title}** gagal: $error',
+        _s.workflowFailedStatus(wf.title, error),
       );
     }
   }

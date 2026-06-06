@@ -4,6 +4,7 @@ import 'prompt_execute.dart';
 import 'prompt_plan.dart';
 import 'prompt_reflect.dart';
 import 'prompt_system.dart';
+import 'prompt_workflow.dart';
 
 /// Centralized prompt constants for the Meow Agent runtime.
 ///
@@ -117,4 +118,25 @@ class PromptConstants {
 
   static String workflowApiContext(List<String> apiNames) =>
       promptWorkflowApiContext(apiNames);
+
+  // ─── Workflow Runner Prompts (delegated to prompt_workflow.dart) ──────────
+
+  static String workflowChainedUserMessage({
+    required int stepIndex,
+    required int totalSteps,
+    required String userInstruction,
+  }) =>
+      promptChainedUserMessage(
+        stepIndex: stepIndex,
+        totalSteps: totalSteps,
+        userInstruction: userInstruction,
+      );
+
+  static String workflowPreviousStepMarker(int stepIndex) =>
+      promptPreviousStepMarker(stepIndex);
+
+  static String workflowEarlierStepMarker(int stepNumber) =>
+      promptEarlierStepMarker(stepNumber);
+
+  static const workflowTriggerContextWrapper = promptTriggerContextWrapper;
 }

@@ -1471,6 +1471,55 @@ class AppStrings {
   // --- Workflow list ---
   String get workflowsTitle => isId ? 'Workflows' : 'Workflows';
 
+  // --- Workflow runner status / error strings ---
+  String workflowAgentNotFound(String agentId) =>
+      isId ? 'Agent tidak ditemukan: $agentId' : 'Agent not found: $agentId';
+  String workflowProviderNotFound(String providerId, String agentName) =>
+      isId
+          ? 'Provider LLM "$providerId" tidak ditemukan untuk agent "$agentName".'
+          : 'LLM provider "$providerId" not found for agent "$agentName".';
+  String workflowTimeoutSeconds(int seconds) =>
+      isId
+          ? 'Timeout: eksekusi melebihi $seconds detik.'
+          : 'Timeout: execution exceeded $seconds.';
+  String get workflowStepAgentNotFound =>
+      isId
+          ? 'Agent tidak ditemukan untuk langkah ini.'
+          : 'Agent not found for this step.';
+  String workflowStepProviderNotFound(String agentName) =>
+      isId
+          ? 'Provider tidak ditemukan untuk agent "$agentName".'
+          : 'Provider not found for agent "$agentName".';
+  String get workflowSensitiveFallbackTool =>
+      isId ? 'aksi sensitif' : 'sensitive action';
+  String workflowSensitiveBlocked(int step, String tool) =>
+      isId
+          ? 'Langkah $step perlu izin aksi sensitif ($tool). '
+              'Aktifkan "Izinkan aksi sensitif" di pengaturan workflow lalu jalankan ulang.'
+          : 'Step $step needs sensitive permission ($tool). '
+              'Enable "Allow sensitive actions" in workflow settings and re-run.';
+  String get workflowErrorGeneric => 'Error';
+  String workflowSingleSuccess(String title) =>
+      isId
+          ? '✅ Workflow **$title** berhasil dijalankan.'
+          : '✅ Workflow **$title** completed successfully.';
+  String workflowSingleFailed(String title) =>
+      isId
+          ? '❌ Workflow **$title** gagal dijalankan.'
+          : '❌ Workflow **$title** failed to run.';
+  String workflowChainedSuccess(String title, int steps) =>
+      isId
+          ? '✅ Workflow **$title** selesai — $steps langkah.'
+          : '✅ Workflow **$title** completed — $steps steps.';
+  String workflowChainedFailed(String title, String overall) =>
+      isId
+          ? '❌ Workflow **$title** — $overall'
+          : '❌ Workflow **$title** — $overall';
+  String workflowFailedStatus(String title, String error) =>
+      isId
+          ? '❌ Workflow **$title** gagal: $error'
+          : '❌ Workflow **$title** failed: $error';
+
   // --- Misc labels ---
   String get errorPrefix => 'Error';
   String errorWithMessage(String message) =>
