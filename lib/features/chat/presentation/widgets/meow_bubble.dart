@@ -219,6 +219,7 @@ class _PlainLayout extends StatelessWidget {
             onTap: () => _showMarkdownSheet(
               context,
               content: content,
+              renderMarkdown: hasMarkdown,
               s: s,
               onReply: onReplyFromSheet,
             ),
@@ -313,6 +314,7 @@ class _BubbleContentAction extends StatelessWidget {
 void _showMarkdownSheet(
   BuildContext context, {
   required String content,
+  required bool renderMarkdown,
   required AppStrings s,
   VoidCallback? onReply,
 }) {
@@ -382,13 +384,26 @@ void _showMarkdownSheet(
             child: SingleChildScrollView(
               controller: scrollController,
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: GptMarkdown(
-                content,
-                style: TextStyle(
-                  color: cs.onSurface,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
+              child: SizedBox(
+                width: double.infinity,
+                child: renderMarkdown
+                    ? GptMarkdown(
+                        content,
+                        style: TextStyle(
+                          color: cs.onSurface,
+                          fontSize: 14,
+                          height: 1.5,
+                        ),
+                      )
+                    : Text(
+                        content,
+                        textAlign: TextAlign.left,
+                        style: TextStyle(
+                          color: cs.onSurface,
+                          fontSize: 14,
+                          height: 1.45,
+                        ),
+                      ),
               ),
             ),
           ),
@@ -665,6 +680,10 @@ class _ActionRow extends ConsumerWidget {
         return Icons.open_in_new_rounded;
       case 'dns_outlined':
         return Icons.dns_outlined;
+      case 'memory_rounded':
+        return Icons.memory_rounded;
+      case 'visibility_rounded':
+        return Icons.visibility_rounded;
       default:
         return Icons.touch_app_rounded;
     }

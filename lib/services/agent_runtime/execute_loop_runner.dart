@@ -836,6 +836,7 @@ class ExecuteLoopRunner {
             wouldCompleteTree) {
           if (retrievalCompletesTree) {
             shortCircuitActive.status = SubgoalStatus.done;
+            shortCircuitActive.notes ??= 'retrieval_completed';
           }
           final verificationBlocker = await _completionVerifier
               .blockIfUnverified(
@@ -866,6 +867,9 @@ class ExecuteLoopRunner {
                 lastToolName: toolRequest.name,
               );
           if (verificationBlocker != null) return verificationBlocker;
+          if (goalTree.isNotEmpty && goalTree.isComplete) {
+            _emitTaskLedger(emit, request, goalTree);
+          }
           final localFinal =
               shouldAnswerFromToolResult(
                 toolName: toolRequest.name,

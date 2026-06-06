@@ -199,29 +199,29 @@ mixin ChatReportBuilderMixin<T extends StatefulWidget> on State<T> {
 
     final agentName = agent?.name ?? 'default';
     final providerName = provider?.nickname ?? '-';
-    final providerModel = provider?.model ?? '-';
+    final providerModel = provider?.effectiveModel(agent?.model) ?? '-';
 
     final buf = StringBuffer()
       ..writeln(s.statusAgentTitle(agentName))
+      ..writeln(agentName)
       ..writeln()
+      ..writeln('✅ ${s.statusConnectionSection}')
       ..writeln(s.statusConnected(providerName, providerModel))
       ..writeln()
-      ..writeln(s.statusDetails)
+      ..writeln('🧩 ${s.statusDetails}')
+      ..writeln(s.statusApp)
+      ..writeln(s.statusActiveAgent(agentName))
+      ..writeln(s.statusProvider(providerName))
+      ..writeln(s.statusModel(providerModel))
+      ..writeln(s.statusMessages(messagesList.length))
       ..writeln()
-      ..writeln('- ${s.statusApp}')
-      ..writeln('- ${s.statusActiveAgent(agentName)}')
-      ..writeln('- ${s.statusProvider(providerName)}')
-      ..writeln('- ${s.statusModel(providerModel)}')
-      ..writeln('- ${s.statusMessages(messagesList.length)}')
+      ..writeln('🧠 ${s.statusTokenSection}')
+      ..writeln(s.statusTotalTokens(totalTokens, totalCalls))
+      ..writeln(s.statusInputTokens(totalInput))
+      ..writeln(s.statusOutputTokens(totalOutput))
+      ..writeln(s.statusContextPressure(usage.estimated, maxCtx, pct))
       ..writeln()
-      ..writeln('Token Usage (session):')
-      ..writeln()
-      ..writeln('- Total: $totalTokens tokens ($totalCalls LLM calls)')
-      ..writeln('- Input: $totalInput tokens')
-      ..writeln('- Output: $totalOutput tokens')
-      ..writeln('- Context pressure: ${usage.estimated}/$maxCtx ($pct%)')
-      ..writeln()
-      ..writeln(compactNote);
+      ..writeln('💡 $compactNote');
 
     return buf.toString().trim();
   }

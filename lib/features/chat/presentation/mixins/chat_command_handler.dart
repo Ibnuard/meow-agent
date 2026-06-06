@@ -118,22 +118,28 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
   String buildCommandHelp(bool debugMode) {
     final buffer = StringBuffer()
       ..writeln(s.helpAvailableCommands)
-      ..writeln('- /clear - ${s.helpSlashClear}')
-      ..writeln('- /help - ${s.helpSlashHelp}')
-      ..writeln('- /status - ${s.helpSlashStatus}')
-      ..writeln('- /context - ${s.helpSlashContext}')
-      ..writeln('- /reset - ${s.helpSlashReset}')
-      ..writeln('- /model - ${s.helpSlashModel}')
-      ..writeln('- /set-model - ${s.helpSlashSetModel}')
-      ..writeln('- /compact - ${s.helpSlashCompact}')
-      ..write('- /workflow - ${s.helpSlashWorkflow}');
+      ..writeln(s.helpCommandHint)
+      ..writeln()
+      ..writeln(_formatHelpCommand('🧹', '/clear', s.helpSlashClear))
+      ..writeln(_formatHelpCommand('✨', '/help', s.helpSlashHelp))
+      ..writeln(_formatHelpCommand('📊', '/status', s.helpSlashStatus))
+      ..writeln(_formatHelpCommand('🧠', '/context', s.helpSlashContext))
+      ..writeln(_formatHelpCommand('🔄', '/reset', s.helpSlashReset))
+      ..writeln(_formatHelpCommand('🤖', '/model', s.helpSlashModel))
+      ..writeln(_formatHelpCommand('🎛️', '/set-model', s.helpSlashSetModel))
+      ..writeln(_formatHelpCommand('🪶', '/compact', s.helpSlashCompact))
+      ..write(_formatHelpCommand('⚙️', '/workflow', s.helpSlashWorkflow));
     if (debugMode) {
       buffer
         ..writeln()
-        ..writeln('- /log - ${s.helpSlashLog}')
-        ..write('- /clearlog - ${s.helpSlashClearlog}');
+        ..writeln(_formatHelpCommand('🧾', '/log', s.helpSlashLog))
+        ..write(_formatHelpCommand('🧽', '/clearlog', s.helpSlashClearlog));
     }
     return buffer.toString();
+  }
+
+  String _formatHelpCommand(String icon, String command, String description) {
+    return '$icon  $command\n   $description';
   }
 
   Future<void> showModelsCommandBubble() async {
@@ -148,10 +154,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
 
     final ChatMessage botMsg;
     if (agent == null || provider == null || provider.models.isEmpty) {
-      botMsg = ChatMessage(
-        role: 'assistant',
-        content: s.noProviderOrModel,
-      );
+      botMsg = ChatMessage(role: 'assistant', content: s.noProviderOrModel);
     } else {
       final selected = provider.effectiveModel(agent.model);
       botMsg = ChatMessage(
@@ -199,8 +202,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
     for (final w in allWorkflows) {
       final status = w.enabled ? '✅' : '⏸️';
       final trigger = w.trigger.summary;
-      final steps =
-          w.isChained ? ' (${w.steps.length} steps)' : '';
+      final steps = w.isChained ? ' (${w.steps.length} steps)' : '';
       buf.writeln('$status ${w.title}$steps — $trigger');
     }
 

@@ -594,8 +594,8 @@ class AppStrings {
       : 'No provider or models are available for this agent.';
 
   String chooseModelPrompt(String selected) => isId
-      ? 'Pilih model yang ingin dipakai agent ini.\n\nModel aktif sekarang: **$selected**'
-      : 'Choose the model this agent should use.\n\nCurrent model: **$selected**';
+      ? '🎛️ Pilih model untuk agent ini.\n\n✅ Model aktif sekarang: $selected'
+      : '🎛️ Choose a model for this agent.\n\n✅ Current model: $selected';
 
   String get autoCompactThresholdNote => isId
       ? 'Threshold auto-compact tercapai — pertimbangkan jalankan /compact.'
@@ -650,10 +650,12 @@ class AppStrings {
 
   // --- Status report (/status) ---
   String statusAgentTitle(String name) =>
-      isId ? '📊 Status Agen — $name' : '📊 Agent Status — $name';
+      isId ? '📊 Status Agen' : '📊 Agent Status';
   String statusConnected(String provider, String model) => isId
       ? 'Agent terhubung ke provider $provider dengan model $model.'
       : 'Connected to provider $provider using model $model.';
+  String get statusConnectionSection => isId ? 'Koneksi' : 'Connection';
+  String get statusTokenSection => isId ? 'Token sesi' : 'Session tokens';
   String get statusDetails => isId ? 'Detail:' : 'Details:';
   String get statusApp =>
       isId ? 'Aplikasi: Meow Agent v1.0.0' : 'App: Meow Agent v1.0.0';
@@ -664,6 +666,16 @@ class AppStrings {
   String statusModel(String model) => isId ? 'Model: $model' : 'Model: $model';
   String statusMessages(int count) =>
       isId ? 'Pesan tersimpan: $count' : 'Stored messages: $count';
+  String statusTotalTokens(int total, int calls) => isId
+      ? 'Total: $total token ($calls panggilan LLM)'
+      : 'Total: $total tokens ($calls LLM calls)';
+  String statusInputTokens(int count) =>
+      isId ? 'Input: $count token' : 'Input: $count tokens';
+  String statusOutputTokens(int count) =>
+      isId ? 'Output: $count token' : 'Output: $count tokens';
+  String statusContextPressure(int estimated, int max, String pct) => isId
+      ? 'Tekanan konteks: $estimated/$max ($pct%)'
+      : 'Context pressure: $estimated/$max ($pct%)';
   String get noActiveAgent =>
       isId ? 'Tidak ada agen aktif.' : 'No active agent.';
 
@@ -719,7 +731,10 @@ class AppStrings {
 
   // --- Help / slash command descriptions ---
   String get helpAvailableCommands =>
-      isId ? 'Perintah tersedia:' : 'Available commands:';
+      isId ? '✨ Perintah tersedia' : '✨ Available commands';
+  String get helpCommandHint => isId
+      ? 'Ketik salah satu command di bawah ini.'
+      : 'Type one of the commands below.';
   String get helpSlashClear => isId
       ? 'Bersihkan riwayat chat & konteks'
       : 'Clear chat history & context';
