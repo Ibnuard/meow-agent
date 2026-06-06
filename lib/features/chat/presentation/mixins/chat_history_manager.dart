@@ -231,6 +231,7 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
         // Merge: prepend loaded history before any messages added during load.
         final live = messagesByAgent[agentId] ?? [];
         messagesByAgent[agentId] = [...cleaned, ...live];
+        initialLoading = false;
       });
       if (cleaned.length < kMessagePageSize) {
         fullyLoaded.add(agentId);
