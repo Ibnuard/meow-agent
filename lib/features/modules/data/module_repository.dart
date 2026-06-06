@@ -33,6 +33,12 @@ class ModuleRepository {
         .where((m) => m.id == 'clipboard_ai')
         .map((m) => m.settings['persistent_notification'])
         .firstOrNull;
+    // Legacy app_control settings are folded into device_context after the
+    // module merge. Preserve user toggles so behavior doesn't silently change.
+    final legacyAppControl = stored
+        .where((m) => m.id == 'app_control')
+        .map((m) => m.settings)
+        .firstOrNull;
 
     // Migrate: reconcile stored settings against the current registry so the
     // UI reflects schema changes (added/removed keys) without reinstall. If a
@@ -57,6 +63,11 @@ class ModuleRepository {
             !m.settings.containsKey(entry.key) &&
             legacyClipboardPersistentNotification != null) {
           merged[entry.key] = legacyClipboardPersistentNotification;
+        } else if (m.id == 'device_context' &&
+            !m.settings.containsKey(entry.key) &&
+            legacyAppControl != null &&
+            legacyAppControl.containsKey(entry.key)) {
+          merged[entry.key] = legacyAppControl[entry.key]!;
         } else {
           merged[entry.key] = m.settings[entry.key] ?? false;
         }

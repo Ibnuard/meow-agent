@@ -59,24 +59,12 @@ class ModuleModel {
 
 /// Registry of all available modules that can be installed.
 class ModuleRegistry {
-  static const appControl = ModuleModel(
-    id: 'app_control',
-    name: 'App Control',
-    description: 'Let AI open apps, URLs, and system settings on your behalf.',
-    icon: '📱',
-    settings: {
-      'require_confirmation': true,
-      'allow_system_settings': false,
-      'allow_url_intents': true,
-      'allow_background_launch': false,
-    },
-  );
-
   static const deviceContext = ModuleModel(
     id: 'device_context',
     name: 'Device Context',
     description:
-        'Let agents read device state, app context, connectivity, and clipboard data.',
+        'Let agents read device state, app context, connectivity, clipboard, '
+        'and launch apps, URLs, or system settings.',
     icon: '📊',
     settings: {
       'allow_battery': true,
@@ -89,6 +77,9 @@ class ModuleRegistry {
       'allow_bluetooth': true,
       'allow_clipboard_read': false,
       'allow_clipboard_write': false,
+      'allow_system_settings': false,
+      'allow_url_intents': true,
+      'allow_background_launch': false,
     },
   );
 
@@ -215,7 +206,6 @@ class ModuleRegistry {
   );
 
   static const List<ModuleModel> available = [
-    appControl,
     deviceContext,
     notificationIntelligence,
     notes,

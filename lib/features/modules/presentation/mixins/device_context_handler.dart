@@ -83,5 +83,52 @@ mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
       await permissionManager.request(PermissionType.location);
       await permissionManager.request(PermissionType.phoneState);
     }
+
+    if (key == 'allow_url_intents' && value) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(s.urlIntentsEnabled),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+
+    if (key == 'allow_background_launch' && value) {
+      final canDraw = await permissionManager.isGranted(
+        PermissionType.systemAlertWindow,
+      );
+      if (!canDraw && mounted) {
+        final goSettings = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(s.permissionRequired),
+            content: Text(
+              s.isId
+                  ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
+                        'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
+                        'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
+                  : 'To open apps while Meow Agent is in the background, '
+                        'Android requires the "Display over other apps" permission.\n\n'
+                        'Tap "Open Settings" to enable it, then come back.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(s.cancel),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(s.openSettings),
+              ),
+            ],
+          ),
+        );
+        if (goSettings == true) {
+          await permissionManager.request(PermissionType.systemAlertWindow);
+        }
+      }
+    }
   }
 }

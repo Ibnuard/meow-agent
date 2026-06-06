@@ -171,58 +171,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (!shouldContinueNotification) return;
     await handleSuperPowerToggle(key, value);
 
-    // App Control — settings are purely preference toggles, no native service.
-    if (_module!.id == 'app_control') {
-      if (value && key == 'allow_url_intents') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(s.urlIntentsEnabled),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-
-      if (value && key == 'allow_background_launch') {
-        final canDraw = await permissionManager.isGranted(
-          PermissionType.systemAlertWindow,
-        );
-        if (!canDraw) {
-          if (mounted) {
-            final goSettings = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: Text(s.permissionRequired),
-                content: Text(
-                  s.isId
-                      ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
-                            'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
-                            'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
-                      : 'To open apps while Meow Agent is in the background, '
-                            'Android requires the "Display over other apps" permission.\n\n'
-                            'Tap "Open Settings" to enable it, then come back.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(s.cancel),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(s.openSettings),
-                  ),
-                ],
-              ),
-            );
-            if (goSettings != true) return;
-            await permissionManager.request(PermissionType.systemAlertWindow);
-            return;
-          }
-        }
-      }
-    }
-
     var nextSettings = {..._module!.settings, key: value};
     if (_module!.id == 'super_power') {
       if (key == 'app_agentic' && !value) {
@@ -848,7 +796,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     return switch (settingKey) {
       'allow_battery' || 'allow_charging' => 'power',
       'allow_network' || 'allow_bluetooth' => 'connectivity',
-      'allow_foreground_app' => 'apps',
+      'allow_foreground_app' ||
+      'allow_system_settings' ||
+      'allow_url_intents' ||
+      'allow_background_launch' => 'apps',
       'allow_storage' || 'allow_time_locale' || 'allow_dnd' => 'system',
       'allow_clipboard_read' || 'allow_clipboard_write' => 'clipboard',
       _ => 'system',
@@ -978,8 +929,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   String _moduleDescription(ModuleModel module, {required bool isId}) {
     final s = AppStrings(isId ? 'id' : 'en');
     switch (module.id) {
-      case 'app_control':
-        return s.moduleDescAppControl;
       case 'device_context':
         return s.moduleDescDeviceContext;
       case 'notification_intelligence':

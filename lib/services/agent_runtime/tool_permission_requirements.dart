@@ -23,25 +23,25 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     actionLabel: 'write to the clipboard',
   ),
   'app.resolve': ToolPermissionRequirement(
-    moduleId: 'app_control',
+    moduleId: 'device_context',
     actionLabel: 'find installed apps',
   ),
   'app.open': ToolPermissionRequirement(
-    moduleId: 'app_control',
+    moduleId: 'device_context',
     actionLabel: 'open apps',
   ),
   'app.list_installed': ToolPermissionRequirement(
-    moduleId: 'app_control',
+    moduleId: 'device_context',
     actionLabel: 'list installed apps',
   ),
   'settings.open': ToolPermissionRequirement(
-    moduleId: 'app_control',
+    moduleId: 'device_context',
     settingKey: 'allow_system_settings',
     settingLabel: 'Allow System Settings',
     actionLabel: 'open Android settings',
   ),
   'intent.open_url': ToolPermissionRequirement(
-    moduleId: 'app_control',
+    moduleId: 'device_context',
     settingKey: 'allow_url_intents',
     settingLabel: 'Allow URL Intents',
     actionLabel: 'open URLs',

@@ -5,8 +5,11 @@ import 'app_tools.dart';
 class AppModulePlugin extends ModulePlugin {
   const AppModulePlugin();
 
+  // The 'app_control' module was retired and folded into 'device_context'.
+  // The plugin still owns the same tool surface (open apps / URLs / settings)
+  // but lives under the device_context module for install / setting gates.
   @override
-  String get moduleId => 'app_control';
+  String get moduleId => 'device_context';
 
   @override
   String get catalogGroup => 'app';

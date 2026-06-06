@@ -458,12 +458,9 @@ class AppStrings {
       : 'Tap "Add" to browse available modules.';
 
   // Module descriptions (store & detail screens).
-  String get moduleDescAppControl => isId
-      ? 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.'
-      : 'Let AI open apps, URLs, and system settings on your behalf.';
   String get moduleDescDeviceContext => isId
-      ? 'Biarkan agen membaca status perangkat, aplikasi aktif, koneksi, dan papan klip.'
-      : 'Let agents read device state, active app context, connectivity, and clipboard data.';
+      ? 'Biarkan agen membaca status perangkat, aplikasi aktif, koneksi, papan klip, dan membuka aplikasi, URL, atau pengaturan sistem.'
+      : 'Let agents read device state, active app context, connectivity, clipboard, and launch apps, URLs, or system settings.';
   String get moduleDescNotification => isId
       ? 'Kelola notifikasi agen: baca dan ringkas notifikasi Android, kirim notifikasi lokal, dan tampilkan tombol cepat papan klip.'
       : 'Manage agent notifications: read and summarize Android notifications, send local notifications, and show a clipboard quick action.';
@@ -1175,8 +1172,8 @@ class AppStrings {
               : 'Network, WiFi, cellular, and Bluetooth.',
         'apps' =>
           isId
-              ? 'Aplikasi aktif dan statistik penggunaan.'
-              : 'Active app and usage statistics.',
+              ? 'Aplikasi aktif, statistik penggunaan, URL, pengaturan sistem, dan launching.'
+              : 'Active app, usage stats, URLs, system settings, and launching.',
         'system' =>
           isId
               ? 'Penyimpanan, waktu, bahasa, dan mode sistem.'
@@ -1195,33 +1192,6 @@ class AppStrings {
     String moduleId,
     String key,
   ) => switch (moduleId) {
-    'app_control' => switch (key) {
-      'require_confirmation' => (
-        isId ? 'Wajib Konfirmasi' : 'Require Confirmation',
-        isId
-            ? 'Minta konfirmasi sebelum membuka aplikasi atau URL.'
-            : 'Ask before opening apps or URLs.',
-      ),
-      'allow_system_settings' => (
-        isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings',
-        isId
-            ? 'AI dapat membuka halaman pengaturan sistem Android.'
-            : 'AI can open Android system settings screens.',
-      ),
-      'allow_url_intents' => (
-        isId ? 'Izinkan Buka URL' : 'Allow URL Intents',
-        isId
-            ? 'AI dapat membuka URL di browser.'
-            : 'AI can open URLs in the browser.',
-      ),
-      'allow_background_launch' => (
-        isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch',
-        isId
-            ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".'
-            : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.',
-      ),
-      _ => (key, ''),
-    },
     'device_context' => switch (key) {
       'allow_battery' => (
         isId ? 'Info Baterai' : 'Battery Info',
@@ -1282,6 +1252,24 @@ class AppStrings {
         isId
             ? 'Agen dapat mengganti isi papan klip dengan teks baru. Aksi ini tetap butuh konfirmasi.'
             : 'Agent can replace clipboard contents with new text. This still requires confirmation.',
+      ),
+      'allow_system_settings' => (
+        isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings',
+        isId
+            ? 'AI dapat membuka halaman pengaturan sistem Android.'
+            : 'AI can open Android system settings screens.',
+      ),
+      'allow_url_intents' => (
+        isId ? 'Izinkan Buka URL' : 'Allow URL Intents',
+        isId
+            ? 'AI dapat membuka URL di browser.'
+            : 'AI can open URLs in the browser.',
+      ),
+      'allow_background_launch' => (
+        isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch',
+        isId
+            ? 'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".'
+            : 'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.',
       ),
       _ => (key, ''),
     },
