@@ -59,7 +59,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
   bool _loadingOlder = false;
   bool _initialLoading = true;
-  bool _suppressScrollHandling = false;
   late String _activeAgentId;
 
   // Storage permission state.
@@ -87,7 +86,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
-      _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      _scroll.jumpTo(0); // In reversed list, position 0 = bottom (newest).
     });
   }
 
@@ -115,19 +114,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   bool get hasMore => _hasMore;
   @override
-  bool get suppressScrollHandling => _suppressScrollHandling;
-  @override
-  set suppressScrollHandling(bool value) => _suppressScrollHandling = value;
-  @override
   ScrollController get chatScroll => _scroll;
   @override
   void Function() get rebuildDateBoundaries => _rebuildDateBoundaries;
   ScrollController get scrollController => _scroll;
 
-  // Sticky date overlay state.
-  DateTime? _stickyDate;
+  // Sticky date overlay state — ValueNotifiers to avoid full-tree rebuilds.
+  final ValueNotifier<DateTime?> _stickyDate = ValueNotifier(null);
+  final ValueNotifier<bool> _stickyDateVisible = ValueNotifier(false);
   Timer? _stickyDateTimer;
-  bool _stickyDateVisible = false;
   final Map<int, DateTime> _dateBoundaries = {};
 
   // ChatSendHandlerMixin interface delegates.
@@ -286,14 +281,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   bool get _isNearBottom {
     if (!_scroll.hasClients) return true;
-    final extent = _scroll.position.maxScrollExtent;
-    final pixels = _scroll.position.pixels;
-    return (extent - pixels) <= 200;
+    // In reversed list, position 0 = bottom (newest messages).
+    return _scroll.position.pixels <= 200;
   }
 
   @override
   void dispose() {
     _stickyDateTimer?.cancel();
+    _stickyDate.dispose();
+    _stickyDateVisible.dispose();
     WidgetsBinding.instance.removeObserver(this);
     UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
@@ -306,42 +302,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// Detect scroll to top — load older messages. Also toggle scroll-to-bottom FAB
   /// and update the sticky date overlay.
   void _onScroll() {
-    if (!_scroll.hasClients || _suppressScrollHandling) return;
-    final pixelsFromBottom = _scroll.position.maxScrollExtent - _scroll.position.pixels;
-    final showFab = pixelsFromBottom > 200;
+    if (!_scroll.hasClients) return;
+    // Reversed list: pixels=0 is bottom, maxScrollExtent is top.
+    final showFab = _scroll.position.pixels > 200;
     if (showFab != _showScrollToBottom) {
       setState(() => _showScrollToBottom = showFab);
     }
     _updateStickyDate();
     if (!_hasMore || _loadingOlder) return;
-    if (_scroll.position.pixels <= 80) {
+    // Trigger load-more when near the visual top (= near maxScrollExtent).
+    final distFromTop = _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (distFromTop <= 80) {
       loadOlderMessages();
     }
   }
 
   void _updateStickyDate() {
     if (_dateBoundaries.isEmpty || !_scroll.hasClients) {
-      if (_stickyDateVisible) setState(() => _stickyDateVisible = false);
+      if (_stickyDateVisible.value) _stickyDateVisible.value = false;
       return;
     }
     final keys = _dateBoundaries.keys.toList()..sort();
     if (keys.isEmpty) return;
-    // Use dynamic average height based on actual rendered extent for accuracy
-    // after load-more changes the total content size.
+    // Reversed list: pixels=0 is bottom (newest), maxScrollExtent is top (oldest).
+    // We want the date of the message at the VISUAL TOP of the viewport.
     final totalExtent = _scroll.position.maxScrollExtent +
         _scroll.position.viewportDimension;
     final avgItemHeight = _messages.isNotEmpty
         ? totalExtent / _messages.length
         : 80.0;
-    final estIndex = (_scroll.position.pixels / avgItemHeight)
-        .floor()
-        .clamp(0, _messages.length - 1);
-    // Find the largest boundary index <= estIndex (the date group the user sees at top).
+    // Builder items from bottom: pixels/avgHeight items are below viewport bottom.
+    // Top edge of viewport is at pixels + viewportDimension from position 0.
+    final topEdgeItems = ((_scroll.position.pixels +
+            _scroll.position.viewportDimension) /
+        avgItemHeight)
+        .floor();
+    // Convert from reversed-builder index to chronological array index.
+    // Builder idx 0 = newest = _messages.length-1; builder idx N = oldest = 0.
+    final topArrayIdx =
+        (_messages.length - 1 - topEdgeItems).clamp(0, _messages.length - 1);
+
+    // Find the largest boundary index <= topArrayIdx.
     int lo = 0, hi = keys.length - 1;
     DateTime? found;
     while (lo <= hi) {
       final mid = (lo + hi) ~/ 2;
-      if (keys[mid] <= estIndex) {
+      if (keys[mid] <= topArrayIdx) {
         found = _dateBoundaries[keys[mid]];
         lo = mid + 1;
       } else {
@@ -349,14 +355,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
     }
     found ??= _dateBoundaries[keys.first];
-    final changed = found != _stickyDate || !_stickyDateVisible;
-    _stickyDate = found;
-    if (changed) setState(() => _stickyDateVisible = true);
+    _stickyDate.value = found;
+    _stickyDateVisible.value = true;
 
     // Auto-hide after 1.5s of no scroll activity.
     _stickyDateTimer?.cancel();
     _stickyDateTimer = Timer(const Duration(milliseconds: 1500), () {
-      if (mounted) setState(() => _stickyDateVisible = false);
+      if (mounted) _stickyDateVisible.value = false;
     });
   }
 
@@ -371,6 +376,116 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         lastDay = day;
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reversed ListView helpers
+  // ---------------------------------------------------------------------------
+
+  /// Total item count for reversed list.
+  /// Order (bottom→top): tail items → messages (newest→oldest) → loading.
+  int get _itemCount {
+    final session = _manager?.sessionFor(_activeAgentId);
+    final hasLedger =
+        _sending && (session?.activeTaskLedger != null);
+    final hasNarrative =
+        _sending && (session?.narrativeMessage?.isNotEmpty == true);
+    return (_sending ? 1 : 0) + // thinking
+        (hasNarrative ? 1 : 0) +
+        (hasLedger ? 1 : 0) +
+        _messages.length +
+        (_loadingOlder ? 1 : 0);
+  }
+
+  /// Build a single item for the reversed ListView.
+  /// Index 0 = bottom (newest/tail), highest index = top (loading/oldest).
+  Widget _buildReversedItem(int i, bool isId) {
+    final session = _manager?.sessionFor(_activeAgentId);
+    final liveLedger = session?.activeTaskLedger;
+    final hasLedger = _sending && liveLedger != null;
+    final narrative = session?.narrativeMessage;
+    final hasNarrative = _sending && (narrative?.isNotEmpty == true);
+
+    int cursor = 0;
+
+    // Thinking bubble at the very bottom (index 0 in reversed = screen bottom).
+    if (_sending) {
+      if (i == cursor) return const _ThinkingBubble();
+      cursor++;
+    }
+
+    // Narrative bubble.
+    if (hasNarrative) {
+      if (i == cursor) return _NarrativeBubble(text: narrative!);
+      cursor++;
+    }
+
+    // Live task ledger bubble.
+    if (hasLedger) {
+      if (i == cursor) {
+        return TaskLedgerBubble(ledger: liveLedger, live: true);
+      }
+      cursor++;
+    }
+
+    // Messages: index `cursor` = newest message, increasing = older.
+    final msgOffset = i - cursor;
+    if (msgOffset < _messages.length) {
+      // Map reversed builder offset to chronological array index.
+      final msgIndex = _messages.length - 1 - msgOffset;
+      final current = _messages[msgIndex];
+
+      // Date separator: show when day changes from the message ABOVE (older).
+      final olderMsg = msgIndex > 0 ? _messages[msgIndex - 1] : null;
+      final showDate = olderMsg == null ||
+          !_isSameDay(
+            olderMsg.timestamp.toLocal(),
+            current.timestamp.toLocal(),
+          );
+
+      final ledger = taskLedgerFromSentinel(current.content);
+      final bubble = RepaintBoundary(
+        key: ValueKey(
+          'msg-${current.id ?? identityHashCode(current)}',
+        ),
+        child: ledger != null
+            ? TaskLedgerBubble(
+                ledger: ledger,
+                timestamp: current.timestamp,
+              )
+            : MeowBubble(
+                msg: current,
+                isId: isId,
+                onConfirmAction: (action) =>
+                    handleConfirmation(action, msgIndex),
+                onActionTap: handleResultAction,
+                onLongPress: () => showMessageActions(current),
+              ),
+      );
+
+      if (!showDate) return bubble;
+      // In reversed list, Column still renders top→bottom within its bounds.
+      // Separator above bubble is correct visually.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DateSeparator(date: current.timestamp.toLocal(), isId: isId),
+          bubble,
+        ],
+      );
+    }
+
+    // Loading indicator at the very top (highest index in reversed).
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      ),
+    );
   }
 
   ProviderConfig? _resolveProvider() {
@@ -918,144 +1033,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             : Stack(
                                 children: [
                                   ListView.builder(
-                                controller: _scroll,
-                                // Larger cacheExtent reduces rebuilds when
-                                // scrolling through variable-height markdown
-                                // bubbles. addAutomaticKeepAlives is disabled
-                                // because bubbles are stateless. We provide
-                                // RepaintBoundary manually around each bubble
-                                // below, so disable the automatic one too.
-                                cacheExtent: 2500,
-                                addAutomaticKeepAlives: true,
-                                addRepaintBoundaries: false,
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  12,
-                                  16,
-                                  12,
-                                ),
-                                // +1 loading, +1 narrative (when present), +1 thinking.
-                                // Debug bubbles are now shown in a separate bottom sheet.
-                                itemCount:
-                                    (_loadingOlder ? 1 : 0) +
-                                    (_messages.length) +
-                                    ((_sending &&
-                                            (_manager
-                                                    ?.sessionFor(_activeAgentId)
-                                                    .activeTaskLedger !=
-                                                null))
-                                        ? 1
-                                        : 0) +
-                                    ((_sending &&
-                                            (_manager
-                                                    ?.sessionFor(_activeAgentId)
-                                                    .narrativeMessage
-                                                    ?.isNotEmpty ==
-                                                true))
-                                        ? 1
-                                        : 0) +
-                                    (_sending ? 1 : 0),
-                                itemBuilder: (context, i) {
-                                  // Loading indicator at top.
-                                  if (_loadingOlder && i == 0) {
-                                    return const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Center(
-                                        child: SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                  final msgIndex = i - (_loadingOlder ? 1 : 0);
-                                  // Order: messages Ã¢â€ â€™ narrative Ã¢â€ â€™ thinking.
-                                  if (msgIndex < _messages.length) {
-                                    final current = _messages[msgIndex];
-                                    // Show a floating date separator when the
-                                    // day changes from the previous message
-                                    // (or for the very first message).
-                                    final prev = msgIndex > 0
-                                        ? _messages[msgIndex - 1]
-                                        : null;
-                                    final showDate =
-                                        prev == null ||
-                                        !_isSameDay(
-                                          prev.timestamp.toLocal(),
-                                          current.timestamp.toLocal(),
-                                        );
-                                    final ledger = taskLedgerFromSentinel(
-                                      current.content,
-                                    );
-                                    final bubble = RepaintBoundary(
-                                      key: ValueKey(
-                                        'msg-${current.id ?? identityHashCode(current)}',
-                                      ),
-                                      child: ledger != null
-                                          ? TaskLedgerBubble(
-                                              ledger: ledger,
-                                              timestamp: current.timestamp,
-                                            )
-                                          : MeowBubble(
-                                              msg: current,
-                                              isId: isId,
-                                              onConfirmAction: (action) =>
-                                                  handleConfirmation(
-                                                    action,
-                                                    msgIndex,
-                                                  ),
-                                              onActionTap: handleResultAction,
-                                              onLongPress: () =>
-                                                  showMessageActions(current),
-                                            ),
-                                    );
-                                    if (!showDate) return bubble;
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        _DateSeparator(
-                                          date: current.timestamp.toLocal(),
-                                          isId: isId,
-                                        ),
-                                        bubble,
-                                      ],
-                                    );
-                                  }
-                                  final tailIdx = msgIndex - _messages.length;
-                                  final session = _manager?.sessionFor(
-                                    _activeAgentId,
-                                  );
-                                  final liveLedger = session?.activeTaskLedger;
-                                  if (_sending &&
-                                      liveLedger != null &&
-                                      tailIdx == 0) {
-                                    return TaskLedgerBubble(
-                                      ledger: liveLedger,
-                                      live: true,
-                                    );
-                                  }
-
-                                  // Narrative bubble Ã¢â‚¬â€ above the thinking dots,
-                                  // shown only while sending AND a narrative is set.
-                                  final narrativeIdx =
-                                      tailIdx - ((_sending && liveLedger != null) ? 1 : 0);
-                                  final narrative = session?.narrativeMessage;
-                                  final hasNarrative =
-                                      _sending &&
-                                      (narrative?.isNotEmpty == true);
-                                  if (hasNarrative && narrativeIdx == 0) {
-                                    return _NarrativeBubble(text: narrative!);
-                                  }
-                                  // Thinking bubble at very bottom.
-                                  return const _ThinkingBubble();
-                                },
-                              ),
+                                    controller: _scroll,
+                                    reverse: true,
+                                    // Larger cacheExtent reduces rebuilds when
+                                    // scrolling through variable-height markdown
+                                    // bubbles. We provide RepaintBoundary manually
+                                    // around each bubble below.
+                                    cacheExtent: 2500,
+                                    addAutomaticKeepAlives: true,
+                                    addRepaintBoundaries: false,
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      12,
+                                      16,
+                                      12,
+                                    ),
+                                    // Reversed order: tail items (bottom) → messages → loading (top).
+                                    itemCount: _itemCount,
+                                    itemBuilder: (context, i) =>
+                                        _buildReversedItem(i, isId),
+                                  ),
                                   if (_showScrollToBottom)
                                     Positioned(
                                       right: 16,
@@ -1064,7 +1061,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         onTap: () {
                                           if (_scroll.hasClients) {
                                             _scroll.animateTo(
-                                              _scroll.position.maxScrollExtent,
+                                              0, // Reversed list: 0 = bottom.
                                               duration: const Duration(milliseconds: 300),
                                               curve: Curves.easeOut,
                                             );
@@ -1072,16 +1069,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                         },
                                       ),
                                     ),
-                                  if (_stickyDateVisible && _stickyDate != null)
-                                    Positioned(
-                                      top: 0,
-                                      left: 0,
-                                      right: 0,
-                                      child: _StickyDatePill(
-                                        date: _stickyDate!,
-                                        isId: isId,
-                                      ),
-                                    ),
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _stickyDateVisible,
+                                    builder: (context, visible, _) {
+                                      if (!visible || _stickyDate.value == null) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return Positioned(
+                                        top: 0,
+                                        left: 0,
+                                        right: 0,
+                                        child: _StickyDatePill(
+                                          date: _stickyDate.value!,
+                                          isId: isId,
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ],
                               ),
                       ),

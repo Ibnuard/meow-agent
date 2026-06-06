@@ -224,10 +224,7 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       if (cleaned.length < kMessagePageSize) {
         fullyLoaded.add(agentId);
       }
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!chatScroll.hasClients || !mounted) return;
-        chatScroll.jumpTo(chatScroll.position.maxScrollExtent);
-      });
+      // Reversed list starts at position 0 = bottom (newest). No jump needed.
     }
 
     final tokenService = ref.read(tokenUsageServiceProvider);
@@ -237,10 +234,10 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
   /// Load older messages when scrolling to the top.
   ///
-  /// Matches WhatsApp/Telegram smoothness: captures the scroll anchor before
-  /// insertion, applies the data change, then restores the anchor in a single
-  /// frame using correctPixels (which does NOT trigger scroll notifications)
-  /// so the user never sees a layout jump or recursive handler calls.
+  /// With a reversed ListView, prepended items (at array index 0) map to the
+  /// highest builder indices — i.e. they extend beyond maxScrollExtent
+  /// (visually at the top). The viewport never shifts, so zero scroll
+  /// correction is needed. This is the standard Flutter chat pattern.
   Future<void> loadOlderMessages() async {
     if (loadingOlder || !hasMore) return;
     final messages = messagesList;
@@ -254,10 +251,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
     loadingOlder = true;
     setState(() {});
-
-    final hadClients = chatScroll.hasClients;
-    final beforeExtent = hadClients ? chatScroll.position.maxScrollExtent : 0.0;
-    final beforePixels = hadClients ? chatScroll.position.pixels : 0.0;
 
     final service = ref.read(chatHistoryServiceProvider);
     final older = await service.loadOlder(
@@ -276,10 +269,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       return;
     }
 
-    // Suppress scroll handling during data insertion + position correction
-    // to prevent recursive loadOlderMessages and sticky date recalculations.
-    suppressScrollHandling = true;
-
     setState(() {
       messages.insertAll(0, older);
       loadingOlder = false;
@@ -288,19 +277,7 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       }
     });
 
-    // Restore scroll anchor in a single post-frame pass using correctPixels
-    // which silently adjusts position without firing scroll notifications.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!chatScroll.hasClients || !mounted) return;
-      final afterExtent = chatScroll.position.maxScrollExtent;
-      final delta = afterExtent - beforeExtent;
-      if (delta > 0) {
-        chatScroll.position.correctPixels(beforePixels + delta);
-        chatScroll.position.notifyListeners();
-      }
-      suppressScrollHandling = false;
-      rebuildDateBoundaries();
-    });
+    rebuildDateBoundaries();
   }
 
   // State accessors needed by this mixin.
@@ -309,8 +286,6 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   bool get loadingOlder;
   set loadingOlder(bool value);
   bool get hasMore;
-  bool get suppressScrollHandling;
-  set suppressScrollHandling(bool value);
   ScrollController get chatScroll;
   void Function() get rebuildDateBoundaries;
 }
