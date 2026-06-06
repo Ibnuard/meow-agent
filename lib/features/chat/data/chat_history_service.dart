@@ -7,7 +7,7 @@ import '../../../services/agent_runtime/runtime_models.dart';
 
 /// Page size for initial latest-message load (fast, lightweight).
 /// Older messages load at 30 per page when scrolling up.
-const int kMessagePageSize = 10;
+const int kMessagePageSize = 30;
 
 /// Persists chat messages per agent using SQLite with pagination support.
 class ChatHistoryService {

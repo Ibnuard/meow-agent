@@ -311,9 +311,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
     _updateStickyDate();
     if (!_hasMore || _loadingOlder) return;
-    // Trigger load-more when near the visual top (= near maxScrollExtent).
+    // Trigger load-more well BEFORE the user reaches the visual top.
+    // 500px gives enough runway for data to arrive while the user still
+    // has scroll room — they never hit the hard edge.
     final distFromTop = _scroll.position.maxScrollExtent - _scroll.position.pixels;
-    if (distFromTop <= 80) {
+    if (distFromTop <= 500) {
       loadOlderMessages();
     }
   }
