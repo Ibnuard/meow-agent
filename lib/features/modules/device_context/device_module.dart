@@ -30,6 +30,13 @@ class DeviceModulePlugin extends ModulePlugin {
     'copy',
     'paste',
     'copied text',
+    'app',
+    'apps',
+    'open',
+    'launch',
+    'settings',
+    'url',
+    'browser',
   ];
 
   @override
@@ -182,6 +189,43 @@ class DeviceModulePlugin extends ModulePlugin {
       requiresConfirmation: true,
       inputSchema: {'text': 'string'},
     ),
+    ToolDefinition(
+      name: 'app.resolve',
+      description:
+          'Resolve a friendly app name (e.g. "wa", "toko ijo", "youtube") to a package name. ALWAYS call this first before app.open.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'query': 'string (friendly name to resolve)'},
+    ),
+    ToolDefinition(
+      name: 'app.open',
+      description:
+          'Open an installed app by exact package name. Use app.resolve first to get the package name.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'package': 'string (exact package name from app.resolve)'},
+    ),
+    ToolDefinition(
+      name: 'app.list_installed',
+      description: 'List all installed launchable apps.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      isRetrieval: true,
+    ),
+    ToolDefinition(
+      name: 'settings.open',
+      description: 'Open Android system settings.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {'action': 'string'},
+    ),
+    ToolDefinition(
+      name: 'intent.open_url',
+      description: 'Open a URL in the default browser.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {'url': 'string'},
+    ),
   ];
 
   @override
@@ -227,6 +271,16 @@ class DeviceModulePlugin extends ModulePlugin {
         return tools.executeClipboardRead();
       case 'clipboard.write':
         return tools.executeClipboardWrite(request.args);
+      case 'app.resolve':
+        return tools.executeAppResolve(request.args);
+      case 'app.open':
+        return tools.executeAppOpen(request.args);
+      case 'app.list_installed':
+        return tools.executeAppListInstalled();
+      case 'settings.open':
+        return tools.executeOpenSettings(request.args);
+      case 'intent.open_url':
+        return tools.executeOpenUrl(request.args);
       default:
         return Future.value(
           ToolExecutionResult(
