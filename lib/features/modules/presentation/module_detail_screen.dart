@@ -44,6 +44,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   bool _checkingShizuku = false;
   bool _requestingShizukuPermission = false;
   bool _pendingAppAgenticEnable = false;
+  Future<Widget?>? _pinStatusFuture;
 
   @override
   ModuleModel? get module => _module;
@@ -97,6 +98,22 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   void onModuleUpdated(ModuleModel updated) {
     if (mounted) {
       setState(() => _module = updated);
+      _refreshPinStatus();
+    }
+  }
+
+  void _refreshPinStatus() {
+    if (_module?.id == 'super_power') {
+      _pinStatusFuture = buildDevicePinStatusPanel(
+        cs: Theme.of(context).colorScheme,
+      );
+    }
+  }
+
+  @override
+  void refreshDevicePinPanel() {
+    if (mounted) {
+      setState(() => _refreshPinStatus());
     }
   }
 
@@ -121,6 +138,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       _syncSuperPowerBubble();
       syncSuperPowerPermissions();
       refreshShizukuStatus();
+      _refreshPinStatus();
     }
   }
 
@@ -133,6 +151,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       _syncCommunicationState();
       syncSuperPowerPermissions();
       refreshShizukuStatus();
+      _refreshPinStatus();
     }
   }
 
@@ -205,18 +224,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     }
 
     var nextSettings = {..._module!.settings, key: value};
-    if (_module!.id == 'super_power') {
-      if (key == 'app_agentic' && !value) {
-        nextSettings = {
-          ...nextSettings,
-          'app_agentic_support_shizuku': false,
-          'run_locked_device': false,
-        };
+      if (_module!.id == 'super_power') {
+        if (key == 'app_agentic' && !value) {
+          nextSettings = {
+            ...nextSettings,
+            'run_locked_device': false,
+          };
+        }
       }
-      if (key == 'app_agentic_support_shizuku' && !value) {
-        nextSettings = {...nextSettings, 'run_locked_device': false};
-      }
-    }
 
     final updated = _module!.copyWith(settings: nextSettings);
     await ref.read(moduleRepositoryProvider).update(updated);
@@ -621,15 +636,23 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 border: Border.all(color: extras.subtleBorder),
               ),
               child: Column(
-                children: _visibleSettingEntries(module).expand((entry) {
-                  return [
-                    _buildSettingSwitch(
-                      entry: entry,
-                      label: settingLabels[entry.key],
-                      cs: cs,
-                    ),
-                  ];
-                }).toList(),
+                children: [
+                  for (final entry in module.settings.entries)
+                    if (_settingVisible(module, entry)) ...[
+                      _buildSettingSwitch(
+                        entry: entry,
+                        label: settingLabels[entry.key],
+                        cs: cs,
+                      ),
+                      if (module.id == 'super_power' &&
+                          entry.key == 'run_locked_device')
+                        FutureBuilder<Widget?>(
+                          future: _pinStatusFuture,
+                          builder: (ctx, snap) =>
+                              snap.data ?? const SizedBox.shrink(),
+                        ),
+                    ],
+                ],
               ),
             ),
           ],
@@ -638,14 +661,14 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  Iterable<MapEntry<String, bool>> _visibleSettingEntries(ModuleModel module) {
-    if (module.id != 'super_power') return module.settings.entries;
-    final appAgenticOn = module.settings['app_agentic'] == true;
-    return module.settings.entries.where((entry) {
-      if (entry.key == 'app_agentic_support_shizuku') return false;
-      if (entry.key == 'run_locked_device') return appAgenticOn;
-      return true;
-    });
+  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) {
+    if (module.id != 'super_power') return true;
+    // Legacy key — no longer shown as a separate toggle.
+    if (entry.key == 'app_agentic_support_shizuku') return false;
+    if (entry.key == 'run_locked_device') {
+      return module.settings['app_agentic'] == true;
+    }
+    return true;
   }
 
   Widget _buildSettingSwitch({

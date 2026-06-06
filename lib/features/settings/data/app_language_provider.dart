@@ -331,6 +331,33 @@ class AppStrings {
   String get shizukuSupportRequired => isId
       ? 'Aktifkan dukungan Shizuku terlebih dahulu.'
       : 'Enable Shizuku support first.';
+  String get devicePinTitle => isId ? 'PIN Perangkat' : 'Device PIN';
+  String get devicePinDescription => isId
+      ? 'PIN ini akan digunakan untuk membuka kunci perangkat secara otomatis. '
+            'PIN harus sesuai dengan yang Anda gunakan untuk membuka device. '
+            'PIN akan disimpan dengan enkripsi aman.'
+      : 'This PIN will be used to automatically unlock the device. '
+            'PIN must match the one you use to unlock your device. '
+            'PIN will be stored with secure encryption.';
+  String get devicePinInputHint => isId
+      ? 'Masukkan PIN perangkat Anda'
+      : 'Enter your device PIN';
+  String get devicePinNewTitle => isId ? 'PIN Baru' : 'New PIN';
+  String get devicePinSave => isId ? 'Simpan' : 'Save';
+  String get devicePinCancel => isId ? 'Batal' : 'Cancel';
+  String get devicePinEmpty => isId ? 'PIN tidak boleh kosong' : 'PIN cannot be empty';
+  String get devicePinMinLength => isId ? 'PIN minimal 4 digit' : 'PIN must be at least 4 digits';
+  String get devicePinVerifyTitle => isId ? 'Verifikasi PIN' : 'Verify PIN';
+  String get devicePinVerifyHint => isId
+      ? 'Masukkan PIN yang sudah tersimpan'
+      : 'Enter the stored PIN';
+  String get devicePinVerifyButton => isId ? 'Verifikasi' : 'Verify';
+  String get devicePinEdit => isId ? 'Edit' : 'Edit';
+  String get devicePinMismatch => isId ? 'PIN tidak sesuai' : 'PIN does not match';
+  String get devicePinVerifyRequired => isId
+      ? 'Masukkan PIN yang sudah tersimpan'
+      : 'Enter the stored PIN';
+  String get devicePinEncrypted => '[Encrypted PIN]';
   String get checkStatus => isId ? 'Cek Status' : 'Check Status';
   String get requestPermission => 'Request Permission';
   String get setupGuide => 'Setup Guide';
