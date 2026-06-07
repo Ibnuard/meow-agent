@@ -349,7 +349,7 @@ class AppAgentOverlayService : Service() {
 
         val screenHeight = resources.displayMetrics.heightPixels
         val totalWidth = cardWidth + dp(52)
-        val yFromTop = (screenHeight * 0.75).toInt() // ≈25% from bottom
+        val yFromTop = (screenHeight * 0.80).toInt() // ≈20% from bottom
 
         val params = WindowManager.LayoutParams(
             totalWidth,

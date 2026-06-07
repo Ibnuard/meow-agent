@@ -1047,6 +1047,30 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                   ),
                 ),
               ],
+              if (isIgnoring) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await BatteryOptimizationService.openBatterySettings();
+                      // Refresh panel after returning from system settings.
+                      if (mounted) setState(() {});
+                    },
+                    icon: const Icon(Icons.settings_rounded, size: 16),
+                    label: Text(s.batteryOptManage),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.onSurfaceVariant,
+                      side: BorderSide(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         );

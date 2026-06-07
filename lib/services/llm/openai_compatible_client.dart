@@ -125,6 +125,7 @@ class OpenAiCompatibleClient {
     required List<Map<String, String>> messages,
     String phase = 'chat',
     List<String> imageDataUrls = const [],
+    CancelToken? cancelToken,
   }) async {
     final estimatedInputTokens = estimateMessagesTokens(messages);
 
@@ -173,6 +174,7 @@ class OpenAiCompatibleClient {
           'Content-Type': 'application/json',
         },
       ),
+      cancelToken: cancelToken,
     );
 
     final data = response.data;

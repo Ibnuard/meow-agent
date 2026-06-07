@@ -20,7 +20,10 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
-    final isDark = ref.watch(themeModeProvider) == ThemeMode.dark;
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = themeMode == ThemeMode.dark ||
+        (themeMode == ThemeMode.system &&
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark);
     final appLanguage = ref.watch(appLanguageProvider);
     final strings = AppStrings(resolveLanguageCode(appLanguage));
 

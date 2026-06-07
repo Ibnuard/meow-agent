@@ -153,6 +153,11 @@ class AppStrings {
       isId ? 'Model wajib diisi' : 'Model is required';
   String get modelListHelper =>
       isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.';
+  String modelTestValid(String model) =>
+      isId ? 'Model "$model" tersedia ✓' : 'Model "$model" is available ✓';
+  String modelTestInvalid(String model) => isId
+      ? 'Model "$model" tidak ditemukan atau tidak dapat diakses'
+      : 'Model "$model" not found or not accessible';
 
   // --- Agent manager ---
   String providerModelsCount(int count) =>
@@ -383,6 +388,8 @@ class AppStrings {
       : 'Meow Agent is not excluded. Android may kill background workflows.';
   String get batteryOptRequest =>
       isId ? 'Nonaktifkan Optimisasi Baterai' : 'Disable Battery Optimization';
+  String get batteryOptManage =>
+      isId ? 'Kelola Pengaturan Baterai' : 'Manage Battery Settings';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';

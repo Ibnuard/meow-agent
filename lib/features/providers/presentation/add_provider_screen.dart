@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,6 +36,8 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final _modelInputController = TextEditingController();
   final List<String> _models = [];
   final Set<String> _visionModels = {};
+  final Set<String> _testingModels = {};
+  CancelToken? _modelTestCancelToken;
 
   bool _obscureKey = true;
   bool _testing = false;
@@ -79,6 +82,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   @override
   void dispose() {
+    _modelTestCancelToken?.cancel();
     _nicknameController.dispose();
     _codenameController.dispose();
     _baseUrlController.dispose();
@@ -107,6 +111,61 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     });
     // Re-validate so the model error clears after adding a model.
     _formKey.currentState?.validate();
+  }
+
+  Future<void> _testModel(String model) async {
+    if (_testingModels.contains(model)) return;
+    final baseUrl = _baseUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.baseUrlRequired)),
+        );
+      }
+      return;
+    }
+    setState(() => _testingModels.add(model));
+    _modelTestCancelToken = CancelToken();
+    final config = LlmProviderConfig(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+    );
+    try {
+      final client = OpenAiCompatibleClient(dio: Dio());
+      await client.chat(
+        config: config,
+        messages: [{'role': 'user', 'content': 'ping'}],
+        phase: 'model_test',
+        cancelToken: _modelTestCancelToken,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestValid(model)),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    } on DioException catch (e) {
+      if (!mounted || e.type == DioExceptionType.cancel) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestInvalid(model)),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestInvalid(model)),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _testingModels.remove(model));
+    }
   }
 
   void _removeModel(String model) {
@@ -335,6 +394,8 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         isId: s.isId,
                         onAdd: _addModel,
                         onRemove: _removeModel,
+                        onTest: _testModel,
+                        testingModels: _testingModels,
                       ),
                     ],
                   ),
@@ -465,6 +526,8 @@ class _ModelListEditor extends FormField<List<String>> {
     required bool isId,
     required VoidCallback onAdd,
     required ValueChanged<String> onRemove,
+    required ValueChanged<String> onTest,
+    required Set<String> testingModels,
   }) : super(
          initialValue: models,
          autovalidateMode: AutovalidateMode.onUserInteraction,
@@ -493,14 +556,27 @@ class _ModelListEditor extends FormField<List<String>> {
                    child: Center(
                      widthFactor: 1,
                      heightFactor: 1,
-                     child: IconButton.filledTonal(
-                       onPressed: onAdd,
-                       icon: const Icon(Icons.add_rounded, size: 18),
-                       style: IconButton.styleFrom(
-                         minimumSize: const Size(36, 36),
-                         maximumSize: const Size(36, 36),
-                         padding: EdgeInsets.zero,
-                       ),
+                     child: ValueListenableBuilder<TextEditingValue>(
+                       valueListenable: controller,
+                       builder: (ctx, value, _) {
+                         final hasText = value.text.trim().isNotEmpty;
+                         final cs = Theme.of(ctx).colorScheme;
+                         return IconButton.filledTonal(
+                           onPressed: hasText ? onAdd : null,
+                           icon: const Icon(Icons.add_rounded, size: 18),
+                           style: IconButton.styleFrom(
+                             minimumSize: const Size(36, 36),
+                             maximumSize: const Size(36, 36),
+                             padding: EdgeInsets.zero,
+                             backgroundColor: hasText
+                                 ? cs.primary
+                                 : null,
+                             foregroundColor: hasText
+                                 ? cs.onPrimary
+                                 : null,
+                           ),
+                         );
+                       },
                      ),
                    ),
                  ),
@@ -514,6 +590,8 @@ class _ModelListEditor extends FormField<List<String>> {
                      _ModelChip(
                        model: model,
                        onRemove: () => onRemove(model),
+                       onTest: () => onTest(model),
+                       isTesting: testingModels.contains(model),
                      ),
                  ],
                ),
@@ -537,16 +615,20 @@ class _ModelChip extends StatelessWidget {
   const _ModelChip({
     required this.model,
     required this.onRemove,
+    required this.onTest,
+    this.isTesting = false,
   });
 
   final String model;
   final VoidCallback onRemove;
+  final VoidCallback onTest;
+  final bool isTesting;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
     return Container(
-      padding: const EdgeInsets.only(left: 10, right: 6, top: 7, bottom: 7),
+      padding: const EdgeInsets.only(left: 10, right: 4, top: 7, bottom: 7),
       decoration: BoxDecoration(
         color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(999),
@@ -564,6 +646,27 @@ class _ModelChip extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: isTesting ? null : onTest,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: isTesting
+                  ? SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.primary.withValues(alpha: 0.7),
+                      ),
+                    )
+                  : Icon(
+                      Icons.bolt_rounded,
+                      size: 14,
+                      color: cs.primary.withValues(alpha: 0.7),
+                    ),
+            ),
+          ),
           InkWell(
             borderRadius: BorderRadius.circular(999),
             onTap: onRemove,

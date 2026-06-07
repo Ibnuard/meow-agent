@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import 'package:dio/dio.dart';
 import 'package:meow_agent/features/settings/data/llm_provider_config.dart';
 import 'package:meow_agent/services/llm/openai_compatible_client.dart';
 
@@ -56,6 +57,7 @@ class ScriptedLlmClient extends OpenAiCompatibleClient {
     required List<Map<String, String>> messages,
     String phase = 'chat',
     List<String> imageDataUrls = const [],
+    CancelToken? cancelToken,
   }) async {
     callLog.add(ScriptedLlmCall(phase: phase, messages: messages));
 
