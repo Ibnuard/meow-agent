@@ -94,6 +94,44 @@ class NotificationService {
       return null;
     }
   }
+
+  /// Reply to a notification using Android's RemoteInput mechanism.
+  /// Returns a map with { success: bool, error: String? }.
+  /// Only works for notifications that have a reply action (messaging apps).
+  Future<Map<String, dynamic>> replyToNotification({
+    required String notifId,
+    required String message,
+  }) async {
+    if (notifId.isEmpty || message.isEmpty) {
+      return {'success': false, 'error': 'notifId and message are required'};
+    }
+    try {
+      final result = await _channel.invokeMethod<Map>(
+        'replyToNotification',
+        {'id': notifId, 'message': message},
+      );
+      if (result == null) {
+        return {'success': false, 'error': 'null_response'};
+      }
+      return Map<String, dynamic>.from(result);
+    } on PlatformException catch (e) {
+      return {'success': false, 'error': e.message ?? 'platform_error'};
+    }
+  }
+
+  /// Check if a notification supports direct reply (has RemoteInput action).
+  Future<bool> hasReplyAction(String notifId) async {
+    if (notifId.isEmpty) return false;
+    try {
+      final result = await _channel.invokeMethod<bool>(
+        'hasReplyAction',
+        {'id': notifId},
+      );
+      return result ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
 }
 
 final notificationServiceProvider = Provider<NotificationService>(

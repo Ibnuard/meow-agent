@@ -189,15 +189,20 @@ class WorkflowEventListener {
   ) {
     final title = info.title?.trim() ?? '';
     final body = info.text?.trim() ?? '';
+    final sender = title.isNotEmpty ? '$title via ${info.appName}' : info.appName;
     final combined = title.isEmpty
         ? body
-        : (body.isEmpty ? title : '$title — $body');
+        : (body.isEmpty ? sender : '$sender: $body');
     return {
+      // User-facing (shown in picker):
       'notif': combined,
-      'notif_title': title,
       'notif_body': body,
+      'notif_sender': sender,
+      // Internal (still resolved at runtime but hidden from picker):
+      'notif_title': title,
       'notif_app': info.appName,
       'notif_keyword': matchedKeyword,
+      'notif_key': info.id,
     };
   }
 

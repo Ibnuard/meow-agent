@@ -277,4 +277,63 @@ class NotificationTools {
       );
     }
   }
+
+  Future<ToolExecutionResult> executeReply(Map<String, dynamic> args) async {
+    try {
+      final notifId = (args['notificationId'] as String?)?.trim() ?? '';
+      final message = (args['message'] as String?)?.trim() ?? '';
+
+      if (notifId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notification.reply',
+          error: 'Missing required arg: notificationId',
+        );
+      }
+      if (message.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notification.reply',
+          error: 'Missing required arg: message',
+        );
+      }
+
+      // Check if notification supports reply.
+      final service = NotificationService();
+      final canReply = await service.hasReplyAction(notifId);
+      if (!canReply) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notification.reply',
+          error:
+              'Notification does not support direct reply (no RemoteInput action). '
+              'The notification may have been dismissed or the app does not support inline replies.',
+        );
+      }
+
+      // Send the reply.
+      final result = await service.replyToNotification(
+        notifId: notifId,
+        message: message,
+      );
+
+      final success = result['success'] == true;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'notification.reply',
+        data: {
+          'notificationId': notifId,
+          'messageSent': success ? message : null,
+          'error': result['error'],
+        },
+        error: success ? null : (result['error'] as String? ?? 'reply_failed'),
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'notification.reply',
+        error: e.toString(),
+      );
+    }
+  }
 }

@@ -362,6 +362,38 @@ class WorkflowRunner {
     final apiResolved = await WorkflowBuiltInVars.resolveApiReferences(resolvedPrompt);
     final prompt = _wrapWithTriggerContext(apiResolved, triggerVars);
 
+    // When triggered by a notification, exclude reading tools (data is inline)
+    // and pass the reply key so the engine can make notification.reply available.
+    final notifKey = triggerVars['notif_key'] ?? '';
+    final metadata = <String, dynamic>{};
+    if (notifKey.isNotEmpty) {
+      metadata['exclude_tools'] = [
+        'notification.read_recent',
+        'notification.summarize',
+        'notification.classify',
+      ];
+      metadata['notif_reply_key'] = notifKey;
+    }
+    // Track run in the ledger so it appears in Activity while running.
+    final run = WorkflowRunLedger.start(
+      workflowId: wf.id,
+      workflowTitle: wf.title,
+      agentId: wf.agentId,
+      steps: [
+        WorkflowStepEntry(
+          index: 0,
+          stepId: 'single_0',
+          agentId: wf.agentId,
+          agentName: agent.name,
+          mainGoal: wf.prompt.length > 240
+              ? '${wf.prompt.substring(0, 240)}…'
+              : wf.prompt,
+          status: WorkflowStepStatus.running,
+        ),
+      ],
+    );
+    await _persistRun(run);
+
     final response = await engine
         .run(
           AgentRuntimeRequest(
@@ -369,6 +401,7 @@ class WorkflowRunner {
             agentName: agent.name,
             userMessage: prompt,
             source: RequestSource.workflow,
+            metadata: metadata,
           ),
           provider: provider,
           autoApproveSensitive: wf.allowSensitive,
@@ -383,6 +416,19 @@ class WorkflowRunner {
           },
         )
         .timeout(Duration(seconds: _effectiveTimeout(wf.timeoutSeconds)));
+
+    // Mark run as complete in the ledger.
+    final stepEntry = run.steps.first;
+    stepEntry.status = response.success
+        ? WorkflowStepStatus.success
+        : WorkflowStepStatus.failed;
+    stepEntry.result = response.finalMessage;
+    stepEntry.durationMs = stopwatch.elapsedMilliseconds;
+    run.status = response.success
+        ? WorkflowRunStatus.success
+        : WorkflowRunStatus.failed;
+    run.finishedAt = DateTime.now();
+    await _persistRun(run);
 
     stopwatch.stop();
     final result = response.finalMessage;
@@ -1216,6 +1262,7 @@ class WorkflowRunner {
       keyword: triggerVars['notif_keyword'] ?? '',
       title: triggerVars['notif_title'] ?? '',
       body: triggerVars['notif_body'] ?? '',
+      notifKey: triggerVars['notif_key'] ?? '',
     );
   }
 

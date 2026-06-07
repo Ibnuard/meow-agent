@@ -1,20 +1,24 @@
 package com.meowagent.meow_agent
 
+import android.app.Notification
+import android.app.PendingIntent
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 
 /**
- * Read-only notification listener.
+ * Read-only notification listener with reply capability.
  *
  * Maintains an in-memory cache (max 100) of the most recent notifications
  * posted on the device. The cache is exposed to Flutter via the channel
- * handler in [MainActivity] — this service NEVER dismisses, replies to, or
- * otherwise mutates notification state.
+ * handler in [MainActivity].
  *
- * Cache survives across activity restarts as long as the system keeps the
- * service alive. We do NOT persist to disk in MVP.
+ * Reply support: [replyToNotification] finds a notification by key, extracts
+ * the reply RemoteInput from its actions, fills it with the given text, and
+ * fires the PendingIntent — delivering the reply to the correct conversation.
  */
 class NotificationListener : NotificationListenerService() {
     companion object {
@@ -49,6 +53,78 @@ class NotificationListener : NotificationListenerService() {
         fun findById(id: String): CachedNotification? {
             val ref = instance ?: return null
             return synchronized(ref.cache) { ref.cache.firstOrNull { it.id == id } }
+        }
+
+        /**
+         * Reply to a notification by its cached ID.
+         * Returns a result map: { success: Boolean, error: String? }
+         */
+        fun replyToNotification(notifId: String, message: String): Map<String, Any?> {
+            val ref = instance
+                ?: return mapOf("success" to false, "error" to "listener_not_connected")
+
+            // Find the live StatusBarNotification from the system.
+            val sbn = try {
+                ref.activeNotifications?.firstOrNull { ref.uniqueId(it) == notifId }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to access active notifications: ${e.message}")
+                null
+            } ?: return mapOf("success" to false, "error" to "notification_not_found")
+
+            // Find a reply action with RemoteInput.
+            val (action, remoteInput) = findReplyAction(sbn)
+                ?: return mapOf("success" to false, "error" to "no_reply_action")
+
+            // Build the reply intent.
+            return try {
+                val intent = Intent()
+                val bundle = Bundle()
+                bundle.putCharSequence(remoteInput.resultKey, message)
+                android.app.RemoteInput.addResultsToIntent(
+                    arrayOf(remoteInput),
+                    intent,
+                    bundle
+                )
+                action.actionIntent.send(ref, 0, intent)
+                Log.d(TAG, "Reply sent to $notifId: ${message.take(30)}...")
+                mapOf("success" to true, "error" to null)
+            } catch (e: PendingIntent.CanceledException) {
+                Log.w(TAG, "Reply PendingIntent was cancelled: ${e.message}")
+                mapOf("success" to false, "error" to "intent_cancelled")
+            } catch (e: Exception) {
+                Log.w(TAG, "Reply failed: ${e.message}")
+                mapOf("success" to false, "error" to e.message)
+            }
+        }
+
+        /**
+         * Check if a notification has a reply action.
+         */
+        fun hasReplyAction(notifId: String): Boolean {
+            val ref = instance ?: return false
+            val sbn = try {
+                ref.activeNotifications?.firstOrNull { ref.uniqueId(it) == notifId }
+            } catch (_: Exception) {
+                null
+            } ?: return false
+            return findReplyAction(sbn) != null
+        }
+
+        /**
+         * Find the reply action and its RemoteInput from a StatusBarNotification.
+         */
+        private fun findReplyAction(sbn: StatusBarNotification): Pair<Notification.Action, android.app.RemoteInput>? {
+            val actions = sbn.notification.actions ?: return null
+            for (action in actions) {
+                val inputs = action.remoteInputs ?: continue
+                for (input in inputs) {
+                    // RemoteInput with allowFreeFormInput = true is a reply field.
+                    if (input.allowFreeFormInput) {
+                        return Pair(action, input)
+                    }
+                }
+            }
+            return null
         }
     }
 
@@ -129,6 +205,7 @@ class NotificationListener : NotificationListenerService() {
         if (title.isNullOrBlank() && text.isNullOrBlank()) return null
 
         val appName = resolveAppName(sbn.packageName)
+        val hasReply = findReplyAction(sbn) != null
 
         return CachedNotification(
             id = uniqueId(sbn),
@@ -137,7 +214,8 @@ class NotificationListener : NotificationListenerService() {
             title = title,
             text = text,
             timestamp = sbn.postTime,
-            clearable = sbn.isClearable
+            clearable = sbn.isClearable,
+            hasReplyAction = hasReply
         )
     }
 
@@ -167,7 +245,8 @@ data class CachedNotification(
     val title: String?,
     val text: String?,
     val timestamp: Long,
-    val clearable: Boolean
+    val clearable: Boolean,
+    val hasReplyAction: Boolean = false
 ) {
     fun toMap(): Map<String, Any?> = mapOf(
         "id" to id,
@@ -176,6 +255,8 @@ data class CachedNotification(
         "title" to title,
         "text" to text,
         "timestamp" to timestamp,
-        "clearable" to clearable
+        "clearable" to clearable,
+        "hasReplyAction" to hasReplyAction
     )
 }
+

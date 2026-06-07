@@ -1087,6 +1087,17 @@ class AppStrings {
   String get apiStoreSave => isId ? 'Simpan' : 'Save';
   String get apiStoreSaving => isId ? 'Menyimpan...' : 'Saving...';
   String get apiStoreCancel => isId ? 'Batal' : 'Cancel';
+  String get apiStoreCurlHint =>
+      isId
+          ? 'Tempel perintah cURL dari browser, Postman, atau dokumentasi API.'
+          : 'Paste a cURL command from your browser, Postman, or API docs.';
+  String get apiStoreCurlParse => isId ? 'Parse & Isi Form' : 'Parse & Fill Form';
+  String get apiStoreCurlEmpty =>
+      isId ? 'Tempel perintah cURL terlebih dahulu' : 'Paste a cURL command first';
+  String get apiStoreCurlInvalid =>
+      isId ? 'Format cURL tidak valid' : 'Invalid cURL format';
+  String get apiStoreCurlSuccess =>
+      isId ? 'cURL berhasil di-parse! Lengkapi nama API.' : 'cURL parsed! Fill in the API name.';
 
   // --- Workflow event labels ---
   String get wfEventBatteryLow =>

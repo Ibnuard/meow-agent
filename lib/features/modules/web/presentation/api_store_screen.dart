@@ -5,6 +5,7 @@ import '../../../../app/theme.dart';
 import '../../../settings/data/app_language_provider.dart';
 import '../data/api_config.dart';
 import '../data/api_store_repository.dart';
+import '../data/curl_parser.dart';
 
 /// API Store — lists all registered APIs as floating cards.
 ///
@@ -493,6 +494,7 @@ class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
   late final TextEditingController _authValueCtrl;
   late final TextEditingController _authHeaderCtrl;
   late final TextEditingController _bodyRawCtrl;
+  final TextEditingController _curlCtrl = TextEditingController();
 
   String _method = 'GET';
   ApiAuthType _authType = ApiAuthType.none;
@@ -502,6 +504,7 @@ class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
   final List<_BodyTreeNode> _bodyNodes = [];
 
   bool _saving = false;
+  bool _curlMode = false;
 
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
@@ -542,6 +545,7 @@ class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
     _authValueCtrl.dispose();
     _authHeaderCtrl.dispose();
     _bodyRawCtrl.dispose();
+    _curlCtrl.dispose();
     super.dispose();
   }
 
@@ -569,6 +573,16 @@ class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
           40 + MediaQuery.of(context).padding.bottom,
         ),
         children: [
+          // Mode toggle (only for new APIs)
+          if (!widget.isEditing) ...[
+            _buildModeToggle(cs),
+            const SizedBox(height: 18),
+          ],
+
+          // cURL import panel
+          if (_curlMode && !widget.isEditing) ...[
+            _buildCurlImportPanel(cs),
+          ] else ...[
           // Name
           _SectionLabel(label: s.apiStoreSectionName),
           const SizedBox(height: 8),
@@ -689,10 +703,257 @@ class _ApiEditorScreenState extends ConsumerState<ApiEditorScreen> {
               ),
             ),
           ),
+          ], // end manual mode
         ],
       ),
     );
   }
+
+  Widget _buildModeToggle(ColorScheme cs) {
+    final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: isDark ? extras.card : const Color(0xFFF0F3F8),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _curlMode = false),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: !_curlMode
+                      ? (isDark ? cs.primary.withValues(alpha: 0.15) : Colors.white)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: !_curlMode
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    'Manual',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: !_curlMode ? FontWeight.w700 : FontWeight.w500,
+                      color: !_curlMode ? cs.primary : cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _curlMode = true),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: _curlMode
+                      ? (isDark ? cs.primary.withValues(alpha: 0.15) : Colors.white)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: _curlMode
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 1),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    'Import cURL',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: _curlMode ? FontWeight.w700 : FontWeight.w500,
+                      color: _curlMode ? cs.primary : cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCurlImportPanel(ColorScheme cs) {
+    final extras = context.extras;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.primary.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: cs.primary.withValues(alpha: 0.10)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline_rounded, size: 16, color: cs.primary.withValues(alpha: 0.7)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.apiStoreCurlHint,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SectionLabel(label: 'cURL Command'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _curlCtrl,
+          maxLines: 8,
+          minLines: 5,
+          style: TextStyle(
+            fontFamily: 'monospace',
+            fontSize: 12.5,
+            color: cs.onSurface,
+          ),
+          decoration: InputDecoration(
+            hintText: "curl -X GET 'https://api.example.com/data' \\\n  -H 'Authorization: Bearer token'",
+            hintStyle: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: 12,
+              color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+            filled: true,
+            fillColor: isDark ? extras.card : const Color(0xFFF8FAFB),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: extras.subtleBorder),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: extras.subtleBorder),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: BorderSide(color: cs.primary, width: 1.5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _parseCurl,
+            icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+            label: Text(
+              s.apiStoreCurlParse,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: cs.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _parseCurl() {
+    final input = _curlCtrl.text.trim();
+    if (input.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.apiStoreCurlEmpty),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final result = CurlParser.parse(input);
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.apiStoreCurlInvalid),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _urlCtrl.text = result.url;
+      _method = result.method;
+      _authType = result.auth.type;
+      _authValueCtrl.text = result.auth.value;
+      _authHeaderCtrl.text = result.auth.headerName ?? '';
+
+      // Populate headers.
+      _headers.clear();
+      for (final h in result.headers) {
+        _headers.add(_KVRow(key: h.key, value: h.value));
+      }
+
+      // Populate query params.
+      _queryParams.clear();
+      for (final q in result.queryParams) {
+        _queryParams.add(_KVRow(key: q.key, value: q.value));
+      }
+
+      // Populate body.
+      if (result.bodyMode == BodyMode.raw && result.bodyRaw != null) {
+        _useRawBody = true;
+        _bodyRawCtrl.text = result.bodyRaw!;
+        _bodyNodes.clear();
+      } else if (result.bodyMode == BodyMode.tree) {
+        _useRawBody = false;
+        _bodyNodes.clear();
+        for (final n in result.bodyTree) {
+          _bodyNodes.add(_BodyTreeNode.fromBodyNode(n));
+        }
+      }
+
+      // Switch to manual mode to show populated form.
+      _curlMode = false;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          s.apiStoreCurlSuccess,
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
 
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();

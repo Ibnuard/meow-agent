@@ -427,6 +427,23 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
       }
+      // Metadata-driven tool exclusion (e.g. notification-triggered workflows
+      // exclude notification reading tools since data is already inline).
+      final excludeTools = (request.metadata['exclude_tools'] as List?)
+          ?.map((e) => e.toString())
+          .toSet();
+      if (excludeTools != null && excludeTools.isNotEmpty) {
+        bool shouldExclude(String desc) {
+          for (final ex in excludeTools) {
+            if (desc.startsWith('- $ex:') || desc.startsWith('- $ex ')) {
+              return true;
+            }
+          }
+          return false;
+        }
+        availableTools = availableTools.where((t) => !shouldExclude(t)).toList();
+        analyzerTools = analyzerTools.where((t) => !shouldExclude(t)).toList();
+      }
       var relation = (analysis['task_relation'] as String? ?? 'none').trim();
       if (activeTaskContext.isNotEmpty) {
         if (relation == 'none' &&

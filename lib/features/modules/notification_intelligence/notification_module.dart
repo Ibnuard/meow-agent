@@ -92,6 +92,20 @@ class NotificationModulePlugin extends ModulePlugin {
         'style': 'string (optional: silent | normal | alarm. default normal)',
       },
     ),
+    ToolDefinition(
+      name: 'notification.reply',
+      description:
+          'Send a direct reply to a notification from a messaging app (WhatsApp, Telegram, etc) '
+          'using Android RemoteInput. The reply is delivered to the exact conversation that '
+          'sent the notification. Only works if the notification is still active and has a '
+          'reply action. Use @notif_key from workflow context to target the correct notification.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {
+        'notificationId': 'string (required, the notification key/id from @notif_key or notification.read_recent)',
+        'message': 'string (required, the reply text to send)',
+      },
+    ),
   ];
 
   @override
@@ -115,6 +129,8 @@ class NotificationModulePlugin extends ModulePlugin {
         return tools.executeOpenApp(request.args);
       case 'notification.create_local':
         return tools.executeCreateLocal(request.args);
+      case 'notification.reply':
+        return tools.executeReply(request.args);
       default:
         return Future.value(
           ToolExecutionResult(

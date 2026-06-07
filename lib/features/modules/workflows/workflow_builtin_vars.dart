@@ -190,32 +190,20 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
   // ─── Trigger: Notification ───────────────────────────────────────────────
   BuiltInVariable(
     key: 'notif',
-    descriptionId: 'Notifikasi pemicu (judul + isi)',
-    descriptionEn: 'Triggering notification (title + body)',
-    category: BuiltInCategory.triggerNotification,
-  ),
-  BuiltInVariable(
-    key: 'notif_title',
-    descriptionId: 'Judul notifikasi',
-    descriptionEn: 'Notification title',
+    descriptionId: 'Notifikasi pemicu (pengirim + isi + app)',
+    descriptionEn: 'Triggering notification (sender + body + app)',
     category: BuiltInCategory.triggerNotification,
   ),
   BuiltInVariable(
     key: 'notif_body',
-    descriptionId: 'Isi notifikasi',
-    descriptionEn: 'Notification body',
+    descriptionId: 'Isi pesan notifikasi',
+    descriptionEn: 'Notification message body',
     category: BuiltInCategory.triggerNotification,
   ),
   BuiltInVariable(
-    key: 'notif_app',
-    descriptionId: 'Nama aplikasi pengirim',
-    descriptionEn: 'Sender app name',
-    category: BuiltInCategory.triggerNotification,
-  ),
-  BuiltInVariable(
-    key: 'notif_keyword',
-    descriptionId: 'Kata kunci yang cocok',
-    descriptionEn: 'Matched keyword',
+    key: 'notif_sender',
+    descriptionId: 'Pengirim + aplikasi (mis. Andi via WhatsApp)',
+    descriptionEn: 'Sender + app (e.g. Andi via WhatsApp)',
     category: BuiltInCategory.triggerNotification,
   ),
 

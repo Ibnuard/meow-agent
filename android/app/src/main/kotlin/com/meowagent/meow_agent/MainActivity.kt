@@ -308,6 +308,19 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<String>("id") ?: ""
                     result.success(getNotificationById(id))
                 }
+                "replyToNotification" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    val message = call.argument<String>("message") ?: ""
+                    if (id.isEmpty() || message.isEmpty()) {
+                        result.success(mapOf("success" to false, "error" to "id and message are required"))
+                    } else {
+                        result.success(NotificationListener.replyToNotification(id, message))
+                    }
+                }
+                "hasReplyAction" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    result.success(NotificationListener.hasReplyAction(id))
+                }
                 else -> result.notImplemented()
             }
         }

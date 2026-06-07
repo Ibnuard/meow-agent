@@ -59,6 +59,7 @@ String promptTriggerContextWrapper({
   String keyword = '',
   String title = '',
   String body = '',
+  String notifKey = '',
 }) {
   if (notif.isEmpty) return prompt;
 
@@ -86,6 +87,16 @@ String promptTriggerContextWrapper({
       'items, names, numbers, or details that are not in the notification, '
       'and do NOT ask the user to forward / paste the content again.',
     );
+  if (notifKey.isNotEmpty) {
+    buf.writeln(
+      'REPLY PROTOCOL: To reply to this notification, call exactly: '
+      'notification.reply with args {"notificationId": "$notifKey", "message": "<your reply>"}. '
+      'This delivers your reply to the correct conversation. '
+      'FORBIDDEN: notification.read_recent, notification.summarize, notification.classify — '
+      'those tools read DIFFERENT notifications and will NOT help you reply. '
+      'The data you need is already in this [TRIGGER CONTEXT] block.',
+    );
+  }
   if (app.isNotEmpty) buf.writeln('- App: $app');
   if (keyword.isNotEmpty) buf.writeln('- Matched keyword: $keyword');
   if (title.isNotEmpty) buf.writeln('- Title: $title');
