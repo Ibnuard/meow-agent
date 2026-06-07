@@ -342,6 +342,43 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Battery optimization channel — L4 keep-alive layer.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/battery_optimization")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isIgnoring" -> {
+                        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                        result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "requestIgnore" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to request battery opt exclusion", e)
+                            result.success(false)
+                        }
+                    }
+                    "openBatterySettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to open battery settings", e)
+                            result.success(false)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
         if (sharedText != null) {
             val text = sharedText
             Handler(Looper.getMainLooper()).postDelayed({

@@ -13,6 +13,7 @@ import 'features/agents/data/agent_repository.dart';
 import 'features/chat/data/chat_history_service.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
+import 'features/modules/workflows/workflow_foreground_service.dart';
 import 'features/modules/workflows/workflow_log_detail_screen.dart';
 import 'features/modules/workflows/workflow_notification_service.dart';
 import 'features/modules/workflows/workflow_repository.dart';
@@ -129,6 +130,10 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       ref.read(workflowRunnerProvider).start();
       // Start event listener for battery, charging, WiFi triggers.
       ref.read(workflowEventListenerProvider).start();
+      // L1: Start persistent foreground service if workflows are enabled.
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      // L2: Register WorkManager keep-alive fallback (restarts service if killed).
+      await WorkflowScheduler.registerKeepAlive();
     } catch (_) {
       // Non-fatal.
     }

@@ -90,7 +90,8 @@ class ToolCatalog {
   static ToolCatalogSelection fromGroups(Iterable<String>? analyzerGroups) {
     final valid = <String>{
       for (final g in (analyzerGroups ?? const <String>[]))
-        if (groups.containsKey(g.trim().toLowerCase())) g.trim().toLowerCase(),
+        if (groups.containsKey(_resolveAlias(g.trim().toLowerCase())))
+          _resolveAlias(g.trim().toLowerCase()),
     };
 
     if (valid.isEmpty) {
@@ -121,6 +122,16 @@ class ToolCatalog {
       reason: 'analyzer tool_groups: ${valid.join(', ')}',
     );
   }
+
+  /// Alias map for tool_groups that the analyzer emits but don't match any
+  /// module's catalogGroup directly. This happens when tools are merged into
+  /// broader modules (e.g. app.resolve/app.open moved into device_context).
+  static const _groupAliases = <String, String>{
+    'app': 'device',       // app.resolve, app.open, app.list_installed live in device
+    'clipboard': 'device', // clipboard.read, clipboard.write live in device
+  };
+
+  static String _resolveAlias(String group) => _groupAliases[group] ?? group;
 
   static Set<String> _allTools() =>
       groups.values.expand((tools) => tools).toSet();

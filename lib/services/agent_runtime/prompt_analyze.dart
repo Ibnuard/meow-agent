@@ -80,11 +80,13 @@ Bulk-selector rule (applies to ANY entity type — agents, workflows, providers,
 
 const promptAnalyzeExamples =
     '''Examples that require tools (intent shown in English; user phrasing may be in any language):
-- "open whatsapp" → app.resolve("whatsapp") then app.open(packageName)
-- "open youtube" → app.resolve("youtube") then app.open(packageName)
-- "open google.com" → intent.open_url
-- "tap the Send button in the current app" -> app_agent.inspect then app_agent.click
-- "type hello into this app's message field" -> app_agent.inspect then app_agent.set_text
+- "open whatsapp" → app.resolve("whatsapp") then app.open(packageName) → tool_groups: ["app"] (DONE after open)
+- "open youtube" → app.resolve("youtube") then app.open(packageName) → tool_groups: ["app"] (DONE after open)
+- "open google.com" → intent.open_url → tool_groups: ["app"]
+- "send a message to Bob in WhatsApp" → app.resolve + app.open FIRST, then app_agent screen control → tool_groups: ["app", "app_agent"]
+- "search for X in YouTube" → app.resolve + app.open FIRST, then app_agent → tool_groups: ["app", "app_agent"]
+- "tap the Send button in the current app" → app_agent.inspect then app_agent.click → tool_groups: ["app_agent"]
+- "type hello into this app's message field" → app_agent.inspect then app_agent.set_text → tool_groups: ["app_agent"]
 - "read clipboard" → clipboard.read
 - "write to clipboard" → clipboard.write
 - "open wifi settings" → settings.open
@@ -105,7 +107,11 @@ Multi-target examples (subgoal_seeds MUST list each target):
 - "make 5 notes titled A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
 - "delete agent X and Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
 
-IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
+CRITICAL ROUTING RULES:
+- For opening/launching apps ONLY (no further interaction): tool_groups MUST be ["app"], NOT ["app_agent"]. The task is COMPLETE once the app is open.
+- For opening an app AND THEN interacting with its UI (sending messages, searching, tapping buttons, navigating): tool_groups MUST include BOTH ["app", "app_agent"]. app is needed to resolve+open, app_agent is needed for screen control.
+- app_agent ALONE is only for interacting with the ALREADY VISIBLE foreground app (no need to open anything new).
+- ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 
 const promptAnalyzeResponseFormat =
     '''Respond with ONLY valid JSON, no markdown, no explanation:

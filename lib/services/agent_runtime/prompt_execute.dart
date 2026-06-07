@@ -51,13 +51,18 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
 - If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Use text reading for text files and image description for image files. Do not infer file contents from filenames or prior narrative.
 - App Agentic screen automation loop:
-  * If the user wants to control the currently visible Android app, inspect the screen first.
-  * If app_agent.inspect shows the wrong package/app for the goal, do NOT inspect again. Use app.resolve/app.open for the target app, then app_agent.inspect.
-  * After app_agent.inspect, choose exactly one concrete action from the visible node tree: app_agent.click, app_agent.set_text, or app_agent.scroll.
-  * Use only node_id values from the latest app_agent.inspect result. Do not invent node IDs.
-  * After every successful app_agent.click, app_agent.set_text, or app_agent.scroll, inspect again before deciding the next action or declaring done.
-  * Never return status="done" immediately after app_agent.inspect unless the user only asked what is visible on screen.
-  * For opening a target app first, use app.resolve then app.open, then app_agent.inspect.
+  * LAUNCHING AN APP (CRITICAL — read first):
+    - To launch/open ANY app: ALWAYS use app.resolve(friendly_name) to get the package, then app.open(package). This is the ONLY correct way to open apps.
+    - NEVER use app_agent.key, app_agent.open, or any app_agent tool to launch an app. Those are for interacting with an already-open screen.
+    - If the user's ONLY goal is to open/launch an app (no further interaction), return status="done" immediately after app.open succeeds. Do NOT inspect or use app_agent tools.
+  * SCREEN AUTOMATION (after app is open):
+    - If the user wants to control the currently visible Android app, inspect the screen first.
+    - If app_agent.inspect shows the wrong package/app for the goal, do NOT inspect again. Use app.resolve/app.open for the target app, then app_agent.inspect.
+    - After app_agent.inspect, choose exactly one concrete action from the visible node tree: app_agent.click, app_agent.set_text, or app_agent.scroll.
+    - Use only node_id values from the latest app_agent.inspect result. Do not invent node IDs.
+    - After every successful app_agent.click, app_agent.set_text, or app_agent.scroll, inspect again before deciding the next action or declaring done.
+    - Never return status="done" immediately after app_agent.inspect unless the user only asked what is visible on screen.
+    - For opening a target app first, use app.resolve then app.open, then app_agent.inspect.
 - INPUT-COMMIT COMPLETION CHAIN (generic — applies to any app with an editable field + submit/send/search action):
   * After app_agent.set_text on any editable field where the user's goal includes submitting, sending, or searching the typed content, the NEXT action MUST be a commit action: (1) click the send/submit/search/paper-plane button via find_by_text (try semantic desc fields like "Send", "Search", "Submit", "Kirim", "Cari" — these are accessibility labels, not visible text), or (2) app_agent.key with keycode 66 (Enter/IME_ACTION_SEND).
   * After the commit action, app_agent.inspect to verify the result — the field should be CLEARED or the result visible (message in history, search results displayed, form submitted).

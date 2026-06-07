@@ -9,6 +9,7 @@ import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_runner.dart';
 import 'workflow_editor_screen.dart';
+import 'workflow_foreground_service.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_templates_screen.dart';
 
@@ -47,6 +48,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   Future<void> _toggle(WorkflowModel wf) async {
     await _repo.toggle(wf.id, !wf.enabled);
+    await WorkflowForegroundService.ensureSchedulerRunning();
     _load();
   }
 

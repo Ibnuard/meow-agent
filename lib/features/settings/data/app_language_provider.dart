@@ -148,7 +148,7 @@ class AppStrings {
   String get codenameTooLong =>
       isId ? 'Maksimal 4 karakter' : 'Max 4 characters';
   String get modelListLabel => isId ? 'Model Tersedia' : 'Available Models';
-  String get modelListHint => 'deepseek-v4-flash';
+  String get modelListHint => 'gpt-4o-mini';
   String get modelListRequired =>
       isId ? 'Model wajib diisi' : 'Model is required';
   String get modelListHelper =>
@@ -328,6 +328,13 @@ class AppStrings {
   String get accessibilityRequired => isId
       ? 'Aktifkan Meow Agent Accessibility Service, lalu kembali ke Meow Agent.'
       : 'Enable Meow Agent Accessibility Service, then return to Meow Agent.';
+  String get accessibilityPermTitle =>
+      isId ? 'Izin Accessibility Diperlukan' : 'Accessibility Permission Required';
+  String get accessibilityPermBody => isId
+      ? 'App Agentic memerlukan Accessibility Service untuk membaca dan mengontrol layar aplikasi lain. '
+            'Buka Settings dan aktifkan "Meow Agent Automation".'
+      : 'App Agentic requires Accessibility Service to read and control other app screens. '
+            'Open Settings and enable "Meow Agent Automation".';
   String get shizukuSupportRequired => isId
       ? 'Aktifkan dukungan Shizuku terlebih dahulu.'
       : 'Enable Shizuku support first.';
@@ -361,6 +368,21 @@ class AppStrings {
   String get checkStatus => isId ? 'Cek Status' : 'Check Status';
   String get requestPermission => 'Request Permission';
   String get setupGuide => 'Setup Guide';
+
+  // Battery optimization (Super Power module)
+  String get batteryOptTitle =>
+      isId ? 'Optimisasi Baterai' : 'Battery Optimization';
+  String get batteryOptDesc => isId
+      ? 'Agar workflow terjadwal berjalan andal di latar belakang, nonaktifkan optimisasi baterai untuk Meow Agent.'
+      : 'For scheduled workflows to run reliably in the background, disable battery optimization for Meow Agent.';
+  String get batteryOptExcluded => isId
+      ? 'Meow Agent dikecualikan dari optimisasi baterai. Workflow latar belakang akan berjalan andal.'
+      : 'Meow Agent is excluded from battery optimization. Background workflows will run reliably.';
+  String get batteryOptNotExcluded => isId
+      ? 'Meow Agent belum dikecualikan. Android mungkin menghentikan workflow latar belakang.'
+      : 'Meow Agent is not excluded. Android may kill background workflows.';
+  String get batteryOptRequest =>
+      isId ? 'Nonaktifkan Optimisasi Baterai' : 'Disable Battery Optimization';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';
@@ -1546,20 +1568,20 @@ class AppStrings {
             'Enable "Allow sensitive actions" in workflow settings and re-run.';
   String get workflowErrorGeneric => 'Error';
   String workflowSingleSuccess(String title) => isId
-      ? '✅ Workflow **$title** berhasil dijalankan.'
-      : '✅ Workflow **$title** completed successfully.';
+      ? '✅ Workflow "$title" berhasil dijalankan.'
+      : '✅ Workflow "$title" completed successfully.';
   String workflowSingleFailed(String title) => isId
-      ? '❌ Workflow **$title** gagal dijalankan.'
-      : '❌ Workflow **$title** failed to run.';
+      ? '❌ Workflow "$title" gagal dijalankan.'
+      : '❌ Workflow "$title" failed to run.';
   String workflowChainedSuccess(String title, int steps) => isId
-      ? '✅ Workflow **$title** selesai — $steps langkah.'
-      : '✅ Workflow **$title** completed — $steps steps.';
+      ? '✅ Workflow "$title" selesai — $steps langkah.'
+      : '✅ Workflow "$title" completed — $steps steps.';
   String workflowChainedFailed(String title, String overall) => isId
-      ? '❌ Workflow **$title** — $overall'
-      : '❌ Workflow **$title** — $overall';
+      ? '❌ Workflow "$title" — $overall'
+      : '❌ Workflow "$title" — $overall';
   String workflowFailedStatus(String title, String error) => isId
-      ? '❌ Workflow **$title** gagal: $error'
-      : '❌ Workflow **$title** failed: $error';
+      ? '❌ Workflow "$title" gagal: $error'
+      : '❌ Workflow "$title" failed: $error';
 
   // --- Misc labels ---
   String get errorPrefix => 'Error';

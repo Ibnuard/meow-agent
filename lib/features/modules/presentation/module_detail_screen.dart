@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../services/battery/battery_optimization_service.dart';
 import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
@@ -565,6 +566,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          if (module.id == 'super_power' && module.enabled) ...[
+            _buildBatteryOptimizationPanel(cs: cs, extras: extras, s: s),
+            const SizedBox(height: 20),
+          ],
+
           if (module.enabled && visibleSettingEntries.isNotEmpty) ...[
             _buildSettingsSection(
               module: module,
@@ -850,7 +856,26 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     required AppStrings s,
   }) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          s.shizukuSectionTitle,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          s.shizukuSectionDesc,
+          style: TextStyle(
+            fontSize: 12,
+            color: cs.onSurfaceVariant,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 12),
         buildShizukuStatusPanel(cs: cs),
         const SizedBox(height: 10),
         Row(
@@ -923,6 +948,109 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildBatteryOptimizationPanel({
+    required ColorScheme cs,
+    required MeowExtras extras,
+    required AppStrings s,
+  }) {
+    return FutureBuilder<bool>(
+      future: BatteryOptimizationService.isIgnoringBatteryOptimizations(),
+      builder: (context, snapshot) {
+        final isIgnoring = snapshot.data ?? false;
+        final icon = isIgnoring
+            ? Icons.check_circle_rounded
+            : Icons.battery_alert_rounded;
+        final color = isIgnoring ? Colors.green : Colors.amber;
+        final message = isIgnoring
+            ? s.batteryOptExcluded
+            : s.batteryOptNotExcluded;
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: extras.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: extras.subtleBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                s.batteryOptTitle,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                s.batteryOptDesc,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: cs.onSurfaceVariant,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: color.withValues(alpha: 0.24)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(icon, size: 18, color: color),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: cs.onSurface,
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isIgnoring) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await BatteryOptimizationService
+                          .requestIgnoreBatteryOptimizations();
+                      // Refresh panel after returning from system dialog.
+                      if (mounted) setState(() {});
+                    },
+                    icon: const Icon(Icons.battery_saver_rounded, size: 16),
+                    label: Text(s.batteryOptRequest),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.primary,
+                      side: BorderSide(
+                        color: cs.primary.withValues(alpha: 0.4),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 

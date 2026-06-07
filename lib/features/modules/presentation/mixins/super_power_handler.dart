@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/widgets/meow_confirm_dialog.dart';
 import '../../../../services/permission/permission_manager.dart';
 import '../../../settings/data/app_language_provider.dart';
 import '../../data/clipboard_service_controller.dart';
@@ -49,6 +50,32 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
           );
         }
         return;
+      }
+
+      // app_agentic requires Accessibility Service to be enabled.
+      if (key == 'app_agentic') {
+        final accessibilityOn = await isAccessibilityEnabled();
+        if (!accessibilityOn) {
+          if (mounted) {
+            final confirmed = await showMeowConfirmDialog(
+              context,
+              isId: s.isId,
+              title: s.accessibilityPermTitle,
+              message: s.accessibilityPermBody,
+              confirmLabel: s.openSettings,
+              cancelLabel: s.cancel,
+              icon: Icons.accessibility_new_rounded,
+              destructive: false,
+            );
+            if (confirmed) {
+              await permissionManager.openAccessibilitySettings();
+            }
+          }
+          // Mark pending — toggle will activate on resume if accessibility
+          // is confirmed enabled after user navigates to system settings.
+          pendingAppAgenticEnable = true;
+          return;
+        }
       }
 
       // run_locked_device requires a stored device PIN.
@@ -187,16 +214,18 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
       pendingAppAgenticEnable = false;
     }
 
-    // Only force-disable when the user is actively trying to enable (i.e.
-    // pendingAppAgenticEnable is true but accessibility is still missing).
-    // Never auto-disable already-set toggles on resume / module reload.
+    // Always force-disable app_agentic if accessibility is off.
+    // This handles: user enabled the toggle, then later disabled accessibility.
+    if (!accessibilityEnabled && settings['app_agentic'] == true) {
+      settings['app_agentic'] = false;
+      settings['run_locked_device'] = false;
+      changed = true;
+      pendingAppAgenticEnable = false;
+    }
+
+    // Clear pending flag if accessibility is still not on.
     if (pendingAppAgenticEnable && !accessibilityEnabled) {
       pendingAppAgenticEnable = false;
-      if (settings['app_agentic'] == true) {
-        settings['app_agentic'] = false;
-        settings['run_locked_device'] = false;
-        changed = true;
-      }
     }
 
     if (settings['app_agentic'] != true) {
