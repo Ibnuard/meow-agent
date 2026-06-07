@@ -74,7 +74,7 @@ class ShizukuDeviceService {
   /// Returns true when the key was dispatched successfully.
   Future<bool> keyEvent(int keycode) async {
     try {
-      final result = await _channel.invokeMethod<Map>('keyEvent', {
+      final result = await _channel.invokeMethod<Map>('pressKey', {
         'keycode': keycode,
       });
       return result?['success'] == true;

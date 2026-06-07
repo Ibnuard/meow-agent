@@ -797,6 +797,13 @@ class AppStrings {
   String get activitySuccess => isId ? 'Berhasil' : 'Success';
   String get activityFailed => isId ? 'Gagal' : 'Failed';
   String get activityRetry => isId ? 'Coba Lagi' : 'Retry';
+  String get activityRunning => isId ? 'Berjalan' : 'Running';
+  String get activityRunningNow =>
+      isId ? 'Sedang Berjalan' : 'Running Now';
+  String activityRunningStep(int current, int total) =>
+      isId ? 'Langkah $current/$total' : 'Step $current/$total';
+  String activityElapsed(String duration) =>
+      isId ? 'Berlangsung $duration' : 'Elapsed $duration';
 
   // --- Workflow list ---
   String get wfListDeleteTitle =>

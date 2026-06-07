@@ -975,11 +975,13 @@ class ExecuteLoopRunner {
             // Surface review narrative on the overlay only if the just-
             // executed tool was an app agent operation, so we don't
             // overlay borders during normal chat-only tool flows.
+            // Keep the ACTION color (don't reset to 'review'/silver) so
+            // users see distinct border colors per operation phase.
             if (toolRequest.name.startsWith('app_agent.') ||
                 toolRequest.name == 'app.open' ||
                 toolRequest.name == 'app.resolve') {
               AppAgentOverlayService.show(
-                operation: 'review',
+                operation: _appAgentOperationTag(toolRequest.name),
                 narrative: reviewNarrative,
               );
             }
@@ -1799,8 +1801,9 @@ class ExecuteLoopRunner {
     final phraseKey = result.success
         ? 'app_agent_checking_result'
         : 'app_agent_action_failed';
+    // Keep the current action's color alive (don't reset to 'review'/silver).
     AppAgentOverlayService.show(
-      operation: 'review',
+      operation: _appAgentOperationTag(tool.name),
       narrative: _runtimePhrase(phraseKey),
     );
   }

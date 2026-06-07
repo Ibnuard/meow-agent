@@ -85,6 +85,7 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
           if (mounted) {
             final pin = await PinInputDialog.show(context, s);
             if (pin == null) return; // User cancelled
+            refreshDevicePinPanel();
           }
         }
       }

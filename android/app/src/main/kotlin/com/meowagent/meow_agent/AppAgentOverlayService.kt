@@ -1,10 +1,17 @@
 package com.meowagent.meow_agent
 
+import android.animation.ValueAnimator
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Matrix
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -18,6 +25,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -33,7 +41,9 @@ import androidx.core.content.ContextCompat
  *      user can glance at the screen and know what stage the agent is in.
  *
  *   2. A narrator bar pinned ~25% from the bottom of the screen showing
- *      a short, real-time progress sentence in the user's language.
+ *      a short, real-time progress sentence in the user's language. The
+ *      narrator card features an animated rainbow border for an AI-agent
+ *      aesthetic.
  *
  * The overlays never steal focus or input from the foreground app, which
  * means they are safe to render on top of WhatsApp, Telegram, etc. while
@@ -71,6 +81,7 @@ class AppAgentOverlayService : Service() {
     private var borderView: View? = null
     private var narratorContainer: View? = null
     private var narratorText: TextView? = null
+    private var rainbowView: RainbowBorderView? = null
     private var currentOperation: Operation = Operation.IDLE
 
     /** Most recent show() request, deferred until the foreground is non-self. */
@@ -261,22 +272,25 @@ class AppAgentOverlayService : Service() {
         val text = narratorText
         if (container != null && text != null) {
             text.text = narrative
-            paintNarratorAccent(container, op)
+            // Rainbow border animates continuously — no need to update stroke color.
             return
         }
 
-        // Outer horizontal container: [narrative card] [stop button]
-        val row = FrameLayout(this).apply {
-            // Transparent background, no padding — just layout.
-        }
+        // Outer horizontal container: [narrator card] [stop button]
+        val row = FrameLayout(this)
 
-        val card = FrameLayout(this).apply {
+        val screenWidth = resources.displayMetrics.widthPixels
+        val cardWidth = (screenWidth * 0.68).toInt().coerceAtMost(dp(360))
+
+        // Rainbow border view wrapping the card content.
+        val rainbow = RainbowBorderView(this, dp(18).toFloat(), dp(2.5f).toFloat())
+        rainbow.setPadding(dp(2), dp(2), dp(2), dp(2))
+
+        val cardInner = FrameLayout(this).apply {
             background = GradientDrawable().apply {
-                cornerRadius = dp(18).toFloat()
+                cornerRadius = dp(16).toFloat()
                 setColor(Color.parseColor("#E60F172A"))
-                setStroke(dp(1), op.color)
             }
-            elevation = 18f
             setPadding(dp(14), dp(10), dp(14), dp(10))
         }
 
@@ -288,12 +302,19 @@ class AppAgentOverlayService : Service() {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 2
         }
-        card.addView(
+        cardInner.addView(
             tv,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER
+            )
+        )
+        rainbow.addView(
+            cardInner,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
 
@@ -315,10 +336,7 @@ class AppAgentOverlayService : Service() {
             setOnClickListener { onStopPressed() }
         }
 
-        val screenWidth = resources.displayMetrics.widthPixels
-        val cardWidth = (screenWidth * 0.68).toInt().coerceAtMost(dp(360))
-
-        row.addView(card, FrameLayout.LayoutParams(
+        row.addView(rainbow, FrameLayout.LayoutParams(
             cardWidth,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.CENTER_VERTICAL or Gravity.START
@@ -331,7 +349,7 @@ class AppAgentOverlayService : Service() {
 
         val screenHeight = resources.displayMetrics.heightPixels
         val totalWidth = cardWidth + dp(52)
-        val yFromTop = (screenHeight * 0.90).toInt() // ≈10% from bottom
+        val yFromTop = (screenHeight * 0.75).toInt() // ≈25% from bottom
 
         val params = WindowManager.LayoutParams(
             totalWidth,
@@ -349,6 +367,8 @@ class AppAgentOverlayService : Service() {
             wm.addView(row, params)
             narratorContainer = row
             narratorText = tv
+            rainbowView = rainbow
+            rainbow.startAnimation()
             row.alpha = 0f
             row.translationY = dp(8).toFloat()
             row.animate()
@@ -380,15 +400,12 @@ class AppAgentOverlayService : Service() {
         stopSelf()
     }
 
-    private fun paintNarratorAccent(card: View?, op: Operation) {
-        val bg = card?.background as? GradientDrawable ?: return
-        bg.setStroke(dp(1), op.color)
-    }
-
     // ─── Cleanup ─────────────────────────────────────────────────────────
 
     private fun hideAll() {
         val wm = windowManager
+        rainbowView?.stopAnimation()
+        rainbowView = null
         narratorContainer?.let {
             try { wm?.removeView(it) } catch (_: Exception) {}
         }
@@ -414,4 +431,111 @@ class AppAgentOverlayService : Service() {
             value.toFloat(),
             resources.displayMetrics
         ).toInt()
+
+    private fun dp(value: Float): Int =
+        TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            value,
+            resources.displayMetrics
+        ).toInt()
+}
+
+/**
+ * Custom View that draws an animated rainbow gradient border (rounded rect)
+ * with a pulsing stroke width for a "spectrum" effect.
+ * Used as the narrator card wrapper to give it an AI-agent look.
+ */
+class RainbowBorderView(
+    context: Context,
+    private val cornerRadius: Float,
+    private val baseStrokeWidth: Float
+) : FrameLayout(context) {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = baseStrokeWidth
+    }
+
+    private val rainbowColors = intArrayOf(
+        Color.parseColor("#3B82F6"), // blue
+        Color.parseColor("#8B5CF6"), // violet
+        Color.parseColor("#EC4899"), // pink
+        Color.parseColor("#F59E0B"), // amber
+        Color.parseColor("#22C55E"), // green
+        Color.parseColor("#06B6D4"), // cyan
+        Color.parseColor("#3B82F6"), // blue (loop)
+    )
+
+    private var angle = 0f
+    private var currentStrokeWidth = baseStrokeWidth
+    private var rotationAnimator: ValueAnimator? = null
+    private var pulseAnimator: ValueAnimator? = null
+    private val rect = RectF()
+    private val matrix = Matrix()
+
+    init {
+        setWillNotDraw(false)
+    }
+
+    fun startAnimation() {
+        rotationAnimator?.cancel()
+        rotationAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
+            duration = 2400L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = LinearInterpolator()
+            addUpdateListener {
+                angle = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+
+        // Pulsing stroke width: breathes between 0.6x and 1.6x base width
+        pulseAnimator?.cancel()
+        pulseAnimator = ValueAnimator.ofFloat(
+            baseStrokeWidth * 0.6f,
+            baseStrokeWidth * 1.6f
+        ).apply {
+            duration = 1800L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            interpolator = DecelerateInterpolator()
+            addUpdateListener {
+                currentStrokeWidth = it.animatedValue as Float
+            }
+            start()
+        }
+    }
+
+    fun stopAnimation() {
+        rotationAnimator?.cancel()
+        rotationAnimator = null
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        if (width == 0 || height == 0) return
+
+        paint.strokeWidth = currentStrokeWidth
+        val half = currentStrokeWidth / 2f
+        rect.set(half, half, width - half, height - half)
+
+        val gradient = LinearGradient(
+            0f, 0f, width.toFloat(), height.toFloat(),
+            rainbowColors, null, Shader.TileMode.CLAMP
+        )
+        matrix.reset()
+        matrix.postRotate(angle, width / 2f, height / 2f)
+        gradient.setLocalMatrix(matrix)
+        paint.shader = gradient
+
+        canvas.drawRoundRect(rect, cornerRadius, cornerRadius, paint)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        stopAnimation()
+    }
 }

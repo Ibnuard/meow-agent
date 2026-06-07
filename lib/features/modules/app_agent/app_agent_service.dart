@@ -126,13 +126,33 @@ class AppAgentService {
         error: 'keycode must be a positive integer (e.g. 66 for Enter/Send).',
       );
     }
+
+    // For Enter/Search (keycode 66), try accessibility IME action first.
+    // This works without Shizuku and covers keyboard submit/search buttons.
+    if (keycode == 66) {
+      try {
+        final imeResult = await _channel.invokeMethod<Map>('imeEnter');
+        final imeData = Map<String, dynamic>.from(imeResult ?? const {});
+        if (imeData['success'] == true) {
+          return ToolExecutionResult(
+            success: true,
+            toolName: 'app_agent.key',
+            data: {'keycode': keycode, 'dispatched': true, 'method': 'ime'},
+          );
+        }
+      } catch (_) {
+        // Accessibility IME failed, fall through to Shizuku.
+      }
+    }
+
+    // Fallback: Shizuku-based key injection.
     try {
       final svc = ShizukuDeviceService();
       final ok = await svc.keyEvent(keycode);
       return ToolExecutionResult(
         success: ok,
         toolName: 'app_agent.key',
-        data: {'keycode': keycode, 'dispatched': ok},
+        data: {'keycode': keycode, 'dispatched': ok, 'method': 'shizuku'},
         error: ok ? null : 'keyEvent returned false (Shizuku may not be ready).',
       );
     } catch (e) {

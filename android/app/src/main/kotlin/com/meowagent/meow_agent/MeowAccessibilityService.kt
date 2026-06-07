@@ -132,6 +132,19 @@ class MeowAccessibilityService : AccessibilityService() {
             )
             return svc.findByTextInternal(query, mode)
         }
+
+        /**
+         * Perform IME Enter action on the currently focused EditText.
+         * Works without Shizuku — uses accessibility ACTION_IME_ENTER (API 30+)
+         * or falls back to ACTION_NEXT / ACTION_SET_TEXT with newline.
+         */
+        fun performImeEnter(): Map<String, Any?> {
+            val svc = instance ?: return mapOf(
+                "success" to false,
+                "error" to "accessibility_service_not_connected"
+            )
+            return svc.performImeEnterInternal()
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -949,6 +962,45 @@ class MeowAccessibilityService : AccessibilityService() {
             val child = node.getChild(i) ?: continue
             dumpTreeDebug(child, depth + 1, maxDepth)
         }
+    }
+    /**
+     * Find the currently focused editable node and perform IME Enter on it.
+     * API 30+ has ACTION_IME_ENTER; older APIs fall back to ACTION_NEXT
+     * or inserting a newline character via ACTION_SET_TEXT (which many apps
+     * treat as "submit" on single-line EditTexts).
+     */
+    internal fun performImeEnterInternal(): Map<String, Any?> {
+        val root = rootInActiveWindow ?: return mapOf(
+            "success" to false,
+            "error" to "no_active_window"
+        )
+
+        // Find the focused editable node.
+        val focused = findFocusedEditText(root)
+        if (focused == null) {
+            root.recycle()
+            return mapOf(
+                "success" to false,
+                "error" to "no_focused_editable_node"
+            )
+        }
+
+        val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // API 30+: ACTION_IME_ENTER triggers the keyboard's action button.
+            focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+        } else {
+            // Fallback: ACTION_NEXT moves to next field / triggers action on
+            // single-line fields in most apps.
+            focused.performAction(AccessibilityNodeInfo.ACTION_NEXT_AT_MOVEMENT_GRANULARITY)
+                || focused.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+
+        root.recycle()
+        return mapOf(
+            "success" to success,
+            "action" to "ime_enter",
+            "api_level" to Build.VERSION.SDK_INT
+        )
     }
 
     internal fun performNodeActionInternal(
