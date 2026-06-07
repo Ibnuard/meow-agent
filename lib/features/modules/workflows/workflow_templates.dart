@@ -372,6 +372,32 @@ class WorkflowTemplateRegistry {
         showResult: false,
       ),
     ),
+
+    // ─── API Integration ─────────────────────────────────────────────────────
+    //
+    // 11. API Call Sample — interval trigger, demonstrates web.api.call usage
+    WorkflowTemplate(
+      id: 'tpl_api_call_sample',
+      title: 'API Call Sample',
+      titleId: 'Contoh Panggilan API',
+      description:
+          'Fetch data from a registered API Store endpoint and summarize the result.',
+      descriptionId:
+          'Ambil data dari endpoint API Store yang terdaftar dan rangkum hasilnya.',
+      icon: '🌐',
+      category: TemplateCategory.automation,
+      defaultPrompt:
+          'Here is data from the API Store:\n\n'
+          '@api:Sample_Posts_API\n\n'
+          'Summarize the post title and body above in a concise, friendly '
+          'message to the user. If the API response shows an error, explain '
+          'what went wrong.',
+      defaultTrigger: TriggerConfig(
+        type: TriggerType.interval,
+        intervalMinutes: 360,
+      ),
+      defaultSendToChat: true,
+    ),
   ];
 
   /// Get templates by category.

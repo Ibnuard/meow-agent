@@ -97,7 +97,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   void _loadFromTemplate(WorkflowTemplate tpl) {
-    _titleCtrl.text = tpl.titleId;
+    final langCode = resolveLanguageCode(ref.read(appLanguageProvider));
+    _titleCtrl.text = langCode == 'id' ? tpl.titleId : tpl.title;
     _promptCtrl.text = WorkflowBuiltInVars.migrateLegacyPlaceholders(
       tpl.defaultPrompt,
     );

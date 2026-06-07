@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../web/data/web_module_seeder.dart';
 import 'module_visuals.dart';
 
 /// Screen showing available modules to install.
@@ -100,6 +102,15 @@ class ModuleStoreScreen extends ConsumerWidget {
                                 await ref
                                     .read(moduleRepositoryProvider)
                                     .install(module);
+                                // Seed sample API + workflow when web module installed.
+                                if (module.id == 'web') {
+                                  final agents = ref.read(agentListProvider);
+                                  if (agents.isNotEmpty) {
+                                    await WebModuleSeeder.seed(
+                                      agentId: agents.first.id,
+                                    );
+                                  }
+                                }
                                 ref.invalidate(installedModulesProvider);
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
