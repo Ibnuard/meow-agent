@@ -59,7 +59,7 @@ class _LogoHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 18),
         decoration: BoxDecoration(
           color: isDark ? extras.card : const Color(0xFFF6F8FC),
           borderRadius: BorderRadius.circular(28),
@@ -71,31 +71,30 @@ class _LogoHeader extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 52,
-              height: 52,
+              width: 62,
+              height: 62,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [cs.primary, extras.gradientEnd],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(19),
+                borderRadius: BorderRadius.circular(20),
                 boxShadow: [
                   BoxShadow(
-                    color: cs.primary.withValues(alpha: isDark ? 0.22 : 0.15),
-                    blurRadius: 20,
-                    spreadRadius: -9,
-                    offset: const Offset(0, 10),
+                    color: cs.primary.withValues(alpha: isDark ? 0.28 : 0.18),
+                    blurRadius: 24,
+                    spreadRadius: -4,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: Icon(
-                Icons.auto_awesome_rounded,
-                color: Colors.white.withValues(alpha: 0.92),
-                size: 24,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.asset(
+                  'assets/images/meow.png',
+                  width: 62,
+                  height: 62,
+                  fit: BoxFit.cover,
+                ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Text(
               s.homeBrandName,
               maxLines: 1,
@@ -118,12 +117,18 @@ class _LogoHeader extends StatelessWidget {
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 13),
+            const SizedBox(height: 14),
             Container(
               width: 44,
               height: 3,
               decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.32),
+                gradient: LinearGradient(
+                  colors: [
+                    cs.primary.withValues(alpha: 0.1),
+                    cs.primary.withValues(alpha: 0.5),
+                    cs.primary.withValues(alpha: 0.1),
+                  ],
+                ),
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -379,10 +384,14 @@ class _SetupCallToAction extends StatelessWidget {
               border: Border.all(color: extras.subtleBorder),
             ),
             alignment: Alignment.center,
-            child: Icon(
-              Icons.auto_awesome_rounded,
-              size: 38,
-              color: cs.primary,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(22),
+              child: Image.asset(
+                'assets/images/meow.png',
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           const SizedBox(height: 22),

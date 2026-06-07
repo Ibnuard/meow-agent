@@ -118,8 +118,41 @@ class SettingsScreen extends ConsumerWidget {
                     showDialog(
                       context: context,
                       builder: (dialogCtx) => AlertDialog(
-                        title: Text(strings.aboutTitle),
-                        content: Text(strings.aboutBody),
+                        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(18),
+                              child: Image.asset(
+                                'assets/images/meow.png',
+                                width: 64,
+                                height: 64,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              strings.aboutTitle,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              strings.aboutBody,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(dialogCtx)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(dialogCtx),

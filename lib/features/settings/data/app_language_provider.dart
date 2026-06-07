@@ -102,8 +102,8 @@ class AppStrings {
   String get llmDebugging => isId ? 'Debug LLM (Dev)' : 'LLM Debugging (Dev)';
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';
   String get aboutBody => isId
-      ? 'Mobile First Modular Agentic AI.\n\nVersi 0.1.0'
-      : 'Mobile First Modular Agentic AI.\n\nVersion 0.1.0';
+      ? 'AI companion Android-native dengan multi-agent, app automation, workflow otomatis, notifikasi cerdas, dan modular tools.\n\nVersi 1.0.0'
+      : 'Android-native AI companion with multi-agent, app automation, automated workflows, smart notifications, and modular tools.\n\nVersion 1.0.0';
   String get notificationSound =>
       isId ? 'Suara Notifikasi' : 'Notification Sound';
   String get notificationSoundDesc => isId
