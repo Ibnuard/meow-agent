@@ -176,6 +176,21 @@ class ModuleRegistry {
     },
   );
 
+  static const vm = ModuleModel(
+    id: 'vm',
+    name: 'VM Runtime',
+    description:
+        'A local Linux runtime for running shell commands. '
+        'You install and start the runtime — agents only run commands inside it.',
+    icon: 'terminal',
+    settings: {
+      // Only one agent-facing permission: run shell commands inside the
+      // already-running runtime. Install/start/stop are user-only actions
+      // performed from the VM Runtime screen.
+      'allow_run_command': true,
+    },
+  );
+
   static const communication = ModuleModel(
     id: 'communication',
     name: 'Communication',
@@ -213,6 +228,7 @@ class ModuleRegistry {
     calendar,
     workflows,
     web,
+    vm,
     communication,
     superPower,
   ];

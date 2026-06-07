@@ -7,6 +7,7 @@ import '../../features/modules/files/files_module.dart';
 import '../../features/modules/notes/notes_module.dart';
 import '../../features/modules/notification_intelligence/notification_module.dart';
 import '../../features/modules/system/system_module.dart';
+import '../../features/modules/vm/vm_module.dart';
 import '../../features/modules/web/web_module.dart';
 import '../../features/modules/communication/communication_module.dart';
 import '../../features/modules/workflows/workflow_module.dart';
@@ -25,6 +26,7 @@ const List<ModulePlugin> runtimeModulePlugins = [
   ChatModulePlugin(),
   AttachmentModulePlugin(),
   WebModulePlugin(),
+  VmModulePlugin(),
   CommunicationModulePlugin(),
 ];
 

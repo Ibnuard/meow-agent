@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Required for app to appear in Usage Access settings (foreground app detection). -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -86,6 +87,18 @@
         <service
             android:name=".AppAgentOverlayService"
             android:exported="false" />
+
+        <!-- VM Runtime Service: hosts the proot Linux session for the VM
+             module. Runs as a foreground service so the kernel doesn't kill
+             long-running plugin installs. -->
+        <service
+            android:name=".VmRuntimeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="local linux runtime for developer tools" />
+        </service>
 
         <!-- Notification Listener Service (read-only). User must enable in
              Settings → Notifications → Notification access. -->

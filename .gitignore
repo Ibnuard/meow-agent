@@ -48,3 +48,7 @@ app.*.map.json
 # Local environment — never commit LLM keys
 .env
 .env.*
+
+# VM module: proot binary fetched via scripts/fetch-proot.ps1.
+# Don't commit ~230 KB of vendored binary.
+/android/app/src/main/jniLibs/**/libproot.so

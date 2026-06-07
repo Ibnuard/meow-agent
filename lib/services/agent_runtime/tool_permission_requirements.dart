@@ -382,4 +382,21 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Allow Update Workflows',
     actionLabel: 'enable or disable workflows',
   ),
+  // VM module: agent surface is intentionally narrow. Only `vm.status`
+  // (safe read), `vm.list_plugins` (safe read), and `vm.run_command` (gated)
+  // are exposed. Install/start/stop and plugin install are user-only.
+  'vm.status': ToolPermissionRequirement(
+    moduleId: 'vm',
+    actionLabel: 'read VM runtime status',
+  ),
+  'vm.list_plugins': ToolPermissionRequirement(
+    moduleId: 'vm',
+    actionLabel: 'list VM runtime plugins',
+  ),
+  'vm.run_command': ToolPermissionRequirement(
+    moduleId: 'vm',
+    settingKey: 'allow_run_command',
+    settingLabel: 'Run Command',
+    actionLabel: 'run commands in the VM runtime',
+  ),
 };

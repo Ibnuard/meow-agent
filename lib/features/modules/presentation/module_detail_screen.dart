@@ -13,6 +13,7 @@ import '../data/clipboard_service_controller.dart';
 import '../data/shizuku_status.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../vm/vm_runtime_screen.dart';
 import '../web/presentation/api_store_screen.dart';
 import '../workflows/workflow_list_screen.dart';
 import 'module_visuals.dart';
@@ -550,6 +551,44 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // VM Runtime module: show "Open VM Runtime" button when enabled.
+          if (module.id == 'vm' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const VmRuntimeScreen()),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.terminal_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openVmRuntime,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           if (module.id == 'super_power' &&
               module.enabled &&
               module.settings['app_agentic'] == true) ...[
@@ -1028,8 +1067,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: () async {
-                      await BatteryOptimizationService
-                          .requestIgnoreBatteryOptimizations();
+                      await BatteryOptimizationService.requestIgnoreBatteryOptimizations();
                       // Refresh panel after returning from system dialog.
                       if (mounted) setState(() {});
                     },
@@ -1095,6 +1133,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return s.moduleDescWorkflows;
       case 'web':
         return s.moduleDescWeb;
+      case 'vm':
+        return s.moduleDescVm;
       case 'super_power':
         return s.moduleDescSuperPower;
       default:

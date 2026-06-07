@@ -286,6 +286,7 @@ class AppStrings {
   String get openCalendar => isId ? 'Buka Kalender' : 'Open Calendar';
   String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
   String get openApiStore => isId ? 'Buka API Store' : 'Open API Store';
+  String get openVmRuntime => isId ? 'Buka VM Runtime' : 'Open VM Runtime';
   String get featurePermission =>
       isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
   String get notificationPermissionRequired => isId
@@ -333,8 +334,9 @@ class AppStrings {
   String get accessibilityRequired => isId
       ? 'Aktifkan Meow Agent Accessibility Service, lalu kembali ke Meow Agent.'
       : 'Enable Meow Agent Accessibility Service, then return to Meow Agent.';
-  String get accessibilityPermTitle =>
-      isId ? 'Izin Accessibility Diperlukan' : 'Accessibility Permission Required';
+  String get accessibilityPermTitle => isId
+      ? 'Izin Accessibility Diperlukan'
+      : 'Accessibility Permission Required';
   String get accessibilityPermBody => isId
       ? 'App Agentic memerlukan Accessibility Service untuk membaca dan mengontrol layar aplikasi lain. '
             'Buka Settings dan aktifkan "Meow Agent Automation".'
@@ -390,6 +392,80 @@ class AppStrings {
       isId ? 'Nonaktifkan Optimisasi Baterai' : 'Disable Battery Optimization';
   String get batteryOptManage =>
       isId ? 'Kelola Pengaturan Baterai' : 'Manage Battery Settings';
+
+  // VM Runtime module — simplified one-tap install/start/stop flow.
+  String get vmRuntimeTitle => isId ? 'VM Runtime' : 'VM Runtime';
+  String get vmRuntimeSubtitle => isId
+      ? 'Linux lokal di dalam Meow. Install sekali, agent bisa menjalankan command di dalamnya.'
+      : 'A local Linux runtime inside Meow. Install once, then agents can run commands inside it.';
+  String get vmInstallRuntime => isId ? 'Install Runtime' : 'Install Runtime';
+  String get vmStartRuntime => isId ? 'Mulai Runtime' : 'Start Runtime';
+  String get vmStopRuntime => isId ? 'Hentikan Runtime' : 'Stop Runtime';
+  String get vmReinstallRuntime =>
+      isId ? 'Install Ulang' : 'Reinstall';
+  String get vmOpenTerminal => isId ? 'Buka Terminal' : 'Open Terminal';
+  String get vmTerminalTitle => isId ? 'Terminal' : 'Terminal';
+  String get vmTerminalClear => isId ? 'Bersihkan' : 'Clear';
+  String get vmTerminalHint =>
+      isId ? 'Ketik perintah…' : 'Type a command…';
+  String get vmRuntimeReady =>
+      isId ? 'Runtime siap dipakai agent.' : 'Runtime is ready for agents.';
+  String get vmRuntimeIdle => isId
+      ? 'Runtime sudah terpasang. Mulai untuk dipakai agent.'
+      : 'Runtime is installed. Start it to let agents use it.';
+  String get vmRuntimeNeedInstall => isId
+      ? 'Belum ada runtime terpasang. Tap Install untuk mengunduh image (~150 MB).'
+      : 'No runtime installed yet. Tap Install to download the image (~150 MB).';
+  String get vmRuntimeStarting =>
+      isId ? 'Memulai runtime...' : 'Starting runtime...';
+  String get vmRuntimeDownloading => isId
+      ? 'Mengunduh image runtime. Tetap di layar ini.'
+      : 'Downloading runtime image. Keep this screen open.';
+
+  // Plugin section
+  String get vmPluginsTitle => isId ? 'Plugin' : 'Plugins';
+  String get vmPluginsSubtitle => isId
+      ? 'Toolchain bahasa & CLI yang bisa dipakai agent di dalam runtime.'
+      : 'Language toolchains and CLIs the agent can use inside the runtime.';
+  String get vmPluginInstall => isId ? 'Install' : 'Install';
+  String get vmPluginInstalling => isId ? 'Memasang...' : 'Installing...';
+  String get vmPluginInstalled => isId ? 'Terpasang' : 'Installed';
+  String get vmPluginUninstall => isId ? 'Uninstall' : 'Uninstall';
+  String get vmPluginRunRequired => isId
+      ? 'Mulai runtime dulu sebelum memasang plugin.'
+      : 'Start the runtime before installing plugins.';
+  String vmPluginConfirmTitle(String name) =>
+      isId ? 'Pasang $name?' : 'Install $name?';
+  String vmPluginConfirmBody(String name, int sizeMb) => isId
+      ? '$name akan diunduh dan dipasang di dalam runtime. Estimasi $sizeMb MB. '
+            'Tetap di layar ini sampai selesai.'
+      : '$name will be downloaded and installed inside the runtime. '
+            'Estimated $sizeMb MB. Keep this screen open until done.';
+  String vmPluginInstallSuccess(String name) =>
+      isId ? '$name terpasang.' : '$name installed.';
+  String vmPluginInstallFailed(String name) =>
+      isId ? 'Gagal memasang $name.' : 'Failed to install $name.';
+  String get vmPluginEstimatedSize => isId ? 'Ukuran' : 'Size';
+  String get vmNativeUnavailable => isId
+      ? 'Native VM runtime belum tersambung di build ini. Modul masih bisa diaktifkan, tapi runtime belum bisa dijalankan.'
+      : 'Native VM runtime is not wired up in this build yet. The module can still be enabled, but the runtime cannot run.';
+  String get vmStatusReady =>
+      isId ? 'Runtime siap digunakan.' : 'Runtime is ready.';
+  String get vmStatusUnavailable =>
+      isId ? 'Native belum tersambung' : 'Native not connected';
+  String get vmStatusNotInstalled =>
+      isId ? 'Belum terpasang' : 'Not installed';
+  String get vmStatusDownloading =>
+      isId ? 'Sedang mengunduh' : 'Downloading';
+  String get vmStatusInstalled =>
+      isId ? 'Terpasang, belum berjalan' : 'Installed, not running';
+  String get vmStatusStarting => isId ? 'Memulai' : 'Starting';
+  String get vmStatusRunning => isId ? 'Berjalan' : 'Running';
+  String get vmStatusStopped => isId ? 'Berhenti' : 'Stopped';
+  String get vmStatusError => isId ? 'Runtime error' : 'Runtime error';
+  String vmPreviewPort(int port) => isId
+      ? 'Preview lokal: 127.0.0.1:$port'
+      : 'Local preview: 127.0.0.1:$port';
   String get baseUrl => 'Base URL';
   String get baseUrlRequired =>
       isId ? 'Base URL wajib diisi' : 'Base URL is required';
@@ -508,6 +584,9 @@ class AppStrings {
   String get moduleDescWeb => isId
       ? 'Fetch API HTTP dan simpan endpoint yang bisa dipakai ulang. Semua agent bisa memanggil API tersimpan lewat nama.'
       : 'Fetch HTTP APIs and register reusable endpoints. Any agent can call stored APIs by name with auto-filled parameters.';
+  String get moduleDescVm => isId
+      ? 'Install dan kontrol runtime Linux lokal berbasis proot untuk sesi terminal, server web dev, dan preview localhost di dalam aplikasi.'
+      : 'Install and control a local proot Linux runtime for terminal sessions, web dev servers, and in-app localhost previews.';
   String get moduleDescSuperPower => isId
       ? 'Fitur lanjutan: bubble AI mengambang dan kontrol perangkat via Shizuku untuk otomatisasi tingkat lanjut.'
       : 'Advanced features: floating AI bubble overlay and Shizuku-powered device control for next-level automation.';
@@ -805,8 +884,7 @@ class AppStrings {
   String get activityFailed => isId ? 'Gagal' : 'Failed';
   String get activityRetry => isId ? 'Coba Lagi' : 'Retry';
   String get activityRunning => isId ? 'Berjalan' : 'Running';
-  String get activityRunningNow =>
-      isId ? 'Sedang Berjalan' : 'Running Now';
+  String get activityRunningNow => isId ? 'Sedang Berjalan' : 'Running Now';
   String activityRunningStep(int current, int total) =>
       isId ? 'Langkah $current/$total' : 'Step $current/$total';
   String activityElapsed(String duration) =>
@@ -1087,17 +1165,19 @@ class AppStrings {
   String get apiStoreSave => isId ? 'Simpan' : 'Save';
   String get apiStoreSaving => isId ? 'Menyimpan...' : 'Saving...';
   String get apiStoreCancel => isId ? 'Batal' : 'Cancel';
-  String get apiStoreCurlHint =>
-      isId
-          ? 'Tempel perintah cURL dari browser, Postman, atau dokumentasi API.'
-          : 'Paste a cURL command from your browser, Postman, or API docs.';
-  String get apiStoreCurlParse => isId ? 'Parse & Isi Form' : 'Parse & Fill Form';
-  String get apiStoreCurlEmpty =>
-      isId ? 'Tempel perintah cURL terlebih dahulu' : 'Paste a cURL command first';
+  String get apiStoreCurlHint => isId
+      ? 'Tempel perintah cURL dari browser, Postman, atau dokumentasi API.'
+      : 'Paste a cURL command from your browser, Postman, or API docs.';
+  String get apiStoreCurlParse =>
+      isId ? 'Parse & Isi Form' : 'Parse & Fill Form';
+  String get apiStoreCurlEmpty => isId
+      ? 'Tempel perintah cURL terlebih dahulu'
+      : 'Paste a cURL command first';
   String get apiStoreCurlInvalid =>
       isId ? 'Format cURL tidak valid' : 'Invalid cURL format';
-  String get apiStoreCurlSuccess =>
-      isId ? 'cURL berhasil di-parse! Lengkapi nama API.' : 'cURL parsed! Fill in the API name.';
+  String get apiStoreCurlSuccess => isId
+      ? 'cURL berhasil di-parse! Lengkapi nama API.'
+      : 'cURL parsed! Fill in the API name.';
 
   // --- Workflow event labels ---
   String get wfEventBatteryLow =>
@@ -1356,6 +1436,15 @@ class AppStrings {
         isId
             ? 'Tampilkan notifikasi tetap berisi tombol untuk memproses teks papan klip kapan saja.'
             : 'Show an ongoing notification with a button to process clipboard text anytime.',
+      ),
+      _ => (key, ''),
+    },
+    'vm' => switch (key) {
+      'allow_run_command' => (
+        isId ? 'Jalankan Command' : 'Run Command',
+        isId
+            ? 'Agen dapat menjalankan perintah shell di dalam runtime yang sudah berjalan.'
+            : 'Agent can run shell commands inside the running runtime.',
       ),
       _ => (key, ''),
     },

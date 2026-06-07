@@ -164,6 +164,8 @@ class ModuleStoreScreen extends ConsumerWidget {
         return s.moduleDescWorkflows;
       case 'web':
         return s.moduleDescWeb;
+      case 'vm':
+        return s.moduleDescVm;
       default:
         return module.description;
     }
