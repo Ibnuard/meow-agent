@@ -70,20 +70,9 @@ class _LogoHeader extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
+            SizedBox(
               width: 62,
               height: 62,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: cs.primary.withValues(alpha: isDark ? 0.28 : 0.18),
-                    blurRadius: 24,
-                    spreadRadius: -4,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(20),
                 child: Image.asset(
@@ -95,15 +84,26 @@ class _LogoHeader extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 14),
-            Text(
-              s.homeBrandName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.9,
-                color: cs.onSurface,
+            ShaderMask(
+              shaderCallback: (bounds) => LinearGradient(
+                colors: [
+                  cs.primary,
+                  const Color(0xFF8B5CF6),
+                  cs.primary,
+                ],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ).createShader(bounds),
+              child: Text(
+                s.homeBrandName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.9,
+                  color: Colors.white,
+                ),
               ),
             ),
             const SizedBox(height: 4),
