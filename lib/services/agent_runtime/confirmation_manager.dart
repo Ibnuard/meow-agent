@@ -180,6 +180,7 @@ class ConfirmationManager {
     required ProviderConfig provider,
     required String toolName,
     required Map<String, dynamic> toolArgs,
+    bool alwaysApprove = false,
     void Function(RuntimeEvent event)? onEvent,
   }) async {
     final logger = RuntimeLogger();
@@ -219,12 +220,22 @@ class ConfirmationManager {
     final verbalizer = ToolVerbalizer(client: _client, config: llmConfig);
     verbalizer.resetTurn();
 
+    // If alwaysApprove was requested, merge it into the resumeContext so
+    // subsequent sensitive tools in the same task are auto-approved.
+    Map<String, dynamic>? resumeContext = priorPending?.resumeContext;
+    if (alwaysApprove && resumeContext != null) {
+      resumeContext = Map<String, dynamic>.from(resumeContext)
+        ..['auto_approve_sensitive'] = true;
+    } else if (alwaysApprove) {
+      resumeContext = {'auto_approve_sensitive': true};
+    }
+
     final pending = PendingAction(
       toolName: toolName,
       toolArgs: toolArgs,
       userFacingSummary: 'Confirmed by user',
       languageCode: detectedLang.code,
-      resumeContext: priorPending?.resumeContext,
+      resumeContext: resumeContext,
     );
 
     return _onExecutePendingTool(

@@ -21,6 +21,7 @@ import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
 import 'services/bubble/bubble_chat_service.dart';
 import 'services/app_agent/app_agent_overlay_service.dart';
+import 'features/chat/data/chat_notification_service.dart';
 import 'features/chat/data/chat_runtime_manager.dart';
 import 'services/permission/permission_observer.dart';
 import 'services/workspace/workspace_migration_service.dart';
@@ -124,6 +125,9 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       await WorkflowNotificationService.initialize(
         onTap: _handleNotificationTap,
       );
+      // Share the workflow plugin with chat notifications to avoid callback
+      // conflicts (Android only registers the last initialize callback).
+      await ChatNotificationService.instance.ensureConfirmationChannel();
       await WorkflowScheduler.initialize();
       await WorkflowScheduler.rescheduleAll();
       // Start the in-app workflow runner with dynamic scheduling.
@@ -157,10 +161,37 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
     };
   }
 
-  /// Handle notification tap — navigate to workflow log detail or chat.
+  /// Handle notification tap — navigate to workflow log detail or chat,
+  /// or handle confirmation action buttons.
   void _handleNotificationTap(NotificationResponse response) async {
     final payload = response.payload;
     if (payload == null) return;
+
+    // Confirmation action buttons: "confirm:<agentId>"
+    if (payload.startsWith('confirm:')) {
+      final agentId = payload.replaceFirst('confirm:', '');
+      if (agentId.isEmpty) return;
+      final actionId = response.actionId;
+      if (actionId == null || actionId.isEmpty) {
+        // Tapped notification body — navigate to chat.
+        final router = ref.read(goRouterProvider);
+        router.go('/agents/$agentId/chat');
+        return;
+      }
+      final manager = ref.read(chatRuntimeManagerProvider);
+      switch (actionId) {
+        case ChatNotificationService.actionAccept:
+          manager.confirm(agentId);
+          break;
+        case ChatNotificationService.actionAlways:
+          manager.confirm(agentId, alwaysApprove: true);
+          break;
+        case ChatNotificationService.actionReject:
+          manager.reject(agentId);
+          break;
+      }
+      return;
+    }
 
     // Chat notification: "chat:<agentId>"
     if (payload.startsWith('chat:')) {

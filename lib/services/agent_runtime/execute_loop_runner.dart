@@ -1764,9 +1764,6 @@ class ExecuteLoopRunner {
       if (name.startsWith('app_agent.')) {
         return name.substring('app_agent.'.length);
       }
-      if (name == 'app.open' || name == 'app.resolve') {
-        return 'open';
-      }
     }
     return null;
   }

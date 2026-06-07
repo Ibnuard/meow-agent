@@ -893,6 +893,7 @@ class AgentRuntimeEngine {
     required ProviderConfig provider,
     required String toolName,
     required Map<String, dynamic> toolArgs,
+    bool alwaysApprove = false,
     RuntimeEventCallback? onEvent,
   }) {
     return _confirmation.executeConfirmed(
@@ -900,6 +901,7 @@ class AgentRuntimeEngine {
       provider: provider,
       toolName: toolName,
       toolArgs: toolArgs,
+      alwaysApprove: alwaysApprove,
       onEvent: onEvent,
     );
   }

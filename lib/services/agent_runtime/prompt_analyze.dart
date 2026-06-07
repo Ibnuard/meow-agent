@@ -52,6 +52,13 @@ Conversation continuity rules:
 - If the user answers multiple pending questions in one message, extract all answered details and only ask for truly missing details.
 - Example: original request "create a workflow at 1:15 AM ...", assistant asks "what message? which contact?", user replies "1 AM, message: workflow result to agent" → keep workflow context and only ask the still-missing contact if needed.
 
+Completed-task overlap rule (ASK FIRST — CRITICAL):
+- If the conversation history shows a COMPLETED multi-step task (e.g. "open app X, search Y, do Z"), and the new user message is SHORT and overlaps partially with that task (e.g. just "open app X"), do NOT assume the user wants to repeat the entire previous complex task.
+- Interpret the new message at face value as a STANDALONE request. "open X" means just open X — nothing more.
+- If the new message is genuinely ambiguous and could plausibly mean either a simple action or a complex repetition, set requires_tools=false and populate missing_info with a clarification question in the user's language (e.g. "Just open the app, or also do [previous automation steps]?").
+- NEVER silently repeat a previously completed automation. The user must explicitly re-state the full intent for multi-step tasks.
+- This rule applies generically to ALL apps and tasks, not just specific ones.
+
 Ambiguity examples (must set requires_tools=false and populate missing_info — ALWAYS ask in the user's language):
 - "schedule at 8" → missing_info: ["8 AM or 8 PM?"]
 - "at 10 I want to game with friends" → missing_info: ["10 AM or 10 PM?"]

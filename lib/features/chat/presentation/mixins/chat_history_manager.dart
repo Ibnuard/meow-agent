@@ -71,8 +71,10 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
 
     switch (action) {
       case 'accept':
-      case 'always_accept':
         mgr.confirm(activeAgentId);
+        break;
+      case 'always_accept':
+        mgr.confirm(activeAgentId, alwaysApprove: true);
         break;
       case 'reject':
         mgr.reject(activeAgentId);

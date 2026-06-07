@@ -514,7 +514,7 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
-  Future<void> confirm(String agentId) async {
+  Future<void> confirm(String agentId, {bool alwaysApprove = false}) async {
     final s = sessionFor(agentId);
     final tool = s.pendingTool;
     if (tool == null) return;
@@ -594,6 +594,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         provider: provider,
         toolName: tool,
         toolArgs: s.pendingToolArgs ?? {},
+        alwaysApprove: alwaysApprove,
         onEvent: (event) {
           final llmNarrative = _narrativeFromEvent(event);
           if (llmNarrative != null) {
@@ -855,17 +856,30 @@ class ChatRuntimeManager extends ChangeNotifier {
     final body = _stripMarkdown(reply.content);
     final preview = body.length > 120 ? '${body.substring(0, 120)}…' : body;
     final soundPref = ref.read(notificationSoundProvider);
-    ChatNotificationService.instance.show(
-      agentId: agentId,
-      agentName: agentName,
-      preview: preview,
-      soundFileName: soundPref.fileName,
-    );
+    final isConfirmation = reply.content.contains('[[CONFIRMATION_REQUIRED]]');
+
+    if (isConfirmation) {
+      ChatNotificationService.instance.showConfirmation(
+        agentId: agentId,
+        agentName: agentName,
+        preview: preview,
+        soundFileName: soundPref.fileName,
+      );
+    } else {
+      ChatNotificationService.instance.show(
+        agentId: agentId,
+        agentName: agentName,
+        preview: preview,
+        soundFileName: soundPref.fileName,
+      );
+    }
   }
 
-  /// Strip basic markdown for notification body preview.
+  /// Strip basic markdown and internal sentinels for notification body preview.
   static String _stripMarkdown(String text) {
     return text
+        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
         .replaceAll(RegExp(r'#+\s*'), '')
         .replaceAll(RegExp(r'[*_~`]'), '')
         .replaceAll('\n', ' ')
