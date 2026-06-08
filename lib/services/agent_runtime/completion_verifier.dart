@@ -159,7 +159,30 @@ class CompletionVerifier {
       return const CompletionVerification(ok: true);
     }
 
-    final mismatchNames = [...missingCreates, ...stillPresentDeletes];
+    // Cross-check missing creates against the authoritative tool result.
+    // The agent provider snapshot may be one frame behind the underlying
+    // repository write (Riverpod state propagation), but if the tool itself
+    // returned success for the exact name we expect, the create did happen.
+    // Trust the tool result as the source of truth in that case.
+    final toolConfirmedCreates = <String>{};
+    for (final r in previousResults) {
+      if (r['tool'] != 'system.agents.create') continue;
+      if (r['success'] != true) continue;
+      final data = r['data'];
+      if (data is! Map) continue;
+      final agent = data['agent'];
+      if (agent is! Map) continue;
+      final createdName = (agent['name'] ?? '').toString().trim().toLowerCase();
+      if (createdName.isNotEmpty) toolConfirmedCreates.add(createdName);
+    }
+    final actuallyMissing = missingCreates
+        .where((name) => !toolConfirmedCreates.contains(name.toLowerCase()))
+        .toList(growable: false);
+    if (actuallyMissing.isEmpty && stillPresentDeletes.isEmpty) {
+      return const CompletionVerification(ok: true);
+    }
+
+    final mismatchNames = [...actuallyMissing, ...stillPresentDeletes];
     final entityList = mismatchNames.join(', ');
     final message = LanguageRegistry.phrase(
       'completion_unverified',

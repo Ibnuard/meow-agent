@@ -129,6 +129,8 @@ const promptAnalyzeExamples =
 - "create a new agent named Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
 - "create a new agent Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
 - "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
+- "create a new agent with the same config as you, named JOKO" → system.agents.create(name: "JOKO") with current agent's role/persona copied, subgoal_seeds: ["create agent JOKO from self"]
+- "clone yourself as X" / "duplicate this agent" → system.agents.create + copy persona from self
 
 Multi-target examples (subgoal_seeds MUST list each target):
 - "create 3 new agents: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]

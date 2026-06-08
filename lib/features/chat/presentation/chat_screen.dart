@@ -1579,6 +1579,7 @@ class _ChatInputState extends State<_ChatInput> {
     _SlashCommand('/reset', widget.s.helpSlashReset),
     _SlashCommand('/new-session', widget.s.helpSlashNewSession),
     _SlashCommand('/resume', widget.s.helpSlashResume),
+    _SlashCommand('/history', widget.s.helpSlashHistory),
     _SlashCommand('/model', widget.s.helpSlashModel),
     _SlashCommand('/set-model', widget.s.helpSlashSetModel),
     _SlashCommand('/compact', widget.s.helpSlashCompact),

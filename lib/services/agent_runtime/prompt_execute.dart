@@ -10,7 +10,12 @@ CRITICAL — TASK BOUNDARY RULE:
 - If "Previous results" says "None yet." then NO tool has been run — you MUST select a tool.
 - Conversation history is CONTEXT ONLY. Even if history shows the exact same command succeeded before, that was a DIFFERENT task invocation. You must execute the tool FRESH for this new request.
 - NEVER return status="done" when Previous results is empty or contains no successful tool execution.
-- A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.''';
+- A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.
+
+TOOL RESULT TRUST (anti-hallucination):
+- Previous results with success=true are REAL. The action happened. Do not re-run the same tool to "verify" a success.
+- Previous results with success=false are REAL failures. Do not pretend they succeeded.
+- When a previous result already confirms the task outcome (e.g. create returned the new entity), return status="done" immediately. Do not add unnecessary verification steps.''';
 
 const promptSelectToolResponseFormat =
     '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
@@ -89,6 +94,13 @@ String promptReviewRulesFor(String language) =>
 - If failed, explain what went wrong in plain language and suggest a next step.
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
 - If failed because the requested capability/tool/action is unavailable, return status="failed". Do NOT ask the user for missing action details (song name, contact, target, etc.) because more details cannot create a missing capability.
+
+TOOL RESULT TRUST (CRITICAL — anti-hallucination):
+- The tool result data in this prompt is REAL. It came from actual system execution, not from the LLM.
+- If success=true, the action DID happen. Do NOT second-guess it, re-verify it, or say "let me check again". Confirm success to the user immediately.
+- If success=false, the action FAILED. Do NOT pretend it succeeded. Report the failure honestly.
+- NEVER fabricate, assume, or hallucinate information that is not present in the tool result data. If a field is missing from the result, do not invent it.
+- NEVER claim you need to "verify" or "check if it worked" after a successful tool result. The result IS the verification.
 
 CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - A tool that ran SUCCESSFULLY but returned zero matches (e.g. count: 0, empty list, no rows) IS the answer. It is NOT a failure. Return status="done" and tell the user the answer is "none / not found / nothing matches" in their language.
