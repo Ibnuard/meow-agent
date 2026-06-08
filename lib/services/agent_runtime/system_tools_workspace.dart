@@ -2,6 +2,34 @@ part of 'system_tools.dart';
 
 /// Workspace & profile execute methods extracted from [SystemTools].
 extension SystemToolsWorkspace on SystemTools {
+  static const _rtbChannel = MethodChannel('com.meowagent/app_control');
+  static const _selfPackage = 'com.meowagent.meow_agent';
+
+  // ─── system.rtb ─────────────────────────────────────────────────────────────
+
+  /// Return to base: bring the user back to Meow Agent from any external app.
+  Future<ToolExecutionResult> executeReturnToBase() async {
+    try {
+      final success = await _rtbChannel.invokeMethod<bool>(
+            'openApp',
+            {'package': _selfPackage},
+          ) ??
+          false;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'system.rtb',
+        data: {'package': _selfPackage, 'returned': success},
+        error: success ? null : 'Could not return to Meow Agent.',
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.rtb',
+        error: e.toString(),
+      );
+    }
+  }
+
   // ─── system.self ───────────────────────────────────────────────────────────
 
   Future<ToolExecutionResult> executeSelf() async {

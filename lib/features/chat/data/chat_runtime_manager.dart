@@ -479,6 +479,31 @@ class ChatRuntimeManager extends ChangeNotifier {
       final persistedReply = replyMsg.copyWith(id: replyId);
       persistedMessages.add(persistedReply);
       await UnreadService.instance.increment(agentId);
+
+      // If chat.send was called during the run, its messages were inserted
+      // directly into the DB but not into our persistedMessages list. Reload
+      // from DB to pick them up so the UI shows the full result.
+      final hasChatSend = response.events.any(
+        (e) =>
+            e.type == 'tool_result' &&
+            e.data?['tool'] == 'chat.send' &&
+            e.data?['success'] == true,
+      );
+      if (hasChatSend) {
+        final sessionId = ref
+            .read(chatSessionServiceProvider)
+            .currentSessionId(agentId);
+        final latestFromDb = await history.loadLatest(
+          agentId,
+          sessionId: sessionId,
+        );
+        // Replace persistedMessages with the full DB state so the UI
+        // gets everything including chat.send messages.
+        persistedMessages
+          ..clear()
+          ..addAll(latestFromDb);
+      }
+
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,

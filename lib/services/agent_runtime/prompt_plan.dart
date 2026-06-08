@@ -34,6 +34,6 @@ Rules:
 - missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
 - Use status="pending" for all subgoals at planning time.
 - completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.
-- APP AGENTIC RETURN RULE: When the plan involves opening an external app AND then delivering a result back to the user (summarize and send, report, etc.), ALWAYS include a final subgoal to return to Meow Agent (app.open with package "com.meowagent.meow_agent"). The user must not be stranded in the external app after the task completes.
+- APP AGENTIC RETURN RULE: When the plan involves opening an external app AND then delivering a result back to the user (summarize and send, report, etc.), ALWAYS include a final subgoal to return to Meow Agent via system.rtb. Do NOT use app.open for this — system.rtb is the dedicated return tool. The user must not be stranded in the external app after the task completes.
 - DELIVERY SUBGOALS: When the user explicitly asks to send/deliver the result as a message to the current chat session, include a dedicated subgoal for chat.send. This subgoal is NOT the same as the synthesis/respond subgoal — it requires an actual tool call. Do not collapse it into the final answer.
 - narrative MUST be in the user's language, first-person, 1\\u20132 sentences max, stream-of-thought style. Show your thinking about the steps. NO tool names, NO IDs, NO mention of "goal tree" or "subgoals". Use everyday words.''';

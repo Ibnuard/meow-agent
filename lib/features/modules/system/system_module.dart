@@ -39,6 +39,13 @@ class SystemModulePlugin extends ModulePlugin {
       isRetrieval: true,
     ),
     ToolDefinition(
+      name: 'system.rtb',
+      description:
+          'Return to base. Brings the user back to the Meow Agent app from any external app launched during agentic mode (after app_agent.* operations). Use this as the FINAL step when the task involves opening an external app and then delivering a result back. No confirmation needed — this returns to the app the user is already chatting in.',
+      risk: 'safe',
+      requiresConfirmation: false,
+    ),
+    ToolDefinition(
       name: 'system.workspace.schema',
       description:
           'Describe the Meow Agent markdown model: system markdown standard vs mutable per-agent workspace markdown.',
@@ -269,6 +276,8 @@ class SystemModulePlugin extends ModulePlugin {
     switch (request.name) {
       case 'system.self':
         return tools.executeSelf();
+      case 'system.rtb':
+        return tools.executeReturnToBase();
       case 'system.workspace.schema':
         return tools.executeWorkspaceSchema();
       case 'system.workspace.read':

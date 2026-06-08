@@ -77,7 +77,8 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).
 - RETURN TO MEOW AGENT AFTER APP AGENTIC TASKS:
-  * After completing all app-agentic subgoals in an external app, if the task includes a delivery step back to Meow Agent (chat.send, summarize and report, etc.), you MUST call app.open with package "com.meowagent.meow_agent" as the FINAL tool call before returning status="done". The user should not be left stranded in the external app.
+  * After completing all app-agentic subgoals in an external app, if the task includes a delivery step back to Meow Agent (chat.send, summarize and report, etc.), you MUST call system.rtb (return to base) as the FINAL tool call before returning status="done". The user should not be left stranded in the external app.
+  * Use system.rtb — NOT app.open. system.rtb is the dedicated tool for returning to Meow Agent, requires no confirmation, and signals the end of agentic mode cleanly.
   * If the task is purely "open app X" with no return requirement, skip this step.''';
 
 // ─── Reviewer ────────────────────────────────────────────────────────────────
@@ -120,8 +121,9 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 - If a node action failed because node_not_found, stale screen, no_active_window, or the UI changed, return status="retry" or "continue" with another app_agent.inspect.
 - If the screen lacks the required target after reasonable scrolling/searching, ask the user for help instead of claiming success.
 - RETURN TO MEOW AGENT (CRITICAL):
-  * When all app-agentic subgoals are complete and the user's original task ends with a delivery back to Meow Agent (e.g. "send to chat", "report back", "summarize and send"), the LAST action MUST be app.open with Meow Agent's package to bring the user back. The task is NOT complete while the user is stranded in the external app.
-  * If the task involves reading/summarizing external content and reporting back, you MUST: (1) gather the data via inspect, (2) call chat.send with the summary, (3) call app.open to return to Meow Agent. Only then return status="done".
+  * When all app-agentic subgoals are complete and the user's original task ends with a delivery back to Meow Agent (e.g. "send to chat", "report back", "summarize and send"), the LAST action MUST be system.rtb (return to base) to bring the user back. The task is NOT complete while the user is stranded in the external app.
+  * If the task involves reading/summarizing external content and reporting back, you MUST: (1) gather the data via inspect, (2) call chat.send with the summary, (3) call system.rtb to return. Only then return status="done".
+  * NEVER use app.open to return to Meow Agent. Use system.rtb instead — it is safe, requires no confirmation, and is the correct tool for this purpose.
 - SUBGOAL COMPLETION INTEGRITY (CRITICAL — anti-shortcut):
   * A subgoal that requires a tool call (chat.send, app.open, notes.create, etc.) can ONLY be marked "done" AFTER that tool has been called AND returned success=true in previous_results.
   * NEVER mark a subgoal as "done" based solely on having the data ready in final_response. If the plan says "send summary to chat", you MUST actually call chat.send — putting the summary in final_response does NOT fulfill the subgoal.
