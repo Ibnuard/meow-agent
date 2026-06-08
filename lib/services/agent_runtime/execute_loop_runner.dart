@@ -984,11 +984,21 @@ class ExecuteLoopRunner {
             // Surface review narrative on the overlay only if the just-
             // executed tool was an app agent operation, so we don't
             // overlay borders during normal chat-only tool flows.
+            // For app.open/app.resolve, only show overlay when the plan
+            // includes subsequent app_agent.* steps (screen automation).
+            // Pure "open app" tasks (no further interaction) should NOT
+            // trigger the overlay — the user would be stranded with a
+            // stuck overlay on the external app.
             // Keep the ACTION color (don't reset to 'review'/silver) so
             // users see distinct border colors per operation phase.
-            if (toolRequest.name.startsWith('app_agent.') ||
-                toolRequest.name == 'app.open' ||
-                toolRequest.name == 'app.resolve') {
+            if (toolRequest.name.startsWith('app_agent.')) {
+              AppAgentOverlayService.show(
+                operation: _appAgentOperationTag(toolRequest.name),
+                narrative: reviewNarrative,
+              );
+            } else if ((toolRequest.name == 'app.open' ||
+                    toolRequest.name == 'app.resolve') &&
+                _planRequiresAppAgent(goalTree)) {
               AppAgentOverlayService.show(
                 operation: _appAgentOperationTag(toolRequest.name),
                 narrative: reviewNarrative,
@@ -1825,6 +1835,22 @@ class ExecuteLoopRunner {
       }
     }
     return null;
+  }
+
+  /// Returns true when the goal tree has more pending work after the current
+  /// app.open/app.resolve step — meaning the task is not just "open this app"
+  /// but a multi-step automation. Pure single-open tasks should NOT trigger
+  /// the agentic overlay because it would leave the user stranded with a
+  /// stuck overlay on the external app.
+  ///
+  /// Language-agnostic: relies on subgoal structure, not label keywords.
+  bool _planRequiresAppAgent(GoalTree goalTree) {
+    if (goalTree.isEmpty) return false;
+    // Count pending (non-terminal) subgoals. If more than one remains, the
+    // task has work beyond the current open/resolve step — likely screen
+    // automation that justifies the overlay.
+    final pending = goalTree.subgoals.where((sg) => !sg.isTerminal).length;
+    return pending > 1;
   }
 
   String _appAgentOperationTag(String toolName) {

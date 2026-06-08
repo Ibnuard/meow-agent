@@ -72,10 +72,13 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - INPUT-COMMIT COMPLETION CHAIN (generic — applies to any app with an editable field + submit/send/search action):
   * After app_agent.set_text on any editable field where the user's goal includes submitting, sending, or searching the typed content, the NEXT action MUST be a commit action: (1) click the send/submit/search/paper-plane button via find_by_text (try semantic desc fields like "Send", "Search", "Submit", "Kirim", "Cari" — these are accessibility labels, not visible text), or (2) app_agent.key with keycode 66 (Enter/IME_ACTION_SEND).
   * After the commit action, app_agent.inspect to verify the result — the field should be CLEARED or the result visible (message in history, search results displayed, form submitted).
-  * NEVER return status="done" after set_text alone when the user's verb was a delivery action (send, kirim, submit, search, cari, post, share, bagikan, entregar, enviar, invia, etc.). The typed text is only the preparation step, not the outcome.
+  * NEVER return status="done" after set_text alone when the user's goal involves a delivery/submit/send action. The typed text is only the preparation step, not the outcome.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
-- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
+- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).
+- RETURN TO MEOW AGENT AFTER APP AGENTIC TASKS:
+  * After completing all app-agentic subgoals in an external app, if the task includes a delivery step back to Meow Agent (chat.send, summarize and report, etc.), you MUST call app.open with package "com.meowagent.meow_agent" as the FINAL tool call before returning status="done". The user should not be left stranded in the external app.
+  * If the task is purely "open app X" with no return requirement, skip this step.''';
 
 // ─── Reviewer ────────────────────────────────────────────────────────────────
 
@@ -116,6 +119,13 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 - Do not declare success for external app automation until a later app_agent.inspect result shows evidence that the goal is complete.
 - If a node action failed because node_not_found, stale screen, no_active_window, or the UI changed, return status="retry" or "continue" with another app_agent.inspect.
 - If the screen lacks the required target after reasonable scrolling/searching, ask the user for help instead of claiming success.
+- RETURN TO MEOW AGENT (CRITICAL):
+  * When all app-agentic subgoals are complete and the user's original task ends with a delivery back to Meow Agent (e.g. "send to chat", "report back", "summarize and send"), the LAST action MUST be app.open with Meow Agent's package to bring the user back. The task is NOT complete while the user is stranded in the external app.
+  * If the task involves reading/summarizing external content and reporting back, you MUST: (1) gather the data via inspect, (2) call chat.send with the summary, (3) call app.open to return to Meow Agent. Only then return status="done".
+- SUBGOAL COMPLETION INTEGRITY (CRITICAL — anti-shortcut):
+  * A subgoal that requires a tool call (chat.send, app.open, notes.create, etc.) can ONLY be marked "done" AFTER that tool has been called AND returned success=true in previous_results.
+  * NEVER mark a subgoal as "done" based solely on having the data ready in final_response. If the plan says "send summary to chat", you MUST actually call chat.send — putting the summary in final_response does NOT fulfill the subgoal.
+  * The ONLY subgoals that can be completed without a tool call are those with required_slots containing "_operation":"respond" or "tool":"none" — these are synthesis/answer subgoals fulfilled by final_response.
 - NAVIGATION STRATEGY:
   * For tab-based apps (e.g. ViewPager), prefer scrolling the pager horizontally (scroll left/right on the ViewPager node) to switch tabs rather than opening menus.
   * When a popup menu, dialog, or overlay is blocking the target UI, use app_agent.back to dismiss it before continuing.
