@@ -154,6 +154,12 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 const promptReviewResponseFormat =
     '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
 
+HARD RULES BEFORE DECIDING STATUS (read first):
+- status="done" is ONLY valid when ALL subgoals are terminal (done/failed/skipped) AND every completion_criterion is satisfied. If ANY pending subgoal remains, you MUST return status="continue".
+- app.resolve is NOT app.open. app.resolve only looks up a package name — it does NOT open anything. After app.resolve succeeds, the app is NOT open yet. You MUST continue to call app.open next.
+- NEVER claim an action happened that the tool result does not prove. If the tool result says "matched: true, packageName: X", that means the package was FOUND, not that the app was OPENED.
+- Count your pending subgoals. If there are N subgoals and only 1 tool has run, you cannot be done.
+
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
   "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
 

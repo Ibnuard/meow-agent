@@ -849,13 +849,27 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
       }
-      final goalTree = reflection != null && reflection.goalTree.isNotEmpty
-          ? reflection.goalTree
-          : _buildGoalTree(
-              plan: plan,
-              analysis: analysis,
-              userMessage: effectiveUserMessage,
-            );
+      final plannerGoalTree = _buildGoalTree(
+        plan: plan,
+        analysis: analysis,
+        userMessage: effectiveUserMessage,
+      );
+      // Use the planner's goal tree when it has more subgoals than the
+      // reflector's — the reflector sometimes over-simplifies multi-step tasks
+      // into a single subgoal, which causes the execute loop to declare "done"
+      // prematurely. The planner always sees the analyzer's subgoal_seeds and
+      // produces a faithful breakdown.
+      final GoalTree goalTree;
+      if (reflection != null &&
+          reflection.goalTree.isNotEmpty &&
+          reflection.goalTree.subgoals.length >=
+              plannerGoalTree.subgoals.length) {
+        goalTree = reflection.goalTree;
+      } else {
+        goalTree = plannerGoalTree.isNotEmpty
+            ? plannerGoalTree
+            : (reflection?.goalTree ?? GoalTree(mainGoal: ''));
+      }
       if (targetGraph != null && targetGraph.isNotEmpty) {
         plan['runtime_target_graph'] = targetGraph.toJson();
       }
