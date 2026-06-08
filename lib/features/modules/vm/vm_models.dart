@@ -108,10 +108,12 @@ class VmRuntimeSnapshot {
   const VmRuntimeSnapshot({
     required this.status,
     required this.nativeRuntimeAvailable,
+    this.runtimeBinariesInstalled = false,
     this.rootfsInstalled = false,
     this.serviceRunning = false,
     this.port,
     this.runtimeVersion = '',
+    this.runtimeBinaryPath = '',
     this.rootfsPath = '',
     this.workspacePath = '',
     this.message = '',
@@ -131,10 +133,13 @@ class VmRuntimeSnapshot {
     return VmRuntimeSnapshot(
       status: VmRuntimeStatusX.fromWireName(json['status'] as String?),
       nativeRuntimeAvailable: json['native_runtime_available'] as bool? ?? true,
+      runtimeBinariesInstalled:
+          json['runtime_binaries_installed'] as bool? ?? false,
       rootfsInstalled: json['rootfs_installed'] as bool? ?? false,
       serviceRunning: json['service_running'] as bool? ?? false,
       port: json['port'] as int?,
       runtimeVersion: json['runtime_version'] as String? ?? '',
+      runtimeBinaryPath: json['runtime_binary_path'] as String? ?? '',
       rootfsPath: json['rootfs_path'] as String? ?? '',
       workspacePath: json['workspace_path'] as String? ?? '',
       message: json['message'] as String? ?? '',
@@ -144,10 +149,12 @@ class VmRuntimeSnapshot {
 
   final VmRuntimeStatus status;
   final bool nativeRuntimeAvailable;
+  final bool runtimeBinariesInstalled;
   final bool rootfsInstalled;
   final bool serviceRunning;
   final int? port;
   final String runtimeVersion;
+  final String runtimeBinaryPath;
   final String rootfsPath;
   final String workspacePath;
   final String message;
@@ -156,10 +163,12 @@ class VmRuntimeSnapshot {
   Map<String, dynamic> toJson() => {
     'status': status.wireName,
     'native_runtime_available': nativeRuntimeAvailable,
+    'runtime_binaries_installed': runtimeBinariesInstalled,
     'rootfs_installed': rootfsInstalled,
     'service_running': serviceRunning,
     if (port != null) 'port': port,
     'runtime_version': runtimeVersion,
+    'runtime_binary_path': runtimeBinaryPath,
     'rootfs_path': rootfsPath,
     'workspace_path': workspacePath,
     'message': message,
@@ -169,10 +178,12 @@ class VmRuntimeSnapshot {
   VmRuntimeSnapshot copyWith({
     VmRuntimeStatus? status,
     bool? nativeRuntimeAvailable,
+    bool? runtimeBinariesInstalled,
     bool? rootfsInstalled,
     bool? serviceRunning,
     int? port,
     String? runtimeVersion,
+    String? runtimeBinaryPath,
     String? rootfsPath,
     String? workspacePath,
     String? message,
@@ -182,10 +193,13 @@ class VmRuntimeSnapshot {
       status: status ?? this.status,
       nativeRuntimeAvailable:
           nativeRuntimeAvailable ?? this.nativeRuntimeAvailable,
+      runtimeBinariesInstalled:
+          runtimeBinariesInstalled ?? this.runtimeBinariesInstalled,
       rootfsInstalled: rootfsInstalled ?? this.rootfsInstalled,
       serviceRunning: serviceRunning ?? this.serviceRunning,
       port: port ?? this.port,
       runtimeVersion: runtimeVersion ?? this.runtimeVersion,
+      runtimeBinaryPath: runtimeBinaryPath ?? this.runtimeBinaryPath,
       rootfsPath: rootfsPath ?? this.rootfsPath,
       workspacePath: workspacePath ?? this.workspacePath,
       message: message ?? this.message,

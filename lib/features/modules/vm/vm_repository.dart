@@ -10,12 +10,8 @@ const _kVmRuntimeSnapshotKey = 'vm.runtime.snapshot';
 const _kVmPluginStatesKey = 'vm.plugins.states';
 
 /// Curated default rootfs image. Per AGENTS.md (#1 accuracy, calm UX), we
-/// hide URL/checksum entry from the user. The native side ships a verified
-/// preset; UI just calls install with no parameters.
-///
-/// The native downloader is the source of truth for the actual URL/checksum.
-/// These values are passed through for the MVP service layer; the native
-/// implementation may override or ignore them when it ships.
+/// hide URL/checksum entry from the user. UI calls one install action; native
+/// first downloads the proot binaries, then downloads this rootfs.
 class VmRootfsPreset {
   const VmRootfsPreset({
     required this.url,

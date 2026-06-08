@@ -40,18 +40,6 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
-
-    // VM module: libproot.so is an ARM Linux executable we spawn as a child
-    // process, NOT a real shared library. AGP 8+ defaults to leaving .so
-    // files inside the APK uncompressed (loaded via dlopen). That doesn't
-    // work for our case — we need the binary physically present in
-    // nativeLibraryDir with the executable bit set. useLegacyPackaging=true
-    // forces the platform to extract jniLibs at install time.
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-    }
 }
 
 dependencies {
@@ -61,37 +49,10 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:13.1.5")
     // Coroutines for VM runtime async ops (download, install, exec).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Extract Termux .deb payloads downloaded in-app for the VM runtime.
+    implementation("org.tukaani:xz:1.10")
 }
 
 flutter {
     source = "../.."
 }
-
-// VM module: auto-fetch the Termux proot binary before building. This
-// vendors libproot.so into jniLibs/arm64-v8a so the APK ships ready to use,
-// no separate setup step required by the developer.
-//
-// Skipped if libproot.so is already present (idempotent).
-val fetchProot = tasks.register("fetchProot") {
-    val outFile = file("src/main/jniLibs/arm64-v8a/libproot.so")
-    outputs.file(outFile)
-    onlyIf { !outFile.exists() }
-    doLast {
-        val script = if (System.getProperty("os.name").lowercase().contains("win")) {
-            listOf("powershell", "-ExecutionPolicy", "Bypass", "-File",
-                "${rootProject.projectDir}/../scripts/fetch-proot.ps1")
-        } else {
-            listOf("bash", "${rootProject.projectDir}/../scripts/fetch-proot.sh")
-        }
-        exec {
-            commandLine(script)
-            workingDir = file("${rootProject.projectDir}/..")
-        }
-    }
-}
-
-// Wire fetchProot to run before any Android build task that touches jniLibs.
-tasks.matching { it.name.startsWith("merge") && it.name.contains("JniLibFolders") }
-    .configureEach { dependsOn(fetchProot) }
-tasks.matching { it.name.startsWith("preBuild") }
-    .configureEach { dependsOn(fetchProot) }

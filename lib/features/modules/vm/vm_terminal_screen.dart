@@ -112,7 +112,7 @@ class _VmTerminalScreenState extends ConsumerState<VmTerminalScreen> {
     if (!mounted) return;
     setState(() {
       entry.stdout = stdout;
-      entry.stderr = result.stderr;
+      entry.stderr = result.stderr.isNotEmpty ? result.stderr : result.message;
       entry.exitCode = result.exitCode;
       entry.running = false;
       _busy = false;

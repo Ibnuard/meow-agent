@@ -1,18 +1,22 @@
 package com.meowagent.meow_agent
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
+import org.tukaani.xz.XZInputStream
 
 /**
  * Native VM runtime manager.
@@ -20,10 +24,9 @@ import java.util.zip.GZIPInputStream
  * The runtime is a proot-based Linux chroot living at:
  *   {filesDir}/vm-runtime/rootfs/
  *
- * The proot binary itself must be cross-compiled and dropped into
- * {@code android/app/src/main/jniLibs/{abi}/libproot.so}. If absent, every
- * operation reports {@code nativeRuntimeAvailable = false} so the UI can show
- * an honest "Native not connected" state per AGENTS.md #1 (accuracy).
+ * The proot binary and libtalloc are downloaded in-app into internal storage.
+ * They are intentionally not bundled in the APK so the base install stays
+ * small; the user triggers installation from the VM Runtime screen.
  *
  * The rootfs is expected to be a {@code .tar.gz} tarball. We extract using a
  * minimal inline reader (no commons-compress dep). The default preset URL
@@ -32,7 +35,6 @@ import java.util.zip.GZIPInputStream
  */
 class VmRuntimeManager(private val context: Context) {
 
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val mutex = Mutex()
 
     // @Volatile so the UI can poll snapshot() during a long-running download
@@ -51,15 +53,8 @@ class VmRuntimeManager(private val context: Context) {
     private val downloadDir: File
         get() = File(context.filesDir, "vm-runtime/downloads")
 
-    /**
-     * Staging dir under filesDir where we copy proot + its dynamic deps with
-     * their canonical Linux names. We need this because Android jniLibs
-     * insists on `lib*.so` naming, but proot's dynamic linker looks for
-     * `libtalloc.so.2` specifically. We just copy on demand and tell the
-     * linker via LD_LIBRARY_PATH.
-     */
     private val binDir: File
-        get() = File(context.filesDir, "vm-runtime/bin")
+        get() = File(context.codeCacheDir, "vm-runtime/bin")
 
     private val stagedProot: File
         get() = File(binDir, "proot")
@@ -67,56 +62,27 @@ class VmRuntimeManager(private val context: Context) {
     private val stagedTalloc: File
         get() = File(binDir, "libtalloc.so.2")
 
-    /**
-     * Copy proot + libtalloc out of jniLibs into [binDir] with correct
-     * runtime names. Idempotent: re-copies if the source mtime is newer
-     * (post-update) and skips otherwise.
-     *
-     * Returns true if the runtime is fully wired (binary + lib present).
-     */
-    private fun stageBinaries(): Boolean {
-        val nativeDir = File(context.applicationInfo.nativeLibraryDir)
-        val srcProot = File(nativeDir, "libproot.so")
-        val srcTalloc = File(nativeDir, "libtalloc.so")
-        if (!srcProot.exists() || !srcTalloc.exists()) {
-            Log.w(
-                TAG,
-                "Native binaries missing in $nativeDir: " +
-                    "proot=${srcProot.exists()} talloc=${srcTalloc.exists()}"
-            )
-            return false
-        }
-        binDir.mkdirs()
-        copyIfStale(srcProot, stagedProot)
-        copyIfStale(srcTalloc, stagedTalloc)
-        stagedProot.setExecutable(true, false)
-        return stagedProot.exists() && stagedTalloc.exists()
-    }
-
-    private fun copyIfStale(src: File, dst: File) {
-        if (!dst.exists() || src.lastModified() > dst.lastModified() ||
-            src.length() != dst.length()
-        ) {
-            src.copyTo(dst, overwrite = true)
-            dst.setLastModified(src.lastModified())
-        }
-    }
-
-    /** True when both proot and libtalloc are staged. */
-    private val nativeAvailable: Boolean
-        get() = stageBinaries()
+    private val binariesInstalled: Boolean
+        get() = stagedProot.exists() &&
+            stagedProot.canExecute() &&
+            stagedTalloc.exists() &&
+            stagedProot.length() > 0 &&
+            stagedTalloc.length() > 0
 
     fun snapshot(): Map<String, Any?> {
         val installed = isRootfsInstalled()
+        val hasBinaries = binariesInstalled
         val resolvedStatus = when {
-            !nativeAvailable -> STATUS_UNAVAILABLE
+            !hasBinaries && status == STATUS_UNKNOWN -> STATUS_NOT_INSTALLED
             !installed && status == STATUS_UNKNOWN -> STATUS_NOT_INSTALLED
             installed && status == STATUS_UNKNOWN -> STATUS_INSTALLED
             else -> status
         }
         return mapOf(
             "status" to resolvedStatus,
-            "native_runtime_available" to nativeAvailable,
+            "native_runtime_available" to true,
+            "runtime_binaries_installed" to hasBinaries,
+            "runtime_binary_path" to stagedProot.absolutePath,
             "rootfs_installed" to installed,
             "service_running" to (status == STATUS_RUNNING),
             "runtime_version" to runtimeVersion,
@@ -128,9 +94,148 @@ class VmRuntimeManager(private val context: Context) {
     }
 
     private fun isRootfsInstalled(): Boolean {
-        // Heuristic: rootfs is installed if /bin/sh exists inside the chroot.
         return File(rootfsDir, "bin/sh").exists() ||
-            File(rootfsDir, "usr/bin/sh").exists()
+            File(rootfsDir, "usr/bin/sh").exists() ||
+            File(rootfsDir, "bin/dash").exists() ||
+            File(rootfsDir, "usr/bin/dash").exists() ||
+            File(rootfsDir, "bin/bash").exists() ||
+            File(rootfsDir, "usr/bin/bash").exists()
+    }
+
+    private fun ensureBinariesInstalled(onProgress: (String) -> Unit) {
+        if (binariesInstalled) return
+
+        val termuxArch = termuxArch()
+            ?: throw IOException("VM runtime binary is only available for arm64 devices.")
+
+        binDir.mkdirs()
+        downloadDir.mkdirs()
+        val specs = listOf(
+            BinaryPackageSpec(
+                url = "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_${PROOT_VERSION}_${termuxArch}.deb",
+                binaryName = "proot",
+                destination = stagedProot,
+                executable = true,
+            ),
+            BinaryPackageSpec(
+                url = "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_${TALLOC_VERSION}_${termuxArch}.deb",
+                binaryName = "libtalloc.so.2",
+                destination = stagedTalloc,
+                executable = false,
+            ),
+        )
+
+        specs.forEachIndexed { index, spec ->
+            val step = index + 1
+            lastMessage = "Downloading runtime binary $step / ${specs.size}..."
+            onProgress(lastMessage)
+            installBinaryPackage(spec)
+        }
+
+        stagedProot.setExecutable(true, false)
+        if (!binariesInstalled) {
+            throw IOException("Runtime binaries could not be installed.")
+        }
+    }
+
+    private fun termuxArch(): String? {
+        return if (Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) "aarch64" else null
+    }
+
+    private fun installBinaryPackage(spec: BinaryPackageSpec) {
+        val debFile = File(downloadDir, "${spec.binaryName}.deb")
+        val extractDir = File(downloadDir, "extract-${spec.binaryName}")
+        if (debFile.exists()) debFile.delete()
+        if (extractDir.exists()) extractDir.deleteRecursively()
+
+        downloadFile(spec.url, debFile)
+        extractDebData(debFile, extractDir)
+
+        val extracted = extractDir.walkTopDown().firstOrNull { file ->
+            file.isFile &&
+                (file.name == spec.binaryName || file.name.startsWith("${spec.binaryName}."))
+        } ?: throw IOException("${spec.binaryName} was not found in package.")
+
+        if (spec.destination.exists()) spec.destination.delete()
+        extracted.copyTo(spec.destination, overwrite = true)
+        spec.destination.setReadable(true, false)
+        spec.destination.setWritable(false, false)
+        spec.destination.setExecutable(spec.executable, false)
+        debFile.delete()
+        extractDir.deleteRecursively()
+    }
+
+    private fun downloadFile(url: String, target: File) {
+        val connection = URL(url).openConnection()
+        connection.connectTimeout = 30_000
+        connection.readTimeout = 60_000
+        BufferedInputStream(connection.getInputStream()).use { source ->
+            FileOutputStream(target).use { sink ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    sink.write(buffer, 0, read)
+                }
+            }
+        }
+    }
+
+    private fun extractDebData(debFile: File, target: File) {
+        target.mkdirs()
+        debFile.inputStream().buffered().use { input ->
+            val magic = ByteArray(8)
+            if (readFully(input, magic) != magic.size || String(magic) != "!<arch>\n") {
+                throw IOException("Invalid deb archive.")
+            }
+
+            while (true) {
+                val header = ByteArray(60)
+                val headerRead = readFully(input, header)
+                if (headerRead == 0) break
+                if (headerRead < header.size) throw IOException("Invalid ar member header.")
+
+                val name = String(header, 0, 16).trim().trimEnd('/')
+                val sizeText = String(header, 48, 10).trim()
+                val size = sizeText.toLongOrNull()
+                    ?: throw IOException("Invalid ar member size.")
+                val archiveFile = File(downloadDir, name)
+
+                if (name.startsWith("data.tar.")) {
+                    FileOutputStream(archiveFile).use { output ->
+                        copyN(input, output, size)
+                    }
+                    if (size % 2L != 0L) skipBytes(input, 1)
+                    extractDataTar(archiveFile, target)
+                    archiveFile.delete()
+                    return
+                }
+
+                skipBytes(input, size)
+                if (size % 2L != 0L) skipBytes(input, 1)
+            }
+        }
+        throw IOException("data.tar payload was not found in deb package.")
+    }
+
+    private fun extractDataTar(archive: File, target: File) {
+        when {
+            archive.name.endsWith(".xz") -> {
+                XZInputStream(archive.inputStream().buffered()).use { input ->
+                    extractTar(input, target)
+                }
+            }
+            archive.name.endsWith(".gz") -> {
+                GZIPInputStream(archive.inputStream().buffered()).use { input ->
+                    extractTar(input, target)
+                }
+            }
+            else -> {
+                archive.inputStream().buffered().use { input ->
+                    extractTar(input, target)
+                }
+            }
+        }
     }
 
     suspend fun downloadRootfs(
@@ -139,13 +244,11 @@ class VmRuntimeManager(private val context: Context) {
         version: String,
         onProgress: (String) -> Unit = {}
     ): Map<String, Any?> = mutex.withLock {
-        if (!nativeAvailable) {
-            return@withLock fail("Native proot binary not bundled with this build.")
-        }
         try {
             status = STATUS_DOWNLOADING
-            lastMessage = "Starting download..."
-            onProgress("downloading")
+            ensureBinariesInstalled(onProgress)
+            lastMessage = "Downloading rootfs..."
+            onProgress(lastMessage)
 
             downloadDir.mkdirs()
             val tarball = File(downloadDir, "rootfs.tar.gz")
@@ -225,8 +328,8 @@ class VmRuntimeManager(private val context: Context) {
     }
 
     suspend fun start(): Map<String, Any?> = mutex.withLock {
-        if (!nativeAvailable) {
-            return@withLock fail("Native proot binary not bundled with this build.")
+        if (!binariesInstalled) {
+            return@withLock fail("Runtime binary is not installed. Tap Install Runtime first.")
         }
         if (!isRootfsInstalled()) {
             return@withLock fail("Runtime is not installed. Tap Install Runtime first.")
@@ -260,9 +363,87 @@ class VmRuntimeManager(private val context: Context) {
             // Workspace mount point inside the chroot. Actual storage lives
             // outside the rootfs at workspaceDir; runCommand binds it.
             File(rootfsDir, "root/workspace").mkdirs()
+            repairMergedUsrLinks()
+            repairShellLinks()
         } catch (e: Exception) {
             Log.w(TAG, "configureRootfs: ${e.message}")
         }
+    }
+
+    private fun repairMergedUsrLinks() {
+        ensureRootLinkOrCopy("bin", "usr/bin")
+        ensureRootLinkOrCopy("sbin", "usr/sbin")
+        ensureRootLinkOrCopy("lib", "usr/lib")
+        ensureRootLinkOrCopy("lib64", "usr/lib64")
+    }
+
+    private fun ensureRootLinkOrCopy(linkName: String, targetName: String) {
+        val link = File(rootfsDir, linkName)
+        val target = File(rootfsDir, targetName)
+        if (!target.exists()) return
+        if (link.exists()) {
+            if (!link.isDirectory || link.list()?.isNotEmpty() == true) return
+            link.delete()
+        } else if (java.nio.file.Files.isSymbolicLink(link.toPath())) {
+            link.delete()
+        }
+
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                link.toPath(),
+                java.io.File(targetName).toPath()
+            )
+        } catch (_: Exception) {
+            if (target.isDirectory) {
+                copyDirectoryIfMissing(target, link)
+            }
+        }
+    }
+
+    private fun copyDirectoryIfMissing(source: File, destination: File) {
+        if (destination.exists()) return
+        source.walkTopDown().forEach { file ->
+            val relative = file.relativeTo(source).path
+            val out = if (relative == ".") destination else File(destination, relative)
+            if (file.isDirectory) {
+                out.mkdirs()
+            } else if (!out.exists()) {
+                out.parentFile?.mkdirs()
+                file.copyTo(out, overwrite = false)
+                out.setExecutable(file.canExecute(), false)
+            }
+        }
+    }
+
+    private fun repairShellLinks() {
+        val dash = listOf(
+            File(rootfsDir, "usr/bin/dash"),
+            File(rootfsDir, "bin/dash"),
+        ).firstOrNull { it.exists() }
+        val usrSh = File(rootfsDir, "usr/bin/sh")
+        if (!usrSh.exists() && dash != null) {
+            usrSh.parentFile?.mkdirs()
+            try {
+                java.nio.file.Files.createSymbolicLink(
+                    usrSh.toPath(),
+                    java.io.File(dash.name).toPath()
+                )
+            } catch (_: Exception) {
+                dash.copyTo(usrSh, overwrite = true)
+                usrSh.setExecutable(true, false)
+            }
+        }
+    }
+
+    private fun shellPathInsideRootfs(): String? {
+        return listOf(
+            "/bin/sh" to File(rootfsDir, "bin/sh"),
+            "/usr/bin/sh" to File(rootfsDir, "usr/bin/sh"),
+            "/usr/bin/dash" to File(rootfsDir, "usr/bin/dash"),
+            "/bin/dash" to File(rootfsDir, "bin/dash"),
+            "/bin/bash" to File(rootfsDir, "bin/bash"),
+            "/usr/bin/bash" to File(rootfsDir, "usr/bin/bash"),
+        ).firstOrNull { (_, file) -> file.exists() }?.first
     }
 
     /**
@@ -274,9 +455,9 @@ class VmRuntimeManager(private val context: Context) {
         command: String,
         timeoutMs: Long
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
-        if (!stageBinaries()) {
+        if (!binariesInstalled) {
             return@withContext commandFail(
-                "Native proot binary not bundled with this build."
+                "Runtime binary is not installed. Tap Install Runtime first."
             )
         }
         if (!isRootfsInstalled()) {
@@ -284,15 +465,21 @@ class VmRuntimeManager(private val context: Context) {
         }
 
         try {
+            configureRootfs()
+            val shellPath = shellPathInsideRootfs()
+                ?: return@withContext commandFail("Runtime shell was not found in rootfs.")
             val pb = ProcessBuilder(
-                stagedProot.absolutePath,
-                "-r", rootfsDir.absolutePath,
-                "-w", "/root",
-                "-b", "/dev",
-                "-b", "/proc",
-                "-b", "/sys",
-                "-b", "${workspaceDir.absolutePath}:/root/workspace",
-                "/bin/sh", "-c", command
+                listOf(
+                    linkerPath(),
+                    stagedProot.absolutePath,
+                    "-r", rootfsDir.absolutePath,
+                    "-w", "/root",
+                    "-b", "/dev",
+                    "-b", "/proc",
+                    "-b", "/sys",
+                    "-b", "${workspaceDir.absolutePath}:/root/workspace",
+                    shellPath, "-c", command,
+                )
             )
             pb.environment().putAll(
                 mapOf(
@@ -332,6 +519,14 @@ class VmRuntimeManager(private val context: Context) {
         }
     }
 
+    private fun linkerPath(): String {
+        return if (Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
+            "/system/bin/linker64"
+        } else {
+            "/system/bin/linker"
+        }
+    }
+
     /**
      * Install a plugin: runs its install command as root (the proot session
      * runs as fake-root by default). Long timeout for big toolchains.
@@ -366,6 +561,13 @@ class VmRuntimeManager(private val context: Context) {
     @Throws(IOException::class)
     private fun extractTarGz(tarGz: File, target: File) {
         GZIPInputStream(tarGz.inputStream().buffered()).use { gz ->
+            extractTar(gz, target)
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun extractTar(input: InputStream, target: File) {
+        input.buffered().use { gz ->
             val header = ByteArray(512)
             while (true) {
                 val read = readFully(gz, header)
@@ -390,12 +592,9 @@ class VmRuntimeManager(private val context: Context) {
                 when (typeFlag) {
                     '5' -> outPath.mkdirs()
                     '2' -> {
-                        // Symlink: best-effort. Java has no direct API on
-                        // older Android, fall back to writing a placeholder
-                        // file. This is acceptable for proot which reads the
-                        // chroot directly.
                         outPath.parentFile?.mkdirs()
                         try {
+                            if (outPath.exists()) outPath.delete()
                             java.nio.file.Files.createSymbolicLink(
                                 outPath.toPath(),
                                 java.io.File(linkName).toPath()
@@ -405,7 +604,19 @@ class VmRuntimeManager(private val context: Context) {
                         }
                     }
                     '1' -> {
-                        // Hard link: not common in rootfs, skip silently.
+                        outPath.parentFile?.mkdirs()
+                        val source = File(target, linkName)
+                        try {
+                            if (outPath.exists()) outPath.delete()
+                            java.nio.file.Files.createLink(
+                                outPath.toPath(),
+                                source.toPath()
+                            )
+                        } catch (_: Exception) {
+                            if (source.exists()) {
+                                source.copyTo(outPath, overwrite = true)
+                            }
+                        }
                     }
                     else -> {
                         outPath.parentFile?.mkdirs()
@@ -480,8 +691,17 @@ class VmRuntimeManager(private val context: Context) {
         return name
     }
 
+    private data class BinaryPackageSpec(
+        val url: String,
+        val binaryName: String,
+        val destination: File,
+        val executable: Boolean,
+    )
+
     companion object {
         private const val TAG = "VmRuntime"
+        private const val PROOT_VERSION = "5.1.107.77"
+        private const val TALLOC_VERSION = "2.4.3"
 
         const val STATUS_UNKNOWN = "unknown"
         const val STATUS_UNAVAILABLE = "unavailable"

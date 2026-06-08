@@ -396,8 +396,8 @@ class AppStrings {
   // VM Runtime module — simplified one-tap install/start/stop flow.
   String get vmRuntimeTitle => isId ? 'VM Runtime' : 'VM Runtime';
   String get vmRuntimeSubtitle => isId
-      ? 'Linux lokal di dalam Meow. Install sekali, agent bisa menjalankan command di dalamnya.'
-      : 'A local Linux runtime inside Meow. Install once, then agents can run commands inside it.';
+      ? 'Linux lokal di dalam Meow. Binary dan image diunduh dari app saat kamu install.'
+      : 'A local Linux runtime inside Meow. Binaries and image download in-app when you install.';
   String get vmInstallRuntime => isId ? 'Install Runtime' : 'Install Runtime';
   String get vmStartRuntime => isId ? 'Mulai Runtime' : 'Start Runtime';
   String get vmStopRuntime => isId ? 'Hentikan Runtime' : 'Stop Runtime';
@@ -414,13 +414,13 @@ class AppStrings {
       ? 'Runtime sudah terpasang. Mulai untuk dipakai agent.'
       : 'Runtime is installed. Start it to let agents use it.';
   String get vmRuntimeNeedInstall => isId
-      ? 'Belum ada runtime terpasang. Tap Install untuk mengunduh image (~150 MB).'
-      : 'No runtime installed yet. Tap Install to download the image (~150 MB).';
+      ? 'Belum ada runtime terpasang. Tap Install untuk mengunduh binary kecil dan image runtime.'
+      : 'No runtime installed yet. Tap Install to download the small binaries and runtime image.';
   String get vmRuntimeStarting =>
       isId ? 'Memulai runtime...' : 'Starting runtime...';
   String get vmRuntimeDownloading => isId
-      ? 'Mengunduh image runtime. Tetap di layar ini.'
-      : 'Downloading runtime image. Keep this screen open.';
+      ? 'Mengunduh runtime. Tetap di layar ini.'
+      : 'Downloading runtime. Keep this screen open.';
 
   // Plugin section
   String get vmPluginsTitle => isId ? 'Plugin' : 'Plugins';
@@ -447,8 +447,8 @@ class AppStrings {
       isId ? 'Gagal memasang $name.' : 'Failed to install $name.';
   String get vmPluginEstimatedSize => isId ? 'Ukuran' : 'Size';
   String get vmNativeUnavailable => isId
-      ? 'Native VM runtime belum tersambung di build ini. Modul masih bisa diaktifkan, tapi runtime belum bisa dijalankan.'
-      : 'Native VM runtime is not wired up in this build yet. The module can still be enabled, but the runtime cannot run.';
+      ? 'Native VM runtime belum tersambung di build ini.'
+      : 'Native VM runtime is not wired up in this build yet.';
   String get vmStatusReady =>
       isId ? 'Runtime siap digunakan.' : 'Runtime is ready.';
   String get vmStatusUnavailable =>

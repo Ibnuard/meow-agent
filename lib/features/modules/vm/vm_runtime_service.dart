@@ -3,11 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'vm_models.dart';
 
-/// Method-channel bridge to the native proot runtime.
-///
-/// Until the Kotlin side ships a real proot binary in `jniLibs/`, every call
-/// returns an `unavailable` snapshot — never a fake "success". Per AGENTS.md
-/// #1 and #6, we never claim success we cannot verify.
+/// Method-channel bridge to the native proot runtime. Runtime binaries are
+/// installed in-app into internal storage, not bundled into the APK.
 class VmRuntimeService {
   const VmRuntimeService();
 
