@@ -461,14 +461,11 @@ class ExecuteLoopRunner {
         if (permissionDenied != null) {
           logger.logToolResult(permissionDenied);
           emit(logger.events.last);
-          _memory.record(
-            agentId: request.agentId,
-            toolName: toolRequest.name,
-            args: toolRequest.args,
-            data: permissionDenied.data,
-            success: false,
-            error: permissionDenied.error,
-          );
+          // Do NOT record permission/module denial in RuntimeMemory. These are
+          // mutable environment conditions: the user may enable the module or
+          // grant Android permission before the next turn. Persisting the denial
+          // makes analyzer/selector prompts repeat stale "permission denied"
+          // context even after the live permission state has changed.
           await _workspaceLoader.updateHeartbeat(
             request.agentName.isNotEmpty ? request.agentName : request.agentId,
             state: AgentRuntimeState.failed.name,
@@ -481,6 +478,7 @@ class ExecuteLoopRunner {
               permissionDeniedResponseFor(permissionDenied) ??
               (permissionDenied.error ??
                   _runtimePhrase('runtime_permission_denied'));
+          final actions = permissionDeniedActionsFor(permissionDenied);
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
@@ -488,6 +486,7 @@ class ExecuteLoopRunner {
             success: false,
             state: AgentRuntimeState.failed,
             events: logger.events,
+            actions: actions,
           );
         }
 
@@ -498,6 +497,8 @@ class ExecuteLoopRunner {
           verbalizer: verbalizer,
           language: detectedLang,
           userMessage: request.userMessage,
+          currentAgentId: request.agentId,
+          currentAgentName: request.agentName,
         );
         if (preflight != null) {
           logger.logFinalResponse(preflight);
@@ -705,23 +706,9 @@ class ExecuteLoopRunner {
         emit(logger.events.last);
         await _sendAppAgenticNarrativeAfter(toolRequest, result);
 
-        _memory.record(
-          agentId: request.agentId,
-          toolName: toolRequest.name,
-          args: toolRequest.args,
-          data: result.data,
-          success: result.success,
-          error: result.error,
-        );
-
-        if (deliveryKey != null && result.success) {
-          deliveredKeys.add(deliveryKey);
-          lastDeliveryTool = toolRequest;
-          lastDeliveryResult = result;
-        }
-
         final permissionFinal = permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
+          final actions = permissionDeniedActionsFor(result);
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(permissionFinal);
           await _workspaceLoader.updateHeartbeat(
@@ -737,6 +724,7 @@ class ExecuteLoopRunner {
             success: false,
             state: AgentRuntimeState.failed,
             events: logger.events,
+            actions: actions,
           );
         }
 
@@ -758,6 +746,24 @@ class ExecuteLoopRunner {
             state: AgentRuntimeState.failed,
             events: logger.events,
           );
+        }
+
+        if (result.success) {
+          _memory.purgeFailuresForTool(request.agentId, toolRequest.name);
+        }
+        _memory.record(
+          agentId: request.agentId,
+          toolName: toolRequest.name,
+          args: toolRequest.args,
+          data: result.data,
+          success: result.success,
+          error: result.error,
+        );
+
+        if (deliveryKey != null && result.success) {
+          deliveredKeys.add(deliveryKey);
+          lastDeliveryTool = toolRequest;
+          lastDeliveryResult = result;
         }
 
         // Post-execute verification.
@@ -1392,19 +1398,69 @@ class ExecuteLoopRunner {
         : action;
 
     final setting = (data['settingLabel'] as String? ?? '').trim();
+    if (reason == ToolPermissionBlockReason.moduleMissing.name) {
+      return LanguageRegistry.phrase('permission_module_missing', code, {
+        'module': module,
+        'action': actionLabel,
+      });
+    }
+
     if (setting.isNotEmpty) {
-      return LanguageRegistry.phrase('permission_setting_disabled', code, {
+      return LanguageRegistry.phrase('permission_denied', code, {
         'module': module,
         'setting': setting,
         'action': actionLabel,
       });
     }
 
-    return LanguageRegistry.phrase('permission_denied', code, {
+    return LanguageRegistry.phrase('permission_denied_no_setting', code, {
       'module': module,
       'action': actionLabel,
       'reason': reason,
     });
+  }
+
+  /// Action buttons for ecosystem failures such as missing/disabled modules.
+  List<ResultAction> permissionDeniedActionsFor(ToolExecutionResult result) {
+    final data = result.data;
+    if (data == null ||
+        data['errorCode'] != ToolPermissionPolicy.permissionDeniedCode) {
+      return const [];
+    }
+
+    final moduleId = (data['moduleId'] as String? ?? '').trim();
+    if (moduleId.isEmpty) return const [];
+
+    final code = _languageCode;
+    final moduleName = (data['moduleName'] as String? ?? '').trim();
+    final module = moduleName.isEmpty ? moduleId : moduleName;
+    final reason = data['reason'] as String? ?? '';
+
+    if (reason == ToolPermissionBlockReason.moduleMissing.name) {
+      return [
+        ResultAction(
+          label: LanguageRegistry.phrase('action_install_module', code, {
+            'module': module,
+          }),
+          icon: 'add_rounded',
+          type: 'install_module',
+          target: moduleId,
+          params: {'moduleId': moduleId},
+        ),
+      ];
+    }
+
+    return [
+      ResultAction(
+        label: LanguageRegistry.phrase('action_open_module', code, {
+          'module': module,
+        }),
+        icon: 'extension_rounded',
+        type: 'navigate',
+        target: '/modules/$moduleId',
+        params: {'moduleId': moduleId},
+      ),
+    ];
   }
 
   /// Build the final user-facing message when the goal tree completes.

@@ -40,6 +40,16 @@ class RuntimeMemory {
 
   void clear(String agentId) => _byAgent.remove(agentId);
 
+  /// Remove failed entries for a tool after the same tool succeeds. This keeps
+  /// mutable failures (module toggles/Android permissions) from poisoning future
+  /// analyzer/selector prompts after the user fixes the permission.
+  void purgeFailuresForTool(String agentId, String toolName) {
+    final list = _byAgent[agentId];
+    if (list == null || list.isEmpty) return;
+    list.removeWhere((e) => e.toolName == toolName && !e.success);
+    if (list.isEmpty) _byAgent.remove(agentId);
+  }
+
   /// Build a compact string block describing recent tool results for prompts.
   /// Returns empty string if no entries.
   String formatForPrompt(String agentId) {

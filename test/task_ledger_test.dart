@@ -204,5 +204,23 @@ void main() {
       expect(found!.currentStep, 5);
       expect(found.previousResults.length, 1);
     });
+
+    test('deleteAllForAgent wipes every status, scoped to agent', () async {
+      // a1: one active (chat), one archived (workflow) — both must go.
+      await db.upsert(sampleLedger(id: 'a1_active', agentId: 'a1'));
+      await db.upsert(
+        sampleLedger(id: 'a1_done', agentId: 'a1', source: LedgerSource.workflow),
+      );
+      await db.archive('a1_done', LedgerStatus.completed);
+      // a2: must remain — different agent.
+      await db.upsert(sampleLedger(id: 'a2_active', agentId: 'a2'));
+
+      final removed = await db.deleteAllForAgent('a1');
+      expect(removed, 2);
+
+      expect(await db.findById('a1_active'), isNull);
+      expect(await db.findById('a1_done'), isNull);
+      expect(await db.findById('a2_active'), isNotNull);
+    });
   });
 }

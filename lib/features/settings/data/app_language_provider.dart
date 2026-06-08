@@ -401,13 +401,11 @@ class AppStrings {
   String get vmInstallRuntime => isId ? 'Install Runtime' : 'Install Runtime';
   String get vmStartRuntime => isId ? 'Mulai Runtime' : 'Start Runtime';
   String get vmStopRuntime => isId ? 'Hentikan Runtime' : 'Stop Runtime';
-  String get vmReinstallRuntime =>
-      isId ? 'Install Ulang' : 'Reinstall';
+  String get vmReinstallRuntime => isId ? 'Install Ulang' : 'Reinstall';
   String get vmOpenTerminal => isId ? 'Buka Terminal' : 'Open Terminal';
   String get vmTerminalTitle => isId ? 'Terminal' : 'Terminal';
   String get vmTerminalClear => isId ? 'Bersihkan' : 'Clear';
-  String get vmTerminalHint =>
-      isId ? 'Ketik perintah…' : 'Type a command…';
+  String get vmTerminalHint => isId ? 'Ketik perintah…' : 'Type a command…';
   String get vmRuntimeReady =>
       isId ? 'Runtime siap dipakai agent.' : 'Runtime is ready for agents.';
   String get vmRuntimeIdle => isId
@@ -453,10 +451,8 @@ class AppStrings {
       isId ? 'Runtime siap digunakan.' : 'Runtime is ready.';
   String get vmStatusUnavailable =>
       isId ? 'Native belum tersambung' : 'Native not connected';
-  String get vmStatusNotInstalled =>
-      isId ? 'Belum terpasang' : 'Not installed';
-  String get vmStatusDownloading =>
-      isId ? 'Sedang mengunduh' : 'Downloading';
+  String get vmStatusNotInstalled => isId ? 'Belum terpasang' : 'Not installed';
+  String get vmStatusDownloading => isId ? 'Sedang mengunduh' : 'Downloading';
   String get vmStatusInstalled =>
       isId ? 'Terpasang, belum berjalan' : 'Installed, not running';
   String get vmStatusStarting => isId ? 'Memulai' : 'Starting';
@@ -553,6 +549,27 @@ class AppStrings {
   String get installed => isId ? 'Terpasang' : 'Installed';
   String moduleInstalled(String name) =>
       isId ? '$name terpasang.' : '$name installed.';
+  String moduleInstalledForPreviousRequest(String name) => isId
+      ? 'Permintaan tadi membutuhkan $name. $name sudah terpasang; buka modulnya untuk mengecek izin yang diperlukan, lalu coba lagi.'
+      : 'The previous request needs $name. $name is installed now; open the module to check the required permissions, then try again.';
+  String installModuleAction(String name) =>
+      isId ? 'Pasang $name' : 'Install $name';
+  String openModuleAction(String name) => isId ? 'Buka $name' : 'Open $name';
+  String moduleAlreadyInstalled(String name) =>
+      isId ? '$name sudah terpasang.' : '$name is already installed.';
+  String moduleInstallUnavailable(String name) => isId
+      ? 'Modul "$name" belum tersedia di daftar modul.'
+      : 'Module "$name" is not available in the module list.';
+  String moduleMissingTitle(String name) =>
+      isId ? '$name belum terpasang' : '$name is not installed';
+  String moduleMissingBody(String name) => isId
+      ? 'Tombol ini mengarah ke $name, tapi modulnya sudah dilepas atau belum terpasang. Pasang lagi untuk membuka pengaturan dan izin.'
+      : 'This button points to $name, but the module has been removed or is not installed yet. Install it again to open settings and permissions.';
+  String get moduleUnknownTitle =>
+      isId ? 'Modul tidak tersedia' : 'Module unavailable';
+  String get moduleUnknownBody => isId
+      ? 'Link ini mengarah ke modul yang tidak tersedia di daftar modul saat ini.'
+      : 'This link points to a module that is not available in the current module list.';
   String get active => isId ? 'Aktif' : 'Active';
   String get disabled => isId ? 'Nonaktif' : 'Disabled';
   String get failedLoadModules =>
@@ -716,11 +733,32 @@ class AppStrings {
 
   // --- Chat slash command responses ---
   String get chatHistoryCleared => isId
-      ? 'Riwayat chat dan konteks dibersihkan.'
-      : 'Chat history and context cleared.';
+      ? 'Riwayat chat, task aktif, dan konteks dibersihkan total.'
+      : 'Chat history, active tasks, and context fully cleared.';
   String get contextReset => isId
-      ? '✓ Konteks direset — counter penggunaan dihapus. AI akan menganggap pesan berikutnya sebagai sesi baru.'
-      : '✓ Context reset — usage counters cleared. AI will treat next message as a fresh session.';
+      ? '✓ Konteks direset. Riwayat lama tetap terlihat di layar, tapi data history, task, dan konteks sesi ini sudah dikosongkan.'
+      : '✓ Context reset. Older messages stay visible on screen, but this session\'s stored history, tasks, and context are cleared.';
+  String get newSessionStarted => isId
+      ? '✨ Sesi baru dimulai. Saya mulai dari awal yang bersih.'
+      : '✨ New session started. I\'m beginning with a clean slate.';
+  String sessionStartedWithId(String id) => isId
+      ? '✨ Sesi baru dimulai (kode: $id). Saya mulai dari awal yang bersih.'
+      : '✨ New session started (code: $id). I\'m beginning with a clean slate.';
+  String newSessionStartedWithResume(String newId, String previousId) => isId
+      ? '✨ Sesi baru dimulai (kode: $newId). Saya mulai dari awal yang bersih.\n\nUntuk lanjut ke sesi sebelumnya, ketik /resume $previousId.'
+      : '✨ New session started (code: $newId). I\'m beginning with a clean slate.\n\nTo continue the previous session, type /resume $previousId.';
+  String sessionResumed(String id) => isId
+      ? '↩️ Melanjutkan sesi $id. Konteks sesi itu kembali aktif.'
+      : '↩️ Resumed session $id. That session\'s context is active again.';
+  String sessionNotFound(String id) => isId
+      ? '⚠️ Sesi "$id" tidak ditemukan. Ketik /resume tanpa id untuk melihat sesi yang tersedia.'
+      : '⚠️ Session "$id" not found. Type /resume with no id to see available sessions.';
+  String get resumeUsageNoSessions => isId
+      ? 'Belum ada sesi lain untuk dilanjutkan.'
+      : 'There are no other sessions to resume yet.';
+  String resumeUsageHeader(int count) => isId
+      ? 'Sesi tersedia ($count). Pakai /resume {kode}:'
+      : 'Available sessions ($count). Use /resume {code}:';
   String get noProviderConnected => isId
       ? '⚠️ Tidak ada provider terhubung ke agen ini.'
       : '⚠️ No provider connected to this agent.';
@@ -838,15 +876,22 @@ class AppStrings {
       ? 'Ketik salah satu command di bawah ini.'
       : 'Type one of the commands below.';
   String get helpSlashClear => isId
-      ? 'Bersihkan riwayat chat & konteks'
-      : 'Clear chat history & context';
+      ? 'Hapus total riwayat, task, & konteks'
+      : 'Wipe history, tasks & context';
   String get helpSlashHelp => isId ? 'Tampilkan daftar ini' : 'Show this list';
   String get helpSlashStatus =>
       isId ? 'Tampilkan info agen & konteks' : 'Show agent & context info';
   String get helpSlashContext =>
       isId ? 'Tampilkan rincian token/konteks' : 'Show token/context breakdown';
-  String get helpSlashReset =>
-      isId ? 'Reset konteks saja' : 'Reset context only';
+  String get helpSlashReset => isId
+      ? 'Kosongkan konteks & data history sesi ini'
+      : 'Clear this session context & stored history';
+  String get helpSlashNewSession => isId
+      ? 'Mulai sesi baru dan tampilkan kode sesi lama'
+      : 'Start a new session and show the previous code';
+  String get helpSlashResume => isId
+      ? 'Lanjutkan sesi lama: /resume {kode}'
+      : 'Resume a past session: /resume {code}';
   String get helpSlashModel =>
       isId ? 'Tampilkan info model saat ini' : 'Show current model info';
   String get helpSlashSetModel =>

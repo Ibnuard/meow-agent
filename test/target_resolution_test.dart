@@ -130,6 +130,37 @@ void main() {
       expect(result.reflection.impacts.map((i) => i.entityId), ['wf_a']);
     });
 
+    test('resolves current-agent placeholder to the active agent', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'update current agent',
+          subgoals: [Subgoal(id: 'sg_current', label: 'update current agent')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_current',
+            operation: 'update',
+            entityType: 'agent',
+            entityLabel: 'current_agent',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      final target = result.graph.eligibleTargets.single;
+      expect(target.entityId, 'mina');
+      expect(target.entityLabel, 'Mina');
+      expect(target.selector['resolved_reference'], 'current_agent');
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
     test('drops unlinked impacts when valid targets are known', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.clarify,
@@ -644,42 +675,43 @@ void main() {
       );
 
       expect(result.graph.eligibleTargets.length, 2);
-      expect(
-        result.graph.eligibleTargets.map((t) => t.operation).toSet(),
-        {'delete'},
-      );
+      expect(result.graph.eligibleTargets.map((t) => t.operation).toSet(), {
+        'delete',
+      });
     });
 
-    test('"delete every agent" expands and still skips current active agent',
-        () {
-      final reflection = ReflectionOutput(
-        strategy: ReflectionStrategy.directExecute,
-        goalTree: GoalTree(
-          mainGoal: 'delete every agent',
-          subgoals: [Subgoal(id: 'sg_bulk', label: 'delete every agent')],
-        ),
-        targets: const [
-          ReflectionTarget(
-            subgoalId: 'sg_bulk',
-            operation: 'delete',
-            entityType: 'agent',
-            entityLabel: 'every',
+    test(
+      '"delete every agent" expands and still skips current active agent',
+      () {
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'delete every agent',
+            subgoals: [Subgoal(id: 'sg_bulk', label: 'delete every agent')],
           ),
-        ],
-      );
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg_bulk',
+              operation: 'delete',
+              entityType: 'agent',
+              entityLabel: 'every',
+            ),
+          ],
+        );
 
-      final result = TargetResolver.resolveReflection(
-        reflection: reflection,
-        snapshot: snapshot(),
-        request: request(),
-        language: language,
-      );
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot(),
+          request: request(),
+          language: language,
+        );
 
-      // 3 agents, but Mina is current active → skipped.
-      expect(result.graph.eligibleTargets.length, 2);
-      expect(result.graph.skippedTargets.length, 1);
-      expect(result.graph.skippedTargets.single.entityId, 'mina');
-    });
+        // 3 agents, but Mina is current active → skipped.
+        expect(result.graph.eligibleTargets.length, 2);
+        expect(result.graph.skippedTargets.length, 1);
+        expect(result.graph.skippedTargets.single.entityId, 'mina');
+      },
+    );
 
     test('selector.scope=all expands even when label is generic', () {
       final reflection = ReflectionOutput(
@@ -707,10 +739,9 @@ void main() {
       );
 
       expect(result.graph.eligibleTargets.length, 2);
-      expect(
-        result.graph.eligibleTargets.map((t) => t.entityType).toSet(),
-        {'provider'},
-      );
+      expect(result.graph.eligibleTargets.map((t) => t.entityType).toSet(), {
+        'provider',
+      });
     });
 
     test('does NOT expand when entity already concrete (id provided)', () {
@@ -769,48 +800,54 @@ void main() {
 
       // Create is not bulk-eligible — leaves the seed alone, normal resolution
       // then either blocks (target not found) or stays single.
-      expect(result.graph.eligibleTargets.length + result.graph.blockingTargets.length, 1);
+      expect(
+        result.graph.eligibleTargets.length +
+            result.graph.blockingTargets.length,
+        1,
+      );
     });
 
-    test('expansion is a no-op when snapshot has zero entities of that type',
-        () {
-      final emptyWorkflows = EcosystemSnapshot(
-        builtAt: DateTime(2026, 1, 1),
-        agents: const [
-          EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'X'),
-        ],
-        workflows: const [],
-        providers: const [],
-        modules: const [],
-      );
-      final reflection = ReflectionOutput(
-        strategy: ReflectionStrategy.directExecute,
-        goalTree: GoalTree(
-          mainGoal: 'hapus semua workflow',
-          subgoals: [Subgoal(id: 'sg', label: 'hapus semua workflow')],
-        ),
-        targets: const [
-          ReflectionTarget(
-            subgoalId: 'sg',
-            operation: 'delete',
-            entityType: 'workflow',
-            entityLabel: 'all',
-            selector: {'scope': 'all'},
+    test(
+      'expansion is a no-op when snapshot has zero entities of that type',
+      () {
+        final emptyWorkflows = EcosystemSnapshot(
+          builtAt: DateTime(2026, 1, 1),
+          agents: const [
+            EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'X'),
+          ],
+          workflows: const [],
+          providers: const [],
+          modules: const [],
+        );
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'hapus semua workflow',
+            subgoals: [Subgoal(id: 'sg', label: 'hapus semua workflow')],
           ),
-        ],
-      );
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg',
+              operation: 'delete',
+              entityType: 'workflow',
+              entityLabel: 'all',
+              selector: {'scope': 'all'},
+            ),
+          ],
+        );
 
-      final result = TargetResolver.resolveReflection(
-        reflection: reflection,
-        snapshot: emptyWorkflows,
-        request: request(),
-        language: language,
-      );
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: emptyWorkflows,
+          request: request(),
+          language: language,
+        );
 
-      // No snapshot entities → no expansion → original target falls through to
-      // normal resolution which marks it as missing/blocking.
-      expect(result.graph.eligibleTargets, isEmpty);
-    });
+        // No snapshot entities → no expansion → original target falls through to
+        // normal resolution which marks it as missing/blocking.
+        expect(result.graph.eligibleTargets, isEmpty);
+      },
+    );
   });
 
   group('TargetResolver — predicate selector (language-agnostic)', () {

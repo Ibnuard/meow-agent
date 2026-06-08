@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/router.dart';
 import '../../data/chat_history_service.dart';
 import '../../data/chat_messages_notifier.dart';
 import '../../data/chat_runtime_manager.dart';
@@ -9,6 +10,8 @@ import '../../../../services/agent_runtime/context_compactor.dart';
 import '../../../../services/agent_runtime/runtime_models.dart';
 import '../../../settings/data/app_language_provider.dart';
 import '../../../modules/calendar/calendar_screen.dart';
+import '../../../modules/data/module_model.dart';
+import '../../../modules/data/module_repository.dart';
 import '../../../modules/workflows/workflow_list_screen.dart';
 import '../../../agents/data/workspace_service.dart';
 import '../../../agents/data/agent_repository.dart';
@@ -90,6 +93,9 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       case 'select_model':
         await handleSelectModelAction(action, sourceMessage);
         break;
+      case 'install_module':
+        await handleInstallModuleAction(action, sourceMessage);
+        break;
       case 'navigate':
         if (action.target == '/modules/calendar') {
           await Navigator.push(
@@ -113,6 +119,97 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       case 'open_url':
         break;
     }
+  }
+
+  Future<void> handleInstallModuleAction(
+    ResultAction action,
+    ChatMessage? sourceMessage,
+  ) async {
+    final moduleId = (action.params['moduleId'] ?? action.target)
+        .toString()
+        .trim();
+    if (moduleId.isEmpty) return;
+
+    if (sourceMessage != null) {
+      await _replaceActionSource(
+        sourceMessage,
+        sourceMessage.copyWith(actions: const []),
+      );
+    }
+
+    final spec = ModuleRegistry.available
+        .where((module) => module.id == moduleId)
+        .firstOrNull;
+    if (spec == null) {
+      final message =
+          (sourceMessage ?? ChatMessage(role: 'assistant', content: ''))
+              .copyWith(
+                content: s.moduleInstallUnavailable(moduleId),
+                actions: [
+                  ResultAction(
+                    label: s.moduleStore,
+                    icon: 'extension_rounded',
+                    type: 'navigate',
+                    target: AppRoutes.moduleStore,
+                  ),
+                ],
+              );
+      await _replaceActionSource(sourceMessage, message);
+      return;
+    }
+
+    final repo = ref.read(moduleRepositoryProvider);
+    final installed = await repo.getInstalled();
+    final alreadyInstalled = installed.any((module) => module.id == moduleId);
+    if (!alreadyInstalled) {
+      await repo.install(spec);
+      ref.invalidate(installedModulesProvider);
+    }
+    if (!mounted) return;
+
+    final content = s.moduleInstalledForPreviousRequest(spec.name);
+    final message =
+        (sourceMessage ?? ChatMessage(role: 'assistant', content: '')).copyWith(
+          content: content,
+          actions: [
+            ResultAction(
+              label: s.openModuleAction(spec.name),
+              icon: 'extension_rounded',
+              type: 'navigate',
+              target: '/modules/$moduleId',
+              params: {'moduleId': moduleId},
+            ),
+          ],
+        );
+    await _replaceActionSource(sourceMessage, message);
+  }
+
+  Future<void> _replaceActionSource(
+    ChatMessage? sourceMessage,
+    ChatMessage replacement,
+  ) async {
+    if (sourceMessage == null) {
+      _notifier.addMessage(replacement);
+      await persistMessage(replacement);
+      scrollToEnd();
+      return;
+    }
+
+    final messages = messagesList;
+    final idx = messages.indexWhere((m) {
+      if (identical(m, sourceMessage)) return true;
+      final sourceId = sourceMessage.id;
+      if (sourceId != null && m.id == sourceId) return true;
+      final sourceClientId = sourceMessage.clientId;
+      return sourceClientId != null && m.clientId == sourceClientId;
+    });
+    if (idx >= 0) {
+      _notifier.replaceAt(idx, replacement);
+    }
+    if (replacement.id != null) {
+      await ref.read(chatHistoryServiceProvider).updateMessage(replacement);
+    }
+    scrollToEnd();
   }
 
   Future<void> handleSelectModelAction(

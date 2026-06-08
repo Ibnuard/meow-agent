@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../services/agent_runtime/runtime_models.dart';
+import 'chat_session_service.dart';
 
 /// Page size for initial latest-message load (fast, lightweight).
 /// Older messages load at 30 per page when scrolling up.
@@ -12,6 +13,14 @@ const int kMessagePageSize = 30;
 
 /// Persists chat messages per agent using SQLite with pagination support.
 class ChatHistoryService {
+  ChatHistoryService({String Function(String agentId)? sessionIdResolver})
+    : _sessionIdResolver = sessionIdResolver;
+
+  /// Resolves the current session id for an agent. Used to auto-tag writes
+  /// that don't carry an explicit session, so callers across the app don't
+  /// each have to thread the session id through.
+  final String Function(String agentId)? _sessionIdResolver;
+
   Database? _db;
 
   Future<Database> get _database async {
@@ -25,7 +34,7 @@ class ChatHistoryService {
     final dbPath = '$dbDir/meow_chat.db';
     return openDatabase(
       dbPath,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -38,7 +47,8 @@ class ChatHistoryService {
             image_paths TEXT,
             client_id TEXT,
             delivery_status TEXT NOT NULL DEFAULT 'sent',
-            error_message TEXT
+            error_message TEXT,
+            session_id TEXT
           )
         ''');
         await db.execute('''
@@ -73,25 +83,90 @@ class ChatHistoryService {
             'CREATE INDEX IF NOT EXISTS idx_messages_client_id ON messages(client_id)',
           );
         }
+        if (oldVersion < 5) {
+          // Session id partitions LLM context. Existing messages are folded
+          // into one legacy session so old history keeps loading as a single
+          // continuous context until the user starts a fresh session.
+          await db.execute('ALTER TABLE messages ADD COLUMN session_id TEXT');
+          await db.execute(
+            "UPDATE messages SET session_id = 'legacy' WHERE session_id IS NULL",
+          );
+        }
       },
     );
   }
 
   /// Load the latest [limit] messages for an agent (most recent page).
+  ///
+  /// When [sessionId] is provided, only messages belonging to that session are
+  /// returned. The chat UI calls this WITHOUT a session filter (it shows the
+  /// full transcript across sessions), while the runtime calls it WITH the
+  /// active session id so the LLM context stays isolated per session.
   Future<List<ChatMessage>> loadLatest(
     String agentId, {
     int limit = kMessagePageSize,
+    String? sessionId,
   }) async {
     final db = await _database;
     // Get the latest N messages by ordering DESC then reversing.
     final rows = await db.query(
       'messages',
-      where: 'agent_id = ?',
-      whereArgs: [agentId],
+      where: sessionId == null
+          ? 'agent_id = ?'
+          : 'agent_id = ? AND session_id = ?',
+      whereArgs: sessionId == null ? [agentId] : [agentId, sessionId],
       orderBy: 'id DESC',
       limit: limit,
     );
     return rows.reversed.map((r) => ChatMessage.fromRow(r)).toList();
+  }
+
+  /// Distinct session ids for an agent, most-recent first, each paired with the
+  /// timestamp and a short preview of its first user message. Used by
+  /// `/resume` discovery and session pickers.
+  Future<List<ChatSessionInfo>> listSessions(String agentId) async {
+    final db = await _database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT session_id,
+             MIN(id) AS first_id,
+             MAX(timestamp) AS last_ts,
+             COUNT(*) AS msg_count
+      FROM messages
+      WHERE agent_id = ? AND session_id IS NOT NULL
+      GROUP BY session_id
+      ORDER BY first_id DESC
+      ''',
+      [agentId],
+    );
+    final sessions = <ChatSessionInfo>[];
+    for (final r in rows) {
+      final sid = r['session_id'] as String?;
+      if (sid == null || sid.isEmpty) continue;
+      // First user message of the session, for a human-friendly preview.
+      final previewRows = await db.query(
+        'messages',
+        columns: ['content'],
+        where: 'agent_id = ? AND session_id = ? AND role = ?',
+        whereArgs: [agentId, sid, 'user'],
+        orderBy: 'id ASC',
+        limit: 1,
+      );
+      final preview = previewRows.isEmpty
+          ? ''
+          : (previewRows.first['content'] as String? ?? '');
+      sessions.add(
+        ChatSessionInfo(
+          sessionId: sid,
+          lastTimestamp:
+              DateTime.tryParse(r['last_ts'] as String? ?? '') ??
+              DateTime.now(),
+          messageCount: (r['msg_count'] as int?) ?? 0,
+          preview: preview,
+        ),
+      );
+    }
+    return sessions;
   }
 
   /// Load older messages before a given [beforeId] for pagination.
@@ -134,7 +209,15 @@ class ChatHistoryService {
   }
 
   /// Append a single message for an agent. Returns the inserted row ID.
-  Future<int> addMessage(String agentId, ChatMessage message) async {
+  ///
+  /// [sessionId] tags the message with the session it belongs to. When null,
+  /// the message's own [ChatMessage.sessionId] is used (may also be null for
+  /// legacy callers).
+  Future<int> addMessage(
+    String agentId,
+    ChatMessage message, {
+    String? sessionId,
+  }) async {
     final db = await _database;
     return db.insert('messages', {
       'agent_id': agentId,
@@ -150,6 +233,8 @@ class ChatHistoryService {
       'client_id': message.clientId,
       'delivery_status': message.deliveryStatus.label,
       'error_message': message.errorMessage,
+      'session_id':
+          sessionId ?? message.sessionId ?? _sessionIdResolver?.call(agentId),
     });
   }
 
@@ -178,8 +263,13 @@ class ChatHistoryService {
     );
   }
 
-  /// Append multiple messages at once.
-  Future<void> addMessages(String agentId, List<ChatMessage> messages) async {
+  /// Append multiple messages at once. All inserted messages are tagged with
+  /// [sessionId] when provided (else each message's own sessionId).
+  Future<void> addMessages(
+    String agentId,
+    List<ChatMessage> messages, {
+    String? sessionId,
+  }) async {
     final db = await _database;
     final batch = db.batch();
     for (final msg in messages) {
@@ -197,6 +287,8 @@ class ChatHistoryService {
         'client_id': msg.clientId,
         'delivery_status': msg.deliveryStatus.label,
         'error_message': msg.errorMessage,
+        'session_id':
+            sessionId ?? msg.sessionId ?? _sessionIdResolver?.call(agentId),
       });
     }
     await batch.commit(noResult: true);
@@ -206,6 +298,18 @@ class ChatHistoryService {
   Future<void> clear(String agentId) async {
     final db = await _database;
     await db.delete('messages', where: 'agent_id = ?', whereArgs: [agentId]);
+  }
+
+  /// Clear persisted history for one session while leaving other sessions and
+  /// the in-memory UI list alone. Used by `/reset`: same session id, clean
+  /// context/history data.
+  Future<void> clearSession(String agentId, String sessionId) async {
+    final db = await _database;
+    await db.delete(
+      'messages',
+      where: 'agent_id = ? AND session_id = ?',
+      whereArgs: [agentId, sessionId],
+    );
   }
 
   /// Delete a single message by row id.
@@ -263,6 +367,7 @@ class ChatMessage {
     this.clientId,
     this.deliveryStatus = ChatMessageDeliveryStatus.sent,
     this.errorMessage,
+    this.sessionId,
   }) : timestamp = timestamp ?? DateTime.now();
 
   factory ChatMessage.outgoing({
@@ -298,6 +403,10 @@ class ChatMessage {
   /// Optional delivery error detail for failed optimistic messages.
   final String? errorMessage;
 
+  /// Session (context) this message belongs to. Drives LLM context isolation;
+  /// null only for legacy rows created before sessions existed.
+  final String? sessionId;
+
   ChatMessage copyWith({
     int? id,
     String? role,
@@ -309,6 +418,7 @@ class ChatMessage {
     ChatMessageDeliveryStatus? deliveryStatus,
     String? errorMessage,
     bool clearErrorMessage = false,
+    String? sessionId,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -322,6 +432,7 @@ class ChatMessage {
       errorMessage: clearErrorMessage
           ? null
           : (errorMessage ?? this.errorMessage),
+      sessionId: sessionId ?? this.sessionId,
     );
   }
 
@@ -360,10 +471,29 @@ class ChatMessage {
         row['delivery_status'] as String?,
       ),
       errorMessage: row['error_message'] as String?,
+      sessionId: row['session_id'] as String?,
     );
   }
 }
 
+/// Lightweight descriptor of a chat session for `/resume` discovery.
+class ChatSessionInfo {
+  const ChatSessionInfo({
+    required this.sessionId,
+    required this.lastTimestamp,
+    required this.messageCount,
+    required this.preview,
+  });
+
+  final String sessionId;
+  final DateTime lastTimestamp;
+  final int messageCount;
+  final String preview;
+}
+
 final chatHistoryServiceProvider = Provider<ChatHistoryService>(
-  (ref) => ChatHistoryService(),
+  (ref) => ChatHistoryService(
+    sessionIdResolver: (agentId) =>
+        ref.read(chatSessionServiceProvider).currentSessionId(agentId),
+  ),
 );

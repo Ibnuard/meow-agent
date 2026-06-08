@@ -112,6 +112,11 @@ class MainActivity : FlutterActivity() {
                         val mode = call.argument<String>("mode") ?: "contains"
                         result.success(MeowAccessibilityService.findByText(query, mode))
                     }
+                    "clickByText" -> {
+                        val query = call.argument<String>("query") ?: ""
+                        val mode = call.argument<String>("mode") ?: "contains"
+                        result.success(MeowAccessibilityService.clickByText(query, mode))
+                    }
                     "imeEnter" -> {
                         result.success(MeowAccessibilityService.performImeEnter())
                     }

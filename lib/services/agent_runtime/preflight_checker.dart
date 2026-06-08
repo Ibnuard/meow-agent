@@ -27,12 +27,22 @@ class PreflightChecker {
     required ToolVerbalizer verbalizer,
     required DetectedLanguage language,
     required String userMessage,
+    required String currentAgentId,
+    required String currentAgentName,
   }) async {
     final operation = _operationForTool(definition, tool.name);
     final entityType = _entityTypeForTool(definition, tool.name);
     if (!_requiresExistingTargetPreflight(operation) && entityType != 'file') {
       return null;
     }
+
+    _normalizeCurrentAgentReferences(
+      tool: tool,
+      definition: definition,
+      entityType: entityType,
+      currentAgentId: currentAgentId,
+      currentAgentName: currentAgentName,
+    );
 
     final snapshot = await _snapshotBuilder();
     if (snapshot.isEmpty) return null;
@@ -133,6 +143,55 @@ class PreflightChecker {
     }
 
     return null;
+  }
+
+  void _normalizeCurrentAgentReferences({
+    required ToolCallRequest tool,
+    required ToolDefinition definition,
+    required String entityType,
+    required String currentAgentId,
+    required String currentAgentName,
+  }) {
+    if (entityType != 'agent') return;
+
+    final keys = <String>{
+      ..._selectorKeysFor(definition, entityType),
+      'agentId',
+      'agentName',
+      'target',
+      'label',
+    };
+    var foundCurrentReference = false;
+    for (final key in keys) {
+      final value = tool.args[key];
+      if (value is String &&
+          TargetReferenceUtils.isCurrentAgentReference(value)) {
+        foundCurrentReference = true;
+      }
+    }
+    if (!foundCurrentReference) return;
+
+    if (currentAgentId.isNotEmpty) {
+      tool.args['id'] = currentAgentId;
+      tool.args['agentId'] = currentAgentId;
+    }
+    if (currentAgentName.isNotEmpty) {
+      tool.args['name'] = currentAgentName;
+      tool.args['agentName'] = currentAgentName;
+    }
+
+    for (final key in keys) {
+      final value = tool.args[key];
+      if (value is! String ||
+          !TargetReferenceUtils.isCurrentAgentReference(value)) {
+        continue;
+      }
+      if (_isIdSelectorKey(key)) {
+        if (currentAgentId.isNotEmpty) tool.args[key] = currentAgentId;
+      } else if (currentAgentName.isNotEmpty) {
+        tool.args[key] = currentAgentName;
+      }
+    }
   }
 
   bool _requiresExistingTargetPreflight(String operation) {

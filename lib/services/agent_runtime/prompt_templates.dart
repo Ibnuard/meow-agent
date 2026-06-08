@@ -76,6 +76,8 @@ User message: "$userMessage"
 
 ${PromptConstants.analyzeRequiresToolsRules}
 
+${PromptConstants.analyzeCrossDomainAmbiguityRule}
+
 ${PromptConstants.analyzeExamples}
 
 ${PromptConstants.analyzeResponseFormat}''';

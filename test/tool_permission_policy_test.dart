@@ -7,6 +7,8 @@ import 'package:meow_agent/services/agent_runtime/tool_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
@@ -69,10 +71,7 @@ void main() {
     });
 
     test('blocks app launch when Device Context module is disabled', () async {
-      final repo = await installDeviceContext(
-        enabled: false,
-        allowUrls: true,
-      );
+      final repo = await installDeviceContext(enabled: false, allowUrls: true);
       final router = ToolRouter(moduleRepository: repo);
 
       final result = await router.forceExecute(

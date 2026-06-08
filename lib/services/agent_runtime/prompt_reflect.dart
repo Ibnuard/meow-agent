@@ -62,6 +62,7 @@ TARGET GRAPH:
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
 - For WHOLE-COLLECTION bulk targets, leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. For FILTERED bulk targets, leave entity_id empty and set a predicate selector (see protocol above). The runtime fans either out from the snapshot.
+- Current-scoped profile and memory writes are NOT agent snapshot targets. For user identity/profile updates, use entity_type "profile" or omit the target; never emit an agent target like "current_agent" just because the write goes to the current workspace.
 - Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
 - If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
 - URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.

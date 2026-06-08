@@ -133,6 +133,14 @@ class MeowAccessibilityService : AccessibilityService() {
             return svc.findByTextInternal(query, mode)
         }
 
+        fun clickByText(query: String, mode: String): Map<String, Any?> {
+            val svc = instance ?: return mapOf(
+                "success" to false,
+                "error" to "accessibility_service_not_connected"
+            )
+            return svc.clickByTextInternal(query, mode)
+        }
+
         /**
          * Perform IME Enter action on the currently focused EditText.
          * Works without Shizuku — uses accessibility ACTION_IME_ENTER (API 30+)
@@ -929,6 +937,121 @@ class MeowAccessibilityService : AccessibilityService() {
                 maxMatches = maxMatches
             )
         }
+    }
+
+    internal fun clickByTextInternal(query: String, mode: String): Map<String, Any?> {
+        if (query.isBlank()) {
+            return mapOf("success" to false, "error" to "empty_query")
+        }
+        val root = rootInActiveWindow ?: return mapOf(
+            "success" to false,
+            "error" to "no_active_window"
+        )
+        val needle = query.trim().lowercase()
+        val exact = mode.equals("exact", ignoreCase = true)
+        val visited = intArrayOf(0)
+
+        return try {
+            val matched = findTextTargetRecurse(
+                node = root,
+                needle = needle,
+                exact = exact,
+                visited = visited,
+                depth = 0,
+                maxDepth = TREE_MAX_DEPTH,
+                maxScan = TREE_MAX_NODES
+            )
+            if (matched == null) {
+                mapOf(
+                    "success" to false,
+                    "error" to "text_not_found",
+                    "query" to query,
+                    "mode" to (if (exact) "exact" else "contains"),
+                    "scanned" to visited[0]
+                )
+            } else {
+                val target = resolveClickableAncestor(matched) ?: matched
+                val bounds = Rect()
+                target.getBoundsInScreen(bounds)
+                val performed = target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                mapOf(
+                    "success" to performed,
+                    "action" to "click_by_text",
+                    "query" to query,
+                    "mode" to (if (exact) "exact" else "contains"),
+                    "scanned" to visited[0],
+                    "matched_text" to (matched.text?.toString() ?: ""),
+                    "matched_desc" to (matched.contentDescription?.toString() ?: ""),
+                    "class" to (target.className?.toString() ?: ""),
+                    "package" to (target.packageName?.toString() ?: ""),
+                    "resource_id" to (target.viewIdResourceName ?: ""),
+                    "bounds" to listOf(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    "clickable" to target.isClickable
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "clickByText failed", e)
+            mapOf(
+                "success" to false,
+                "error" to "exception",
+                "message" to (e.message ?: "unknown"),
+                "query" to query
+            )
+        } finally {
+            root.recycle()
+        }
+    }
+
+    private fun findTextTargetRecurse(
+        node: AccessibilityNodeInfo,
+        needle: String,
+        exact: Boolean,
+        visited: IntArray,
+        depth: Int,
+        maxDepth: Int,
+        maxScan: Int
+    ): AccessibilityNodeInfo? {
+        if (depth > maxDepth || visited[0] >= maxScan) return null
+        visited[0]++
+
+        val textLc = node.text?.toString()?.lowercase() ?: ""
+        val descLc = node.contentDescription?.toString()?.lowercase() ?: ""
+        val matched = if (exact) {
+            (textLc.isNotEmpty() && textLc == needle) ||
+                    (descLc.isNotEmpty() && descLc == needle)
+        } else {
+            (textLc.isNotEmpty() && textLc.contains(needle)) ||
+                    (descLc.isNotEmpty() && descLc.contains(needle))
+        }
+        if (matched && isVisibleOnScreen(node)) return node
+
+        for (i in 0 until node.childCount) {
+            if (visited[0] >= maxScan) break
+            val child = node.getChild(i) ?: continue
+            val found = findTextTargetRecurse(
+                child,
+                needle,
+                exact,
+                visited,
+                depth + 1,
+                maxDepth,
+                maxScan
+            )
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun isVisibleOnScreen(node: AccessibilityNodeInfo): Boolean {
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+        val width = bounds.right - bounds.left
+        val height = bounds.bottom - bounds.top
+        val screenW = resources.displayMetrics.widthPixels
+        val screenH = resources.displayMetrics.heightPixels
+        return width > 0 && height > 0 &&
+                bounds.right > 0 && bounds.bottom > 0 &&
+                bounds.left < screenW && bounds.top < screenH
     }
 
     /**

@@ -83,8 +83,12 @@ class LanguageRegistry {
           'Aku belum bisa {action} karena {module} dimatikan. Aktifkan dulu pengaturan {setting} ya.',
       'permission_denied_no_setting':
           'Aku belum bisa {action} karena {module} dimatikan.',
+      'permission_module_missing':
+          'Aku belum bisa {action} karena {module} belum terpasang.',
       'permission_module_default': 'modul terkait',
       'permission_action_default': 'menjalankan aksi itu',
+      'action_install_module': 'Pasang {module}',
+      'action_open_module': 'Buka {module}',
       'task_aborted_heads_up':
           'Tugas sebelumnya ("{previous}") aku tunda dulu — kita lanjut yang baru.',
       'task_aborted_heads_up_unknown':
@@ -163,8 +167,12 @@ class LanguageRegistry {
           "I can't {action} because {module} is off. Please enable {setting} first.",
       'permission_denied_no_setting':
           "I can't {action} because {module} is off.",
+      'permission_module_missing':
+          "I can't {action} because {module} is not installed yet.",
       'permission_module_default': 'the required module',
       'permission_action_default': 'do that',
+      'action_install_module': 'Install {module}',
+      'action_open_module': 'Open {module}',
       'task_aborted_heads_up':
           'Set the previous task ("{previous}") aside — moving on to the new one.',
       'task_aborted_heads_up_unknown':

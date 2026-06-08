@@ -114,6 +114,38 @@ class AppAgentService {
     }
   }
 
+  Future<ToolExecutionResult> clickByText(Map<String, dynamic> args) async {
+    final query = (args['query'] as String?)?.trim() ?? '';
+    if (query.isEmpty) {
+      return const ToolExecutionResult(
+        success: false,
+        toolName: 'app_agent.click_by_text',
+        error: 'query cannot be empty.',
+      );
+    }
+    final mode = (args['mode'] as String?)?.toLowerCase() ?? 'contains';
+    try {
+      final result = await _channel.invokeMethod<Map>('clickByText', {
+        'query': query,
+        'mode': mode == 'exact' ? 'exact' : 'contains',
+      });
+      final data = Map<String, dynamic>.from(result ?? const {});
+      final success = data['success'] == true;
+      return ToolExecutionResult(
+        success: success,
+        toolName: 'app_agent.click_by_text',
+        data: data,
+        error: success ? null : _errorFrom(data),
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'app_agent.click_by_text',
+        error: 'Failed to click by text: $e',
+      );
+    }
+  }
+
   Future<ToolExecutionResult> key(Map<String, dynamic> args) async {
     final keycodeRaw = args['keycode'];
     final keycode = keycodeRaw is int

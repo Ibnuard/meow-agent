@@ -17,6 +17,7 @@ import '../../settings/data/notification_sound_provider.dart';
 import 'chat_history_service.dart';
 import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
+import 'chat_session_service.dart';
 import 'token_usage_service.dart';
 import 'unread_service.dart';
 
@@ -115,6 +116,24 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   ChatRuntimeSession sessionFor(String agentId) =>
       _sessions[agentId] ?? ChatRuntimeSession(agentId: agentId);
+
+  /// Clear UI-side runtime state when a slash command starts a fresh context.
+  ///
+  /// The engine reset wipes pending actions, ledgers, and memory. This method
+  /// keeps the long-lived chat manager in sync so stale pending buttons,
+  /// narrative bubbles, or task ledgers cannot survive `/clear`, `/reset`, or
+  /// `/resume`. If a run is still resolving, mark it as cancelled so its late
+  /// result is suppressed by [_runSend].
+  Future<void> resetLocalStateForFreshSession(String agentId) async {
+    final current = sessionFor(agentId);
+    if (current.isRunning) {
+      _cancelledSends.add(agentId);
+    } else {
+      _cancelledSends.remove(agentId);
+    }
+    await _flushRuntimeLog(agentId);
+    _set(agentId, ChatRuntimeSession(agentId: agentId));
+  }
 
   /// True if any agent has an in-flight runtime session.
   /// Used by the home FAB to show a live activity indicator.
@@ -332,7 +351,13 @@ class ChatRuntimeManager extends ChangeNotifier {
     try {
       var runtimeRecentMessages = recentMessages;
       try {
-        final latest = await history.loadLatest(agentId);
+        // Only feed persisted messages for the active session. The chat UI may
+        // still show an in-memory transcript after /reset, but /reset clears
+        // this session's stored rows; /new-session and /resume switch ids.
+        final sessionId = ref
+            .read(chatSessionServiceProvider)
+            .currentSessionId(agentId);
+        final latest = await history.loadLatest(agentId, sessionId: sessionId);
         runtimeRecentMessages = latest
             .where(
               (m) =>

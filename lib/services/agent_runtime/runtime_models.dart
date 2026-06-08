@@ -54,7 +54,11 @@ class AgentRuntimeRequest {
 
 /// A file attached to a user message.
 class AttachedFile {
-  const AttachedFile({required this.path, required this.name, this.sizeBytes = 0});
+  const AttachedFile({
+    required this.path,
+    required this.name,
+    this.sizeBytes = 0,
+  });
   final String path;
   final String name;
   final int sizeBytes;
@@ -142,7 +146,7 @@ class ResultAction {
   /// Material icon name (e.g., 'calendar_month_rounded').
   final String icon;
 
-  /// Action type: 'navigate' | 'open_folder' | 'open_url'.
+  /// Action type: 'navigate' | 'open_folder' | 'open_url' | 'install_module'.
   final String type;
 
   /// Route path or URI.

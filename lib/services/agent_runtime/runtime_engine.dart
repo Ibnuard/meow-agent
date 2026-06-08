@@ -155,6 +155,22 @@ class AgentRuntimeEngine {
     RequestSource source = RequestSource.chat,
   }) => _taskScope.abortActive(agentId, source: source);
 
+  /// Hard-wipe ALL runtime state for an agent: every persisted ledger (any
+  /// status), the pending confirmation, the pending clarification, the
+  /// in-memory tool scratchpad, and the cancellation flag.
+  ///
+  /// This is the single source of truth behind `/clear`, `/reset`, and
+  /// `/resume`. Without it, a stale ledger or memory entry survives the command
+  /// and the engine rehydrates a "ghost" task on the next message — the exact
+  /// behavior users hit when a cleared chat suddenly resumed an old automation.
+  Future<void> resetAgentState(String agentId) async {
+    _taskScope.cancel(agentId);
+    _confirmation.clearPending(agentId);
+    _confirmation.clearClarification(agentId);
+    _memory.clear(agentId);
+    await ledgerDb.deleteAllForAgent(agentId);
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // run() — the main entry point
   // ═══════════════════════════════════════════════════════════════
@@ -347,19 +363,26 @@ class AgentRuntimeEngine {
         pendingAction: pending,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
-      var analyzerTools = activeTaskContext.isNotEmpty
-          ? toolRouter.buildAllAnalyzerToolDescriptions()
-          : toolRouter.buildAnalyzerToolDescriptions(toolSelection.toolNames);
-      var availableTools = activeTaskContext.isNotEmpty
-          ? toolRouter.buildAllToolDescriptions()
-          : toolRouter.buildToolDescriptions(toolSelection.toolNames);
+      // Phase 2: ALWAYS start with the narrowed tool selection — even when
+      // there is an active task context. The active task description is still
+      // passed to the analyzer so it can classify task_relation, but the tool
+      // surface stays focused. For continuation/revision the engine will expand
+      // the tool set AFTER classification (below). This prevents the LLM from
+      // hallucinating or picking irrelevant tools (e.g. app_agent) just because
+      // a previous ledger exists on a simple "open app" request.
+      var analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+        toolSelection.toolNames,
+      );
+      var availableTools = toolRouter.buildToolDescriptions(
+        toolSelection.toolNames,
+      );
       if (availableTools.isEmpty) {
         analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
         availableTools = toolRouter.buildAllToolDescriptions();
       }
       logger.logStateChange(
         AgentRuntimeState.analyzing,
-        'Tool context: ${activeTaskContext.isNotEmpty ? 'active-task relation probe' : toolSelection.reason} (${availableTools.length} tools, confidence ${toolSelection.confidence.toStringAsFixed(2)})',
+        'Tool context: ${toolSelection.reason}${activeTaskContext.isNotEmpty ? ' [active-task ctx]' : ''} (${availableTools.length} tools, confidence ${toolSelection.confidence.toStringAsFixed(2)})',
       );
       emit(logger.events.last);
       var state = AgentRuntimeState.analyzing;
@@ -441,7 +464,10 @@ class AgentRuntimeEngine {
           }
           return false;
         }
-        availableTools = availableTools.where((t) => !shouldExclude(t)).toList();
+
+        availableTools = availableTools
+            .where((t) => !shouldExclude(t))
+            .toList();
         analyzerTools = analyzerTools.where((t) => !shouldExclude(t)).toList();
       }
       var relation = (analysis['task_relation'] as String? ?? 'none').trim();
@@ -452,6 +478,17 @@ class AgentRuntimeEngine {
             pendingDecision != ConfirmationDecision.previewOnly &&
             analysis['requires_tools'] == true) {
           relation = 'new_task';
+        }
+        // For continuation/revision the agent is resuming a persisted multi-step
+        // task — expand to all tools since the ledger may require any tool group.
+        if (relation == 'continuation' || relation == 'revision') {
+          analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
+          availableTools = toolRouter.buildAllToolDescriptions();
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Tool surface expanded to all tools for $relation of active task (${availableTools.length} tools)',
+          );
+          emit(logger.events.last);
         }
         if (relation == 'new_task') {
           final previousGoal =
@@ -963,6 +1000,7 @@ class AgentRuntimeEngine {
       );
       final permissionFinal = _loopRunner.permissionDeniedResponseFor(result);
       if (permissionFinal != null) {
+        final actions = _loopRunner.permissionDeniedActionsFor(result);
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
         await workspaceLoader.updateHeartbeat(
@@ -978,6 +1016,7 @@ class AgentRuntimeEngine {
           success: false,
           state: AgentRuntimeState.failed,
           events: logger.events,
+          actions: actions,
         );
       }
       if (result.success) {

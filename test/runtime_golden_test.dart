@@ -3,12 +3,29 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:meow_agent/features/providers/data/provider_config.dart';
 import 'package:meow_agent/services/agent_runtime/context_builder.dart';
+import 'package:meow_agent/services/agent_runtime/goal_tree.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_engine.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
+import 'package:meow_agent/services/agent_runtime/task_ledger.dart';
+import 'package:meow_agent/services/agent_runtime/tool_permission_policy.dart';
 
 import 'support/fake_workspace_loader.dart';
 import 'support/scripted_llm_client.dart';
 import 'support/scripted_tool_router.dart';
+
+class PermissionDeniedRouter extends ScriptedToolRouter {
+  PermissionDeniedRouter({
+    required Map<String, ToolExecutionResult> deniedByTool,
+  }) : _deniedByTool = deniedByTool,
+       super(results: const {});
+
+  final Map<String, ToolExecutionResult> _deniedByTool;
+
+  @override
+  Future<ToolExecutionResult?> permissionDeniedResult(String toolName) async {
+    return _deniedByTool[toolName];
+  }
+}
 
 /// Golden-scenario regression suite (Stage 0 safety net).
 ///
@@ -36,12 +53,14 @@ void main() {
     required ScriptedLlmClient llm,
     required ScriptedToolRouter router,
     FakeWorkspaceLoader? workspace,
+    TaskLedgerDatabase? ledgerDb,
   }) => AgentRuntimeEngine(
     workspaceLoader: workspace ?? FakeWorkspaceLoader(),
     toolRouter: router,
     contextBuilder: ContextBuilder(),
     languageCode: 'en',
     llmClient: llm,
+    ledgerDb: ledgerDb,
   );
 
   AgentRuntimeRequest req(String message, {String agentId = 'a1'}) =>
@@ -82,7 +101,9 @@ void main() {
         '{"status":"done","final_response":"Battery is at 80%.",'
             '"subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
       ],
-      'verbalize.answer_from_tool_result': ['Your battery is at 80%, not charging.'],
+      'verbalize.answer_from_tool_result': [
+        'Your battery is at 80%, not charging.',
+      ],
       'verbalize.success': ['Done.'],
     });
     final router = ScriptedToolRouter(
@@ -94,10 +115,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('what is my battery level'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('what is my battery level'), provider: provider());
 
     expect(res.state, AgentRuntimeState.done);
     expect(res.success, true);
@@ -154,10 +175,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('open the example app'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('open the example app'), provider: provider());
 
     expect(res.state, AgentRuntimeState.waitingConfirmation);
     expect(res.pendingTool, 'app.open');
@@ -167,6 +188,82 @@ void main() {
     // (it is NOT skipped), so impact/slot analysis runs before any action.
     expect(llm.countOf('reflect'), 1);
   });
+
+  test(
+    'S2b resetAgentState clears pending confirmation and all ledgers',
+    () async {
+      final ledgerDb = TaskLedgerDatabase(overrideDbPath: inMemoryDatabasePath);
+      addTearDown(ledgerDb.close);
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"app.open","goal":"open app","requires_tools":true,'
+              '"risk":"sensitive","missing_info":[],"subgoal_seeds":["open app"],'
+              '"task_relation":"none","narrative":""}',
+        ],
+        'reflect': [
+          '{"strategy":"direct_execute","goal_tree":{"main_goal":"open app",'
+              '"completion_criteria":["app opened"],"subgoals":[{"id":"sg1",'
+              '"label":"open app","required_slots":{},"missing_slots":[],'
+              '"status":"pending"}]},"narrative":""}',
+        ],
+        'plan': [
+          '{"main_goal":"open app","completion_criteria":["app opened"],'
+              '"subgoals":[{"id":"sg1","label":"open app","required_slots":{},'
+              '"missing_slots":[],"status":"pending"}],"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.open",'
+              '"args":{"package":"com.example"},"risk":"sensitive",'
+              '"requires_confirmation":true},"narrative":""}',
+        ],
+        'verbalize.confirm': ['Open the app?'],
+        'verbalize.preview': ['This would open the app.'],
+      });
+      final router = ScriptedToolRouter(results: const {});
+      final engine = buildEngine(llm: llm, router: router, ledgerDb: ledgerDb);
+      await ledgerDb.upsert(
+        TaskLedger(
+          id: 'stale_active',
+          agentId: 'a1',
+          source: LedgerSource.chat,
+          mainGoal: 'old multi-step task',
+          languageCode: 'en',
+          originalUserMessage: 'old task',
+          goalTree: GoalTree(
+            mainGoal: 'old multi-step task',
+            subgoals: [Subgoal(id: 'sg1', label: 'old step')],
+          ),
+        ),
+      );
+      final archived = TaskLedger(
+        id: 'stale_archived',
+        agentId: 'a1',
+        source: LedgerSource.workflow,
+        mainGoal: 'old archived task',
+        languageCode: 'en',
+        originalUserMessage: 'old workflow task',
+        goalTree: GoalTree(
+          mainGoal: 'old archived task',
+          subgoals: [Subgoal(id: 'sg1', label: 'old workflow step')],
+        ),
+      );
+      await ledgerDb.upsert(archived);
+      await ledgerDb.archive('stale_archived', LedgerStatus.completed);
+
+      final res = await engine.run(
+        req('open the example app'),
+        provider: provider(),
+      );
+      expect(res.state, AgentRuntimeState.waitingConfirmation);
+      expect(engine.getPendingAction('a1'), isNotNull);
+
+      await engine.resetAgentState('a1');
+
+      expect(engine.getPendingAction('a1'), isNull);
+      expect(await ledgerDb.findById('stale_active'), isNull);
+      expect(await ledgerDb.findById('stale_archived'), isNull);
+    },
+  );
 
   // ── Scenario 3: ambiguous → clarify ────────────────────────────────────
   test('S3 ambiguous request asks a clarifying question', () async {
@@ -179,10 +276,10 @@ void main() {
       ],
     });
     final router = ScriptedToolRouter(results: const {});
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('schedule a meeting at 8'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('schedule a meeting at 8'), provider: provider());
 
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('8'));
@@ -218,10 +315,10 @@ void main() {
       'verbalize.abort': ['I can\'t send SMS — there\'s no tool for that.'],
     });
     final router = ScriptedToolRouter(results: const {});
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('send an sms to mom'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('send an sms to mom'), provider: provider());
 
     expect(res.success, false);
     expect(res.state, AgentRuntimeState.failed);
@@ -269,10 +366,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('find my notes about unicorns'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('find my notes about unicorns'), provider: provider());
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -337,10 +434,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('make a note titled x'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('make a note titled x'), provider: provider());
 
     expect(res.success, false);
     expect(res.finalMessage.toLowerCase(), isNot(contains('created')));
@@ -395,10 +492,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('create 3 notes A, B, C'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('create 3 notes A, B, C'), provider: provider());
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -413,8 +510,7 @@ void main() {
   // second tool. (Guards against the over-broad "any last successful tool
   // completes the tree" variant that would have stopped after the first tool.)
   // Both tools are safe + no-confirmation so the run stays inside the loop.
-  test('S11 two-tool single-subgoal flow does not short-circuit early',
-      () async {
+  test('S11 two-tool single-subgoal flow does not short-circuit early', () async {
     final llm = ScriptedLlmClient({
       'analyze': [
         '{"intent":"app.resolve","goal":"resolve then open settings",'
@@ -464,10 +560,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('open app settings'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('open app settings'), provider: provider());
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -587,10 +683,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('delete agent Coder'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('delete agent Coder'), provider: provider());
 
     expect(res.state, AgentRuntimeState.waitingConfirmation);
     expect(res.pendingTool, 'system.agents.delete');
@@ -635,10 +731,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('what agents do I have?'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('what agents do I have?'), provider: provider());
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -696,10 +792,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('sebagai agent kamu bisa ngapain aja?'),
-      provider: provider(),
-    );
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('sebagai agent kamu bisa ngapain aja?'), provider: provider());
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -710,43 +806,141 @@ void main() {
     );
   });
 
-  test('S18 unavailable capability cannot turn into follow-up question', () async {
+  test(
+    'S18 unavailable capability cannot turn into follow-up question',
+    () async {
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"media.play","goal":"play a song","requires_tools":true,'
+              '"risk":"safe","tool_groups":["app"],"missing_info":[],'
+              '"subgoal_seeds":["play song"],"task_relation":"none",'
+              '"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.resolve",'
+              '"args":{"query":"music player"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+        'review': [
+          '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
+              '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+              '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
+        ],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'app.resolve': const ToolExecutionResult(
+            success: false,
+            toolName: 'app.resolve',
+            error: 'media control unavailable: no tool can play songs',
+          ),
+        },
+      );
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('coba play lagu katanya bisa'), provider: provider());
+
+      expect(res.success, false);
+      expect(res.state, AgentRuntimeState.failed);
+      expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
+      expect(router.dispatchSequence, ['app.resolve']);
+    },
+  );
+
+  test('S19 missing ecosystem module returns an install action', () async {
     final llm = ScriptedLlmClient({
       'analyze': [
-        '{"intent":"media.play","goal":"play a song","requires_tools":true,'
+        '{"intent":"app.resolve","goal":"find YouTube","requires_tools":true,'
             '"risk":"safe","tool_groups":["app"],"missing_info":[],'
-            '"subgoal_seeds":["play song"],"task_relation":"none",'
-            '"narrative":""}',
+            '"subgoal_seeds":["find YouTube"],'
+            '"task_relation":"none","narrative":""}',
       ],
       'selectTool': [
         '{"status":"tool_required","tool":{"name":"app.resolve",'
-            '"args":{"query":"music player"},"risk":"safe",'
+            '"args":{"query":"youtube"},"risk":"safe",'
             '"requires_confirmation":false},"narrative":""}',
       ],
-      'review': [
-        '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
-            '"subgoal_update":{"id":"sg1","status":"in_progress"},'
-            '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
-      ],
     });
-    final router = ScriptedToolRouter(
-      results: {
+    final router = PermissionDeniedRouter(
+      deniedByTool: {
         'app.resolve': const ToolExecutionResult(
           success: false,
           toolName: 'app.resolve',
-          error: 'media control unavailable: no tool can play songs',
+          data: {
+            'errorCode': ToolPermissionPolicy.permissionDeniedCode,
+            'reason': 'moduleMissing',
+            'moduleId': 'device_context',
+            'moduleName': 'Device Context',
+            'actionLabel': 'find installed apps',
+          },
+          error: 'module_permission_denied: moduleMissing',
         ),
       },
     );
-    final res = await buildEngine(llm: llm, router: router).run(
-      req('coba play lagu katanya bisa'),
-      provider: provider(),
-    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('open youtube'), provider: provider());
 
     expect(res.success, false);
     expect(res.state, AgentRuntimeState.failed);
-    expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
-    expect(router.dispatchSequence, ['app.resolve']);
+    expect(res.finalMessage, contains('not installed'));
+    expect(res.finalMessage, isNot(contains('{setting}')));
+    expect(res.actions, hasLength(1));
+    expect(res.actions.single.type, 'install_module');
+    expect(res.actions.single.target, 'device_context');
+    expect(res.actions.single.label, 'Install Device Context');
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S20 disabled ecosystem setting returns an open-module action', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"clipboard.read","goal":"read clipboard","requires_tools":true,'
+            '"risk":"safe","tool_groups":["clipboard"],"missing_info":[],'
+            '"subgoal_seeds":["read clipboard"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"clipboard.read",'
+            '"args":{},"risk":"safe","requires_confirmation":false},'
+            '"narrative":""}',
+      ],
+    });
+    final router = PermissionDeniedRouter(
+      deniedByTool: {
+        'clipboard.read': const ToolExecutionResult(
+          success: false,
+          toolName: 'clipboard.read',
+          data: {
+            'errorCode': ToolPermissionPolicy.permissionDeniedCode,
+            'reason': 'settingDisabled',
+            'moduleId': 'device_context',
+            'moduleName': 'Device Context',
+            'settingLabel': 'Read Clipboard',
+            'actionLabel': 'read the clipboard',
+          },
+          error: 'module_permission_denied: settingDisabled',
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('read my clipboard'), provider: provider());
+
+    expect(res.success, false);
+    expect(res.state, AgentRuntimeState.failed);
+    expect(res.finalMessage, contains('Read Clipboard'));
+    expect(res.finalMessage, isNot(contains('{setting}')));
+    expect(res.actions, hasLength(1));
+    expect(res.actions.single.type, 'navigate');
+    expect(res.actions.single.target, '/modules/device_context');
+    expect(res.actions.single.label, 'Open Device Context');
+    expect(router.dispatchSequence, isEmpty);
   });
 
   test('S10 analyzer detected_language refines the reply language', () async {
@@ -787,8 +981,9 @@ void main() {
     // — its prompt embeds the language code. This proves the analyzer's
     // detected_language overrode the 'en' bootstrap fallback, not just that a
     // Spanish string happened to be returned.
-    final answerCall = llm.callLog
-        .firstWhere((c) => c.phase == 'verbalize.answer_from_tool_result');
+    final answerCall = llm.callLog.firstWhere(
+      (c) => c.phase == 'verbalize.answer_from_tool_result',
+    );
     expect(answerCall.lastUserContent, contains('(es)'));
     expect(res.finalMessage, 'Tu batería está al 80%.');
   });

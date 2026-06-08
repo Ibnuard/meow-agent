@@ -75,6 +75,8 @@ class PromptConstants {
   static const analyzeIntro = promptAnalyzeIntro;
   static const systemMarkdownMap = promptSystemMarkdownMap;
   static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
+  static const analyzeCrossDomainAmbiguityRule =
+      promptAnalyzeCrossDomainAmbiguityRule;
   static const analyzeExamples = promptAnalyzeExamples;
   static const analyzeResponseFormat = promptAnalyzeResponseFormat;
 

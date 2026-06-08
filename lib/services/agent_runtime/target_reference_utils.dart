@@ -56,6 +56,23 @@ class TargetReferenceUtils {
         containsSearchPhrase(haystack, sanitized);
   }
 
+  /// Model-facing references for the active chat agent.
+  ///
+  /// These are English machine tokens used in prompts/tool schemas, not
+  /// language-specific user utterance matching.
+  static bool isCurrentAgentReference(String value) {
+    final token = normalizeForSearch(value).replaceAll(' ', '_');
+    return const {
+      'current_agent',
+      'active_agent',
+      'this_agent',
+      'calling_agent',
+      'self',
+      'current',
+      'active',
+    }.contains(token);
+  }
+
   static bool containsSearchPhrase(String haystack, String phrase) {
     if (haystack.isEmpty || phrase.isEmpty) return false;
     return RegExp(

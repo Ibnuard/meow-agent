@@ -85,6 +85,27 @@ Bulk-selector rule (applies to ANY entity type — agents, workflows, providers,
 - Set bulk_selector=true at the top level when the request matches this pattern, otherwise omit it.
 - Bulk selectors NEVER apply to create operations. "create all X" is ambiguous — set requires_tools=false and ask for the count or list.''';
 
+const promptAnalyzeCrossDomainAmbiguityRule =
+    '''Cross-domain routing ambiguity rule (FIRST_ASK_USER — but do NOT be chatty):
+- DEFAULT IS TO ACT ON THE MOST LITERAL USER-SCOPED TARGET. Only pause when there are genuinely 2+ plausible interpretations that lead to DIFFERENT results. If one interpretation clearly dominates, execute it directly and do NOT ask.
+- Trigger ALL of these together:
+  1. The request vocabulary semantically matches a BUILT-IN tool domain (e.g. notifications, clipboard, calendar, files), AND
+  2. The CURRENT message OR recent conversation shows the user just opened, named, or is operating INSIDE an external app (same-turn "open app X then ..." counts, as do recent app.open/app_agent steps), AND
+  3. The same words could ALSO mean "do this against the screen currently open in that app" (app_agent), producing a DIFFERENT result than the built-in tool.
+- When all three hold: set requires_tools=false and put ONE short clarification question in missing_info (in the user's language), naming both interpretations.
+- If the CURRENT message explicitly scopes the domain word to the external app surface (for example: open an app, navigate to that app's notifications/messages/page/tab, then summarize/read it), do NOT route to the built-in domain tool. Use app + app_agent because the user named an in-app surface.
+- If the CURRENT message explicitly scopes the domain word to Android/system/device data, use the built-in domain tool and do NOT ask.
+- MUST trigger:
+  * Opened LinkedIn, then "show my notifications" → Android system notifications vs LinkedIn's in-app notifications tab → ask which one.
+  * Opened a chat app, then "summarize the messages" → system notification summary vs reading the on-screen messages via app control → ask which one.
+- MUST NOT trigger (one interpretation dominates — just act):
+  * "open LinkedIn, go to the notifications page, and summarize it" → clearly in-app LinkedIn notifications via app_agent. No notification.summarize.
+  * "open youtube then search cooking videos" → clearly open + app_agent search. No question.
+  * "summarize my notifications" with NO app context → clearly the notification tool. No question.
+  * "summarize my Android notifications" → clearly the notification tool. No question.
+  * "read my clipboard" → clearly the clipboard tool. No question.
+- If you are truly unsure between built-in data and in-app screen data after applying the user-scoped target rule, FIRST_ASK_USER with one short question. Asking is correct for real ambiguity; asking is wrong when the user already scoped the target clearly.''';
+
 const promptAnalyzeExamples =
     '''Examples that require tools (intent shown in English; user phrasing may be in any language):
 - "open whatsapp" → app.resolve("whatsapp") then app.open(packageName) → tool_groups: ["app"] (DONE after open)
@@ -92,6 +113,7 @@ const promptAnalyzeExamples =
 - "open google.com" → intent.open_url → tool_groups: ["app"]
 - "send a message to Bob in WhatsApp" → app.resolve + app.open FIRST, then app_agent screen control → tool_groups: ["app", "app_agent"]
 - "search for X in YouTube" → app.resolve + app.open FIRST, then app_agent → tool_groups: ["app", "app_agent"]
+- "open LinkedIn, go to the notifications page, and summarize it" → app.resolve + app.open FIRST, then app_agent screen control/read visible in-app content → tool_groups: ["app", "app_agent"]
 - "tap the Send button in the current app" → app_agent.inspect then app_agent.click → tool_groups: ["app_agent"]
 - "type hello into this app's message field" → app_agent.inspect then app_agent.set_text → tool_groups: ["app_agent"]
 - "read clipboard" → clipboard.read

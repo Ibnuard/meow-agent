@@ -191,6 +191,9 @@ class _PlainLayout extends StatelessWidget {
         alpha: 0.7,
       ),
     );
+    final hasActionControls =
+        (isConfirmation && onConfirmAction != null) ||
+        (!isUser && msg.actions.isNotEmpty && onActionTap != null);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -225,7 +228,15 @@ class _PlainLayout extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 3),
+        if (isConfirmation && onConfirmAction != null) ...[
+          const SizedBox(height: 12),
+          _ConfirmRow(s: s, onAction: onConfirmAction!),
+        ],
+        if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
+          const SizedBox(height: 10),
+          _ActionRow(actions: msg.actions, msg: msg, onTap: onActionTap!),
+        ],
+        SizedBox(height: hasActionControls ? 6 : 3),
         Align(
           alignment: Alignment.bottomRight,
           child: Row(
@@ -239,14 +250,6 @@ class _PlainLayout extends StatelessWidget {
             ],
           ),
         ),
-        if (isConfirmation && onConfirmAction != null) ...[
-          const SizedBox(height: 12),
-          _ConfirmRow(s: s, onAction: onConfirmAction!),
-        ],
-        if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
-          const SizedBox(height: 10),
-          _ActionRow(actions: msg.actions, msg: msg, onTap: onActionTap!),
-        ],
       ],
     );
   }
@@ -678,6 +681,10 @@ class _ActionRow extends ConsumerWidget {
         return Icons.folder_open_rounded;
       case 'open_in_new_rounded':
         return Icons.open_in_new_rounded;
+      case 'add_rounded':
+        return Icons.add_rounded;
+      case 'extension_rounded':
+        return Icons.extension_rounded;
       case 'dns_outlined':
         return Icons.dns_outlined;
       case 'memory_rounded':

@@ -417,8 +417,8 @@ class TargetResolver {
     final subject = entity.metadata.containsKey(field)
         ? (entity.metadata[field]?.toString() ?? '')
         : (field == 'id')
-            ? entity.id
-            : entity.label;
+        ? entity.id
+        : entity.label;
 
     final caseSensitive = selector['case_sensitive'] == true;
     final a = caseSensitive ? subject : subject.toLowerCase();
@@ -435,10 +435,7 @@ class TargetResolver {
         return a == b;
       case 'regex':
         try {
-          return RegExp(
-            value,
-            caseSensitive: caseSensitive,
-          ).hasMatch(subject);
+          return RegExp(value, caseSensitive: caseSensitive).hasMatch(subject);
         } catch (_) {
           return false; // Invalid regex never matches — fail safe.
         }
@@ -446,7 +443,6 @@ class TargetResolver {
         return false;
     }
   }
-
 
   /// Operations that may target an existing entity collection in bulk. Create
   /// is intentionally absent — `create all X` is never a valid bulk op and is
@@ -628,10 +624,28 @@ class TargetResolver {
       final seed = seedTargets[i];
       final entityType = _entityTypeForSeed(seed);
       final operation = _operationForSeed(seed, entityType);
+      final activeAgentId = current == null || current.id.isEmpty
+          ? request.agentId
+          : current.id;
+      final activeAgentLabel = current == null || current.name.isEmpty
+          ? request.agentName
+          : current.name;
+      var entityId = seed.entityId;
+      var entityLabel = seed.entityLabel;
+      var selector = seed.selector;
+      final referencesCurrentAgent =
+          entityType == 'agent' &&
+          (TargetReferenceUtils.isCurrentAgentReference(entityId) ||
+              TargetReferenceUtils.isCurrentAgentReference(entityLabel));
+      if (referencesCurrentAgent) {
+        if (activeAgentId.isNotEmpty) entityId = activeAgentId;
+        if (activeAgentLabel.isNotEmpty) entityLabel = activeAgentLabel;
+        selector = {...selector, 'resolved_reference': 'current_agent'};
+      }
       final match = _matchEntity(
         entityType: entityType,
-        entityId: seed.entityId,
-        entityLabel: seed.entityLabel,
+        entityId: entityId,
+        entityLabel: entityLabel,
         snapshot: snapshot,
       );
       var resolved = ResolvedTarget(
@@ -640,8 +654,8 @@ class TargetResolver {
         operation: operation.isEmpty ? 'unknown' : operation,
         entityType: entityType.isEmpty ? match.entityType : entityType,
         entityId: match.id,
-        entityLabel: match.label.isNotEmpty ? match.label : seed.entityLabel,
-        selector: seed.selector,
+        entityLabel: match.label.isNotEmpty ? match.label : entityLabel,
+        selector: selector,
       );
 
       resolved = _resolvePeerAgentPathTarget(
@@ -655,8 +669,8 @@ class TargetResolver {
         final nearMatch = SnapshotTargetResolver.resolve(
           snapshot: snapshot,
           entityType: entityType,
-          entityLabel: seed.entityLabel.isNotEmpty
-              ? seed.entityLabel
+          entityLabel: entityLabel.isNotEmpty
+              ? entityLabel
               : resolved.entityLabel,
         );
         resolved = !nearMatch.isAmbiguous
@@ -1034,9 +1048,7 @@ class TargetResolver {
               entityType: 'provider',
               id: provider.id,
               label: provider.nickname,
-              metadata: {
-                'nickname': provider.nickname,
-              },
+              metadata: {'nickname': provider.nickname},
             ),
         ];
       case 'module':
@@ -1046,9 +1058,7 @@ class TargetResolver {
               entityType: 'module',
               id: module.id,
               label: module.id,
-              metadata: {
-                'enabled': module.enabled,
-              },
+              metadata: {'enabled': module.enabled},
             ),
         ];
       default:

@@ -351,6 +351,18 @@ class TaskLedgerDatabase {
     await db.delete('task_ledgers', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Hard-delete EVERY ledger row for an agent regardless of status.
+  /// Used by `/clear` and `/reset` so a fresh session can never rehydrate a
+  /// stale task. Returns the number of rows removed.
+  Future<int> deleteAllForAgent(String agentId) async {
+    final db = await database;
+    return db.delete(
+      'task_ledgers',
+      where: 'agent_id = ?',
+      whereArgs: [agentId],
+    );
+  }
+
   /// List all active ledgers for an agent. Diagnostic; the runtime should
   /// usually go through [findActive].
   Future<List<TaskLedger>> listActive({required String agentId}) async {

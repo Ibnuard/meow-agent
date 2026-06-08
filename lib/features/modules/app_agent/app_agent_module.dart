@@ -103,6 +103,20 @@ class AppAgentModulePlugin extends ModulePlugin {
       },
     ),
     ToolDefinition(
+      name: 'app_agent.click_by_text',
+      description:
+          'Find and click a visible node by text or accessibility label in ONE atomic screen pass. '
+          'This is more reliable than find_by_text followed by click because it avoids stale node ids and resolves clickable ancestors internally. '
+          'Prefer this for app-generic buttons, tabs, menu items, list items, contacts, channels, videos, and search results when you know the visible label.',
+      risk: 'sensitive-lite',
+      requiresConfirmation: false,
+      inputSchema: {
+        'query': 'string visible text or accessibility label to click (case-insensitive)',
+        'mode': 'string optional: "contains" (default) or "exact"',
+        'reason': 'string optional why this target should be clicked',
+      },
+    ),
+    ToolDefinition(
       name: 'app_agent.key',
       description:
           'Simulate an Android key event via Shizuku. '
@@ -141,6 +155,8 @@ class AppAgentModulePlugin extends ModulePlugin {
         return service.back(request.args);
       case 'app_agent.find_by_text':
         return service.findByText(request.args);
+      case 'app_agent.click_by_text':
+        return service.clickByText(request.args);
       case 'app_agent.key':
         return service.key(request.args);
       default:

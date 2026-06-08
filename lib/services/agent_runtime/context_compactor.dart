@@ -23,6 +23,10 @@ class ContextCompactor {
     _persistedPeak = peak;
   }
 
+  static void clearPersistedPeak() {
+    _persistedPeak = 0;
+  }
+
   /// Rough token estimation: ~3.2 chars per token for mixed EN/ID content.
   /// This is a conservative estimate to avoid exceeding limits.
   static int estimateTokens(String text) {
@@ -157,8 +161,8 @@ class ContextCompactor {
     final source = livePeak > 0
         ? 'measured'
         : _persistedPeak > 0
-            ? 'persisted'
-            : 'estimated';
+        ? 'persisted'
+        : 'estimated';
     final percentage = maxContextLength > 0
         ? (estimated / maxContextLength * 100)
         : 0.0;

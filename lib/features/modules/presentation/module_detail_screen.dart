@@ -44,6 +44,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   bool _checkingShizuku = false;
   bool _requestingShizukuPermission = false;
   bool _pendingAppAgenticEnable = false;
+  bool _moduleLoaded = false;
+  bool _installingMissingModule = false;
   Future<Widget?>? _pinStatusFuture;
 
   @override
@@ -135,24 +137,60 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Re-check permissions when user returns from settings.
     if (state == AppLifecycleState.resumed) {
-      _syncCommunicationState();
-      _syncSuperPowerBubble();
-      syncSuperPowerPermissions();
-      refreshShizukuStatus();
-      _refreshPinStatus();
+      _loadModule();
     }
   }
 
   Future<void> _loadModule() async {
     final modules = await ref.read(moduleRepositoryProvider).getInstalled();
     final found = modules.where((m) => m.id == widget.moduleId).firstOrNull;
-    if (mounted && found != null) {
-      setState(() => _module = found);
-      // Sync permission state immediately on load.
-      _syncCommunicationState();
-      syncSuperPowerPermissions();
-      refreshShizukuStatus();
-      _refreshPinStatus();
+    if (!mounted) return;
+    setState(() {
+      _module = found;
+      _moduleLoaded = true;
+    });
+    if (found != null) {
+      await _syncLoadedModuleState();
+    }
+  }
+
+  Future<void> _syncLoadedModuleState() async {
+    _syncCommunicationState();
+    await _syncSuperPowerBubble();
+    await syncSuperPowerPermissions();
+    await refreshShizukuStatus();
+    _refreshPinStatus();
+  }
+
+  ModuleModel? _availableModuleSpec() {
+    return ModuleRegistry.available
+        .where((m) => m.id == widget.moduleId)
+        .firstOrNull;
+  }
+
+  Future<void> _installMissingModule(ModuleModel spec) async {
+    if (_installingMissingModule) return;
+    setState(() => _installingMissingModule = true);
+    try {
+      await ref.read(moduleRepositoryProvider).install(spec);
+      ref.invalidate(installedModulesProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.moduleInstalled(spec.name)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      await _loadModule();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.failedLoadModules)));
+    } finally {
+      if (mounted) {
+        setState(() => _installingMissingModule = false);
+      }
     }
   }
 
@@ -277,10 +315,13 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (_module == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      if (!_moduleLoaded) {
+        return Scaffold(
+          appBar: AppBar(),
+          body: const Center(child: CircularProgressIndicator()),
+        );
+      }
+      return _buildMissingModuleScreen(cs: cs, isDark: isDark);
     }
 
     final module = _module!;
@@ -620,6 +661,104 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildMissingModuleScreen({
+    required ColorScheme cs,
+    required bool isDark,
+  }) {
+    final spec = _availableModuleSpec();
+    final title = spec == null
+        ? s.moduleUnknownTitle
+        : s.moduleMissingTitle(spec.name);
+    final body = spec == null
+        ? s.moduleUnknownBody
+        : s.moduleMissingBody(spec.name);
+
+    return Scaffold(
+      backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
+      appBar: AppBar(title: Text(s.modules)),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(18),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: MeowCard(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (spec != null)
+                      ModuleIconBadge(
+                        moduleId: spec.id,
+                        size: 62,
+                        iconSize: 28,
+                        radius: 22,
+                      )
+                    else
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: cs.primary.withValues(alpha: 0.20),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.extension_off_rounded,
+                          size: 29,
+                          color: cs.primary,
+                        ),
+                      ),
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      body,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurfaceVariant,
+                        height: 1.42,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    if (spec != null) ...[
+                      MeowPrimaryButton(
+                        label: s.installModuleAction(spec.name),
+                        icon: Icons.add_rounded,
+                        loading: _installingMissingModule,
+                        onPressed: _installingMissingModule
+                            ? null
+                            : () => _installMissingModule(spec),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    MeowSecondaryButton(
+                      label: s.moduleStore,
+                      icon: Icons.view_module_rounded,
+                      onPressed: () => context.push('/modules/store'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
