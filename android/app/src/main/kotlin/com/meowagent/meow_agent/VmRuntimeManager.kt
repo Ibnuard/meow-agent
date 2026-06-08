@@ -59,14 +59,25 @@ class VmRuntimeManager(private val context: Context) {
     private val stagedProot: File
         get() = File(binDir, "proot")
 
+    /// Companion binary that proot uses to bypass Android 10+ W^X
+    /// (which forbids exec() of files in /data/data). Without this, proot
+    /// can launch but cannot exec /bin/sh inside the chroot, surfacing as
+    /// "sh not found" / "execve: Permission denied" the moment the user
+    /// runs any command.
+    private val stagedLoader: File
+        get() = File(binDir, "loader")
+
     private val stagedTalloc: File
         get() = File(binDir, "libtalloc.so.2")
 
     private val binariesInstalled: Boolean
         get() = stagedProot.exists() &&
             stagedProot.canExecute() &&
+            stagedLoader.exists() &&
+            stagedLoader.canExecute() &&
             stagedTalloc.exists() &&
             stagedProot.length() > 0 &&
+            stagedLoader.length() > 0 &&
             stagedTalloc.length() > 0
 
     fun snapshot(): Map<String, Any?> {
@@ -113,15 +124,33 @@ class VmRuntimeManager(private val context: Context) {
         val specs = listOf(
             BinaryPackageSpec(
                 url = "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_${PROOT_VERSION}_${termuxArch}.deb",
-                binaryName = "proot",
-                destination = stagedProot,
-                executable = true,
+                packageId = "proot",
+                files = listOf(
+                    StagedFile(
+                        nameInPackage = "proot",
+                        destination = stagedProot,
+                        executable = true,
+                    ),
+                    // proot needs its companion loader staged next to it so
+                    // PROOT_LOADER can point at it; without this, proot can't
+                    // exec anything inside the chroot on Android 10+.
+                    StagedFile(
+                        nameInPackage = "loader",
+                        destination = stagedLoader,
+                        executable = true,
+                    ),
+                ),
             ),
             BinaryPackageSpec(
                 url = "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_${TALLOC_VERSION}_${termuxArch}.deb",
-                binaryName = "libtalloc.so.2",
-                destination = stagedTalloc,
-                executable = false,
+                packageId = "libtalloc",
+                files = listOf(
+                    StagedFile(
+                        nameInPackage = "libtalloc.so.2",
+                        destination = stagedTalloc,
+                        executable = false,
+                    ),
+                ),
             ),
         )
 
@@ -133,6 +162,7 @@ class VmRuntimeManager(private val context: Context) {
         }
 
         stagedProot.setExecutable(true, false)
+        stagedLoader.setExecutable(true, false)
         if (!binariesInstalled) {
             throw IOException("Runtime binaries could not be installed.")
         }
@@ -143,24 +173,31 @@ class VmRuntimeManager(private val context: Context) {
     }
 
     private fun installBinaryPackage(spec: BinaryPackageSpec) {
-        val debFile = File(downloadDir, "${spec.binaryName}.deb")
-        val extractDir = File(downloadDir, "extract-${spec.binaryName}")
+        val debFile = File(downloadDir, "${spec.packageId}.deb")
+        val extractDir = File(downloadDir, "extract-${spec.packageId}")
         if (debFile.exists()) debFile.delete()
         if (extractDir.exists()) extractDir.deleteRecursively()
 
         downloadFile(spec.url, debFile)
         extractDebData(debFile, extractDir)
 
-        val extracted = extractDir.walkTopDown().firstOrNull { file ->
-            file.isFile &&
-                (file.name == spec.binaryName || file.name.startsWith("${spec.binaryName}."))
-        } ?: throw IOException("${spec.binaryName} was not found in package.")
+        for (file in spec.files) {
+            val extracted = extractDir.walkTopDown().firstOrNull { f ->
+                f.isFile &&
+                    (f.name == file.nameInPackage ||
+                        f.name.startsWith("${file.nameInPackage}."))
+            } ?: throw IOException(
+                "${file.nameInPackage} was not found in package ${spec.packageId}."
+            )
 
-        if (spec.destination.exists()) spec.destination.delete()
-        extracted.copyTo(spec.destination, overwrite = true)
-        spec.destination.setReadable(true, false)
-        spec.destination.setWritable(false, false)
-        spec.destination.setExecutable(spec.executable, false)
+            if (file.destination.exists()) file.destination.delete()
+            file.destination.parentFile?.mkdirs()
+            extracted.copyTo(file.destination, overwrite = true)
+            file.destination.setReadable(true, false)
+            file.destination.setWritable(false, false)
+            file.destination.setExecutable(file.executable, false)
+        }
+
         debFile.delete()
         extractDir.deleteRecursively()
     }
@@ -455,13 +492,23 @@ class VmRuntimeManager(private val context: Context) {
         command: String,
         timeoutMs: Long
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
-        if (!binariesInstalled) {
-            return@withContext commandFail(
-                "Runtime binary is not installed. Tap Install Runtime first."
-            )
-        }
         if (!isRootfsInstalled()) {
             return@withContext commandFail("Runtime is not installed.")
+        }
+        // Self-heal: existing installs predating the loader fix have rootfs
+        // but no loader. Re-stage the small proot/libtalloc debs (~500 KB)
+        // on demand instead of forcing the user to reinstall the rootfs.
+        if (!binariesInstalled) {
+            try {
+                mutex.withLock {
+                    ensureBinariesInstalled { /* silent */ }
+                }
+            } catch (e: Exception) {
+                return@withContext commandFail(
+                    "Runtime binary could not be staged: " +
+                        (e.message ?: e.javaClass.simpleName)
+                )
+            }
         }
 
         try {
@@ -472,6 +519,9 @@ class VmRuntimeManager(private val context: Context) {
                 listOf(
                     linkerPath(),
                     stagedProot.absolutePath,
+                    // Fake-root inside the chroot so apt/dpkg/chown/chmod
+                    // succeed; without this, plugin installs fail with EPERM.
+                    "-0",
                     "-r", rootfsDir.absolutePath,
                     "-w", "/root",
                     "-b", "/dev",
@@ -490,6 +540,11 @@ class VmRuntimeManager(private val context: Context) {
                     // proot needs libtalloc.so.2; we staged it in binDir under
                     // that exact name so the dynamic linker resolves it.
                     "LD_LIBRARY_PATH" to binDir.absolutePath,
+                    // proot's companion loader. The compile-time default
+                    // points to Termux's prefix (/data/data/com.termux/...),
+                    // which doesn't exist inside our app sandbox; without
+                    // this override, every exec inside the chroot fails.
+                    "PROOT_LOADER" to stagedLoader.absolutePath,
                     "PROOT_TMP_DIR" to context.cacheDir.absolutePath
                 )
             )
@@ -691,11 +746,16 @@ class VmRuntimeManager(private val context: Context) {
         return name
     }
 
-    private data class BinaryPackageSpec(
-        val url: String,
-        val binaryName: String,
+    private data class StagedFile(
+        val nameInPackage: String,
         val destination: File,
         val executable: Boolean,
+    )
+
+    private data class BinaryPackageSpec(
+        val url: String,
+        val packageId: String,
+        val files: List<StagedFile>,
     )
 
     companion object {
