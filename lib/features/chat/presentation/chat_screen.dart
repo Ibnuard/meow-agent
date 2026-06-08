@@ -405,7 +405,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final session = _manager?.sessionFor(_activeAgentId);
     final hasLedger = _sending && (session?.activeTaskLedger != null);
     final hasNarrative =
-        _sending && (session?.narrativeMessage?.isNotEmpty == true);
+        _sending && (session?.narrativeTrail.isNotEmpty == true);
     final tailCount =
         (_sending ? 1 : 0) + (hasNarrative ? 1 : 0) + (hasLedger ? 1 : 0);
 
@@ -471,7 +471,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final session = _manager?.sessionFor(_activeAgentId);
     final hasLedger = _sending && (session?.activeTaskLedger != null);
     final hasNarrative =
-        _sending && (session?.narrativeMessage?.isNotEmpty == true);
+        _sending && (session?.narrativeTrail.isNotEmpty == true);
     return (_sending ? 1 : 0) + // thinking
         (hasNarrative ? 1 : 0) +
         (hasLedger ? 1 : 0) +
@@ -485,8 +485,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final session = _manager?.sessionFor(_activeAgentId);
     final liveLedger = session?.activeTaskLedger;
     final hasLedger = _sending && liveLedger != null;
-    final narrative = session?.narrativeMessage;
-    final hasNarrative = _sending && (narrative?.isNotEmpty == true);
+    final trail = session?.narrativeTrail ?? const <String>[];
+    final hasNarrative = _sending && trail.isNotEmpty;
 
     int cursor = 0;
 
@@ -496,9 +496,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       cursor++;
     }
 
-    // Narrative bubble.
+    // Narrative trail bubble.
     if (hasNarrative) {
-      if (i == cursor) return _NarrativeBubble(text: narrative!);
+      if (i == cursor) return _NarrativeTrail(entries: trail);
       cursor++;
     }
 
@@ -1303,100 +1303,120 @@ class _StickyDatePill extends StatelessWidget {
   }
 }
 
-class _NarrativeBubble extends StatelessWidget {
-  const _NarrativeBubble({required this.text});
-  final String text;
+/// Stacking trail of POV-AI narratives shown above the thinking indicator.
+/// Newer entries appear at the bottom (closest to thinking dots); older
+/// entries fade as they age, simulating a CLI thinking-mode scrollback.
+class _NarrativeTrail extends StatelessWidget {
+  const _NarrativeTrail({required this.entries});
+  final List<String> entries;
 
   @override
   Widget build(BuildContext context) {
+    if (entries.isEmpty) return const SizedBox.shrink();
     final extras = context.extras;
     final cs = context.cs;
+    final n = entries.length;
     return Align(
       alignment: Alignment.centerLeft,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.08),
-              end: Offset.zero,
-            ).animate(anim),
-            child: child,
-          ),
-        ),
-        child: Container(
-          key: ValueKey<String>(text),
-          margin: const EdgeInsets.only(top: 4, bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: extras.card.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: extras.subtleBorder.withValues(alpha: 0.6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < n; i++)
+            _NarrativeChip(
+              key: ValueKey('narr_${i}_${entries[i]}'),
+              text: entries[i],
+              // Older entries (lower index) fade more. Newest (last) is full.
+              opacity: _opacityFor(i, n),
+              isLatest: i == n - 1,
+              extras: extras,
+              cs: cs,
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(_emojiFor(text), style: const TextStyle(fontSize: 13)),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontStyle: FontStyle.italic,
-                    color: cs.onSurfaceVariant,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+        ],
       ),
     );
   }
 
-  /// Pick an ambient emoji that loosely matches the phase tone.
-  /// Pure cosmetic; no semantic dependency.
-  static String _emojiFor(String text) {
-    final t = text.toLowerCase();
-    if (t.contains('confirm') || t.contains('konfirmasi')) {
-      return '\u{23F8}\u{FE0F}';
-    }
-    if (t.contains('check') || t.contains('cek') || t.contains('hasil')) {
-      return '\u{1F50D}';
-    }
-    if (t.contains('plan') || t.contains('rencana') || t.contains('langkah')) {
-      return '\u{1F9ED}';
-    }
-    if (t.contains('write') ||
-        t.contains('compos') ||
-        t.contains('jawaban') ||
-        t.contains('reply')) {
-      return '\u{270D}\u{FE0F}';
-    }
-    if (t.contains('try') ||
-        t.contains('coba') ||
-        t.contains('different') ||
-        t.contains('lain')) {
-      return '\u{1F504}';
-    }
-    if (t.contains('execut') ||
-        t.contains('mengerjakan') ||
-        t.contains('working') ||
-        t.contains('progress')) {
-      return '\u{2699}\u{FE0F}';
-    }
-    if (t.contains('ask') || t.contains('quest') || t.contains('pertanyaan')) {
-      return '\u{1F4AC}';
-    }
-    return '\u{2728}';
+  /// Older entries fade more. With max 5 entries:
+  /// oldest=0.35, then 0.5, 0.65, 0.85, newest=1.0.
+  static double _opacityFor(int index, int total) {
+    if (total <= 1) return 1.0;
+    final age = total - 1 - index; // 0 = newest
+    const fades = [1.0, 0.85, 0.65, 0.5, 0.35];
+    return age < fades.length ? fades[age] : 0.3;
+  }
+}
+
+class _NarrativeChip extends StatelessWidget {
+  const _NarrativeChip({
+    super.key,
+    required this.text,
+    required this.opacity,
+    required this.isLatest,
+    required this.extras,
+    required this.cs,
+  });
+
+  final String text;
+  final double opacity;
+  final bool isLatest;
+  final dynamic extras;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = AnimatedOpacity(
+      opacity: opacity,
+      duration: const Duration(milliseconds: 220),
+      child: Container(
+        margin: const EdgeInsets.only(top: 3, bottom: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: extras.card.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: extras.subtleBorder.withValues(alpha: 0.6),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('✨', style: const TextStyle(fontSize: 13)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: cs.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Animate the latest chip's first appearance with a slide-in.
+    if (!isLatest) return chip;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.08),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(key: ValueKey<String>(text), child: chip),
+    );
   }
 }
 

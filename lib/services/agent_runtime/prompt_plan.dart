@@ -21,7 +21,7 @@ const promptPlanResponseFormat =
       "status": "pending"
     }
   ],
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language describing the plan in human terms (e.g. 'Splitting this into a few steps: clear the old ones first, then create the new, then update.' / 'Breaking this into a few simple steps now.')"
+  "narrative": "1\\u20132 casual, stream-of-thought sentences in the user's language describing how you'll approach this. Show your thinking about the steps. Examples: 'I\\u0027ll split this into a few moves \\u2014 clear the old ones first, then set up the new config.' / 'Simple one \\u2014 just need to update the name and save. Quick.'"
 }
 
 Rules:
@@ -34,4 +34,4 @@ Rules:
 - missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
 - Use status="pending" for all subgoals at planning time.
 - completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.
-- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or "subgoals". Use everyday words.''';
+- narrative MUST be in the user's language, first-person, 1\\u20132 sentences max, stream-of-thought style. Show your thinking about the steps. NO tool names, NO IDs, NO mention of "goal tree" or "subgoals". Use everyday words.''';

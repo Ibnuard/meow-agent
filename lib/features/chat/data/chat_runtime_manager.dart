@@ -33,7 +33,7 @@ class ChatRuntimeSession {
     this.pendingTool,
     this.pendingToolArgs,
     this.lastReplyAt,
-    this.narrativeMessage,
+    this.narrativeTrail = const [],
     this.activeTaskLedger,
     this.lastPersistedMessages = const [],
   });
@@ -45,10 +45,15 @@ class ChatRuntimeSession {
   final Map<String, dynamic>? pendingToolArgs;
   final DateTime? lastReplyAt;
 
-  /// Always-visible POV-AI narrative bubble shown above the thinking
-  /// indicator while [isRunning]. Updates as the runtime progresses through
-  /// phases; cleared (set to null) once the run terminates.
-  final String? narrativeMessage;
+  /// Stacking narrative trail shown above the thinking indicator while
+  /// [isRunning]. New entries are appended as the runtime progresses;
+  /// older entries fade in the UI. Cleared once the run terminates.
+  /// Max 5 entries — oldest dropped when exceeded.
+  final List<String> narrativeTrail;
+
+  /// Convenience: the latest narrative, or null if trail is empty.
+  String? get narrativeMessage =>
+      narrativeTrail.isEmpty ? null : narrativeTrail.last;
 
   /// Live multi-goal task ledger for complex chat requests.
   final TaskLedger? activeTaskLedger;
@@ -64,12 +69,21 @@ class ChatRuntimeSession {
     Map<String, dynamic>? pendingToolArgs,
     DateTime? lastReplyAt,
     String? narrativeMessage,
+    List<String>? narrativeTrail,
     TaskLedger? activeTaskLedger,
     List<ChatMessage>? lastPersistedMessages,
     bool clearPending = false,
     bool clearNarrative = false,
     bool clearTaskLedger = false,
   }) {
+    var trail = narrativeTrail ?? this.narrativeTrail;
+    if (clearNarrative) {
+      trail = const [];
+    } else if (narrativeMessage != null) {
+      // Append new narrative to trail, cap at 5.
+      trail = [...trail, narrativeMessage];
+      if (trail.length > 5) trail = trail.sublist(trail.length - 5);
+    }
     return ChatRuntimeSession(
       agentId: agentId,
       isRunning: isRunning ?? this.isRunning,
@@ -79,9 +93,7 @@ class ChatRuntimeSession {
           ? null
           : (pendingToolArgs ?? this.pendingToolArgs),
       lastReplyAt: lastReplyAt ?? this.lastReplyAt,
-      narrativeMessage: clearNarrative
-          ? null
-          : (narrativeMessage ?? this.narrativeMessage),
+      narrativeTrail: trail,
       activeTaskLedger: clearTaskLedger
           ? null
           : (activeTaskLedger ?? this.activeTaskLedger),

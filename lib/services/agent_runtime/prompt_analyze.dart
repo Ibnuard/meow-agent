@@ -156,7 +156,7 @@ const promptAnalyzeResponseFormat =
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
   "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Got it \\u2014 you want to remove three agents at once.' / 'Got it \\u2014 you want to open WhatsApp.')"
+  "narrative": "1\\u20132 casual, stream-of-thought sentences in the user's language showing what you understood and your initial read on the situation. Think out loud \\u2014 show reasoning, not just status. Examples: 'Got it \\u2014 you want to remove three agents at once. Let me check if any of them have active workflows first.' / 'You\\u0027re asking to clone yourself into a new agent called JOKO. Straightforward \\u2014 I\\u0027ll copy my current config over.'"
 }
 
 Rules:
@@ -178,7 +178,7 @@ Rules:
     attachment   \\u2014 list attached files and read supported text attachments from the current message
     web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
-- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
+- narrative MUST be in the user's language, first-person, 1\\u20132 sentences max, stream-of-thought style. Show your reasoning \\u2014 what you understood AND what you'll consider next. NO tool names, NO IDs.
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
   * "none"          -> no active task context provided, OR the new message clearly stands on its own and has nothing to do with the active task.
   * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok continue", "yes", short answer to a clarify). Treat as same task.

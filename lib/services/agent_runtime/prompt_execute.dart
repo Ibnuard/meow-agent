@@ -15,9 +15,10 @@ CRITICAL — TASK BOUNDARY RULE:
 const promptSelectToolResponseFormat =
     '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing SPECIFICALLY what you're about to do. RULES:
-- Be CONCRETE: mention the target element, screen, or action (e.g. 'Scrolling the chat list to find the group.' / 'Tapping the search icon at the top.').
-- NEVER repeat the same narrative across steps. Each narrative must reflect THIS step's unique action.
+ALL response shapes MUST include a `narrative` field: 1–2 casual, stream-of-thought sentences in the user's language describing SPECIFICALLY what you're about to do AND why. Show your reasoning, not just the action. RULES:
+- Be CONCRETE: mention the target, what you expect to find, or why you chose this step.
+- Show your thought process (e.g. 'Looking at the workflow list first — need to confirm nothing references this agent.' / 'Found the search box. Typing the name now to filter.').
+- NEVER repeat the same narrative across steps. Each must reflect THIS step's unique thinking.
 - NO tool names, NO IDs, NO internal jargon. First-person, present-progressive.
 
 If a tool is needed:
@@ -141,8 +142,8 @@ When the live tool result invalidates ONE OR MORE earlier subgoals, also include
   ]
 Entries in `subgoal_updates` are applied in order and override `subgoal_update` for the same id.
 
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing CONCRETELY what you observed and the immediate next action. RULES:
-- Be SPECIFIC to what the tool result showed (e.g. 'The chat list is visible but the group isn't here yet, scrolling down.' / 'Found the message field, typing now.').
+ALL response shapes MUST include a `narrative` field: 1–2 casual, stream-of-thought sentences in the user's language describing what you observed and what you're thinking about next. RULES:
+- Be SPECIFIC about what the result showed and your read on it (e.g. 'Got the list — 2 out of 3 are unused, safe to remove. Moving on to the next one.' / 'Hmm, this one has a linked workflow. I'll handle that dependency first.').
 - NEVER repeat a previous narrative verbatim. Each step must have a unique observation.
 - NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
 
