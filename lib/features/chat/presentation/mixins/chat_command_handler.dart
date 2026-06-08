@@ -86,14 +86,37 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
         final previousId = ref
             .read(chatSessionServiceProvider)
             .currentSessionId(activeAgentId);
+        // Look up the previous session's title BEFORE resetting, so the
+        // /resume hint tells the user what they're pausing.
+        final previousSessions = await ref
+            .read(chatHistoryServiceProvider)
+            .listSessions(activeAgentId);
+        final previousTitle = previousSessions
+            .firstWhere(
+              (info) => info.sessionId == previousId,
+              orElse: () => ChatSessionInfo(
+                sessionId: '',
+                lastTimestamp: DateTime(2000),
+                messageCount: 0,
+                preview: '',
+              ),
+            )
+            .title;
         await _resetRuntimeState();
         final nextId = await ref
             .read(chatSessionServiceProvider)
             .startNewSession(activeAgentId);
-        response = s.newSessionStartedWithResume(nextId, previousId);
+        response = s.newSessionStartedWithResume(
+          nextId,
+          previousId,
+          previousTitle,
+        );
         shouldPersist = false;
       case '/resume':
         await _handleResume(text);
+        return;
+      case '/history':
+        await _handleHistory();
         return;
       case '/model':
         final agents = ref.read(agentListProvider);
@@ -144,7 +167,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
   }
 
   bool _isEphemeralCommand(String cmd) =>
-      const {'/clear', '/reset', '/new-session', '/resume'}.contains(cmd);
+      const {'/clear', '/reset', '/new-session', '/resume', '/history'}.contains(cmd);
 
   Future<void> _resetRuntimeState() async {
     await ref
@@ -168,6 +191,7 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
       ..writeln(_formatHelpCommand('🔄', '/reset', s.helpSlashReset))
       ..writeln(_formatHelpCommand('✨', '/new-session', s.helpSlashNewSession))
       ..writeln(_formatHelpCommand('↩️', '/resume', s.helpSlashResume))
+      ..writeln(_formatHelpCommand('📋', '/history', s.helpSlashHistory))
       ..writeln(_formatHelpCommand('🤖', '/model', s.helpSlashModel))
       ..writeln(_formatHelpCommand('🎛️', '/set-model', s.helpSlashSetModel))
       ..writeln(_formatHelpCommand('🪶', '/compact', s.helpSlashCompact))
@@ -191,40 +215,19 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
     scrollToEnd();
   }
 
-  /// Handle `/resume {id}`. With no id, lists available sessions. With a valid
-  /// id, switches the active session and hard-resets runtime state so the
-  /// resumed context starts clean.
+  /// Handle `/resume {id}`. Requires a session id argument. If missing or
+  /// invalid, shows an error hint pointing the user to `/history`.
   Future<void> _handleResume(String text) async {
     final parts = text.trim().split(RegExp(r'\s+'));
     final requestedId = parts.length > 1 ? parts[1].trim() : '';
     final history = ref.read(chatHistoryServiceProvider);
-    final sessions = await history.listSessions(activeAgentId);
 
     if (requestedId.isEmpty) {
-      final others = sessions
-          .where((s) => s.messageCount > 0)
-          .toList(growable: false);
-      final String body;
-      if (others.isEmpty) {
-        body = s.resumeUsageNoSessions;
-      } else {
-        final buf = StringBuffer()..writeln(s.resumeUsageHeader(others.length));
-        for (final session in others) {
-          final preview = session.preview.trim();
-          final shortPreview = preview.length > 48
-              ? '${preview.substring(0, 48)}…'
-              : preview;
-          buf.writeln(
-            '• ${session.sessionId}'
-            '${shortPreview.isEmpty ? '' : ' — $shortPreview'}',
-          );
-        }
-        body = buf.toString().trimRight();
-      }
-      await _postTransientCommandBubble(body);
+      await _postTransientCommandBubble(s.resumeUsageHint);
       return;
     }
 
+    final sessions = await history.listSessions(activeAgentId);
     final exists = sessions.any((s) => s.sessionId == requestedId);
     if (!exists) {
       await _postTransientCommandBubble(s.sessionNotFound(requestedId));
@@ -236,6 +239,31 @@ mixin ChatCommandHandlerMixin<T extends StatefulWidget> on State<T> {
         .read(chatSessionServiceProvider)
         .setCurrentSession(activeAgentId, requestedId);
     await _postTransientCommandBubble(s.sessionResumed(requestedId));
+  }
+
+  /// Handle `/history`. Lists every session for the active agent, numbered,
+  /// with the title (first user topic) so the user can pick one to `/resume`.
+  Future<void> _handleHistory() async {
+    final history = ref.read(chatHistoryServiceProvider);
+    final sessions = await history.listSessions(activeAgentId);
+    final visible = sessions
+        .where((info) => info.messageCount > 0)
+        .toList(growable: false);
+
+    final String body;
+    if (visible.isEmpty) {
+      body = s.historyEmpty;
+    } else {
+      final buf = StringBuffer()..writeln(s.historyHeader(visible.length));
+      for (var i = 0; i < visible.length; i++) {
+        final info = visible[i];
+        buf.writeln('${i + 1}. ${info.sessionId} → ${info.title}');
+      }
+      buf.writeln();
+      buf.writeln(s.historyResumeHint);
+      body = buf.toString().trimRight();
+    }
+    await _postTransientCommandBubble(body);
   }
 
   Future<void> showModelsCommandBubble() async {

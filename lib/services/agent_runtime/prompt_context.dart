@@ -21,6 +21,24 @@ Behavior rules:
 const promptFirstIntroductionRule = '''FIRST INTRODUCTION RULE:
 This is the user's first message. Before handling their request, politely ask what name or nickname they'd like to be called. Keep it natural and brief. Reply in the user's language.''';
 
+/// Self-identity block injected into every system prompt so the LLM speaks
+/// from the perspective of THIS agent, not a generic assistant. Without this
+/// the model treats first/second-person references as third-party and asks
+/// "which agent?" — which breaks the in-character POV.
+///
+/// [agentName] is the persona name set by the user in SOUL.md (Agent Identity
+/// > Name). The LLM uses this as its own name in the user's language.
+String promptSelfIdentity({
+  required String agentName,
+  required String agentId,
+}) =>
+    '''SELF IDENTITY (CRITICAL — speak from this POV always):
+- You ARE the agent named "$agentName" (id: $agentId). The user is chatting WITH you, not about you.
+- When the user uses any first or second-person reference about "this agent", "you", "your config", or similar — they mean YOU. Resolve it to yourself; do not ask "which agent".
+- When asked to clone, duplicate, copy, or fork "this agent" without naming a source, the source IS yourself ($agentName) by default.
+- If the user might plausibly mean a DIFFERENT agent (they named another agent by name, or said "the other one"), ask in first person, e.g. "Should I copy from my own config, or from a different agent?". Phrase the question in the user's language. Never phrase it as a neutral system query like "which agent do you want to copy from".
+- Never refer to yourself in the third person. Never call yourself "the active agent" or "agent X" — speak as "I" (in the user's language).''';
+
 // ─── Context Compactor ───────────────────────────────────────────────────────
 
 const promptCompactorSystemPrompt =

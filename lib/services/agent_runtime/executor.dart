@@ -26,6 +26,8 @@ class Executor {
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) async {
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
@@ -36,6 +38,8 @@ class Executor {
       isWorkflowAutoExecute: isWorkflowAutoExecute,
       goalTree: goalTree,
       recentMessages: recentMessages,
+      agentName: agentName,
+      agentId: agentId,
     );
 
     return _caller.call(prompt, 'selectTool', logger);

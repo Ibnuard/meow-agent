@@ -489,6 +489,19 @@ class ChatSessionInfo {
   final DateTime lastTimestamp;
   final int messageCount;
   final String preview;
+
+  /// A short, human-friendly summary derived from the first user message.
+  /// Truncated at a word boundary around 50 characters so it fits in a single
+  /// line in `/resume` or `/history` output.
+  String get title {
+    final raw = preview.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (raw.isEmpty) return '(empty session)';
+    if (raw.length <= 50) return raw;
+    // Cut at the last space before the 50-char mark.
+    final cut = raw.lastIndexOf(' ', 50);
+    final end = cut > 20 ? cut : 50;
+    return '${raw.substring(0, end)}…';
+  }
 }
 
 final chatHistoryServiceProvider = Provider<ChatHistoryService>(

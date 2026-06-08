@@ -128,6 +128,9 @@ class ExecuteLoopRunner {
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         goalTree: goalTree,
         recentMessages: loopRecentMsgs,
+        agentName:
+            request.agentName.isNotEmpty ? request.agentName : request.agentId,
+        agentId: request.agentId,
       );
       emit(logger.events.last);
 

@@ -17,6 +17,8 @@ class PromptTemplates {
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     String activeTaskContext = '',
+    String agentName = '',
+    String agentId = '',
   }) {
     final historyBlock = recentMessages.isNotEmpty
         ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
@@ -56,12 +58,16 @@ class PromptTemplates {
 
     final language = languageLabelFromCode(languageCode);
 
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
+
     return '''${PromptConstants.analyzeIntro}
 
 ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
 ${PromptConstants.systemMarkdownMap}
-
+$selfIdentityBlock
 Identity context (from SOUL.md — user-editable):
 ${workspace.soul}
 
@@ -109,6 +115,8 @@ ${PromptConstants.planResponseFormat}''';
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) {
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n${PromptConstants.selectToolMemoryHeader}\n$recentToolMemory\n'
@@ -148,7 +156,7 @@ ${PromptConstants.planResponseFormat}''';
               'it). In BOTH cases stay grounded — never invent items, names, '
               'numbers, or facts that are not present in the history above.\n';
     return '''${PromptConstants.selectToolIntro}
-
+${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 Execution plan:
 ${_jsonString(plan)}
 

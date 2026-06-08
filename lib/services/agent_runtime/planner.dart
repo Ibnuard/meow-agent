@@ -31,6 +31,8 @@ class Planner {
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     String activeTaskContext = '',
+    String agentName = '',
+    String agentId = '',
   }) async {
     final prompt = PromptTemplates.analyzePrompt(
       userMessage: userMessage,
@@ -42,6 +44,8 @@ class Planner {
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
       activeTaskContext: activeTaskContext,
+      agentName: agentName,
+      agentId: agentId,
     );
 
     final result = await _caller.call(prompt, 'analyze', logger);

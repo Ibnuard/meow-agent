@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -20,38 +22,50 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  // Frozen clock + deterministic RNG so the MEOW_YYYYMMDD_XXXX_N format is
+  // exact-match testable. Production callers use the default DateTime.now /
+  // Random.secure constructors.
+  ChatSessionService buildService(SharedPreferences prefs) => ChatSessionService(
+    prefs,
+    clock: () => DateTime(2026, 6, 9, 1, 6),
+    random: Random(42),
+  );
+
   group('ChatSessionService', () {
     test('lazily creates and persists a session per agent', () async {
       final prefs = await SharedPreferences.getInstance();
-      final service = ChatSessionService(prefs);
+      final service = buildService(prefs);
 
       final id1 = service.currentSessionId('agent-a');
       final id2 = service.currentSessionId('agent-a');
-      expect(id1, isNotEmpty);
-      expect(id1, 's-1');
+      expect(
+        id1,
+        matches(RegExp(r'^MEOW-20260609-\d{4}-1$')),
+        reason: 'first session id matches MEOW-YYYYMMDD-XXXX-N',
+      );
       expect(id2, equals(id1), reason: 'second read returns same id');
 
       final other = service.currentSessionId('agent-b');
-      expect(other, 's-2');
+      expect(other, matches(RegExp(r'^MEOW-20260609-\d{4}-2$')));
       expect(other, isNot(equals(id1)), reason: 'per-agent isolation');
     });
 
     test('startNewSession returns a fresh id and updates current', () async {
       final prefs = await SharedPreferences.getInstance();
-      final service = ChatSessionService(prefs);
+      final service = buildService(prefs);
 
       final initial = service.currentSessionId('agent-a');
       final fresh = await service.startNewSession('agent-a');
 
-      expect(initial, 's-1');
-      expect(fresh, 's-2');
+      expect(initial, matches(RegExp(r'^MEOW-20260609-\d{4}-1$')));
+      expect(fresh, matches(RegExp(r'^MEOW-20260609-\d{4}-2$')));
       expect(fresh, isNot(equals(initial)));
       expect(service.currentSessionId('agent-a'), equals(fresh));
     });
 
     test('setCurrentSession switches to an arbitrary id', () async {
       final prefs = await SharedPreferences.getInstance();
-      final service = ChatSessionService(prefs);
+      final service = buildService(prefs);
 
       await service.setCurrentSession('agent-a', 'ctx_external');
       expect(service.currentSessionId('agent-a'), 'ctx_external');
@@ -142,9 +156,11 @@ void main() {
       // Newest session first (sess_B was inserted later -> highest first_id).
       expect(sessions.first.sessionId, 'sess_B');
       expect(sessions.first.preview, 'second user line');
+      expect(sessions.first.title, 'second user line');
       expect(sessions.first.messageCount, 1);
       expect(sessions.last.sessionId, 'sess_A');
       expect(sessions.last.preview, 'first user line');
+      expect(sessions.last.title, 'first user line');
       expect(sessions.last.messageCount, 2);
     });
 
@@ -169,6 +185,55 @@ void main() {
       expect(current, isEmpty);
       expect(other.map((m) => m.content), ['other session']);
       expect(all.map((m) => m.content), ['other session']);
+    });
+  });
+
+  group('ChatSessionInfo.title', () {
+    final ts = DateTime(2026, 6, 9);
+
+    test('returns preview verbatim when short', () {
+      final info = ChatSessionInfo(
+        sessionId: 'x',
+        lastTimestamp: ts,
+        messageCount: 1,
+        preview: 'Hello world',
+      );
+      expect(info.title, 'Hello world');
+    });
+
+    test('returns placeholder for empty preview', () {
+      final info = ChatSessionInfo(
+        sessionId: 'x',
+        lastTimestamp: ts,
+        messageCount: 0,
+        preview: '',
+      );
+      expect(info.title, '(empty session)');
+    });
+
+    test('truncates at word boundary around 50 chars', () {
+      final info = ChatSessionInfo(
+        sessionId: 'x',
+        lastTimestamp: ts,
+        messageCount: 1,
+        preview:
+            'This is a very long message that definitely exceeds the fifty character limit for titles',
+      );
+      final title = info.title;
+      expect(title.length, lessThanOrEqualTo(52)); // 50 + 1 for the …
+      expect(title, endsWith('…'));
+      // Should cut at a word boundary, not mid-word.
+      expect(title, isNot(contains('  ')));
+    });
+
+    test('collapses whitespace', () {
+      final info = ChatSessionInfo(
+        sessionId: 'x',
+        lastTimestamp: ts,
+        messageCount: 1,
+        preview: '  hello\n  world  ',
+      );
+      expect(info.title, 'hello world');
     });
   });
 }

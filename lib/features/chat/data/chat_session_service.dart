@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,9 +16,16 @@ import '../../../core/storage/local_storage_service.dart';
 /// Backed by SharedPreferences (one key per agent). Reads are synchronous once
 /// SharedPreferences is resolved, so callers can fetch the current id inline.
 class ChatSessionService {
-  ChatSessionService(this._prefs);
+  ChatSessionService(
+    this._prefs, {
+    DateTime Function()? clock,
+    Random? random,
+  }) : _clock = clock ?? DateTime.now,
+       _random = random ?? Random();
 
   final SharedPreferences _prefs;
+  final DateTime Function() _clock;
+  final Random _random;
 
   static String _key(String agentId) => 'chat_session_$agentId';
   static const String _counterKey = 'chat_session_counter_v2';
@@ -45,12 +54,24 @@ class ChatSessionService {
     await _prefs.setString(_key(agentId), sessionId);
   }
 
-  /// Short, copy-pasteable session id. A persisted counter keeps ids stable
-  /// across app restarts without exposing timestamp/hash internals to users.
+  /// Session id format: `MEOW-YYYYMMDD-XXXX-N`.
+  ///
+  /// - `YYYYMMDD` is the local date the session was minted, so a quick glance
+  ///   at the id tells the user roughly when it was started.
+  /// - `XXXX` is four random digits, mostly to keep ids visually distinct
+  ///   when several sessions land on the same day.
+  /// - `N` is the persisted monotonic counter, kept so ids stay strictly
+  ///   ordered across the whole app even across days/restarts.
   String _generate() {
     final next = (_prefs.getInt(_counterKey) ?? 0) + 1;
     _prefs.setInt(_counterKey, next);
-    return 's-$next';
+    final now = _clock();
+    final ymd =
+        '${now.year.toString().padLeft(4, '0')}'
+        '${now.month.toString().padLeft(2, '0')}'
+        '${now.day.toString().padLeft(2, '0')}';
+    final rand = _random.nextInt(10000).toString().padLeft(4, '0');
+    return 'MEOW-$ymd-$rand-$next';
   }
 }
 

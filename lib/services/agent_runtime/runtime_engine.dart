@@ -403,6 +403,8 @@ class AgentRuntimeEngine {
         recentToolMemory: _memory.formatForPrompt(request.agentId),
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         activeTaskContext: activeTaskContext,
+        agentName: wsName,
+        agentId: request.agentId,
       );
       emit(logger.events.last);
       if (analysis == null) {
@@ -543,6 +545,8 @@ class AgentRuntimeEngine {
             recentToolMemory: _memory.formatForPrompt(request.agentId),
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             activeTaskContext: activeTaskContext,
+            agentName: wsName,
+            agentId: request.agentId,
           );
           emit(logger.events.last);
           if (analysis == null) {
@@ -721,6 +725,10 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
         emit(logger.events.last);
+        final selfIdentity = PromptConstants.selfIdentity(
+          agentName: wsName,
+          agentId: request.agentId,
+        );
         final identityBlock =
             'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
         final recentToolMemory = _memory.formatForPrompt(request.agentId);
@@ -732,7 +740,7 @@ class AgentRuntimeEngine {
         const capabilityDirectGuard =
             '\n\nCAPABILITY ANSWER GUARD:\nIf the user asks what you can do, what tools you have, or what capabilities are available, answer ONLY from a fresh system.tools.list retrieval result in RECENT TOOL RESULTS. If that result is not present, say you need to check the current tool list first. Never list generic assistant abilities or actions not backed by registered tools.';
         final baseSystem =
-            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$identityBlock$worldModelBlock$toolMemoryBlock$capabilityDirectGuard';
+            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$selfIdentity\n\n$identityBlock$worldModelBlock$toolMemoryBlock$capabilityDirectGuard';
         final systemContent = pending != null
             ? '$baseSystem\n\nPENDING ACTION (user was asked to confirm):\nTool: ${pending.toolName}\nArgs: ${pending.toolArgs}\nSummary: ${pending.userFacingSummary}\nIf user asks about the result or preview, show them what the result would be.'
             : baseSystem;

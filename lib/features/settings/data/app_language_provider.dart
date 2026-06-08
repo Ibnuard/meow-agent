@@ -744,21 +744,47 @@ class AppStrings {
   String sessionStartedWithId(String id) => isId
       ? '✨ Sesi baru dimulai (kode: $id). Saya mulai dari awal yang bersih.'
       : '✨ New session started (code: $id). I\'m beginning with a clean slate.';
-  String newSessionStartedWithResume(String newId, String previousId) => isId
-      ? '✨ Sesi baru dimulai (kode: $newId). Saya mulai dari awal yang bersih.\n\nUntuk lanjut ke sesi sebelumnya, ketik /resume $previousId.'
-      : '✨ New session started (code: $newId). I\'m beginning with a clean slate.\n\nTo continue the previous session, type /resume $previousId.';
+  String newSessionStartedWithResume(
+    String newId,
+    String previousId,
+    String previousTitle,
+  ) {
+    final hasTitle = previousTitle.isNotEmpty && previousTitle != '(empty session)';
+    if (isId) {
+      final tail = hasTitle
+          ? '\n\nUntuk lanjut ke sesi sebelumnya ($previousTitle), ketik /resume $previousId.'
+          : '\n\nUntuk lanjut ke sesi sebelumnya, ketik /resume $previousId.';
+      return '✨ Sesi baru dimulai (kode: $newId). Saya mulai dari awal yang bersih.$tail';
+    }
+    final tail = hasTitle
+        ? '\n\nTo continue the previous session ($previousTitle), type /resume $previousId.'
+        : '\n\nTo continue the previous session, type /resume $previousId.';
+    return '✨ New session started (code: $newId). I\'m beginning with a clean slate.$tail';
+  }
   String sessionResumed(String id) => isId
       ? '↩️ Melanjutkan sesi $id. Konteks sesi itu kembali aktif.'
       : '↩️ Resumed session $id. That session\'s context is active again.';
   String sessionNotFound(String id) => isId
-      ? '⚠️ Sesi "$id" tidak ditemukan. Ketik /resume tanpa id untuk melihat sesi yang tersedia.'
-      : '⚠️ Session "$id" not found. Type /resume with no id to see available sessions.';
+      ? '⚠️ Sesi "$id" tidak ditemukan. Ketik /history untuk melihat sesi yang tersedia.'
+      : '⚠️ Session "$id" not found. Type /history to see available sessions.';
+  String get resumeUsageHint => isId
+      ? '⚠️ Gunakan: /resume {kode-sesi}\nKetik /history untuk melihat daftar sesi.'
+      : '⚠️ Usage: /resume {session-code}\nType /history to see available sessions.';
   String get resumeUsageNoSessions => isId
       ? 'Belum ada sesi lain untuk dilanjutkan.'
       : 'There are no other sessions to resume yet.';
   String resumeUsageHeader(int count) => isId
       ? 'Sesi tersedia ($count). Pakai /resume {kode}:'
       : 'Available sessions ($count). Use /resume {code}:';
+  String get historyEmpty => isId
+      ? '📋 Belum ada riwayat sesi.'
+      : '📋 No session history yet.';
+  String historyHeader(int count) => isId
+      ? '📋 Riwayat sesi ($count):'
+      : '📋 Session history ($count):';
+  String get historyResumeHint => isId
+      ? 'Ketik /resume {kode-sesi} untuk melanjutkan.'
+      : 'Type /resume {session-code} to continue.';
   String get noProviderConnected => isId
       ? '⚠️ Tidak ada provider terhubung ke agen ini.'
       : '⚠️ No provider connected to this agent.';
@@ -892,6 +918,9 @@ class AppStrings {
   String get helpSlashResume => isId
       ? 'Lanjutkan sesi lama: /resume {kode}'
       : 'Resume a past session: /resume {code}';
+  String get helpSlashHistory => isId
+      ? 'Tampilkan daftar sesi lama'
+      : 'Show past session list';
   String get helpSlashModel =>
       isId ? 'Tampilkan info model saat ini' : 'Show current model info';
   String get helpSlashSetModel =>

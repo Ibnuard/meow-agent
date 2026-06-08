@@ -110,6 +110,11 @@ class PromptConstants {
   static String chatSystemPrompt(String agentName) =>
       promptChatSystemPrompt(agentName);
   static const firstIntroductionRule = promptFirstIntroductionRule;
+  static String selfIdentity({
+    required String agentName,
+    required String agentId,
+  }) =>
+      promptSelfIdentity(agentName: agentName, agentId: agentId);
   static const compactorSystemPrompt = promptCompactorSystemPrompt;
   static const jsonRepairIntro = promptJsonRepairIntro;
   static const pendingActionInstructions = promptPendingActionInstructions;
