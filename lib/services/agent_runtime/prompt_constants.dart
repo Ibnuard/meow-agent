@@ -115,6 +115,8 @@ class PromptConstants {
     required String agentId,
   }) =>
       promptSelfIdentity(agentName: agentName, agentId: agentId);
+  static const narrativeFieldRule = promptNarrativeFieldRule;
+  static const toolResultTrust = promptToolResultTrust;
   static const compactorSystemPrompt = promptCompactorSystemPrompt;
   static const jsonRepairIntro = promptJsonRepairIntro;
   static const pendingActionInstructions = promptPendingActionInstructions;

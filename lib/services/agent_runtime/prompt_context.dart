@@ -39,6 +39,24 @@ String promptSelfIdentity({
 - If the user might plausibly mean a DIFFERENT agent (they named another agent by name, or said "the other one"), ask in first person, e.g. "Should I copy from my own config, or from a different agent?". Phrase the question in the user's language. Never phrase it as a neutral system query like "which agent do you want to copy from".
 - Never refer to yourself in the third person. Never call yourself "the active agent" or "agent X" — speak as "I" (in the user's language).''';
 
+// ─── Shared cross-phase rules ────────────────────────────────────────────────
+
+/// Standard narrative-field rule used across analyze, plan, reflect, select,
+/// and review prompts. Each phase appends its own example pair after this.
+const promptNarrativeFieldRule =
+    'narrative MUST be in the user\'s language, first-person, '
+    '1–2 sentences max, stream-of-thought style. Show your reasoning '
+    'concretely. NO tool names, NO IDs, NO internal jargon.';
+
+/// Anti-hallucination rule about trusting tool results. Used by both the
+/// selector intro (decision context) and reviewer rules (response context).
+const promptToolResultTrust =
+    'TOOL RESULT TRUST (anti-hallucination):\n'
+    '- Tool results are REAL — successes happened, failures didn\'t.\n'
+    '- Do not re-run successful tools to "verify". Do not pretend failures succeeded.\n'
+    '- Never fabricate data not present in the result. If a field is missing, do not invent it.\n'
+    '- Confirm success immediately when success=true. The result IS the verification.';
+
 // ─── Context Compactor ───────────────────────────────────────────────────────
 
 const promptCompactorSystemPrompt =

@@ -1,6 +1,8 @@
 /// Reflector prompt constants extracted from [PromptConstants].
 library;
 
+import 'prompt_context.dart' show promptNarrativeFieldRule;
+
 const promptReflectIntro =
     'You are an AI agent reflector. Your job is to think carefully BEFORE the agent acts.';
 
@@ -112,12 +114,12 @@ const promptReflectResponseFormat =
   "clarify_questions": ["one combined question that covers all missing slots"],
   "block_reason": "string, only when strategy=block",
   "reasoning": "1-2 sentences in English describing why you picked this strategy",
-  "narrative": "1\\u20132 casual, stream-of-thought sentences in the user's language about what you're thinking through RIGHT NOW. Show the reasoning behind your caution or confidence. Examples: 'Let me check what depends on this agent before I remove it \\u2014 don\\u0027t want to break any workflows.' / 'This looks safe, nothing else is using it. Good to go.'"
+  "narrative": "$promptNarrativeFieldRule Show the reasoning behind your caution or confidence. Examples: 'Let me check what depends on this agent before I remove it \\u2014 don\\u0027t want to break any workflows.' / 'This looks safe, nothing else is using it. Good to go.'"
 }
 
 Rules:
 - If strategy=clarify, clarify_questions MUST contain exactly one short, friendly question in the user's language that covers ALL missing slots across all subgoals.
 - If strategy=block, block_reason MUST be filled with a clear, polite explanation in the user's language.
 - impacts may be empty when nothing in the ecosystem is affected.
-- narrative MUST be present, in the user's language, first-person, 1\\u20132 sentences max, stream-of-thought style. Show the reasoning behind your caution or confidence. NO tool names, NO IDs, NO mention of "goal tree" or other internal jargon.
+- $promptNarrativeFieldRule No mention of "goal tree" or other internal jargon.
 - Never include backticks or markdown fences.''';

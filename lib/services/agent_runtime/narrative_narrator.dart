@@ -34,6 +34,30 @@ class NarrativeNarrator {
     return bundle[phase] ?? bundle['composing']!;
   }
 
+  /// Consistency gate for LLM-emitted narratives.
+  ///
+  /// LLM narrative is preserved for happy-path decisions (tool_required, done,
+  /// continue, retry, direct_execute, auto_resolve). For "interrupting"
+  /// decisions (ask_user, clarify, block, failed) it is overridden with a
+  /// deterministic phrase from the bundle. This kills the desync where the
+  /// LLM writes an optimistic narrative while the runtime is about to ask
+  /// the user a clarifying question.
+  static String gate({
+    required String llmNarrative,
+    required String decision,
+    required String languageCode,
+  }) {
+    const interrupting = {'ask_user', 'clarify', 'block', 'failed'};
+    if (!interrupting.contains(decision)) return llmNarrative;
+    return narrate(_decisionToPhase(decision), languageCode);
+  }
+
+  static String _decisionToPhase(String decision) => switch (decision) {
+    'ask_user' || 'clarify' => 'asking',
+    'block' || 'failed' => 'recovering',
+    _ => 'composing',
+  };
+
   /// All phases this narrator knows. Useful for tests and the runtime
   /// dispatcher mapping.
   static const phases = <String>[

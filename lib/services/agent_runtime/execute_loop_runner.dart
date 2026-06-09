@@ -4,6 +4,7 @@ import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
 import 'language_registry.dart';
+import 'narrative_narrator.dart';
 import 'runtime_models.dart';
 import 'task_ledger.dart';
 import 'pending_action.dart';
@@ -219,7 +220,14 @@ class ExecuteLoopRunner {
         );
       }
 
-      final selectNarrative = (selection['narrative'] ?? '').toString();
+      // Extract status BEFORE emitting narrative so we can gate it against
+      // the actual decision (kills "Got it, doing X" + status=ask_user desync).
+      final status = selection['status'] as String? ?? '';
+      final selectNarrative = NarrativeNarrator.gate(
+        llmNarrative: (selection['narrative'] ?? '').toString(),
+        decision: status,
+        languageCode: detectedLang.code,
+      );
       if (selectNarrative.isNotEmpty) {
         logger.logNarrative('select_tool', selectNarrative);
         emit(logger.events.last);
@@ -232,8 +240,6 @@ class ExecuteLoopRunner {
           );
         }
       }
-
-      final status = selection['status'] as String? ?? '';
 
       if (status == 'done') {
         final finalResponse =
@@ -1018,7 +1024,11 @@ class ExecuteLoopRunner {
         }
 
         if (review != null) {
-          final reviewNarrative = (review['narrative'] ?? '').toString();
+          final reviewNarrative = NarrativeNarrator.gate(
+            llmNarrative: (review['narrative'] ?? '').toString(),
+            decision: reviewStatus,
+            languageCode: detectedLang.code,
+          );
           if (reviewNarrative.isNotEmpty) {
             logger.logNarrative('review', reviewNarrative);
             emit(logger.events.last);

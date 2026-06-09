@@ -192,6 +192,15 @@ ${PromptConstants.selectToolResponseFormat}''';
               'final_response or summary, ground it strictly on this; do NOT '
               'invent items, names, numbers, or jokes not present here):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
+    // Only ship the (large) app-agentic review rules when the just-executed
+    // tool is part of screen automation. Most chat tasks (notes, system,
+    // clipboard, web) don't need ~1700 tokens of app_agent guidance.
+    final isAppAgentic = result.toolName.startsWith('app_agent.') ||
+        result.toolName == 'app.open' ||
+        result.toolName == 'app.resolve';
+    final appAgenticBlock = isAppAgentic
+        ? '${PromptConstants.appAgenticReviewRules}\n\n'
+        : '';
     return '''${PromptConstants.reviewIntro}
 
 Original user request: "$userMessage"
@@ -209,9 +218,7 @@ Tool result:
 
 ${PromptConstants.reviewRulesFor(language)}
 
-${PromptConstants.appAgenticReviewRules}
-
-${PromptConstants.reviewResponseFormat}''';
+$appAgenticBlock${PromptConstants.reviewResponseFormat}''';
   }
 
   /// Attempt to repair malformed JSON from LLM.

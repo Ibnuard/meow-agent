@@ -16,6 +16,7 @@ import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
 import 'language_registry.dart';
+import 'narrative_narrator.dart';
 
 import 'pending_action.dart';
 import 'pending_clarification.dart';
@@ -414,8 +415,14 @@ class AgentRuntimeEngine {
         return _loopRunner.fail('Failed to analyze request.', logger);
       }
       final analyzeNarrative = (analysis['narrative'] ?? '').toString();
-      if (analyzeNarrative.isNotEmpty) {
-        logger.logNarrative('analyze', analyzeNarrative);
+      // Gate: if missing_info is non-empty, the runtime will ask a clarifying
+      // question. Override optimistic LLM narrative with deterministic phrase.
+      final earlyMissingInfo = (analysis['missing_info'] as List?) ?? const [];
+      final gatedAnalyzeNarrative = earlyMissingInfo.isNotEmpty
+          ? NarrativeNarrator.narrate('asking', detectedLang.code)
+          : analyzeNarrative;
+      if (gatedAnalyzeNarrative.isNotEmpty) {
+        logger.logNarrative('analyze', gatedAnalyzeNarrative);
         emit(logger.events.last);
       }
       final analyzerLangCode = (analysis['detected_language'] ?? '')
@@ -698,7 +705,12 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
         if (reflection.narrative.isNotEmpty) {
-          logger.logNarrative('reflect', reflection.narrative);
+          final gatedReflect = NarrativeNarrator.gate(
+            llmNarrative: reflection.narrative,
+            decision: reflection.strategy.name,
+            languageCode: detectedLang.code,
+          );
+          logger.logNarrative('reflect', gatedReflect);
           emit(logger.events.last);
         }
         if (reflection.strategy == ReflectionStrategy.clarify &&

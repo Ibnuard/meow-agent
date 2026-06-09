@@ -1,6 +1,9 @@
 /// Tool selector & reviewer prompt constants extracted from [PromptConstants].
 library;
 
+import 'prompt_context.dart'
+    show promptNarrativeFieldRule, promptToolResultTrust;
+
 // ─── Tool Selector ───────────────────────────────────────────────────────────
 
 const promptSelectToolIntro = '''You are an AI agent tool selector.
@@ -12,19 +15,16 @@ CRITICAL — TASK BOUNDARY RULE:
 - NEVER return status="done" when Previous results is empty or contains no successful tool execution.
 - A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.
 
-TOOL RESULT TRUST (anti-hallucination):
-- Previous results with success=true are REAL. The action happened. Do not re-run the same tool to "verify" a success.
-- Previous results with success=false are REAL failures. Do not pretend they succeeded.
-- When a previous result already confirms the task outcome (e.g. create returned the new entity), return status="done" immediately. Do not add unnecessary verification steps.''';
+$promptToolResultTrust''';
 
 const promptSelectToolResponseFormat =
     '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
 
-ALL response shapes MUST include a `narrative` field: 1–2 casual, stream-of-thought sentences in the user's language describing SPECIFICALLY what you're about to do AND why. Show your reasoning, not just the action. RULES:
+ALL response shapes MUST include a `narrative` field. $promptNarrativeFieldRule
 - Be CONCRETE: mention the target, what you expect to find, or why you chose this step.
 - Show your thought process (e.g. 'Looking at the workflow list first — need to confirm nothing references this agent.' / 'Found the search box. Typing the name now to filter.').
 - NEVER repeat the same narrative across steps. Each must reflect THIS step's unique thinking.
-- NO tool names, NO IDs, NO internal jargon. First-person, present-progressive.
+- First-person, present-progressive.
 
 If a tool is needed:
 {
@@ -99,12 +99,7 @@ String promptReviewRulesFor(String language) =>
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
 - If failed because the requested capability/tool/action is unavailable, return status="failed". Do NOT ask the user for missing action details (song name, contact, target, etc.) because more details cannot create a missing capability.
 
-TOOL RESULT TRUST (CRITICAL — anti-hallucination):
-- The tool result data in this prompt is REAL. It came from actual system execution, not from the LLM.
-- If success=true, the action DID happen. Do NOT second-guess it, re-verify it, or say "let me check again". Confirm success to the user immediately.
-- If success=false, the action FAILED. Do NOT pretend it succeeded. Report the failure honestly.
-- NEVER fabricate, assume, or hallucinate information that is not present in the tool result data. If a field is missing from the result, do not invent it.
-- NEVER claim you need to "verify" or "check if it worked" after a successful tool result. The result IS the verification.
+$promptToolResultTrust
 
 CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - A tool that ran SUCCESSFULLY but returned zero matches (e.g. count: 0, empty list, no rows) IS the answer. It is NOT a failure. Return status="done" and tell the user the answer is "none / not found / nothing matches" in their language.
@@ -172,10 +167,10 @@ When the live tool result invalidates ONE OR MORE earlier subgoals, also include
   ]
 Entries in `subgoal_updates` are applied in order and override `subgoal_update` for the same id.
 
-ALL response shapes MUST include a `narrative` field: 1–2 casual, stream-of-thought sentences in the user's language describing what you observed and what you're thinking about next. RULES:
+ALL response shapes MUST include a `narrative` field. $promptNarrativeFieldRule
 - Be SPECIFIC about what the result showed and your read on it (e.g. 'Got the list — 2 out of 3 are unused, safe to remove. Moving on to the next one.' / 'Hmm, this one has a linked workflow. I'll handle that dependency first.').
 - NEVER repeat a previous narrative verbatim. Each step must have a unique observation.
-- NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
+- No mention of "subgoal" or other jargon.
 
 If the active subgoal succeeded but other subgoals are still pending: status=continue.
 Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
