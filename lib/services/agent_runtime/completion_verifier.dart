@@ -62,6 +62,11 @@ class CompletionVerifier {
     );
     if (verification == null || verification.ok) return null;
 
+    logger.logDivergence('verifier_blocked', {
+      'missing': verification.missingNames,
+      'last_tool': lastToolName ?? '',
+    });
+
     for (final subgoal in goalTree.subgoals) {
       final expected = _expectedAgentNameForSubgoal(subgoal);
       if (expected != null &&
@@ -118,6 +123,35 @@ class CompletionVerifier {
             .toList() ??
         const <Map<String, dynamic>>[];
 
+    // ─── TOOL RESULT TRUST (anti-hallucination, AGENTS.md rule #1) ────────────
+    // For creates: if the tool returned success with the agent's name in the
+    // result data, that IS the verification. The tool handler wrote to the
+    // database; Riverpod snapshot may lag. Do NOT fall back to fragile regex
+    // extraction from subgoal labels — that breaks on any language or phrasing
+    // (e.g. "buat agen baru bernama X" captures "baru" not "X").
+    //
+    // Strategy: collect tool-confirmed create/delete names FIRST. If any
+    // create tool succeeded, skip the snapshot check for creates entirely.
+    // For deletes, still cross-check snapshot since the delete may have
+    // targeted a wrong entity.
+    final toolConfirmedCreates = <String>{};
+    for (final r in previousResults) {
+      if (r['tool'] != 'system.agents.create') continue;
+      if (r['success'] != true) continue;
+      final data = r['data'];
+      if (data is! Map) continue;
+      final agent = data['agent'];
+      if (agent is! Map) continue;
+      final createdName = (agent['name'] ?? '').toString().trim().toLowerCase();
+      if (createdName.isNotEmpty) toolConfirmedCreates.add(createdName);
+    }
+    // If any create succeeded in tool results, trust it unconditionally.
+    // No snapshot or regex-based name matching needed.
+    if (touchedAgentCreate && !touchedAgentDelete &&
+        toolConfirmedCreates.isNotEmpty) {
+      return const CompletionVerification(ok: true);
+    }
+
     final expectedCreates = graphTargets
         .where(
           (target) =>
@@ -159,25 +193,11 @@ class CompletionVerifier {
       return const CompletionVerification(ok: true);
     }
 
-    // Cross-check missing creates against the authoritative tool result.
-    // The agent provider snapshot may be one frame behind the underlying
-    // repository write (Riverpod state propagation), but if the tool itself
-    // returned success for the exact name we expect, the create did happen.
-    // Trust the tool result as the source of truth in that case.
-    final toolConfirmedCreates = <String>{};
-    for (final r in previousResults) {
-      if (r['tool'] != 'system.agents.create') continue;
-      if (r['success'] != true) continue;
-      final data = r['data'];
-      if (data is! Map) continue;
-      final agent = data['agent'];
-      if (agent is! Map) continue;
-      final createdName = (agent['name'] ?? '').toString().trim().toLowerCase();
-      if (createdName.isNotEmpty) toolConfirmedCreates.add(createdName);
-    }
-    // Symmetric for delete: if the snapshot still shows an agent we expected
-    // to delete, but the tool itself returned success for that name, treat
-    // it as deleted. The snapshot may simply not have refreshed yet.
+    // Cross-check creates against tool results (catch snapshot lag only).
+    final actuallyMissing = missingCreates
+        .where((name) => !toolConfirmedCreates.contains(name.toLowerCase()))
+        .toList(growable: false);
+    // Symmetric for delete: trust tool success.
     final toolConfirmedDeletes = <String>{};
     for (final r in previousResults) {
       if (r['tool'] != 'system.agents.delete') continue;
@@ -189,13 +209,9 @@ class CompletionVerifier {
         final deletedName = (agent['name'] ?? '').toString().trim().toLowerCase();
         if (deletedName.isNotEmpty) toolConfirmedDeletes.add(deletedName);
       }
-      // Some delete handlers only return name in args; also accept that.
       final argsName = (data['name'] ?? '').toString().trim().toLowerCase();
       if (argsName.isNotEmpty) toolConfirmedDeletes.add(argsName);
     }
-    final actuallyMissing = missingCreates
-        .where((name) => !toolConfirmedCreates.contains(name.toLowerCase()))
-        .toList(growable: false);
     final actuallyStillPresent = stillPresentDeletes
         .where((name) => !toolConfirmedDeletes.contains(name.toLowerCase()))
         .toList(growable: false);

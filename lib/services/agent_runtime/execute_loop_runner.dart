@@ -156,6 +156,10 @@ class ExecuteLoopRunner {
           };
           logger.logLlmDecision('selectTool', selection);
           emit(logger.events.last);
+        } else {
+          logger.logDivergence('fc_fallback_to_json', {
+            'step': currentStep,
+          });
         }
       }
 
@@ -223,11 +227,19 @@ class ExecuteLoopRunner {
       // Extract status BEFORE emitting narrative so we can gate it against
       // the actual decision (kills "Got it, doing X" + status=ask_user desync).
       final status = selection['status'] as String? ?? '';
+      final rawSelectNarrative = (selection['narrative'] ?? '').toString();
       final selectNarrative = NarrativeNarrator.gate(
-        llmNarrative: (selection['narrative'] ?? '').toString(),
+        llmNarrative: rawSelectNarrative,
         decision: status,
         languageCode: detectedLang.code,
       );
+      if (selectNarrative != rawSelectNarrative &&
+          rawSelectNarrative.isNotEmpty) {
+        logger.logDivergence('narrative_gate_override', {
+          'phase': 'select_tool',
+          'decision': status,
+        });
+      }
       if (selectNarrative.isNotEmpty) {
         logger.logNarrative('select_tool', selectNarrative);
         emit(logger.events.last);
@@ -283,6 +295,12 @@ class ExecuteLoopRunner {
             );
           }
 
+          logger.logDivergence('premature_done_overridden', {
+            'source': 'selector',
+            'remaining_subgoals':
+                goalTree.subgoals.where((s) => !s.isTerminal).length,
+            'step': currentStep,
+          });
           logger.logError(
             'Selector tried to finish early but goal tree is incomplete '
             '(${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoals remaining). Continuing loop.',
@@ -1024,11 +1042,19 @@ class ExecuteLoopRunner {
         }
 
         if (review != null) {
+          final rawReviewNarrative = (review['narrative'] ?? '').toString();
           final reviewNarrative = NarrativeNarrator.gate(
-            llmNarrative: (review['narrative'] ?? '').toString(),
+            llmNarrative: rawReviewNarrative,
             decision: reviewStatus,
             languageCode: detectedLang.code,
           );
+          if (reviewNarrative != rawReviewNarrative &&
+              rawReviewNarrative.isNotEmpty) {
+            logger.logDivergence('narrative_gate_override', {
+              'phase': 'review',
+              'decision': reviewStatus,
+            });
+          }
           if (reviewNarrative.isNotEmpty) {
             logger.logNarrative('review', reviewNarrative);
             emit(logger.events.last);
@@ -1132,6 +1158,12 @@ class ExecuteLoopRunner {
 
         if (reviewStatus == 'done') {
           if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            logger.logDivergence('premature_done_overridden', {
+              'source': 'reviewer',
+              'remaining_subgoals':
+                  goalTree.subgoals.where((s) => !s.isTerminal).length,
+              'step': currentStep,
+            });
             logger.logError(
               'Reviewer tried to finish early. Goal tree still has '
               '${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoal(s) outstanding. Continuing.',

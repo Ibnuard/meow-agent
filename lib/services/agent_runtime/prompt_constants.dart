@@ -22,6 +22,10 @@ import 'prompt_workflow.dart';
 class PromptConstants {
   PromptConstants._();
 
+  /// Bump when prompt semantics change materially. Logged with each LLM
+  /// decision for A/B traceability across deployments.
+  static const String promptVersion = '2026-06-v1';
+
   // ─── System-level (logic with caching stays here) ──────────────────────────
 
   /// Cache for systemRules — keyed by `language|isWorkflowAutoExecute`.

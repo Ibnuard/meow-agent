@@ -16,12 +16,12 @@ class RuntimeLogger {
     );
   }
 
-  void logLlmDecision(String phase, Map<String, dynamic> json) {
+  void logLlmDecision(String phase, Map<String, dynamic> json, {String? version}) {
     _events.add(
       RuntimeEvent(
         type: 'llm_decision',
         message: '$phase decision',
-        data: json,
+        data: {'_prompt_version': ?version, ...json},
       ),
     );
   }
@@ -81,6 +81,20 @@ class RuntimeLogger {
         type: 'narrative',
         message: narrative.trim(),
         data: {'phase': phase},
+      ),
+    );
+  }
+
+  /// A self-correction moment — the runtime caught and recovered from a
+  /// model mistake or a stale-state mismatch. Surfaced in /log for visibility
+  /// into how often each recovery path fires. [kind] is a stable enum-like
+  /// string (e.g. 'fast_path_exhausted', 'narrative_gate_override').
+  void logDivergence(String kind, Map<String, dynamic> details) {
+    _events.add(
+      RuntimeEvent(
+        type: 'divergence',
+        message: 'Recovery: $kind',
+        data: {'kind': kind, ...details},
       ),
     );
   }

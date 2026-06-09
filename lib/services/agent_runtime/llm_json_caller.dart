@@ -32,7 +32,7 @@ class LlmJsonCaller {
 
     var parsed = JsonUtils.tryParseObject(response);
     if (parsed != null) {
-      logger.logLlmDecision(phase, parsed);
+      logger.logLlmDecision(phase, parsed, version: PromptConstants.promptVersion);
       return parsed;
     }
 
@@ -49,7 +49,7 @@ class LlmJsonCaller {
 
     parsed = JsonUtils.tryParseObject(repaired);
     if (parsed != null) {
-      logger.logLlmDecision(phase, parsed);
+      logger.logLlmDecision(phase, parsed, version: PromptConstants.promptVersion);
       return parsed;
     }
 

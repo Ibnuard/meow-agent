@@ -421,6 +421,13 @@ class AgentRuntimeEngine {
       final gatedAnalyzeNarrative = earlyMissingInfo.isNotEmpty
           ? NarrativeNarrator.narrate('asking', detectedLang.code)
           : analyzeNarrative;
+      if (gatedAnalyzeNarrative != analyzeNarrative) {
+        logger.logDivergence('narrative_gate_override', {
+          'phase': 'analyze',
+          'reason': 'missing_info_present',
+          'missing_count': earlyMissingInfo.length,
+        });
+      }
       if (gatedAnalyzeNarrative.isNotEmpty) {
         logger.logNarrative('analyze', gatedAnalyzeNarrative);
         emit(logger.events.last);
@@ -710,6 +717,12 @@ class AgentRuntimeEngine {
             decision: reflection.strategy.name,
             languageCode: detectedLang.code,
           );
+          if (gatedReflect != reflection.narrative) {
+            logger.logDivergence('narrative_gate_override', {
+              'phase': 'reflect',
+              'decision': reflection.strategy.name,
+            });
+          }
           logger.logNarrative('reflect', gatedReflect);
           emit(logger.events.last);
         }
@@ -1013,6 +1026,10 @@ class AgentRuntimeEngine {
 
       // Fast-path exhausted: retry in normal mode with the same plan/tree.
       if (loopResponse.state == AgentRuntimeState.fastPathExhausted) {
+        logger.logDivergence('fast_path_exhausted', {
+          'fallback_mode': 'normal',
+          'subgoals': goalTree.subgoals.length,
+        });
         logger.logStateChange(
           AgentRuntimeState.analyzing,
           'Fast-path exhausted, retrying in normal mode',
