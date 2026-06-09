@@ -93,12 +93,19 @@ ${PromptConstants.analyzeResponseFormat}''';
   static String planPrompt({
     required Map<String, dynamic> analysis,
     required List<String> availableTools,
+    List<String> resolvedTargetLabels = const [],
   }) {
+    final resolvedBlock = resolvedTargetLabels.isEmpty
+        ? ''
+        : '\nResolved targets (snapshot-matched, authoritative):\n'
+              '${resolvedTargetLabels.map((l) => '- $l').join('\n')}\n'
+              'Emit ONE subgoal per resolved target above. Use these labels '
+              'verbatim. Do NOT invent additional targets.\n';
     return '''${PromptConstants.planIntro}
 
 Analysis result:
 ${_jsonString(analysis)}
-
+$resolvedBlock
 Available tools:
 ${availableTools.join('\n')}
 

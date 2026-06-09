@@ -805,11 +805,14 @@ class AgentRuntimeEngine {
           reflection != null && reflection.goalTree.subgoals.length > 1;
       final reflectorMultiTarget =
           reflection != null && reflection.targets.length > 1;
+      final resolvedMultiTarget =
+          targetGraph != null && targetGraph.eligibleTargets.length > 1;
       final hasMultiTarget =
           hasMultiSeed ||
           analyzerBulk ||
           reflectorMultiSubgoal ||
-          reflectorMultiTarget;
+          reflectorMultiTarget ||
+          resolvedMultiTarget;
       final canSkipPlanner =
           pending == null &&
           !isWorkflowAutoExecute &&
@@ -847,10 +850,19 @@ class AgentRuntimeEngine {
           state: state.name,
           task: request.userMessage,
         );
+        // Build resolved target labels for the planner so it can emit
+        // per-entity subgoals for bulk/fan-out operations.
+        final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
+            ? targetGraph.eligibleTargets
+                .map((t) => '${t.operation} ${t.entityType}: ${t.entityLabel}'
+                    '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}')
+                .toList(growable: false)
+            : <String>[];
         plan = await planner.plan(
           analysis: analysis,
           availableTools: availableTools,
           logger: logger,
+          resolvedTargetLabels: resolvedLabels,
         );
         emit(logger.events.last);
         if (plan == null) {
@@ -865,6 +877,7 @@ class AgentRuntimeEngine {
                 ? broadenedAnalyzer
                 : toolRouter.buildAllToolDescriptions(),
             logger: logger,
+            resolvedTargetLabels: resolvedLabels,
           );
           emit(logger.events.last);
         }
@@ -882,23 +895,16 @@ class AgentRuntimeEngine {
         plan: plan,
         analysis: analysis,
         userMessage: effectiveUserMessage,
+        resolvedTargets: targetGraph?.targets,
       );
-      // Use the planner's goal tree when it has more subgoals than the
-      // reflector's — the reflector sometimes over-simplifies multi-step tasks
-      // into a single subgoal, which causes the execute loop to declare "done"
-      // prematurely. The planner always sees the analyzer's subgoal_seeds and
-      // produces a faithful breakdown.
-      final GoalTree goalTree;
-      if (reflection != null &&
-          reflection.goalTree.isNotEmpty &&
-          reflection.goalTree.subgoals.length >=
-              plannerGoalTree.subgoals.length) {
-        goalTree = reflection.goalTree;
-      } else {
-        goalTree = plannerGoalTree.isNotEmpty
-            ? plannerGoalTree
-            : (reflection?.goalTree ?? GoalTree(mainGoal: ''));
-      }
+      // Planner is the single source of goal-tree authority. The reflector no
+      // longer dictates the tree — TargetResolver still feeds resolved
+      // per-entity targets into the planner (via resolvedTargetLabels) AND into
+      // _buildGoalTree's fan-out fallback, so bulk operations keep their full
+      // breakdown without the reflector owning the tree.
+      final goalTree = plannerGoalTree.isNotEmpty
+          ? plannerGoalTree
+          : GoalTree(mainGoal: effectiveUserMessage);
       if (targetGraph != null && targetGraph.isNotEmpty) {
         plan['runtime_target_graph'] = targetGraph.toJson();
       }
@@ -943,21 +949,42 @@ class AgentRuntimeEngine {
             logger: logger,
             recentMessages: recentMsgs,
           );
+          // Resolve targets from the fresh reflection so the planner LLM and
+          // the goal-tree fan-out fallback both see the snapshot-matched
+          // entities.
+          final reTargetResolution = TargetResolver.resolveReflection(
+            reflection: reReflection,
+            snapshot: freshSnapshot,
+            request: request,
+            language: detectedLang,
+          );
+          final reTargetGraph = reTargetResolution.graph;
+          final reResolvedLabels = reTargetGraph.isNotEmpty
+              ? reTargetGraph.eligibleTargets
+                  .map((t) => '${t.operation} ${t.entityType}: ${t.entityLabel}'
+                      '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}')
+                  .toList(growable: false)
+              : <String>[];
           final newPlan = await planner.plan(
             analysis: freshAnalysis,
             availableTools: broadenedAnalyzerTools.isNotEmpty
                 ? broadenedAnalyzerTools
                 : broadenedTools,
             logger: logger,
+            resolvedTargetLabels: reResolvedLabels,
           );
           if (newPlan == null) return null;
-          final newTree = reReflection.goalTree.isNotEmpty
-              ? reReflection.goalTree
-              : _buildGoalTree(
-                  plan: newPlan,
-                  analysis: freshAnalysis,
-                  userMessage: effectiveUserMessage,
-                );
+          if (reTargetGraph.isNotEmpty) {
+            newPlan['runtime_target_graph'] = reTargetGraph.toJson();
+          }
+          // Planner is the single source of authority — ignore reReflection's
+          // goal tree; rebuild from the planner output and resolved targets.
+          final newTree = _buildGoalTree(
+            plan: newPlan,
+            analysis: freshAnalysis,
+            userMessage: effectiveUserMessage,
+            resolvedTargets: reTargetGraph.targets,
+          );
           return (plan: newPlan, goalTree: newTree);
         } catch (e) {
           logger.logError('Recovery rethink failed', e);
@@ -1360,11 +1387,14 @@ class AgentRuntimeEngine {
     required Map<String, dynamic> plan,
     required Map<String, dynamic> analysis,
     required String userMessage,
+    List<ResolvedTarget>? resolvedTargets,
   }) {
     final mainGoal =
         (plan['main_goal'] as String?) ??
         (analysis['goal'] as String?) ??
         userMessage;
+    // Highest priority: the planner LLM's own subgoals (it now receives the
+    // resolved targets as authoritative input, so its breakdown reflects them).
     final subgoalsJson = plan['subgoals'];
     if (subgoalsJson is List && subgoalsJson.isNotEmpty) {
       try {
@@ -1374,6 +1404,31 @@ class AgentRuntimeEngine {
           'subgoals': subgoalsJson,
         });
       } catch (_) {}
+    }
+    // Fallback when the planner LLM was skipped/failed but the resolver fanned
+    // out concrete per-entity targets: synthesize one subgoal per eligible
+    // target so bulk operations keep their full breakdown.
+    final eligibleTargets = resolvedTargets
+        ?.where((t) => t.isEligible)
+        .toList(growable: false);
+    if (eligibleTargets != null && eligibleTargets.length > 1) {
+      return GoalTree(
+        mainGoal: mainGoal,
+        subgoals: [
+          for (final t in eligibleTargets)
+            Subgoal(
+              id: t.subgoalId.isNotEmpty ? t.subgoalId : 'sg_${t.entityId}',
+              label: t.entityLabel.isNotEmpty
+                  ? '${t.operation} ${t.entityType} ${t.entityLabel}'
+                  : t.operation,
+              requiredSlots: {
+                if (t.entityId.isNotEmpty) 'entity_id': t.entityId,
+                if (t.entityLabel.isNotEmpty) 'entity_label': t.entityLabel,
+                'name': t.entityLabel,
+              },
+            ),
+        ],
+      );
     }
     final seeds = analysis['subgoal_seeds'];
     if (seeds is List && seeds.length > 1) {

@@ -40,13 +40,6 @@ OUTPUT LANGUAGE:
 - All user-visible strings (clarify_questions, block_reason) MUST be in $language. Match the user's tone.
 - reasoning is internal — keep it short and English.
 
-GOAL TREE:
-- Always produce goal_tree with subgoals. Multi-target = one subgoal per target.
-- If the user asks a question that requires fetched data, split it into evidence + answer outcomes (for example: validate/read the source, then answer the user's question from that result). A retrieval tool succeeding is not the final answer by itself.
-- For the answer-only outcome, set required_slots {"_operation":"respond"} so the runtime knows no extra tool is needed.
-- For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
-- Status defaults to "pending".
-
 BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type and language):
 - A "bulk quantifier" is any word or phrase, IN ANY LANGUAGE, that means "all / every / each" of an existing entity collection (agents, workflows, providers, modules, notes, etc.). You understand the user's language — recognize the intent semantically. Do NOT rely on a fixed keyword list, and do NOT invent or enumerate the entity names yourself.
 - For a whole-collection request: emit ONE seed target with operation set to the user's verb (delete/update/toggle/...), entity_type set to the entity collection, entity_label = "all", and selector = {"scope": "all"}.
@@ -59,7 +52,7 @@ BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type and langua
 - Bulk/predicate selectors NEVER apply to create. If the user says "create all X" treat it as ambiguous and clarify the count or list.
 
 TARGET GRAPH:
-- Also emit `targets`: one machine-readable target per subgoal when the action acts on a concrete entity.
+- Emit `targets`: one machine-readable target per concrete entity acted on. Group related targets under the same subgoal_id (e.g. "sg1", "sg2") — these are grouping labels, not full subgoals (the planner builds the goal tree downstream).
 - operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
 - entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
@@ -76,19 +69,6 @@ const promptReflectResponseFormat =
 
 {
   "strategy": "direct_execute | clarify | auto_resolve | block",
-  "goal_tree": {
-    "main_goal": "single sentence summary",
-    "completion_criteria": ["observable condition 1", "..."],
-    "subgoals": [
-      {
-        "id": "sg1",
-        "label": "user-visible outcome",
-        "required_slots": {"slotKey": "value or null"},
-        "missing_slots": ["slotKey"],
-        "status": "pending"
-      }
-    ]
-  },
   "targets": [
     {
       "subgoal_id": "sg1",

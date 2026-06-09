@@ -57,10 +57,12 @@ class Planner {
     required Map<String, dynamic> analysis,
     required List<String> availableTools,
     required RuntimeLogger logger,
+    List<String> resolvedTargetLabels = const [],
   }) async {
     final prompt = PromptTemplates.planPrompt(
       analysis: analysis,
       availableTools: availableTools,
+      resolvedTargetLabels: resolvedTargetLabels,
     );
 
     final result = await _caller.call(prompt, 'plan', logger);
