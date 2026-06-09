@@ -75,6 +75,7 @@ class ExecuteLoopRunner {
     List<Map<String, dynamic>>? initialPreviousResults,
     int initialStep = 1,
     int nullSelectionRecoveryCount = 0,
+    bool fastPath = false,
   }) async {
     final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
     var currentStep = initialStep;
@@ -95,8 +96,12 @@ class ExecuteLoopRunner {
     }();
 
     // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3.
-    final adaptiveLimit = goalTree.isEmpty
-        ? maxSteps
+    // Fast-path tasks get a hard cap of 2 iterations — if exhausted, the caller
+    // retries in normal mode.
+    final adaptiveLimit = fastPath
+        ? 2
+        : goalTree.isEmpty
+            ? maxSteps
         : (maxSteps + goalTree.subgoals.length * 2).clamp(
             maxSteps,
             maxSteps * 3,
@@ -118,7 +123,43 @@ class ExecuteLoopRunner {
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);
 
-      final selection = await executor.selectTool(
+      // Fast-path: try native function calling before JSON selector.
+      // If successful, synthesize a selection map that the rest of the loop
+      // can process identically. Falls back to JSON on null.
+      Map<String, dynamic>? selection;
+      if (fastPath && executor.config.supportsFunctionCalling) {
+        final toolDefs = availableTools
+            .map((desc) {
+              final name = desc.split(':').first.replaceFirst('- ', '').trim();
+              return _toolRouter.getDefinition(name);
+            })
+            .whereType<ToolDefinition>()
+            .toList();
+        final fcResult = await executor.selectToolViaFunctionCalling(
+          tools: toolDefs,
+          userGoal: request.userMessage,
+          recentMessages: loopRecentMsgs,
+          logger: logger,
+        );
+        if (fcResult != null) {
+          // Synthesize a selection map compatible with the JSON selector shape.
+          selection = {
+            'status': 'tool_required',
+            'tool': {
+              'name': fcResult.name,
+              'args': fcResult.args,
+              'risk': fcResult.risk,
+              'requires_confirmation': fcResult.requiresConfirmation,
+            },
+            'narrative': '',
+          };
+          logger.logLlmDecision('selectTool', selection);
+          emit(logger.events.last);
+        }
+      }
+
+      // JSON selector fallback (also the default for non-FC paths).
+      selection ??= await executor.selectTool(
         plan: plan,
         currentStep: currentStep,
         previousResults: previousResults,
@@ -1278,6 +1319,22 @@ class ExecuteLoopRunner {
         currentStep++;
         retryCount = 0;
       }
+    }
+
+    // Loop exhausted. Fast-path tasks emit a sentinel so the caller can retry
+    // in normal mode without surfacing a failure to the user.
+    if (fastPath) {
+      logger.logStateChange(
+        AgentRuntimeState.fastPathExhausted,
+        'Fast-path exhausted at $adaptiveLimit iterations; caller will retry in normal mode',
+      );
+      emit(logger.events.last);
+      return AgentRuntimeResponse(
+        finalMessage: '',
+        success: false,
+        state: AgentRuntimeState.fastPathExhausted,
+        events: logger.events,
+      );
     }
 
     await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);

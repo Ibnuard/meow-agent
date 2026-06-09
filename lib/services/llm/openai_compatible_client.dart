@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import '../../features/settings/data/llm_provider_config.dart';
@@ -19,6 +21,24 @@ class LlmRequestUsage {
   final int? outputTokens;
   final int messageCount;
   final DateTime createdAt;
+}
+
+/// Result of a native function calling chat completion.
+///
+/// When the model emits a `tool_calls` array, the first call is parsed into
+/// this structure. Returns null in [OpenAiCompatibleClient.chatWithTools]
+/// when the model returns plain content with no tool_call (caller should
+/// fallback to JSON path).
+class FunctionCallResult {
+  const FunctionCallResult({
+    required this.toolName,
+    required this.args,
+    this.toolCallId,
+  });
+
+  final String toolName;
+  final Map<String, dynamic> args;
+  final String? toolCallId;
 }
 
 /// Minimal OpenAI-compatible chat completions client.
@@ -205,6 +225,98 @@ class OpenAiCompatibleClient {
       ),
     );
     return _normalizeContent(content);
+  }
+
+  /// Native function calling path. Sends `tools` as an API parameter and
+  /// reads `message.tool_calls[0].function` from the response.
+  ///
+  /// Returns null when the model emits plain content with no tool_call —
+  /// the caller should fallback to the JSON-in-content selector path.
+  Future<FunctionCallResult?> chatWithTools({
+    required LlmProviderConfig config,
+    required List<Map<String, dynamic>> messages,
+    required List<Map<String, dynamic>> tools,
+    String toolChoice = 'required',
+    String phase = 'fc',
+  }) async {
+    final estimatedInputTokens = estimateMessagesTokens(
+      messages.map((m) => Map<String, String>.from(
+        m.map((k, v) => MapEntry(k, v.toString())),
+      )).toList(),
+    );
+
+    final response = await _dio.postUri<Map<String, dynamic>>(
+      _resolve(config.baseUrl, '/chat/completions'),
+      data: {
+        'model': config.model,
+        'messages': messages,
+        'tools': tools,
+        'tool_choice': toolChoice,
+      },
+      options: Options(
+        headers: {
+          'Authorization': 'Bearer ${config.apiKey}',
+          'Content-Type': 'application/json',
+        },
+      ),
+    );
+
+    final data = response.data;
+    if (data == null) return null;
+
+    final choices = data['choices'] as List?;
+    if (choices == null || choices.isEmpty) return null;
+
+    final message = (choices.first as Map)['message'] as Map?;
+    if (message == null) return null;
+
+    // Record usage.
+    final usage = data['usage'] as Map?;
+    final completionTokens = usage?['completion_tokens'];
+    _recordUsage(
+      LlmRequestUsage(
+        phase: phase,
+        model: config.model,
+        inputTokens: estimatedInputTokens,
+        outputTokens: completionTokens is int ? completionTokens : null,
+        messageCount: messages.length,
+        createdAt: DateTime.now(),
+      ),
+    );
+
+    // Parse tool_calls.
+    final toolCalls = message['tool_calls'] as List?;
+    if (toolCalls == null || toolCalls.isEmpty) return null;
+
+    final firstCall = toolCalls.first as Map;
+    final function_ = firstCall['function'] as Map?;
+    if (function_ == null) return null;
+
+    final name = (function_['name'] ?? '').toString();
+    if (name.isEmpty) return null;
+
+    Map<String, dynamic> args;
+    final rawArgs = function_['arguments'];
+    if (rawArgs is String) {
+      try {
+        final decoded = jsonDecode(rawArgs);
+        args = decoded is Map
+            ? Map<String, dynamic>.from(decoded)
+            : <String, dynamic>{};
+      } catch (_) {
+        args = <String, dynamic>{};
+      }
+    } else if (rawArgs is Map) {
+      args = Map<String, dynamic>.from(rawArgs);
+    } else {
+      args = <String, dynamic>{};
+    }
+
+    return FunctionCallResult(
+      toolName: name,
+      args: args,
+      toolCallId: (firstCall['id'] ?? '').toString(),
+    );
   }
 
   Future<String> chatWithImage({

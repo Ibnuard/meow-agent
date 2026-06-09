@@ -5,6 +5,7 @@ import 'llm_json_caller.dart';
 import 'prompt_templates.dart';
 import 'runtime_logger.dart';
 import 'runtime_models.dart';
+import 'tool_schema_converter.dart';
 
 /// Executes the tool selection and review loop.
 class Executor {
@@ -67,5 +68,79 @@ class Executor {
     );
 
     return _caller.call(prompt, 'review', logger);
+  }
+
+  /// Fast-path tool selection via native function calling.
+  ///
+  /// Sends the tool definitions as an OpenAI `tools` API parameter and reads
+  /// the model's `tool_calls` response directly — no JSON-in-content parsing.
+  /// Returns a [ToolCallRequest] on success, or null if the model returned no
+  /// tool call (caller should fall back to [selectTool]).
+  ///
+  /// The risk/confirmation values come from the [ToolDefinition] (authoritative
+  /// runtime metadata), NOT from the model — the model only picks the tool and
+  /// its args.
+  Future<ToolCallRequest?> selectToolViaFunctionCalling({
+    required List<ToolDefinition> tools,
+    required String userGoal,
+    required List<Map<String, String>> recentMessages,
+    required RuntimeLogger logger,
+  }) async {
+    if (!config.supportsFunctionCalling || tools.isEmpty) return null;
+
+    final openAiTools = ToolSchemaConverter.toOpenAiTools(tools);
+    final messages = <Map<String, dynamic>>[
+      {
+        'role': 'system',
+        'content':
+            'You are a tool selector. Pick the single most appropriate tool '
+            'for the user\'s request and fill its arguments. Respond with a '
+            'tool call only.',
+      },
+      for (final m in recentMessages) {'role': m['role'], 'content': m['content']},
+      {'role': 'user', 'content': userGoal},
+    ];
+
+    try {
+      final result = await client.chatWithTools(
+        config: config,
+        messages: messages,
+        tools: openAiTools,
+        toolChoice: 'required',
+        phase: 'fc_select',
+      );
+      if (result == null) {
+        logger.logStateChange(
+          AgentRuntimeState.selectingTool,
+          'Function calling returned no tool_call; falling back to JSON selector',
+        );
+        return null;
+      }
+
+      // Match the selected tool name against the authoritative definition to
+      // pull risk + confirmation metadata (never trust the model for these).
+      final def = tools.where((t) => t.name == result.toolName).firstOrNull;
+      if (def == null) {
+        logger.logStateChange(
+          AgentRuntimeState.selectingTool,
+          'Function calling picked unknown tool "${result.toolName}"; falling back',
+        );
+        return null;
+      }
+
+      logger.logStateChange(
+        AgentRuntimeState.selectingTool,
+        'Function calling selected ${def.name}',
+      );
+      return ToolCallRequest(
+        name: def.name,
+        args: result.args,
+        risk: def.risk,
+        requiresConfirmation: def.requiresConfirmation,
+      );
+    } catch (e) {
+      logger.logError('Function calling selection failed', e);
+      return null;
+    }
   }
 }

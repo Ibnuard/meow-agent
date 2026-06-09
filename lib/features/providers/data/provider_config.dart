@@ -14,12 +14,17 @@ class ProviderConfig {
     required this.model,
     List<String>? models,
     List<String>? visionModels,
+    List<String>? functionCallingModels,
     this.codename,
   }) : id = id ?? const Uuid().v4(),
        models = _normalizeModels(model, models),
        visionModels = _normalizeVisionModels(
          _normalizeModels(model, models),
          visionModels,
+       ),
+       functionCallingModels = _normalizeFunctionCallingModels(
+         _normalizeModels(model, models),
+         functionCallingModels,
        );
 
   final String id;
@@ -29,6 +34,7 @@ class ProviderConfig {
   final String model;
   final List<String> models;
   final List<String> visionModels;
+  final List<String> functionCallingModels;
   final String? codename;
 
   String get displayCode =>
@@ -54,6 +60,12 @@ class ProviderConfig {
     return visionModels.contains(selected);
   }
 
+  bool supportsFunctionCallingFor(String? selectedModel) {
+    final selected = (selectedModel ?? '').trim();
+    if (selected.isEmpty) return false;
+    return functionCallingModels.contains(selected);
+  }
+
   ProviderConfig copyWith({
     String? nickname,
     String? baseUrl,
@@ -61,6 +73,7 @@ class ProviderConfig {
     String? model,
     List<String>? models,
     List<String>? visionModels,
+    List<String>? functionCallingModels,
     String? codename,
   }) {
     return ProviderConfig(
@@ -71,6 +84,8 @@ class ProviderConfig {
       model: model ?? this.model,
       models: models ?? this.models,
       visionModels: visionModels ?? this.visionModels,
+      functionCallingModels:
+          functionCallingModels ?? this.functionCallingModels,
       codename: codename ?? this.codename,
     );
   }
@@ -83,6 +98,7 @@ class ProviderConfig {
     'model': model,
     'models': models,
     'visionModels': visionModels,
+    'functionCallingModels': functionCallingModels,
     if (codename != null && codename!.trim().isNotEmpty) 'codename': codename!.trim(),
   };
 
@@ -98,6 +114,9 @@ class ProviderConfig {
       model: (json['model'] as String?) ?? '',
       models: (json['models'] as List?)?.map((e) => e.toString()).toList(),
       visionModels: (json['visionModels'] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
+      functionCallingModels: (json['functionCallingModels'] as List?)
           ?.map((e) => e.toString())
           .toList(),
       codename: (json['codename'] as String?)?.trim(),
@@ -126,6 +145,20 @@ class ProviderConfig {
     final valid = models.toSet();
     final out = <String>[];
     for (final item in visionModels ?? const <String>[]) {
+      final trimmed = item.trim();
+      if (trimmed.isEmpty || !valid.contains(trimmed)) continue;
+      if (!out.contains(trimmed)) out.add(trimmed);
+    }
+    return out;
+  }
+
+  static List<String> _normalizeFunctionCallingModels(
+    List<String> models,
+    List<String>? functionCallingModels,
+  ) {
+    final valid = models.toSet();
+    final out = <String>[];
+    for (final item in functionCallingModels ?? const <String>[]) {
       final trimmed = item.trim();
       if (trimmed.isEmpty || !valid.contains(trimmed)) continue;
       if (!out.contains(trimmed)) out.add(trimmed);

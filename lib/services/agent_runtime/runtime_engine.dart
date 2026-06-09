@@ -191,6 +191,8 @@ class AgentRuntimeEngine {
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
       model: provider.model,
+      supportsFunctionCalling:
+          provider.supportsFunctionCallingFor(provider.model),
     );
     final client = _client;
     final planner = Planner(
@@ -630,7 +632,19 @@ class AgentRuntimeEngine {
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
-      final reflectSnapshot = analyzerSaysToolsForReflect
+
+      // Pre-check: if the task looks simple enough to fast-path, defer the
+      // expensive snapshot build. An empty snapshot makes
+      // isRelevantForReflection = false, which satisfies canSkipReflect's
+      // last condition without actual I/O.
+      final likelyFastPath = analyzerSaysToolsForReflect &&
+          !isWorkflowAutoExecute &&
+          toolSelection.isHighConfidence &&
+          toolSelection.groups.length == 1 &&
+          missingInfo.isEmpty &&
+          analysis['bulk_selector'] != true &&
+          !_isDestructiveIntent(analysis);
+      final reflectSnapshot = (analyzerSaysToolsForReflect && !likelyFastPath)
           ? await _buildSnapshot()
           : EcosystemSnapshot(
               agents: const [],
@@ -791,6 +805,9 @@ class AgentRuntimeEngine {
           toolSelection.groups.length == 1 &&
           missingInfo.isEmpty &&
           !hasMultiTarget;
+      // Fast-path: skip both reflect and plan, hard-cap loop at 2 iterations.
+      // If exhausted, runtime falls back to normal mode automatically.
+      final isFastPath = canSkipPlanner && canSkipReflect;
       Map<String, dynamic>? plan;
       if (canSkipPlanner) {
         state = AgentRuntimeState.planning;
@@ -936,7 +953,7 @@ class AgentRuntimeEngine {
         }
       }
 
-      return _loopRunner.run(
+      final loopResponse = await _loopRunner.run(
         request: loopRequest,
         plan: plan,
         goalTree: goalTree,
@@ -952,7 +969,37 @@ class AgentRuntimeEngine {
         rethink: rethink,
         autoApproveSensitive: autoApproveSensitive,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
+        fastPath: isFastPath,
       );
+
+      // Fast-path exhausted: retry in normal mode with the same plan/tree.
+      if (loopResponse.state == AgentRuntimeState.fastPathExhausted) {
+        logger.logStateChange(
+          AgentRuntimeState.analyzing,
+          'Fast-path exhausted, retrying in normal mode',
+        );
+        emit(logger.events.last);
+        return _loopRunner.run(
+          request: loopRequest,
+          plan: plan,
+          goalTree: goalTree,
+          executor: executor,
+          verbalizer: verbalizer,
+          detectedLang: detectedLang,
+          availableTools: availableTools,
+          logger: logger,
+          emit: emit,
+          memorySnapshot: _memory.formatForPrompt(request.agentId),
+          recovery: recovery,
+          postExecuteValidator: validator,
+          rethink: rethink,
+          autoApproveSensitive: autoApproveSensitive,
+          isWorkflowAutoExecute: isWorkflowAutoExecute,
+          fastPath: false,
+        );
+      }
+
+      return loopResponse;
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);

@@ -175,14 +175,35 @@ class CompletionVerifier {
       final createdName = (agent['name'] ?? '').toString().trim().toLowerCase();
       if (createdName.isNotEmpty) toolConfirmedCreates.add(createdName);
     }
+    // Symmetric for delete: if the snapshot still shows an agent we expected
+    // to delete, but the tool itself returned success for that name, treat
+    // it as deleted. The snapshot may simply not have refreshed yet.
+    final toolConfirmedDeletes = <String>{};
+    for (final r in previousResults) {
+      if (r['tool'] != 'system.agents.delete') continue;
+      if (r['success'] != true) continue;
+      final data = r['data'];
+      if (data is! Map) continue;
+      final agent = data['agent'];
+      if (agent is Map) {
+        final deletedName = (agent['name'] ?? '').toString().trim().toLowerCase();
+        if (deletedName.isNotEmpty) toolConfirmedDeletes.add(deletedName);
+      }
+      // Some delete handlers only return name in args; also accept that.
+      final argsName = (data['name'] ?? '').toString().trim().toLowerCase();
+      if (argsName.isNotEmpty) toolConfirmedDeletes.add(argsName);
+    }
     final actuallyMissing = missingCreates
         .where((name) => !toolConfirmedCreates.contains(name.toLowerCase()))
         .toList(growable: false);
-    if (actuallyMissing.isEmpty && stillPresentDeletes.isEmpty) {
+    final actuallyStillPresent = stillPresentDeletes
+        .where((name) => !toolConfirmedDeletes.contains(name.toLowerCase()))
+        .toList(growable: false);
+    if (actuallyMissing.isEmpty && actuallyStillPresent.isEmpty) {
       return const CompletionVerification(ok: true);
     }
 
-    final mismatchNames = [...actuallyMissing, ...stillPresentDeletes];
+    final mismatchNames = [...actuallyMissing, ...actuallyStillPresent];
     final entityList = mismatchNames.join(', ');
     final message = LanguageRegistry.phrase(
       'completion_unverified',

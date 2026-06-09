@@ -19,6 +19,10 @@ enum AgentRuntimeState {
   /// action but the workflow's "Allow sensitive actions" toggle was off.
   /// The runner converts this into a step failure that destroys the chain.
   blockedSensitive,
+
+  /// Fast-path iteration cap hit. The caller should retry in normal mode
+  /// (full adaptive limit) with the same plan and goal tree.
+  fastPathExhausted,
 }
 
 /// Where a runtime request originated from.

@@ -125,6 +125,9 @@ class GoalTree {
   bool get isEmpty => subgoals.isEmpty;
   bool get isNotEmpty => subgoals.isNotEmpty;
 
+  /// True when the tree has exactly one subgoal — a trivial single-action task.
+  bool get isSingleAction => subgoals.length == 1;
+
   bool get isComplete =>
       subgoals.isNotEmpty &&
       subgoals.every((s) => s.status == SubgoalStatus.done);
