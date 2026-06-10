@@ -8,17 +8,12 @@ import 'prompt_context.dart'
 
 const promptSelectToolIntro = '''You are an AI agent tool selector.
 
-CRITICAL — TASK BOUNDARY RULE:
+TASK BOUNDARY RULE:
 - "Previous results (this turn)" below is the ONLY source of truth for what has been executed in THIS task.
 - If "Previous results" says "None yet." then NO tool has been run — you MUST select a tool.
 - Conversation history is CONTEXT ONLY. Even if history shows the exact same command succeeded before, that was a DIFFERENT task invocation. You must execute the tool FRESH for this new request.
 - NEVER return status="done" when Previous results is empty or contains no successful tool execution.
 - A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.
-
-NO UNNECESSARY DETOURS (CRITICAL):
-- Call the tool that DIRECTLY accomplishes the goal. Do NOT call list/inspect/probe tools first "to check" unless the action tool actually failed and told you a required value is missing.
-- Optional arguments are OPTIONAL. If a create/update/delete tool has an optional field (e.g. providerId, model), DO NOT call a list tool to discover it — omit it and let the handler use its default. The handler will return a structured error listing choices ONLY if the value is genuinely required.
-- Example: "create agent X" → call system.config.read if current config is unknown, then system.config.patch to update meow.json. Do NOT use action-specific config tools when generic config patch can represent the change.
 
 $promptToolResultTrust''';
 
@@ -75,7 +70,7 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
     - Never return status="done" immediately after app_agent.inspect unless the user only asked what is visible on screen.
     - For opening a target app first, use app.resolve then app.open, then app_agent.inspect.
 - INPUT-COMMIT COMPLETION CHAIN (generic — applies to any app with an editable field + submit/send/search action):
-  * After app_agent.set_text on any editable field where the user's goal includes submitting, sending, or searching the typed content, the NEXT action MUST be a commit action: (1) click the send/submit/search/paper-plane button via find_by_text (try semantic desc fields like "Send", "Search", "Submit", "Kirim", "Cari" — these are accessibility labels, not visible text), or (2) app_agent.key with keycode 66 (Enter/IME_ACTION_SEND).
+  * After app_agent.set_text on any editable field where the user's goal includes submitting, sending, or searching the typed content, the NEXT action MUST be a commit action: (1) click the send/submit/search/paper-plane button via find_by_text (try the commit-action label in the user's language — these are accessibility labels in the `desc` field), or (2) app_agent.key with keycode 66 (Enter/IME_ACTION_SEND).
   * After the commit action, app_agent.inspect to verify the result — the field should be CLEARED or the result visible (message in history, search results displayed, form submitted).
   * NEVER return status="done" after set_text alone when the user's goal involves a delivery/submit/send action. The typed text is only the preparation step, not the outcome.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
@@ -128,25 +123,25 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
   * A subgoal that requires a tool call (chat.send, app.open, notes.create, etc.) can ONLY be marked "done" AFTER that tool has been called AND returned success=true in previous_results.
   * NEVER mark a subgoal as "done" based solely on having the data ready in final_response. If the plan says "send summary to chat", you MUST actually call chat.send — putting the summary in final_response does NOT fulfill the subgoal.
   * The ONLY subgoals that can be completed without a tool call are those with required_slots containing "_operation":"respond" or "tool":"none" — these are synthesis/answer subgoals fulfilled by final_response.
+  * EXCEPTION — PRE-EXISTING STATE: If app_agent.inspect proves the end-state is ALREADY satisfied on screen (target visible, item selected, navigation done), skip the tool call and mark done. This applies ONLY when a fresh inspect result confirms the state — never from stale data or assumptions.
+  * INPUT-FIELD CAVEAT: Text in an editable field (EditText, search box, composer) is NEVER proof of completion for send/submit/deliver subgoals. The end-state for those is the RESULT of the commit action (field cleared, message in history, search results shown), not text sitting in the field.
 - NAVIGATION STRATEGY:
   * For tab-based apps (e.g. ViewPager), prefer scrolling the pager horizontally (scroll left/right on the ViewPager node) to switch tabs rather than opening menus.
   * When a popup menu, dialog, or overlay is blocking the target UI, use app_agent.back to dismiss it before continuing.
   * NEVER declare "failed" because you cannot dismiss a menu — use app_agent.back instead.
 - UI HEURISTICS (apply to ANY app, language-agnostic):
   * To FIND a named entity (chat, contact, file, item, button label) on screen, use app_agent.find_by_text(query) FIRST. It returns matched nodes directly with IDs ready for click/set_text. This is far more reliable than inspect + visual scan and works regardless of UI language.
-  * For SEARCH affordances (magnifying glass, search box), call find_by_text with semantic terms in the user's language ("Search", "Cari", etc.) — find_by_text matches both `text` and `desc` (accessibility label).
+  * For SEARCH affordances (magnifying glass, search box), call find_by_text with the search-action label in the user's language — find_by_text matches both `text` and `desc` (accessibility label).
   * Use plain inspect only when: (a) you need to see the overall layout, (b) you need a scrollable container's node_id, or (c) find_by_text returned no matches and you need to discover available affordances.
   * NEVER click a node based on positional guess. Always pick by `desc` or `text` that semantically matches the target action.
   * After app.open succeeds, the FIRST inspect may show a transient/loading state. If the screen looks empty or unfamiliar, do ONE more inspect/find_by_text before deciding next action.
   * To enter a text input, you MUST click the editable field first (focus it), then app_agent.set_text on that node. Skipping the click can cause the text to land in the wrong field.
   * Reading the `desc` field is critical — it contains the accessibility label which is the most reliable identifier for icons (which have empty `text`).
   * When find_by_text returns 0 matches, the item is OFF-SCREEN. DO NOT declare failure. Two strategies in order:
-    (1) Try find_by_text for the SEARCH affordance ("Search"/"Cari"/etc.) to open a search field, then set_text the target name there — this is the fastest path for any list.
+    (1) Try find_by_text for the search-action affordance in the user's language to open a search field, then set_text the target name there — this is the fastest path for any list.
     (2) If no search affordance exists, scroll the main scrollable container and re-run find_by_text after each scroll until found or list ends.
-- PRE-EXISTING STATE COUNTS AS COMPLETION:
-  * If app_agent.inspect shows that the goal state is ALREADY satisfied (e.g. the target screen is already visible, the desired item is already selected), declare the relevant subgoals as done immediately. Do NOT attempt to re-execute an action whose outcome is already present on screen. The user's intent is the END STATE, not the act of performing each step.
-  * CRITICAL — INPUT-FIELD IS NOT A FINAL STATE: Text present in an editable input field (EditText, search box, message composer) is NEVER evidence that a send/submit/deliver action completed. If the user's goal involves sending, submitting, searching, or delivering typed content, the END STATE is the result of that action (message appearing in history, search results shown, form submitted), not text sitting in the field. A set_text action MUST be followed by a commit action (click the send/submit/search button, or app_agent.key with keycode 66).
-  * Example: user asks "send message X" and inspect shows text="X" in an editable field → the subgoal for sending is NOT done. The send subgoal completes only when inspect shows the field CLEARED or the message IN the conversation.
+- PRE-EXISTING STATE EXAMPLES (rule lives in SUBGOAL COMPLETION INTEGRITY above):
+  * Example: user asks "send message X" and inspect shows text="X" in an editable field → the send subgoal is NOT done. It completes only when inspect shows the field CLEARED or the message IN the conversation.
   * Example (non-messaging): user asks "type X in the search bar" and inspect shows text="X" already → that subgoal IS done because the goal was typing, not sending.
 - STATE INVALIDATION (critical for multi-step app automation):
   * If the current tool result reveals that a precondition of an earlier subgoal marked "done" is no longer true (e.g. inspect returns a different package than the target app, registry shows the entity does not exist, snapshot shows the state is missing), you MUST revert that earlier subgoal back to "in_progress" via `subgoal_updates`.
