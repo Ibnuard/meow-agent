@@ -353,6 +353,8 @@ class Reflector {
 
     return '''${PromptConstants.reflectIntro}
 
+${PromptConstants.policyMinimal}
+
 ${PromptConstants.reflectRules(language.label)}
 
 CRITICAL — ANALYZER DECISION BINDING:

@@ -2,6 +2,7 @@ import 'prompt_analyze.dart';
 import 'prompt_context.dart';
 import 'prompt_execute.dart';
 import 'prompt_plan.dart';
+import 'prompt_policy.dart';
 import 'prompt_reflect.dart';
 import 'prompt_system.dart';
 import 'prompt_workflow.dart';
@@ -44,37 +45,46 @@ class PromptConstants {
     return built;
   }
 
+  /// Rules identical across interactive and workflow runs. Extracted once to
+  /// avoid drift between the two systemRules variants (was duplicated prose).
+  static const String _sharedSystemRules =
+      '''- Respect enabled permissions and modules. Do not assume capabilities.
+- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
+- CONFIG ARCHITECTURE: Configurational state (agents, providers, active selections, modules, user preferences) is managed through a single config tool — read config then patch it. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.''';
+
   static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {
       return '''SYSTEM RULES (always enforced):
 - This run is a scheduled WORKFLOW execution. There is NO user reading this message in real-time.
 - Sensitive actions are PRE-APPROVED for this run. Do NOT ask for confirmation; execute the appropriate tool directly.
 - Default language: $language. Be concise and practical.
-- Respect enabled permissions and modules. Do not assume capabilities.
+$_sharedSystemRules
 - If a tool fails or requires permission, stop and report the error clearly. Do not turn it into a question.
 - If a module permission blocks an action, report the disabled module/toggle exactly and do not attempt a workaround.
-- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
-- CONFIG ARCHITECTURE: Meow Agent configurational state lives in meow.json. For config changes (agents, providers, active selections, modules, user preferences), read config then patch it through system.config.patch. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid.
 - AMBIGUITY: If a required detail is missing, fail with a clear error message. Do NOT ask the user — there is no user.''';
     }
     return '''SYSTEM RULES (always enforced):
 - Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
-- Two DISTINCT situations decide whether you ask the user a question — do not confuse them:
-  1. MISSING DETAIL (a required input is absent or ambiguous — time without AM/PM, vague title, unclear target): ASK one short clarifying question in plain text BEFORE calling any tool. Do not guess defaults silently.
-  2. SENSITIVE/DESTRUCTIVE ACTION (the detail is complete, but the action has side effects): do NOT ask in plain text. CALL the appropriate tool directly — the runtime renders a confirmation card with approve/cancel buttons. A plain-text "are you sure?" leaves the user no button to press.
-- Respect enabled permissions and modules. Do not assume capabilities.
+$_sharedSystemRules
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
-- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist. When listing what you can do, ONLY mention actions backed by real tools in your schema.
-- CONFIG ARCHITECTURE: Meow Agent configurational state lives in meow.json. For config changes (agents, providers, active selections, modules, user preferences), read config then patch it through system.config.patch. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid.
-- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
+- ASK vs CONFIRM: a missing/ambiguous required detail → ask one short question in plain text BEFORE any tool (see POLICY.ASK). A complete-but-sensitive action → call the tool directly; the runtime renders the approve/cancel card. Never use a plain-text "are you sure?" for a sensitive action — it leaves no button to press.
+- When user provides identity info, update only the relevant identity field — never overwrite unrelated sections.''';
   }
 
   // ─── System-level constants (delegated to prompt_system.dart) ──────────────
 
   static const jsonOnlySystem = promptJsonOnlySystem;
   static const introductionGateRule = promptIntroductionGateRule;
+
+  // ─── Policy blocks (delegated to prompt_policy.dart) ───────────────────────
+
+  static const policyAsk = promptPolicyAsk;
+  static const policyGround = promptPolicyGround;
+  static const policyMinimal = promptPolicyMinimal;
+  static const policyRecover = promptPolicyRecover;
+  static const policyVoice = promptPolicyVoice;
 
   // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
 

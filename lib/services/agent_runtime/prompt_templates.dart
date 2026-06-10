@@ -1,4 +1,5 @@
 import '../../features/settings/data/app_language_provider.dart';
+import 'action_map.dart';
 import 'goal_tree.dart';
 import 'pending_action.dart';
 import 'prompt_constants.dart';
@@ -79,6 +80,8 @@ $historyBlock
 $pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
 
 User message: "$userMessage"
+
+${PromptConstants.policyAsk}
 
 ${PromptConstants.analyzeRequiresToolsRules}
 
@@ -164,6 +167,9 @@ ${PromptConstants.planResponseFormat}''';
               'numbers, or facts that are not present in the history above.\n';
     return '''${PromptConstants.selectToolIntro}
 ${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
+${PromptConstants.policyMinimal}
+
+${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
 
@@ -210,6 +216,12 @@ ${PromptConstants.selectToolResponseFormat}''';
         : '';
     return '''${PromptConstants.reviewIntro}
 
+${PromptConstants.policyGround}
+
+${PromptConstants.policyRecover}
+
+${PromptConstants.policyVoice}
+
 Original user request: "$userMessage"
 
 Execution plan:
@@ -235,5 +247,29 @@ $appAgenticBlock${PromptConstants.reviewResponseFormat}''';
 
   static String _jsonString(Map<String, dynamic> json) {
     return json.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+  }
+
+  /// Render the canonical action map block, filtered to only the domains
+  /// represented in [availableTools]. Empty string when no relevant entries
+  /// — caller must handle the empty case (the prompt context handles it
+  /// gracefully because the policy text refers to "below" but renders nothing).
+  ///
+  /// Domain is derived from the tool name prefix before the first `.`. Tool
+  /// definitions in [availableTools] arrive as multiline strings starting
+  /// with the tool name on the first non-empty line.
+  static String _actionMapBlock(List<String> availableTools) {
+    final domains = <String>{};
+    for (final def in availableTools) {
+      final firstLine = def.split('\n').firstWhere(
+            (l) => l.trim().isNotEmpty,
+            orElse: () => '',
+          );
+      // Tool names look like "system.config.patch" or "app_agent.click".
+      // Extract the leading token before the first dot.
+      final match = RegExp(r'([a-z_]+)\.').firstMatch(firstLine);
+      if (match != null) domains.add(match.group(1)!);
+    }
+    if (domains.isEmpty) return '';
+    return renderForPrompt(domains.toList());
   }
 }
