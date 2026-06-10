@@ -663,9 +663,9 @@ void main() {
             '"missing_slots":[],"status":"pending"}],"narrative":""}',
       ],
       'selectTool': [
-        '{"status":"tool_required","tool":{"name":"system.agents.delete",'
-            '"args":{"name":"Coder"},"risk":"sensitive",'
-            '"requires_confirmation":true},"narrative":""}',
+        '{"status":"tool_required","tool":{"name":"system.config.patch",'
+            '"args":{"operations":[{"op":"replace","path":"/agents","value":[]}]},'
+            '"risk":"sensitive","requires_confirmation":true},"narrative":""}',
       ],
       'verbalize.confirm': [
         'Delete agent Coder? This will affect the Code Review workflow.',
@@ -676,10 +676,14 @@ void main() {
     });
     final router = ScriptedToolRouter(
       results: {
-        'system.agents.delete': const ToolExecutionResult(
+        'system.config.patch': const ToolExecutionResult(
           success: true,
-          toolName: 'system.agents.delete',
-          data: {'agentId': 'coder_id', 'deleted': true},
+          toolName: 'system.config.patch',
+          data: {
+            'backupId': 'b1',
+            'changedPaths': ['/agents'],
+            'configHash': 'h1',
+          },
         ),
       },
     );
@@ -689,7 +693,7 @@ void main() {
     ).run(req('delete agent Coder'), provider: provider());
 
     expect(res.state, AgentRuntimeState.waitingConfirmation);
-    expect(res.pendingTool, 'system.agents.delete');
+    expect(res.pendingTool, 'system.config.patch');
     expect(res.finalMessage.toLowerCase(), contains('workflow'));
     expect(llm.countOf('reflect'), 1);
   });
@@ -707,7 +711,7 @@ void main() {
       ],
       // system + single group + safe → reflect skipped.
       'selectTool': [
-        '{"status":"tool_required","tool":{"name":"system.agents.list",'
+        '{"status":"tool_required","tool":{"name":"system.config.read",'
             '"args":{},"risk":"safe","requires_confirmation":false},'
             '"narrative":""}',
       ],
@@ -718,15 +722,18 @@ void main() {
     });
     final router = ScriptedToolRouter(
       results: {
-        'system.agents.list': const ToolExecutionResult(
+        'system.config.read': const ToolExecutionResult(
           success: true,
-          toolName: 'system.agents.list',
+          toolName: 'system.config.read',
           data: {
-            'agents': [
-              {'id': 'a1', 'name': 'Mina Chan', 'role': 'assistant'},
-              {'id': 'a2', 'name': 'Kai', 'role': 'productivity'},
-            ],
-            'count': 2,
+            'config': {
+              'agents': [
+                {'id': 'a1', 'name': 'Mina Chan', 'role': 'assistant'},
+                {'id': 'a2', 'name': 'Kai', 'role': 'productivity'},
+              ],
+            },
+            'schemaVersion': 1,
+            'valid': true,
           },
         ),
       },
@@ -741,7 +748,7 @@ void main() {
     // Retrieval tool: answer must be grounded in canned data.
     expect(res.finalMessage, contains('Mina'));
     expect(res.finalMessage, contains('Kai'));
-    expect(router.dispatchCountOf('system.agents.list'), 1);
+    expect(router.dispatchCountOf('system.config.read'), 1);
     // Review phase was skipped (retrieval terminal short-circuit).
     expect(llm.countOf('review'), 0);
   });

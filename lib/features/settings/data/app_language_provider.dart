@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_config_repository.dart';
 
 /// Temporary app language switcher.
 /// `system` follows the device locale. For now supported explicit languages:
@@ -30,22 +31,29 @@ extension AppLanguageX on AppLanguage {
 }
 
 class AppLanguageController extends StateNotifier<AppLanguage> {
-  AppLanguageController(this._local)
-    : super(AppLanguageX.fromCode(_local.readString(_kLanguageKey)));
+  AppLanguageController(LocalStorageService local, this._config)
+    : super(
+        AppLanguageX.fromCode(
+          _config.readPref('language') ?? local.readString(_kLanguageKey),
+        ),
+      );
 
   static const _kLanguageKey = 'meow.app.language';
 
-  final LocalStorageService _local;
+  final MeowConfigRepository _config;
 
   Future<void> set(AppLanguage language) async {
     state = language;
-    await _local.writeString(_kLanguageKey, language.code);
+    await _config.writePref('language', language.code);
   }
 }
 
 final appLanguageProvider =
     StateNotifierProvider<AppLanguageController, AppLanguage>((ref) {
-      return AppLanguageController(ref.watch(localStorageProvider));
+      return AppLanguageController(
+        ref.watch(localStorageProvider),
+        ref.watch(meowConfigRepositoryProvider),
+      );
     });
 
 /// Resolves the effective language from setting + device locale.
@@ -749,7 +757,8 @@ class AppStrings {
     String previousId,
     String previousTitle,
   ) {
-    final hasTitle = previousTitle.isNotEmpty && previousTitle != '(empty session)';
+    final hasTitle =
+        previousTitle.isNotEmpty && previousTitle != '(empty session)';
     if (isId) {
       final tail = hasTitle
           ? '\n\nUntuk lanjut ke sesi sebelumnya ($previousTitle), ketik /resume $previousId.'
@@ -761,6 +770,7 @@ class AppStrings {
         : '\n\nTo continue the previous session, type /resume $previousId.';
     return '✨ New session started (code: $newId). I\'m beginning with a clean slate.$tail';
   }
+
   String sessionResumed(String id) => isId
       ? '↩️ Melanjutkan sesi $id. Konteks sesi itu kembali aktif.'
       : '↩️ Resumed session $id. That session\'s context is active again.';
@@ -776,12 +786,10 @@ class AppStrings {
   String resumeUsageHeader(int count) => isId
       ? 'Sesi tersedia ($count). Pakai /resume {kode}:'
       : 'Available sessions ($count). Use /resume {code}:';
-  String get historyEmpty => isId
-      ? '📋 Belum ada riwayat sesi.'
-      : '📋 No session history yet.';
-  String historyHeader(int count) => isId
-      ? '📋 Riwayat sesi ($count):'
-      : '📋 Session history ($count):';
+  String get historyEmpty =>
+      isId ? '📋 Belum ada riwayat sesi.' : '📋 No session history yet.';
+  String historyHeader(int count) =>
+      isId ? '📋 Riwayat sesi ($count):' : '📋 Session history ($count):';
   String get historyResumeHint => isId
       ? 'Ketik /resume {kode-sesi} untuk melanjutkan.'
       : 'Type /resume {session-code} to continue.';
@@ -918,9 +926,8 @@ class AppStrings {
   String get helpSlashResume => isId
       ? 'Lanjutkan sesi lama: /resume {kode}'
       : 'Resume a past session: /resume {code}';
-  String get helpSlashHistory => isId
-      ? 'Tampilkan daftar sesi lama'
-      : 'Show past session list';
+  String get helpSlashHistory =>
+      isId ? 'Tampilkan daftar sesi lama' : 'Show past session list';
   String get helpSlashModel =>
       isId ? 'Tampilkan info model saat ini' : 'Show current model info';
   String get helpSlashSetModel =>

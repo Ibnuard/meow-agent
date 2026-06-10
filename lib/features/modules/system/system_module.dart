@@ -106,90 +106,35 @@ class SystemModulePlugin extends ModulePlugin {
       ),
     ),
     ToolDefinition(
-      name: 'system.agents.list',
-      description: 'List all configured agents and their public provider info.',
+      name: 'system.config.read',
+      description:
+          'Read the master app configuration from meow.json. Use this before configuration changes or when inspecting agents, providers, modules, active selections, and user preferences.',
       risk: 'safe',
       requiresConfirmation: false,
-      operation: 'list',
-      targetEntity: 'agent',
+      inputSchema: {
+        'path': r'string (optional JSON path, default $)',
+        'includeSecrets': 'bool (optional, always false for provider keys)',
+      },
       isRetrieval: true,
     ),
     ToolDefinition(
-      name: 'system.agents.create',
+      name: 'system.config.patch',
       description:
-          'Create a new agent and generate its workspace markdown from the system standard template. Pass persona/role/description to bake the agent’s personality into its SOUL.md in the same call.',
-      risk: 'sensitive-lite',
-      requiresConfirmation: false,
-      inputSchema: {
-        'name': 'string (required)',
-        'providerId':
-            'string (optional if exactly one provider exists; otherwise required)',
-        'model':
-            'string (optional; one of the selected provider models, defaults to provider default)',
-        'maxContextLength': 'int (optional, default 8191)',
-        'iconKey': 'string (optional)',
-        'colorKey': 'string (optional)',
-        'role':
-            'string (optional, short role/title e.g. "Skillful coder agent")',
-        'persona':
-            'string (optional, 2-4 sentence personality description for SOUL.md Agent Identity)',
-        'communicationStyle':
-            'string (optional, e.g. "concise, technical, code-first")',
-      },
-      operation: 'create',
-      targetEntity: 'agent',
-      selectorArgs: ['name'],
-      postconditions: {'agent_present': 'name'},
-      verificationProbe: ToolVerificationProbe(
-        kind: 'snapshot_contains',
-        entityType: 'agent',
-        expectPresent: true,
-        selectorArgKey: 'name',
-      ),
-    ),
-    ToolDefinition(
-      name: 'system.agents.delete',
-      description:
-          'Delete an agent and its workspace. Cannot delete the current active agent from its own chat. ALWAYS pass `name` (preferred) and `id` together when known — names are user-visible and stable; ids are opaque hashes that may not match across mutating ops in the same multi-step task. The handler resolves by id first, then falls back to name (case-insensitive).',
+          'Apply JSON Patch-style operations to meow.json for configurational state changes. The runtime backs up, validates, writes atomically, reloads, and verifies config state.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {
-        'name':
-            'string (preferred; case-insensitive match on the agent display name)',
-        'id':
-            'string (optional fallback; only reliable when produced by a system.agents.list call in the SAME planning round)',
+        'operations': 'array (required, items: {op,path,value})',
+        'reason': 'string (optional human-readable reason)',
       },
-      operation: 'delete',
-      targetEntity: 'agent',
-      selectorArgs: ['id', 'agentId', 'name'],
-      policies: ['deny_current_agent'],
-      postconditions: {'agent_absent': 'name'},
+      operation: 'update',
+      targetEntity: 'config',
+      selectorArgs: ['operations'],
       verificationProbe: ToolVerificationProbe(
-        kind: 'snapshot_absent',
-        entityType: 'agent',
-        expectPresent: false,
-        selectorArgKey: 'name',
+        kind: 'tool_result_data',
+        entityType: 'config',
+        expectedDataKeys: ['backupId', 'changedPaths', 'configHash'],
       ),
-    ),
-    ToolDefinition(
-      name: 'system.providers.list',
-      description:
-          'List configured LLM providers with public fields only. API keys are never returned.',
-      risk: 'safe',
-      requiresConfirmation: false,
-      operation: 'list',
-      targetEntity: 'provider',
-      isRetrieval: true,
-    ),
-    ToolDefinition(
-      name: 'system.modules.list',
-      description:
-          'List available and installed modules, enabled state, and module setting toggles.',
-      risk: 'safe',
-      requiresConfirmation: false,
-      operation: 'list',
-      targetEntity: 'module',
-      isRetrieval: true,
     ),
     ToolDefinition(
       name: 'system.tools.list',
@@ -198,45 +143,6 @@ class SystemModulePlugin extends ModulePlugin {
       risk: 'safe',
       requiresConfirmation: false,
       isRetrieval: true,
-    ),
-    ToolDefinition(
-      name: 'system.modules.toggle',
-      description:
-          'Enable/disable an installed module or one of its setting toggles. Pass settingKey to flip a per-feature switch (e.g. allow_create on notes). Without settingKey, toggles the module-level enabled flag.',
-      risk: 'sensitive-lite',
-      requiresConfirmation: false,
-      inputSchema: {
-        'moduleId': 'string (required, e.g. notes/files/calendar)',
-        'settingKey':
-            'string (optional, specific permission key from module settings)',
-        'enabled':
-            'bool (optional, explicit target state; if omitted, toggles current)',
-      },
-      operation: 'update',
-      targetEntity: 'module',
-      selectorArgs: ['moduleId', 'settingKey'],
-    ),
-    ToolDefinition(
-      name: 'system.agents.update',
-      description:
-          'Update an existing agent: rename, swap provider, change icon/color, or change context length. Pass id (preferred) or name to identify, then any combination of newName/providerId/maxContextLength/iconKey/colorKey.',
-      risk: 'sensitive-lite',
-      requiresConfirmation: true,
-      inputSchema: {
-        'id': 'string (preferred, agent id)',
-        'name': 'string (fallback, agent name)',
-        'newName': 'string (optional)',
-        'providerId':
-            'string (optional, provider id or nickname for re-binding)',
-        'model':
-            'string (optional; select a model from the current/new provider)',
-        'maxContextLength': 'int (optional)',
-        'iconKey': 'string (optional)',
-        'colorKey': 'string (optional)',
-      },
-      operation: 'update',
-      targetEntity: 'agent',
-      selectorArgs: ['id', 'name'],
     ),
     ToolDefinition(
       name: 'system.export_all',
@@ -267,6 +173,7 @@ class SystemModulePlugin extends ModulePlugin {
       agentId: ctx.agentId,
       agentName: ctx.agentName,
       moduleRepository: ctx.moduleRepository,
+      configRepository: ctx.configRepository,
       agentRepository: ctx.agentRepository,
       providerRepository: ctx.providerRepository,
       saveAgent: ctx.saveAgent,
@@ -286,22 +193,12 @@ class SystemModulePlugin extends ModulePlugin {
         return tools.executeProfileUpdate(request.args);
       case 'system.memory.append':
         return tools.executeMemoryAppend(request.args);
-      case 'system.agents.list':
-        return tools.executeAgentsList();
-      case 'system.agents.create':
-        return tools.executeAgentsCreate(request.args);
-      case 'system.agents.delete':
-        return tools.executeAgentsDelete(request.args);
-      case 'system.providers.list':
-        return tools.executeProvidersList();
-      case 'system.modules.list':
-        return tools.executeModulesList();
+      case 'system.config.read':
+        return tools.executeConfigRead(request.args);
+      case 'system.config.patch':
+        return tools.executeConfigPatch(request.args);
       case 'system.tools.list':
         return tools.executeToolsList();
-      case 'system.modules.toggle':
-        return tools.executeModulesToggle(request.args);
-      case 'system.agents.update':
-        return tools.executeAgentsUpdate(request.args);
       case 'system.export_all':
         return tools.executeExportAll();
       case 'system.import':

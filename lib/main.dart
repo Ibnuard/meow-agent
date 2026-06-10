@@ -9,6 +9,7 @@ import 'app/router.dart';
 import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
 import 'core/storage/local_storage_service.dart';
+import 'core/storage/meow_config_repository.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/chat/data/chat_history_service.dart';
 import 'features/modules/data/share_intent_service.dart';
@@ -52,9 +53,7 @@ Future<void> main() async {
 
   runApp(
     ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-      ],
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
       child: const MeowAgentApp(),
     ),
   );
@@ -84,6 +83,7 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
 
     // Check for shared text after first frame (cold start from intent).
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initMeowConfig();
       _checkSharedText();
       _runWorkspaceMigration();
       _initWorkflowServices();
@@ -91,6 +91,22 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       _initBubbleChat();
       _initAppAgentOverlay();
     });
+  }
+
+  Future<void> _initMeowConfig() async {
+    try {
+      final prefs = ref.read(sharedPreferencesProvider);
+      await ref.read(meowConfigRepositoryProvider).ensureLoaded();
+      await ref
+          .read(meowConfigRepositoryProvider)
+          .importLegacyIfEmpty(
+            agentsJson: prefs.getString('meow.agents_json'),
+            providersJson: prefs.getString('meow.providers_json'),
+            modulesJson: prefs.getStringList('installed_modules'),
+            language: prefs.getString('meow.app.language'),
+            theme: prefs.getString('meow.theme_mode'),
+          );
+    } catch (_) {}
   }
 
   /// Open the chat history SQLite DB in the background so the first chat
@@ -238,7 +254,9 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
 
   /// Handle method calls FROM native (when new intent arrives while running).
   Future<dynamic> _handleNativeCall(MethodCall call) async {
-    debugPrint('[MeowAgent] Native call: ${call.method}, args=${call.arguments}');
+    debugPrint(
+      '[MeowAgent] Native call: ${call.method}, args=${call.arguments}',
+    );
     if (call.method == 'onSharedText') {
       final text = call.arguments as String?;
       if (text != null && text.isNotEmpty) {

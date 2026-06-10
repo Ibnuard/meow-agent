@@ -224,10 +224,7 @@ class PreflightChecker {
 
   String _entityTypeForTool(ToolDefinition definition, String toolName) {
     if (definition.targetEntity.isNotEmpty) return definition.targetEntity;
-    if (toolName.startsWith('system.agents.')) return 'agent';
     if (toolName.startsWith('workflow.')) return 'workflow';
-    if (toolName.startsWith('system.providers.')) return 'provider';
-    if (toolName.startsWith('system.modules.')) return 'module';
     return '';
   }
 

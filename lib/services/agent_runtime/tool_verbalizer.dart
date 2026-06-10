@@ -397,7 +397,7 @@ Rules:
 - Reply in ${language.label} (${language.code}). Match this language exactly.
 - 1–3 short sentences. Cover EVERY subgoal in human terms — never single one out and ignore the rest.
 - Speak naturally as a helpful assistant who just finished the work. No bullet lists. No checkmarks.
-- Never expose internal tool names, IDs, or status codes (e.g. "system.agents.delete", "agent_xxx", "[done]").
+- Never expose internal tool names, IDs, or status codes (e.g. "system.config.patch", "agent_xxx", "[done]").
 - If any subgoal was skipped or failed, briefly acknowledge that too.
 
 Reply with the message only. No JSON, no quotes, no markdown.''';
@@ -638,9 +638,9 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
 
   /// Deterministic provider disambiguation prompt.
   ///
-  /// Used by the engine fallback when `system.agents.create` returned a
-  /// providers list. The verbalizer doesn't need to be smart here — just
-  /// natural and localized.
+  /// Used by the engine fallback when a config operation returns a providers
+  /// list. The verbalizer doesn't need to be smart here — just natural and
+  /// localized.
   Future<String> providerDisambiguation({
     required String availableProviders,
     required DetectedLanguage language,

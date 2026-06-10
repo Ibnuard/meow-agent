@@ -18,7 +18,7 @@ CRITICAL — TASK BOUNDARY RULE:
 NO UNNECESSARY DETOURS (CRITICAL):
 - Call the tool that DIRECTLY accomplishes the goal. Do NOT call list/inspect/probe tools first "to check" unless the action tool actually failed and told you a required value is missing.
 - Optional arguments are OPTIONAL. If a create/update/delete tool has an optional field (e.g. providerId, model), DO NOT call a list tool to discover it — omit it and let the handler use its default. The handler will return a structured error listing choices ONLY if the value is genuinely required.
-- Example: "create agent X" → call system.agents.create(name:"X") DIRECTLY. Do NOT call system.providers.list first. If creation needs a provider choice, the create handler returns the options — react THEN, not preemptively.
+- Example: "create agent X" → call system.config.read if current config is unknown, then system.config.patch to update meow.json. Do NOT use action-specific config tools when generic config patch can represent the change.
 
 $promptToolResultTrust''';
 

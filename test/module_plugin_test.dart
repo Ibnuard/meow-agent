@@ -42,6 +42,18 @@ void main() {
     test('router and catalog derive the same plugin group map', () {
       expect(router.catalogGroups, equals(ToolCatalog.groups));
     });
+
+    test('specific config tools are removed from the model surface', () {
+      expect(router.getDefinition('system.agents.create'), isNull);
+      expect(router.getDefinition('system.modules.toggle'), isNull);
+      expect(router.getDefinition('system.config.patch'), isNotNull);
+      final analyzerDescriptions = router
+          .buildAllAnalyzerToolDescriptions()
+          .join('\n');
+      expect(analyzerDescriptions, contains('system.config.patch'));
+      expect(analyzerDescriptions, isNot(contains('system.agents.create')));
+      expect(analyzerDescriptions, isNot(contains('system.modules.toggle')));
+    });
   });
 
   group('NotesModulePlugin migration', () {
@@ -75,7 +87,10 @@ void main() {
 
     test('ModuleRegistry rejects duplicate tool ownership', () {
       expect(
-        () => ModuleRegistry.fromPlugins(const [NotesModulePlugin(), NotesModulePlugin()]),
+        () => ModuleRegistry.fromPlugins(const [
+          NotesModulePlugin(),
+          NotesModulePlugin(),
+        ]),
         throwsStateError,
       );
     });

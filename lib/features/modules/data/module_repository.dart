@@ -4,15 +4,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_config_repository.dart';
 import 'module_model.dart';
 
 const _kInstalledModulesKey = 'installed_modules';
 
 /// Repository for managing installed modules.
 class ModuleRepository {
-  ModuleRepository({SharedPreferences? prefs}) : _prefs = prefs;
+  ModuleRepository({SharedPreferences? prefs, MeowConfigRepository? config})
+    : _prefs = prefs,
+      _config = config;
 
   final SharedPreferences? _prefs;
+  final MeowConfigRepository? _config;
 
   Future<SharedPreferences> _instance({bool reload = true}) async {
     final prefs = _prefs ?? await SharedPreferences.getInstance();
@@ -25,10 +29,16 @@ class ModuleRepository {
 
   Future<List<ModuleModel>> getInstalled() async {
     final prefs = await _instance();
+    final configStored = await _config?.loadModules();
     final raw = prefs.getStringList(_kInstalledModulesKey) ?? [];
-    final stored = raw
-        .map((s) => ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>))
-        .toList();
+    final stored = (configStored != null && configStored.isNotEmpty)
+        ? configStored
+        : raw
+              .map(
+                (s) =>
+                    ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>),
+              )
+              .toList();
     final legacyClipboardPersistentNotification = stored
         .where((m) => m.id == 'clipboard_ai')
         .map((m) => m.settings['persistent_notification'])
@@ -127,12 +137,16 @@ class ModuleRepository {
     final prefs = await _instance(reload: false);
     final raw = modules.map((m) => jsonEncode(m.toJson())).toList();
     await prefs.setStringList(_kInstalledModulesKey, raw);
+    await _config?.saveModules(modules);
   }
 }
 
 /// Provider for the module repository.
 final moduleRepositoryProvider = Provider<ModuleRepository>(
-  (ref) => ModuleRepository(prefs: ref.watch(sharedPreferencesProvider)),
+  (ref) => ModuleRepository(
+    prefs: ref.watch(sharedPreferencesProvider),
+    config: ref.watch(meowConfigRepositoryProvider),
+  ),
 );
 
 /// Provider that exposes the list of installed modules.

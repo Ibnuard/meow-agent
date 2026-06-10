@@ -209,6 +209,7 @@ class ToolDefinition {
     this.policies = const [],
     this.postconditions = const {},
     this.isRetrieval = false,
+    this.hiddenFromModel = false,
     this.verificationProbe,
   });
 
@@ -231,6 +232,9 @@ class ToolDefinition {
   /// are also the only ones that may legitimately answer the user from a
   /// single tool call.
   final bool isRetrieval;
+
+  /// Registered and dispatchable, but omitted from model-visible tool prompts.
+  final bool hiddenFromModel;
 
   /// Optional spec describing how to verify a mutating tool actually
   /// landed in the ecosystem after execution. Drives the generic

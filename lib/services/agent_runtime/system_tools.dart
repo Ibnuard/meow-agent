@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 
+import '../../core/storage/meow_config_repository.dart';
 import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -11,10 +12,10 @@ import '../workspace/workspace_file_service.dart';
 import 'runtime_models.dart';
 import 'tool_permission_policy.dart';
 
-part 'system_tools_agent.dart';
 part 'system_tools_workspace.dart';
 part 'system_tools_introspection.dart';
 part 'system_tools_export.dart';
+part 'system_tools_config.dart';
 
 /// Core Meow Agent system tools.
 ///
@@ -32,6 +33,7 @@ class SystemTools {
     required this.agentId,
     required this.agentName,
     required this.moduleRepository,
+    this.configRepository,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
@@ -42,6 +44,7 @@ class SystemTools {
   final String agentId;
   final String agentName;
   final ModuleRepository moduleRepository;
+  final MeowConfigRepository? configRepository;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;

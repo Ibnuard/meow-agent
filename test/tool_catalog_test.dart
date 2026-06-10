@@ -18,7 +18,7 @@ void main() {
 
     test('system group also pulls in files (config/spec pivots)', () {
       final sel = ToolCatalog.fromGroups(['system']);
-      expect(sel.toolNames, contains('system.agents.list'));
+      expect(sel.toolNames, contains('system.config.read'));
       expect(sel.toolNames, contains('files.read'));
     });
 
@@ -35,20 +35,26 @@ void main() {
       expect(sel.groups, {'device'});
     });
 
-    test('empty/null hint falls back to the FULL catalog (never drops tools)',
-        () {
-      for (final hint in [null, <String>[], ['nonsense']]) {
-        final sel = ToolCatalog.fromGroups(hint);
-        // Full catalog = every tool in every group.
-        final allTools = ToolCatalog.groups.values.expand((s) => s).toSet();
-        expect(
-          sel.toolNames,
-          equals(allTools),
-          reason: 'hint=$hint should fall back to full catalog',
-        );
-        expect(sel.isHighConfidence, isFalse);
-      }
-    });
+    test(
+      'empty/null hint falls back to the FULL catalog (never drops tools)',
+      () {
+        for (final hint in [
+          null,
+          <String>[],
+          ['nonsense'],
+        ]) {
+          final sel = ToolCatalog.fromGroups(hint);
+          // Full catalog = every tool in every group.
+          final allTools = ToolCatalog.groups.values.expand((s) => s).toSet();
+          expect(
+            sel.toolNames,
+            equals(allTools),
+            reason: 'hint=$hint should fall back to full catalog',
+          );
+          expect(sel.isHighConfidence, isFalse);
+        }
+      },
+    );
 
     test('group enum names are case/whitespace tolerant', () {
       final sel = ToolCatalog.fromGroups([' Device ', 'NOTES']);

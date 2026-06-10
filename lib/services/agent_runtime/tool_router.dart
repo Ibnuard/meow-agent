@@ -1,3 +1,4 @@
+import '../../core/storage/meow_config_repository.dart';
 import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -20,6 +21,7 @@ class ToolRouter {
     this.agentName = '',
     this.agentId = '',
     ModuleRepository? moduleRepository,
+    this.configRepository,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
@@ -27,6 +29,7 @@ class ToolRouter {
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
   final ModuleRepository moduleRepository;
+  final MeowConfigRepository? configRepository;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;
@@ -78,6 +81,7 @@ class ToolRouter {
   List<String> buildAllToolDescriptions() {
     final descriptions = <String>[];
     for (final def in _registry.values) {
+      if (def.hiddenFromModel) continue;
       descriptions.add(_formatToolDescription(def));
     }
     return descriptions;
@@ -90,6 +94,7 @@ class ToolRouter {
   List<String> buildToolDescriptions(Set<String> names) {
     final descriptions = <String>[];
     for (final def in _registry.values) {
+      if (def.hiddenFromModel) continue;
       if (names.contains(def.name)) {
         descriptions.add(_formatToolDescription(def));
       }
@@ -105,6 +110,7 @@ class ToolRouter {
   List<String> buildAnalyzerToolDescriptions(Set<String> names) {
     final descriptions = <String>[];
     for (final def in _registry.values) {
+      if (def.hiddenFromModel) continue;
       if (names.contains(def.name)) {
         descriptions.add('- ${def.name}: ${def.description}');
       }
@@ -116,6 +122,7 @@ class ToolRouter {
   List<String> buildAllAnalyzerToolDescriptions() {
     final descriptions = <String>[];
     for (final def in _registry.values) {
+      if (def.hiddenFromModel) continue;
       descriptions.add('- ${def.name}: ${def.description}');
     }
     return descriptions;
@@ -239,6 +246,7 @@ class ToolRouter {
     agentName: agentName,
     agentId: agentId,
     moduleRepository: moduleRepository,
+    configRepository: configRepository,
     agentRepository: agentRepository,
     providerRepository: providerRepository,
     saveAgent: saveAgent,

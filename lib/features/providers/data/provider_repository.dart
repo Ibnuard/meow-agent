@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_config_repository.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import 'provider_config.dart';
 
@@ -13,16 +14,23 @@ class ProviderRepository {
   ProviderRepository({
     required LocalStorageService local,
     required SecureStorageService secure,
+    required MeowConfigRepository config,
   }) : _local = local,
-       _secure = secure;
+       _secure = secure,
+       _config = config;
 
   static const _kProviders = 'meow.providers_json';
   static const _kApiKeyPrefix = 'meow.provider_key.';
 
   final LocalStorageService _local;
   final SecureStorageService _secure;
+  final MeowConfigRepository _config;
 
   Future<List<ProviderConfig>> loadAll() async {
+    final configProviders = await _config.loadProviders(
+      readSecret: _secure.read,
+    );
+    if (configProviders.isNotEmpty) return configProviders;
     final raw = _local.readString(_kProviders);
     if (raw == null) return [];
 
@@ -45,6 +53,7 @@ class ProviderRepository {
       all.add(provider);
     }
     await _persist(all);
+    await _config.saveProvider(provider);
     await _secure.write('$_kApiKeyPrefix${provider.id}', provider.apiKey);
   }
 
@@ -52,6 +61,7 @@ class ProviderRepository {
     final all = await loadAll();
     all.removeWhere((p) => p.id == id);
     await _persist(all);
+    await _config.deleteProvider(id);
     await _secure.delete('$_kApiKeyPrefix$id');
   }
 
@@ -64,6 +74,7 @@ final providerRepositoryProvider = Provider<ProviderRepository>((ref) {
   return ProviderRepository(
     local: ref.watch(localStorageProvider),
     secure: ref.watch(secureStorageProvider),
+    config: ref.watch(meowConfigRepositoryProvider),
   );
 });
 

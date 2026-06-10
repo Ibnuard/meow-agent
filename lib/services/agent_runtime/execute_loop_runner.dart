@@ -102,7 +102,7 @@ class ExecuteLoopRunner {
     final adaptiveLimit = fastPath
         ? 2
         : goalTree.isEmpty
-            ? maxSteps
+        ? maxSteps
         : (maxSteps + goalTree.subgoals.length * 2).clamp(
             maxSteps,
             maxSteps * 3,
@@ -157,9 +157,7 @@ class ExecuteLoopRunner {
           logger.logLlmDecision('selectTool', selection);
           emit(logger.events.last);
         } else {
-          logger.logDivergence('fc_fallback_to_json', {
-            'step': currentStep,
-          });
+          logger.logDivergence('fc_fallback_to_json', {'step': currentStep});
         }
       }
 
@@ -174,8 +172,9 @@ class ExecuteLoopRunner {
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         goalTree: goalTree,
         recentMessages: loopRecentMsgs,
-        agentName:
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
+        agentName: request.agentName.isNotEmpty
+            ? request.agentName
+            : request.agentId,
         agentId: request.agentId,
       );
       emit(logger.events.last);
@@ -297,8 +296,9 @@ class ExecuteLoopRunner {
 
           logger.logDivergence('premature_done_overridden', {
             'source': 'selector',
-            'remaining_subgoals':
-                goalTree.subgoals.where((s) => !s.isTerminal).length,
+            'remaining_subgoals': goalTree.subgoals
+                .where((s) => !s.isTerminal)
+                .length,
             'step': currentStep,
           });
           logger.logError(
@@ -1160,8 +1160,9 @@ class ExecuteLoopRunner {
           if (goalTree.isNotEmpty && !goalTree.isComplete) {
             logger.logDivergence('premature_done_overridden', {
               'source': 'reviewer',
-              'remaining_subgoals':
-                  goalTree.subgoals.where((s) => !s.isTerminal).length,
+              'remaining_subgoals': goalTree.subgoals
+                  .where((s) => !s.isTerminal)
+                  .length,
               'step': currentStep,
             });
             logger.logError(
@@ -1845,9 +1846,7 @@ class ExecuteLoopRunner {
     if (name == 'system.self' ||
         name == 'app.list_installed' ||
         name == 'notification.read_recent' ||
-        name == 'system.agents.list' ||
-        name == 'system.providers.list' ||
-        name == 'system.modules.list' ||
+        name == 'system.config.read' ||
         name == 'system.tools.list') {
       return true;
     }

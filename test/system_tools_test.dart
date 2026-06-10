@@ -92,16 +92,14 @@ Keep it concise.
     );
     expect(router.getDefinition('system.profile.update'), isNotNull);
     expect(router.getDefinition('system.memory.append'), isNotNull);
-    expect(router.getDefinition('system.agents.create'), isNotNull);
-    expect(router.getDefinition('system.modules.list'), isNotNull);
+    expect(router.getDefinition('system.config.read'), isNotNull);
+    expect(router.getDefinition('system.config.patch'), isNotNull);
+    expect(router.getDefinition('system.agents.create'), isNull);
+    expect(router.getDefinition('system.modules.list'), isNull);
 
-    final createAgent = router.getDefinition('system.agents.create')!;
-    expect(createAgent.operation, 'create');
-    expect(createAgent.targetEntity, 'agent');
-    expect(createAgent.postconditions['agent_present'], 'name');
-
-    final deleteAgent = router.getDefinition('system.agents.delete')!;
-    expect(deleteAgent.operation, 'delete');
-    expect(deleteAgent.policies, contains('deny_current_agent'));
+    final patchConfig = router.getDefinition('system.config.patch')!;
+    expect(patchConfig.operation, 'update');
+    expect(patchConfig.targetEntity, 'config');
+    expect(patchConfig.requiresConfirmation, true);
   });
 }

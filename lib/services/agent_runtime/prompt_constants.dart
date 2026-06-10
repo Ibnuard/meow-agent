@@ -54,6 +54,7 @@ class PromptConstants {
 - If a tool fails or requires permission, stop and report the error clearly. Do not turn it into a question.
 - If a module permission blocks an action, report the disabled module/toggle exactly and do not attempt a workaround.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
+- CONFIG ARCHITECTURE: Meow Agent configurational state lives in meow.json. For config changes (agents, providers, active selections, modules, user preferences), read config then patch it through system.config.patch. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid.
 - AMBIGUITY: If a required detail is missing, fail with a clear error message. Do NOT ask the user — there is no user.''';
     }
     return '''SYSTEM RULES (always enforced):
@@ -66,6 +67,7 @@ class PromptConstants {
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist. When listing what you can do, ONLY mention actions backed by real tools in your schema.
+- CONFIG ARCHITECTURE: Meow Agent configurational state lives in meow.json. For config changes (agents, providers, active selections, modules, user preferences), read config then patch it through system.config.patch. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid.
 - When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.''';
   }
 
@@ -117,8 +119,7 @@ class PromptConstants {
   static String selfIdentity({
     required String agentName,
     required String agentId,
-  }) =>
-      promptSelfIdentity(agentName: agentName, agentId: agentId);
+  }) => promptSelfIdentity(agentName: agentName, agentId: agentId);
   static const narrativeFieldRule = promptNarrativeFieldRule;
   static const toolResultTrust = promptToolResultTrust;
   static const compactorSystemPrompt = promptCompactorSystemPrompt;
@@ -138,12 +139,11 @@ class PromptConstants {
     required int stepIndex,
     required int totalSteps,
     required String userInstruction,
-  }) =>
-      promptChainedUserMessage(
-        stepIndex: stepIndex,
-        totalSteps: totalSteps,
-        userInstruction: userInstruction,
-      );
+  }) => promptChainedUserMessage(
+    stepIndex: stepIndex,
+    totalSteps: totalSteps,
+    userInstruction: userInstruction,
+  );
 
   static String workflowPreviousStepMarker(int stepIndex) =>
       promptPreviousStepMarker(stepIndex);

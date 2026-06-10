@@ -126,13 +126,13 @@ const promptAnalyzeExamples =
 - "call me Di" → system.profile.update(field: "nickname", value: "Di")
 - "my timezone is WIB" → system.profile.update(field: "timezone", value: "Asia/Jakarta")
 - "remember I prefer short answers" → system.memory.append(category: "preference", content: "User prefers short answers")
-- "how many modules do I have?" → system.modules.list
+- "how many modules do I have?" → system.config.read
 - "where is your workspace?" → system.self
-- "create a new agent named Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
-- "create a new agent Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
-- "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
-- "create a new agent with the same config as you, named JOKO" → system.agents.create(name: "JOKO") with current agent's role/persona copied, subgoal_seeds: ["create agent JOKO from self"]
-- "clone yourself as X" / "duplicate this agent" → system.agents.create + copy persona from self
+- "create a new agent named Coder" → system.config.read then system.config.patch, subgoal_seeds: ["create agent Coder"]
+- "create a new agent Momo, personality skillful coder" → system.config.read then system.config.patch with a new agent entry and persona metadata
+- "create agent Bob who is a friendly writing assistant" → system.config.read then system.config.patch with a new agent entry
+- "create a new agent with the same config as you, named JOKO" → system.config.read then system.config.patch with copied config, subgoal_seeds: ["create agent JOKO from self"]
+- "clone yourself as X" / "duplicate this agent" → system.config.read then system.config.patch + copy persona from self
 
 Multi-target examples (subgoal_seeds MUST list each target):
 - "create 3 new agents: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_config_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'agent_model.dart';
 import 'workspace_service.dart';
@@ -11,17 +12,22 @@ class AgentRepository {
     required LocalStorageService local,
     required WorkspaceService workspace,
     required String languageCode,
-  })  : _local = local,
-        _workspace = workspace,
-        _languageCode = languageCode;
+    required MeowConfigRepository config,
+  }) : _local = local,
+       _workspace = workspace,
+       _languageCode = languageCode,
+       _config = config;
 
   static const _kAgents = 'meow.agents_json';
 
   final LocalStorageService _local;
   final WorkspaceService _workspace;
   final String _languageCode;
+  final MeowConfigRepository _config;
 
   List<AgentModel> loadAll() {
+    final configAgents = _config.loadAgents();
+    if (configAgents.isNotEmpty) return configAgents;
     final raw = _local.readString(_kAgents);
     if (raw == null) return [];
     return AgentModel.decodeList(raw);
@@ -40,6 +46,7 @@ class AgentRepository {
       all[idx] = agent;
     }
     await _local.writeString(_kAgents, AgentModel.encodeList(all));
+    await _config.saveAgent(agent);
 
     // Create workspace for new agents.
     if (isNew) {
@@ -57,6 +64,7 @@ class AgentRepository {
     final agent = all.where((a) => a.id == id).firstOrNull;
     all.removeWhere((a) => a.id == id);
     await _local.writeString(_kAgents, AgentModel.encodeList(all));
+    await _config.deleteAgent(id);
     if (agent != null) {
       await _workspace.deleteWorkspace(agent.name);
     }
@@ -89,6 +97,7 @@ final agentRepositoryProvider = Provider<AgentRepository>((ref) {
     local: ref.watch(localStorageProvider),
     workspace: ref.watch(workspaceServiceProvider),
     languageCode: resolveLanguageCode(languagePref),
+    config: ref.watch(meowConfigRepositoryProvider),
   );
 });
 
@@ -118,8 +127,8 @@ class AgentListNotifier extends StateNotifier<List<AgentModel>> {
 
 final agentListProvider =
     StateNotifierProvider<AgentListNotifier, List<AgentModel>>(
-  (ref) => AgentListNotifier(ref.watch(agentRepositoryProvider)),
-);
+      (ref) => AgentListNotifier(ref.watch(agentRepositoryProvider)),
+    );
 
 /// Convenience: has at least one agent been set up?
 final hasAgentsProvider = Provider<bool>((ref) {

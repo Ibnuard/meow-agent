@@ -1,5 +1,6 @@
 import 'runtime_models.dart';
 
+import '../../core/storage/meow_config_repository.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -17,6 +18,7 @@ class ModuleToolContext {
     required this.agentName,
     required this.agentId,
     required this.moduleRepository,
+    this.configRepository,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
@@ -31,6 +33,7 @@ class ModuleToolContext {
   final String agentName;
   final String agentId;
   final ModuleRepository moduleRepository;
+  final MeowConfigRepository? configRepository;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;

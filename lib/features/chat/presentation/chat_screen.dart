@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../core/storage/meow_config_repository.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/storage_permission_service.dart';
@@ -149,11 +150,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final agents = ref.read(agentListProvider);
+    final configActiveAgentId = ref
+        .read(meowConfigRepositoryProvider)
+        .activeAgentId;
     if (widget.agentId == 'default' && agents.isNotEmpty) {
-      _activeAgentId = agents.first.id;
+      _activeAgentId = agents.any((a) => a.id == configActiveAgentId)
+          ? configActiveAgentId!
+          : agents.first.id;
     } else {
       _activeAgentId = widget.agentId;
     }
+    ref.read(meowConfigRepositoryProvider).setActiveAgentId(_activeAgentId);
     if (widget.initialText != null && widget.initialText!.isNotEmpty) {
       _input.text = widget.initialText!;
     }
@@ -865,6 +872,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     UnreadService.instance.clearActive(_activeAgentId);
     UnreadService.instance.setActive(agentId);
     setState(() => _activeAgentId = agentId);
+    ref.read(meowConfigRepositoryProvider).setActiveAgentId(agentId);
     loadHistory(agentId);
     _rebuildDateBoundaries();
   }
@@ -1374,9 +1382,7 @@ class _NarrativeChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: extras.card.withValues(alpha: 0.6),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: extras.subtleBorder.withValues(alpha: 0.6),
-          ),
+          border: Border.all(color: extras.subtleBorder.withValues(alpha: 0.6)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,

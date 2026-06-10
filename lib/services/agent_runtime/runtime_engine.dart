@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/modules/data/module_repository.dart';
+import '../../core/storage/meow_config_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../../features/providers/data/provider_config.dart';
@@ -65,7 +66,10 @@ class AgentRuntimeEngine {
     _preflight = PreflightChecker(
       snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
     );
-    _completionVerifier = CompletionVerifier(agentLoader: agentLoader);
+    _completionVerifier = CompletionVerifier(
+      agentLoader: agentLoader,
+      snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
+    );
     _taskScope = TaskScopeManager(ledgerDb: this.ledgerDb);
     _confirmation = ConfirmationManager(
       ledgerDb: this.ledgerDb,
@@ -192,8 +196,9 @@ class AgentRuntimeEngine {
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
       model: provider.model,
-      supportsFunctionCalling:
-          provider.supportsFunctionCallingFor(provider.model),
+      supportsFunctionCalling: provider.supportsFunctionCallingFor(
+        provider.model,
+      ),
     );
     final client = _client;
     final planner = Planner(
@@ -651,7 +656,8 @@ class AgentRuntimeEngine {
       // expensive snapshot build. An empty snapshot makes
       // isRelevantForReflection = false, which satisfies canSkipReflect's
       // last condition without actual I/O.
-      final likelyFastPath = analyzerSaysToolsForReflect &&
+      final likelyFastPath =
+          analyzerSaysToolsForReflect &&
           !isWorkflowAutoExecute &&
           toolSelection.isHighConfidence &&
           toolSelection.groups.length == 1 &&
@@ -867,9 +873,12 @@ class AgentRuntimeEngine {
         // per-entity subgoals for bulk/fan-out operations.
         final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
             ? targetGraph.eligibleTargets
-                .map((t) => '${t.operation} ${t.entityType}: ${t.entityLabel}'
-                    '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}')
-                .toList(growable: false)
+                  .map(
+                    (t) =>
+                        '${t.operation} ${t.entityType}: ${t.entityLabel}'
+                        '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
+                  )
+                  .toList(growable: false)
             : <String>[];
         plan = await planner.plan(
           analysis: analysis,
@@ -974,9 +983,12 @@ class AgentRuntimeEngine {
           final reTargetGraph = reTargetResolution.graph;
           final reResolvedLabels = reTargetGraph.isNotEmpty
               ? reTargetGraph.eligibleTargets
-                  .map((t) => '${t.operation} ${t.entityType}: ${t.entityLabel}'
-                      '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}')
-                  .toList(growable: false)
+                    .map(
+                      (t) =>
+                          '${t.operation} ${t.entityType}: ${t.entityLabel}'
+                          '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
+                    )
+                    .toList(growable: false)
               : <String>[];
           final newPlan = await planner.plan(
             analysis: freshAnalysis,
@@ -1623,6 +1635,7 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
     workspaceLoader: WorkspaceLoader(),
     toolRouter: ToolRouter(
       moduleRepository: ref.watch(moduleRepositoryProvider),
+      configRepository: ref.watch(meowConfigRepositoryProvider),
       agentRepository: ref.watch(agentRepositoryProvider),
       providerRepository: ref.watch(providerRepositoryProvider),
       saveAgent: ref.read(agentListProvider.notifier).save,
