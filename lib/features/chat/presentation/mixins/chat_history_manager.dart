@@ -261,9 +261,24 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
   }
 
   /// Load the latest page of messages for an agent.
+  ///
+  /// On the first open, [ChatMessagesNotifier.loadInitial] reads from disk.
+  /// But the notifier is a (non-autoDispose) family provider, so its state
+  /// survives after the screen is popped. If a reply lands while the user is
+  /// away, the manager persists it to SQLite but the cached in-memory list
+  /// goes stale — and `loadInitial` short-circuits on reopen because
+  /// `messages` is non-empty. Detect that case (the notifier already finished
+  /// its initial load) and force a `reload` from disk so reopening always
+  /// reflects the latest persisted history.
   Future<void> loadHistory(String agentId) async {
     final notifier = ref.read(chatMessagesProvider(agentId).notifier);
-    await notifier.loadInitial(manager: manager);
+    final alreadyLoaded =
+        !ref.read(chatMessagesProvider(agentId)).initialLoading;
+    if (alreadyLoaded) {
+      await notifier.reload(manager: manager);
+    } else {
+      await notifier.loadInitial(manager: manager);
+    }
     rebuildDateBoundaries();
 
     final tokenService = ref.read(tokenUsageServiceProvider);

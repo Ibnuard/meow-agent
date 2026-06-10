@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../features/agents/data/agent_model.dart';
 import '../../features/modules/data/module_model.dart';
@@ -156,6 +157,7 @@ class MeowConfigRepository {
         _apply(next, op);
         changed.add(path);
       }
+      _normalizeIds(next);
       _validate(next);
       final file = await _file();
       await _writeAtomic(file, next);
@@ -391,6 +393,27 @@ class MeowConfigRepository {
     'agents': <Map<String, dynamic>>[],
     'modules': <String, dynamic>{},
   };
+
+  /// Backfill a generated `id` for any agent/provider entry that lacks one.
+  ///
+  /// LLM-driven `system.config.patch` calls add agents via `/agents/-` with
+  /// `{name, providerId, model}` but typically omit `id`. Without an id, the
+  /// validator's uniqueness check (`ids.length != entries.length`) fails with
+  /// "Duplicate or missing agent id." Generate a UUID for these so creation
+  /// succeeds, matching how [AgentModel]/[ProviderConfig] mint ids in the UI.
+  void _normalizeIds(Map<String, dynamic> config) {
+    for (final key in const ['agents', 'providers']) {
+      final list = config[key];
+      if (list is! List) continue;
+      for (final entry in list) {
+        if (entry is! Map) continue;
+        final id = entry['id'];
+        if (id is! String || id.isEmpty) {
+          entry['id'] = const Uuid().v4();
+        }
+      }
+    }
+  }
 
   void _validate(Map<String, dynamic> config) {
     if (config['schemaVersion'] != schemaVersion) {
