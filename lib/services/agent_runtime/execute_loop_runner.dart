@@ -1,4 +1,5 @@
 import '../app_agent/app_agent_overlay_service.dart';
+import 'action_map.dart';
 import 'completion_verifier.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
@@ -83,6 +84,11 @@ class ExecuteLoopRunner {
     var retryCount = 0;
     var rePlanned = false;
     final stuck = StuckDetector();
+    // Soft-guard: track tools we've already hinted about so a stubborn
+    // selector that re-picks the same off-path tool falls through instead of
+    // looping forever. After one hint, second pick is allowed (let stuck
+    // detector handle it from there).
+    final offPathHinted = <String>{};
 
     // Idempotency tracking for delivery/side-effect tools.
     final deliveredKeys = <String>{};
@@ -453,6 +459,37 @@ class ExecuteLoopRunner {
         }
 
         final toolRequest = ToolCallRequest.fromJson(toolJson);
+
+        // ─── SOFT GUARD: canonical action map off-path detection ───────────
+        // If the analyzer's intent maps to a canonical tool path and the
+        // selector picked an off-path tool (e.g. files.mkdir to scaffold an
+        // agent instead of system.config.patch), do NOT execute it. Inject a
+        // structured hint and force one re-selection. This is a SOFT guard:
+        // it only fires when the intent is in the map AND the chosen tool is
+        // explicitly listed as off-path — unknown intents pass through.
+        final guardIntent = (plan['intent'] ?? '').toString();
+        if (guardIntent.isNotEmpty && !offPathHinted.contains(toolRequest.name)) {
+          final canonical = checkOffPath(guardIntent, toolRequest.name);
+          if (canonical != null && canonical.isNotEmpty) {
+            offPathHinted.add(toolRequest.name);
+            logger.logError(
+              'Soft guard: "${toolRequest.name}" is off-path for intent '
+              '"$guardIntent". Canonical: ${canonical.join(", ")}. '
+              'Injecting hint and re-selecting.',
+            );
+            previousResults.add({
+              'step': currentStep,
+              'note':
+                  'OFF-PATH TOOL REJECTED: "${toolRequest.name}" is not the '
+                  'canonical tool for this outcome. Use one of: '
+                  '${canonical.join(", ")}. The runtime handles side effects '
+                  '(workspace folders, template files) automatically — do not '
+                  'assemble the result manually with file operations.',
+            });
+            currentStep++;
+            continue;
+          }
+        }
 
         // Stuck detection.
         if (stuck.observe(toolName: toolRequest.name, args: toolRequest.args)) {
