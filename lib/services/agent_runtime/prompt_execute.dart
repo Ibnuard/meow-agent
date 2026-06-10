@@ -146,7 +146,7 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 - STATE INVALIDATION (critical for multi-step app automation):
   * If the current tool result reveals that a precondition of an earlier subgoal marked "done" is no longer true (e.g. inspect returns a different package than the target app, registry shows the entity does not exist, snapshot shows the state is missing), you MUST revert that earlier subgoal back to "in_progress" via `subgoal_updates`.
   * Do NOT advance subgoals when the live state contradicts a prior step. Selector will naturally re-execute the earliest non-terminal subgoal next.
-  * Example signal: app_agent.inspect returns package="com.example.foo" but an earlier subgoal "Open com.target.app" is marked done — revert that subgoal to in_progress with a note.''';
+  * Example signal: app_agent.inspect returns a different package than the target app but an earlier subgoal "Open <target_app>" is marked done — revert that subgoal to in_progress with a note.''';
 
 const promptReviewResponseFormat =
     '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.

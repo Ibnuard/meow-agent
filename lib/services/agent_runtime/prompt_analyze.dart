@@ -21,7 +21,7 @@ const promptSystemMarkdownMap = '''Meow Agent markdown model:
 
 World model (files.* tools):
 - The MeowAgent root (Documents/MeowAgent/) is the file sandbox. The calling agent's own workspace (Documents/MeowAgent/Agents/{ThisAgent}/) is the default scope.
-- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/Penulis/SOUL.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
+- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/<PeerName>/SOUL.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
 - Use this for tasks that span peer agents: swapping personalities, syncing memory snippets, copying files between agent workspaces, etc.
 - DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.''';
 
@@ -70,8 +70,8 @@ Ambiguity examples (must set requires_tools=false and populate missing_info — 
 
 Multi-target enumeration rule (CRITICAL):
 - When the user mentions multiple targets (numerals like "3 agents", lists separated by comma/and/or, or "each"), enumerate each target as its own subgoal_seed entry.
-- Do NOT collapse multi-target requests into a single goal. Example: "create 3 agents Coder, Writer, Researcher" → 3 subgoal_seeds.
-- A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent Coder").
+- Do NOT collapse multi-target requests into a single goal. Example: "create 3 agents <X>, <Y>, <Z>" → 3 subgoal_seeds.
+- A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent <name>").
 - If the request is single-target, return a single-element subgoal_seeds array.
 - subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).
 
@@ -98,47 +98,44 @@ const promptAnalyzeCrossDomainAmbiguityRule =
 - If the CURRENT message explicitly scopes the domain word to the external app surface (for example: open an app, navigate to that app's notifications/messages/page/tab, then summarize/read it), do NOT route to the built-in domain tool. Use app + app_agent because the user named an in-app surface.
 - If the CURRENT message explicitly scopes the domain word to Android/system/device data, use the built-in domain tool and do NOT ask.
 - MUST trigger:
-  * Opened LinkedIn, then "show my notifications" → Android system notifications vs LinkedIn's in-app notifications tab → ask which one.
+  * Opened a social/communication app, then "show my notifications" → Android system notifications vs that app's in-app notifications tab → ask which one.
   * Opened a chat app, then "summarize the messages" → system notification summary vs reading the on-screen messages via app control → ask which one.
 - MUST NOT trigger (one interpretation dominates — just act):
-  * "open LinkedIn, go to the notifications page, and summarize it" → clearly in-app LinkedIn notifications via app_agent. No notification.summarize.
-  * "open youtube then search cooking videos" → clearly open + app_agent search. No question.
+  * "open <app>, go to the notifications page, and summarize it" → clearly in-app notifications via app_agent. No notification.summarize.
+  * "open <app> then search <query>" → clearly open + app_agent search. No question.
   * "summarize my notifications" with NO app context → clearly the notification tool. No question.
   * "summarize my Android notifications" → clearly the notification tool. No question.
   * "read my clipboard" → clearly the clipboard tool. No question.
 - If you are truly unsure between built-in data and in-app screen data after applying the user-scoped target rule, FIRST_ASK_USER with one short question. Asking is correct for real ambiguity; asking is wrong when the user already scoped the target clearly.''';
 
 const promptAnalyzeExamples =
-    '''Examples that require tools (intent shown in English; user phrasing may be in any language):
-- "open whatsapp" → app.resolve("whatsapp") then app.open(packageName) → tool_groups: ["app"] (DONE after open)
-- "open youtube" → app.resolve("youtube") then app.open(packageName) → tool_groups: ["app"] (DONE after open)
-- "open google.com" → intent.open_url → tool_groups: ["app"]
-- "send a message to Bob in WhatsApp" → app.resolve + app.open FIRST, then app_agent screen control → tool_groups: ["app", "app_agent"]
-- "search for X in YouTube" → app.resolve + app.open FIRST, then app_agent → tool_groups: ["app", "app_agent"]
-- "open LinkedIn, go to the notifications page, and summarize it" → app.resolve + app.open FIRST, then app_agent screen control/read visible in-app content → tool_groups: ["app", "app_agent"]
-- "tap the Send button in the current app" → app_agent.inspect then app_agent.click → tool_groups: ["app_agent"]
-- "type hello into this app's message field" → app_agent.inspect then app_agent.set_text → tool_groups: ["app_agent"]
+    '''Examples that require tools (intent shown in English; user phrasing may be in any language; <app>, <query>, <name>, <X>, <Y> are placeholders):
+- "open <app>" → app.resolve(<app>) then app.open(packageName) → tool_groups: ["app"] (DONE after open)
+- "open <url>" → intent.open_url → tool_groups: ["app"]
+- "send a message to <contact> in <app>" → app.resolve + app.open FIRST, then app_agent screen control → tool_groups: ["app", "app_agent"]
+- "search for <query> in <app>" → app.resolve + app.open FIRST, then app_agent → tool_groups: ["app", "app_agent"]
+- "open <app>, go to the notifications page, and summarize it" → app.resolve + app.open FIRST, then app_agent screen control/read visible in-app content → tool_groups: ["app", "app_agent"]
+- "tap the <label> button in the current app" → app_agent.inspect then app_agent.click → tool_groups: ["app_agent"]
+- "type <text> into this app's message field" → app_agent.inspect then app_agent.set_text → tool_groups: ["app_agent"]
 - "read clipboard" → clipboard.read
 - "write to clipboard" → clipboard.write
 - "open wifi settings" → settings.open
 - "what apps are installed" → app.list_installed
-- "my name is Budi" → system.profile.update(field: "name", value: "Budi")
-- "call me Di" → system.profile.update(field: "nickname", value: "Di")
-- "my timezone is WIB" → system.profile.update(field: "timezone", value: "Asia/Jakarta")
+- "my name is <name>" → system.profile.update(field: "name", value: "<name>")
+- "call me <nickname>" → system.profile.update(field: "nickname", value: "<nickname>")
+- "my timezone is <tz>" → system.profile.update(field: "timezone", value: "<tz>")
 - "remember I prefer short answers" → system.memory.append(category: "preference", content: "User prefers short answers")
 - "how many modules do I have?" → system.config.read
 - "where is your workspace?" → system.self
-- "create a new agent named Coder" → system.config.read then system.config.patch, subgoal_seeds: ["create agent Coder"]
-- "create a new agent Momo, personality skillful coder" → system.config.read then system.config.patch with a new agent entry and persona metadata
-- "create agent Bob who is a friendly writing assistant" → system.config.read then system.config.patch with a new agent entry
-- "create a new agent with the same config as you, named JOKO" → system.config.read then system.config.patch with copied config, subgoal_seeds: ["create agent JOKO from self"]
-- "clone yourself as X" / "duplicate this agent" → system.config.read then system.config.patch + copy persona from self
+- "create a new agent named <name>" → system.config.read then system.config.patch, subgoal_seeds: ["create agent <name>"]
+- "create a new agent <name>, personality <persona>" → system.config.read then system.config.patch with a new agent entry and persona metadata
+- "create a new agent with the same config as you, named <name>" → system.config.read then system.config.patch with copied config, subgoal_seeds: ["create agent <name> from self"]
+- "clone yourself as <name>" / "duplicate this agent" → system.config.read then system.config.patch + copy persona from self
 
 Multi-target examples (subgoal_seeds MUST list each target):
-- "create 3 new agents: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]
-- "create 3 different agents A, B, and C" → subgoal_seeds: ["create agent A", "create agent B", "create agent C"]
-- "make 5 notes titled A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
-- "delete agent X and Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
+- "create 3 new agents: <X>, <Y>, <Z>" → subgoal_seeds: ["create agent <X>", "create agent <Y>", "create agent <Z>"]
+- "make 5 notes titled <A>..<E>" → subgoal_seeds: one "create note <title>" per title
+- "delete agent <X> and <Y>" → subgoal_seeds: ["delete agent <X>", "delete agent <Y>"]
 
 CRITICAL ROUTING RULES:
 - For opening/launching apps ONLY (no further interaction): tool_groups MUST be ["app"], NOT ["app_agent"]. The task is COMPLETE once the app is open.
@@ -160,7 +157,7 @@ const promptAnalyzeResponseFormat =
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
   "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
-  "narrative": "$promptNarrativeFieldRule Show what you understood and your initial read. Examples: 'Got it \\u2014 you want to remove three agents at once. Let me check if any of them have active workflows first.' / 'You\\u0027re asking to clone yourself into a new agent called JOKO. Straightforward \\u2014 I\\u0027ll copy my current config over.'"
+  "narrative": "$promptNarrativeFieldRule Show what you understood and your initial read. Examples: 'Got it \\u2014 you want to remove three agents at once. Let me check if any of them have active workflows first.' / 'You\\u0027re asking to clone yourself into a new agent. Straightforward \\u2014 I\\u0027ll copy my current config over.'"
 }
 
 Rules:
@@ -178,7 +175,7 @@ Rules:
     workflow     \\u2014 create/list/update/delete/toggle scheduled or recurring automations
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
     chat         \\u2014 deliver a message into the Meow Agent internal chat UI (NOT external messaging apps)
-    communication \\u2014 WhatsApp messages/calls, phone calls (CALL_PHONE), SMS, contact lookup — any external messaging or telephony
+    communication \\u2014 phone calls (CALL_PHONE), SMS, contact lookup — external telephony and messaging
     attachment   \\u2014 list attached files and read supported text attachments from the current message
     web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
