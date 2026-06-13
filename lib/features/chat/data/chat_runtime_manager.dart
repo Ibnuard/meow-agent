@@ -9,6 +9,7 @@ import '../../../services/agent_runtime/narrative_narrator.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/agent_runtime/task_ledger.dart';
+import '../../../services/llm/llm_error_mapper.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
@@ -552,7 +553,10 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearErrorMessage: true,
       );
       await history.updateMessage(sentUserMsg);
-      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
+      final errorMsg = ChatMessage(
+        role: 'assistant',
+        content: LlmErrorMapper.friendlyMessage(e, engine.languageCode),
+      );
       final errorId = await history.addMessage(agentId, errorMsg);
       final persistedError = errorMsg.copyWith(id: errorId);
       await UnreadService.instance.increment(agentId);
@@ -774,7 +778,10 @@ class ChatRuntimeManager extends ChangeNotifier {
         );
         await _flushRuntimeLog(agentId);
       }
-      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
+      final errorMsg = ChatMessage(
+        role: 'assistant',
+        content: LlmErrorMapper.friendlyMessage(e, engine.languageCode),
+      );
       final errorId = await history.addMessage(agentId, errorMsg);
       final persistedError = errorMsg.copyWith(id: errorId);
       await UnreadService.instance.increment(agentId);

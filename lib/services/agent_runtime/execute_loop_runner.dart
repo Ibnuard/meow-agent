@@ -1,4 +1,5 @@
 import '../app_agent/app_agent_overlay_service.dart';
+import '../llm/llm_error_mapper.dart';
 import 'action_map.dart';
 import 'completion_verifier.dart';
 import 'executor.dart';
@@ -96,8 +97,13 @@ class ExecuteLoopRunner {
     ToolExecutionResult? lastDeliveryResult;
 
     // Conversation history snapshot (latest 20, chronological).
+    // Provider-error sentinel messages are stripped first — they describe a
+    // past connection failure, not real conversational context, and must not
+    // leak into the executor or reviewer prompts.
     final loopRecentMsgs = () {
-      final src = request.recentMessages;
+      final src = request.recentMessages
+          .where((m) => !LlmErrorMapper.isProviderErrorMessage(m.content))
+          .toList();
       final latest = src.length > 20 ? src.sublist(src.length - 20) : src;
       return latest.map((m) => {'role': m.role, 'content': m.content}).toList();
     }();

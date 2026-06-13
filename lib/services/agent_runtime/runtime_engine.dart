@@ -10,6 +10,7 @@ import '../../features/providers/data/provider_config.dart';
 import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
+import '../llm/llm_error_mapper.dart';
 import '../llm/vision_probe_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
@@ -323,7 +324,14 @@ class AgentRuntimeEngine {
       final userNotIntroduced = WorkspaceLoader.isUserNameMissing(
         workspace.soul,
       );
-      final sourceMessages = request.recentMessages;
+      // Drop transient provider-error messages from history before slicing —
+      // they describe past connection state, not real conversational context.
+      // Without this filter the LLM sees its own "I can't connect" reply from
+      // a prior failed turn and parrots that narrative even after the
+      // connection has recovered. See LlmErrorMapper.providerErrorSentinel.
+      final sourceMessages = request.recentMessages
+          .where((m) => !LlmErrorMapper.isProviderErrorMessage(m.content))
+          .toList();
       final latestMessages = sourceMessages.length > 20
           ? sourceMessages.sublist(sourceMessages.length - 20)
           : sourceMessages;
@@ -1071,7 +1079,10 @@ class AgentRuntimeEngine {
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail('Runtime error: $e', logger);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, languageCode),
+        logger,
+      );
     }
   }
 
@@ -1404,7 +1415,10 @@ class AgentRuntimeEngine {
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail('Runtime error: $e', logger);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, languageCode),
+        logger,
+      );
     }
   }
 

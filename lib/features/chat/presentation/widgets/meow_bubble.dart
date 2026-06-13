@@ -8,6 +8,7 @@ import 'package:gpt_markdown/gpt_markdown.dart';
 import '../../../../app/theme.dart';
 import '../../../settings/data/app_language_provider.dart';
 import '../../../../services/agent_runtime/runtime_models.dart';
+import '../../../../services/llm/llm_error_mapper.dart';
 import '../../data/chat_history_service.dart';
 
 /// Reusable chat bubble for Meow Agent.
@@ -48,6 +49,8 @@ class MeowBubble extends StatelessWidget {
     String? quoteRole;
     String? quoteText;
     var rawContent = msg.content;
+    // Strip provider-error sentinel (transient connection failure marker).
+    rawContent = LlmErrorMapper.stripSentinel(rawContent);
     final quoteMatch = _quoteRegExp.firstMatch(rawContent);
     if (quoteMatch != null) {
       quoteRole = quoteMatch.group(1);

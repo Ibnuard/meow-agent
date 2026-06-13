@@ -123,6 +123,26 @@ class LanguageRegistry {
       'runtime_empty_calendar':
           'Tidak ada acara yang cocok dengan kriteria itu.',
       'runtime_empty_results': 'Tidak ada hasil yang cocok.',
+      'runtime_provider_auth_failed':
+          'Tidak bisa menyambung ke provider AI — API key sepertinya tidak valid atau sudah dicabut. Buka pengaturan Provider untuk memperbarui API key, lalu coba lagi.',
+      'runtime_provider_forbidden':
+          'Akses ke provider AI ditolak. Pastikan API key kamu masih punya akses ke model ini, lalu coba lagi.',
+      'runtime_provider_rate_limited':
+          'Provider AI sedang membatasi permintaan (terlalu banyak panggilan dalam waktu singkat). Tunggu sebentar lalu coba lagi.',
+      'runtime_provider_server_error':
+          'Server provider AI sedang bermasalah. Coba lagi sebentar — kalau masih gagal, mungkin layanannya sedang down.',
+      'runtime_provider_bad_request':
+          'Permintaan ke provider AI ditolak. Periksa konfigurasi model di pengaturan Provider.',
+      'runtime_provider_model_not_found':
+          'Model AI yang dipilih tidak ditemukan di provider ini. Buka pengaturan Provider untuk memilih model lain.',
+      'runtime_provider_timeout':
+          'Provider AI tidak merespons tepat waktu. Cek koneksi internet kamu atau coba lagi sebentar.',
+      'runtime_provider_network_error':
+          'Tidak bisa menghubungi provider AI. Cek koneksi internet kamu lalu coba lagi.',
+      'runtime_provider_cancelled':
+          'Permintaan ke provider AI dibatalkan.',
+      'runtime_provider_unknown_error':
+          'Ada masalah saat menghubungi provider AI. Coba lagi sebentar — kalau terus terjadi, cek pengaturan Provider.',
       'app_agent_reading_screen': 'Membaca layar aplikasi...',
       'app_agent_tapping': 'Mengetuk kontrol yang dipilih...',
       'app_agent_typing': 'Mengetik ke kolom aplikasi...',
@@ -203,6 +223,26 @@ class LanguageRegistry {
       'runtime_empty_notes': 'No notes match that criteria.',
       'runtime_empty_calendar': 'No events match that criteria.',
       'runtime_empty_results': 'No results match.',
+      'runtime_provider_auth_failed':
+          "I couldn't reach the AI provider — the API key looks invalid or revoked. Open Provider settings to refresh the key, then try again.",
+      'runtime_provider_forbidden':
+          'The AI provider rejected access. Make sure your API key still has access to this model, then try again.',
+      'runtime_provider_rate_limited':
+          "The AI provider is rate-limiting requests right now. Wait a moment, then try again.",
+      'runtime_provider_server_error':
+          'The AI provider is having trouble on their end. Try again shortly — if it keeps failing, the service may be down.',
+      'runtime_provider_bad_request':
+          'The AI provider rejected the request. Check your model configuration in Provider settings.',
+      'runtime_provider_model_not_found':
+          "The selected AI model wasn't found on this provider. Open Provider settings to pick a different model.",
+      'runtime_provider_timeout':
+          "The AI provider didn't respond in time. Check your internet connection or try again shortly.",
+      'runtime_provider_network_error':
+          "Couldn't reach the AI provider. Check your internet connection and try again.",
+      'runtime_provider_cancelled':
+          'The request to the AI provider was cancelled.',
+      'runtime_provider_unknown_error':
+          "Something went wrong talking to the AI provider. Try again shortly — if it keeps happening, double-check Provider settings.",
       'app_agent_reading_screen': 'Reading the app screen...',
       'app_agent_tapping': 'Tapping the selected control...',
       'app_agent_typing': 'Typing into the app field...',
