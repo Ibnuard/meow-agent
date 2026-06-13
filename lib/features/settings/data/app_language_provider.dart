@@ -646,6 +646,43 @@ class AppStrings {
   String get permissionRequired =>
       isId ? 'Izin Diperlukan' : 'Permission Required';
   String get openSettings => isId ? 'Buka Pengaturan' : 'Open Settings';
+
+  /// Snackbar shown when the user denies a permission via the OS dialog.
+  String permissionDeniedMessage(String permissionLabel) => isId
+      ? 'Izin "$permissionLabel" diperlukan untuk fitur ini.'
+      : 'The "$permissionLabel" permission is required for this feature.';
+
+  /// Dialog body shown when a permission is permanently denied — user must
+  /// re-grant from Android system settings.
+  String permissionPermanentlyDeniedBody(String permissionLabel) => isId
+      ? 'Izin "$permissionLabel" sudah diblokir. Buka pengaturan sistem untuk mengaktifkannya kembali.'
+      : 'The "$permissionLabel" permission has been blocked. Open system settings to re-enable it.';
+
+  /// Human-readable label for each Android permission type.
+  String permissionLabel(String permissionKey) {
+    switch (permissionKey) {
+      case 'storage':
+        return isId ? 'Penyimpanan' : 'Storage';
+      case 'notification':
+        return isId ? 'Notifikasi' : 'Notification';
+      case 'bluetoothConnect':
+        return 'Bluetooth';
+      case 'location':
+        return isId ? 'Lokasi' : 'Location';
+      case 'contacts':
+        return isId ? 'Kontak' : 'Contacts';
+      case 'callPhone':
+        return isId ? 'Telepon' : 'Phone';
+      case 'sendSms':
+        return 'SMS';
+      case 'phoneState':
+        return isId ? 'Status Telepon' : 'Phone State';
+      case 'systemAlertWindow':
+        return isId ? 'Overlay' : 'Overlay';
+      default:
+        return permissionKey;
+    }
+  }
   String get skip => isId ? 'Lewati' : 'Skip';
   String get uninstallModule => isId ? 'Hapus Modul' : 'Uninstall Module';
   String get uninstall => isId ? 'Hapus' : 'Uninstall';

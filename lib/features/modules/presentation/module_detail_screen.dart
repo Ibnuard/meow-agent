@@ -21,6 +21,7 @@ import 'mixins/super_power_handler.dart';
 import 'mixins/device_context_handler.dart';
 import 'mixins/communication_handler.dart';
 import 'mixins/notification_intelligence_handler.dart';
+import 'mixins/permission_gated_toggle_handler.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -38,7 +39,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         SuperPowerHandlerMixin,
         DeviceContextHandlerMixin,
         CommunicationHandlerMixin,
-        NotificationIntelligenceHandlerMixin {
+        NotificationIntelligenceHandlerMixin,
+        PermissionGatedToggleHandlerMixin {
   ModuleModel? _module;
   ShizukuStatus? _shizukuStatus;
   bool _checkingShizuku = false;
@@ -203,6 +205,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
+
+    // Gate Android permissions FIRST — if denied, abort before any handler.
+    final permitted = await handlePermissionGatedToggle(key, value);
+    if (!permitted) return;
 
     await handleDeviceContextToggle(key, value);
     await handleCommunicationToggle(key, value);

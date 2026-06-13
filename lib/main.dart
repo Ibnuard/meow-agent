@@ -16,6 +16,7 @@ import 'core/storage/module_entry_repository.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/chat/data/chat_history_service.dart';
 import 'features/chat/presentation/chat_screen.dart';
+import 'features/modules/presentation/permission_reconciler.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
 import 'features/modules/workflows/workflow_foreground_service.dart';
@@ -111,6 +112,8 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
 
     // Activate lifecycle-aware permission observer.
     ref.read(permissionObserverProvider);
+    // Activate cross-module permission auto-OFF reconciler.
+    ref.read(modulePermissionReconcilerProvider);
 
     // Listen for incoming shared text pushed from native side.
     _channel.setMethodCallHandler(_handleNativeCall);
