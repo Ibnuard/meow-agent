@@ -13,13 +13,11 @@ import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import '../llm/llm_error_mapper.dart';
-import '../llm/vision_probe_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'language_detector.dart';
-import 'language_registry.dart';
 import 'narrative_narrator.dart';
 
 import 'pending_action.dart';
@@ -331,28 +329,14 @@ class AgentRuntimeEngine {
         }.contains(ext);
       });
       if (hasImageAttachment) {
-        final supports = await VisionProbeService.instance.probe(
-          client: client,
-          config: llmConfig,
-        );
-        toolRouter.modelSupportsVision = supports;
-        if (!supports) {
-          // Short-circuit early: the model cannot see images. Returning
-          // here prevents the agent loop from running and hallucinating
-          // image content, which is the exact failure mode that produced
-          // the multi-step looping bug.
-          final message = LanguageRegistry.phrase(
-            'runtime_vision_model_unsupported',
-            detectedLang.code,
-          );
-          logger.logFinalResponse(message);
-          return AgentRuntimeResponse(
-            finalMessage: message,
-            success: false,
-            state: AgentRuntimeState.done,
-            events: logger.events,
-          );
-        }
+        // Default to vision-capable for any model with image attachments.
+        // The vast majority of modern models (GPT-4o/4.1, Claude 3+, Gemini)
+        // support vision. If a model truly doesn't, the API will reject the
+        // request with a 4xx and we surface that error naturally — better UX
+        // than a probe that costs latency on every image message and silently
+        // blocks the user when the probe itself fails (rate limits, transient
+        // network issues, model variations like "scarlet" instead of "red").
+        toolRouter.modelSupportsVision = true;
       } else {
         toolRouter.modelSupportsVision = true;
       }
