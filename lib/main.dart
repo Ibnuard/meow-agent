@@ -8,10 +8,14 @@ import 'app/responsive.dart';
 import 'app/router.dart';
 import 'app/theme.dart';
 import 'app/theme_mode_provider.dart';
+import 'core/storage/app_settings_repository.dart';
+import 'core/storage/legacy_migration.dart';
 import 'core/storage/local_storage_service.dart';
-import 'core/storage/meow_config_repository.dart';
+import 'core/storage/meow_database.dart';
+import 'core/storage/module_entry_repository.dart';
 import 'features/agents/data/agent_repository.dart';
 import 'features/chat/data/chat_history_service.dart';
+import 'features/chat/presentation/chat_screen.dart';
 import 'features/modules/data/share_intent_service.dart';
 import 'features/modules/workflows/workflow_event_listener.dart';
 import 'features/modules/workflows/workflow_foreground_service.dart';
@@ -20,6 +24,7 @@ import 'features/modules/workflows/workflow_notification_service.dart';
 import 'features/modules/workflows/workflow_repository.dart';
 import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
+import 'features/settings/data/app_language_provider.dart';
 import 'services/bubble/bubble_chat_service.dart';
 import 'services/app_agent/app_agent_overlay_service.dart';
 import 'features/chat/data/chat_notification_service.dart';
@@ -51,9 +56,38 @@ Future<void> main() async {
 
   final prefs = await SharedPreferences.getInstance();
 
+  // Pre-warm the SQLite core DB so AgentListNotifier and ProviderListNotifier
+  // can populate their state in the background while the first frame renders.
+  // Without this, chat could open before the async _load() completes, causing
+  // "provider not found" errors and missing history.
+  final db = MeowDatabase.instance;
+  await db.database;
+
+  // One-shot legacy migration: pull prefs + modules from SharedPreferences
+  // into SQLite. Runs before the prefs preload so first-time upgraders
+  // see their correct theme/language on the first frame.
+  final settingsRepo = AppSettingsRepository(db);
+  final moduleEntryRepo = ModuleEntryRepository(db);
+  await LegacyMigration.runOnce(
+    prefs: prefs,
+    settings: settingsRepo,
+    modules: moduleEntryRepo,
+  );
+
+  // Pre-load prefs from app_settings so the theme/language providers can
+  // initialize synchronously on the first frame (no flash of default state).
+  final initialTheme = await settingsRepo.get('prefs.theme') ?? 'system';
+  final initialLang = await settingsRepo.get('prefs.language') ?? 'system';
+  final initialActiveAgentId = await settingsRepo.get('active.agent_id');
+
   runApp(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        initialThemeModeProvider.overrideWithValue(initialTheme),
+        initialAppLanguageProvider.overrideWithValue(initialLang),
+        initialActiveAgentIdProvider.overrideWithValue(initialActiveAgentId),
+      ],
       child: const MeowAgentApp(),
     ),
   );
@@ -83,7 +117,6 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
 
     // Check for shared text after first frame (cold start from intent).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initMeowConfig();
       _checkSharedText();
       _runWorkspaceMigration();
       _initWorkflowServices();
@@ -91,22 +124,6 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       _initBubbleChat();
       _initAppAgentOverlay();
     });
-  }
-
-  Future<void> _initMeowConfig() async {
-    try {
-      final prefs = ref.read(sharedPreferencesProvider);
-      await ref.read(meowConfigRepositoryProvider).ensureLoaded();
-      await ref
-          .read(meowConfigRepositoryProvider)
-          .importLegacyIfEmpty(
-            agentsJson: prefs.getString('meow.agents_json'),
-            providersJson: prefs.getString('meow.providers_json'),
-            modulesJson: prefs.getStringList('installed_modules'),
-            language: prefs.getString('meow.app.language'),
-            theme: prefs.getString('meow.theme_mode'),
-          );
-    } catch (_) {}
   }
 
   /// Open the chat history SQLite DB in the background so the first chat
@@ -124,12 +141,12 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
   Future<void> _runWorkspaceMigration() async {
     try {
       final repo = ref.read(agentRepositoryProvider);
-      final agents = repo.loadAll();
+      final agents = await repo.loadAll();
       await WorkspaceMigrationService.migrate(
         agents.map((a) => (id: a.id, name: a.name)).toList(),
       );
-      // Also sync workspaces for any agents missing external workspace.
-      await repo.syncWorkspaces();
+      // Workspace folders are now created lazily by WorkspaceFolderService
+      // on first access; no need for an explicit sync step.
     } catch (_) {
       // Non-fatal — migration can retry next launch.
     }

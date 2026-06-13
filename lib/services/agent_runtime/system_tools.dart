@@ -1,6 +1,9 @@
 import 'package:flutter/services.dart';
 
-import '../../core/storage/meow_config_repository.dart';
+import '../../core/storage/agent_memory_repository.dart';
+import '../../core/storage/agent_soul_repository.dart';
+import '../../core/storage/app_settings_repository.dart';
+import '../../core/storage/module_entry_repository.dart';
 import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -19,48 +22,47 @@ part 'system_tools_config.dart';
 
 /// Core Meow Agent system tools.
 ///
-/// These tools operate on the app's own agent system and workspace markdown.
-/// They are intentionally separate from the Files module: system docs define the
-/// standard schema, while each agent's workspace markdown is the mutable state.
+/// These tools operate on the app's own agent system. Identity (`agent_soul`)
+/// and long-term memory (`agent_memory`) live in the local SQLite database;
+/// the workspace folder holds user-uploaded files only.
 ///
 /// The execute methods are split by domain into part files:
-/// - [system_tools_agent.dart]         — agent CRUD
 /// - [system_tools_workspace.dart]     — self, workspace, profile, memory
 /// - [system_tools_introspection.dart] — provider, module, tool listing & toggle
 /// - [system_tools_export.dart]        — export/import
+/// - [system_tools_config.dart]        — config read/patch
 class SystemTools {
   SystemTools({
     required this.agentId,
     required this.agentName,
     required this.moduleRepository,
-    this.configRepository,
+    this.appSettings,
+    this.moduleEntries,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
     this.deleteAgent,
     this.toolDefinitions = const [],
+    this.coreSoulRepo,
+    this.coreMemoryRepo,
   });
 
   final String agentId;
   final String agentName;
   final ModuleRepository moduleRepository;
-  final MeowConfigRepository? configRepository;
+  final AppSettingsRepository? appSettings;
+  final ModuleEntryRepository? moduleEntries;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;
   final Future<void> Function(String id)? deleteAgent;
   final Iterable<ToolDefinition> toolDefinitions;
-
-  static const _coreFiles = {
-    'SOUL.md',
-    'MEMORY.md',
-    'SKILLS.md',
-    'HEARTBEAT.md',
-  };
+  final AgentSoulRepository? coreSoulRepo;
+  final AgentMemoryRepository? coreMemoryRepo;
 
   // ─── Shared helpers (used by part-file extensions) ─────────────────────────
 
-  List<AgentModel> loadAgents() {
+  Future<List<AgentModel>> loadAgents() async {
     final repo = agentRepository;
     if (repo == null) return const [];
     return repo.loadAll();
@@ -94,10 +96,10 @@ class SystemTools {
     return null;
   }
 
-  ProviderConfig? resolveProvider(
+  Future<ProviderConfig?> resolveProvider(
     List<ProviderConfig> providers,
     Map<String, dynamic> args,
-  ) {
+  ) async {
     if (providers.isEmpty) return null;
     final providerId = (args['providerId'] as String? ?? '').trim();
     if (providerId.isNotEmpty) {
@@ -124,7 +126,7 @@ class SystemTools {
       return null;
     }
 
-    final currentAgent = findCurrentAgent(loadAgents());
+    final currentAgent = findCurrentAgent(await loadAgents());
     final currentProviderId = currentAgent?.providerId ?? '';
     if (currentProviderId.isNotEmpty) {
       final currentProvider = findProviderById(providers, currentProviderId);
@@ -148,111 +150,6 @@ class SystemTools {
     return null;
   }
 
-  String? normalizeCoreFilename(Object? value) {
-    final raw = (value as String? ?? '').trim();
-    if (raw.isEmpty) return null;
-    final upper = raw.toUpperCase();
-    for (final file in _coreFiles) {
-      if (file.toUpperCase() == upper) return file;
-    }
-    return null;
-  }
-
-  String? profileFieldLabel(String field) {
-    final key = field.toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
-    return switch (key) {
-      'name' || 'user_name' || 'nama' => 'Name',
-      'nickname' || 'nick' || 'panggilan' => 'Nickname',
-      'preferred_language' || 'language' || 'bahasa' => 'Preferred Language',
-      'timezone' || 'time_zone' || 'zona_waktu' => 'Timezone',
-      'work_role' || 'role' || 'job' || 'pekerjaan' => 'Work/Role',
-      'main_project' || 'project' || 'proyek' => 'Main Projects',
-      'communication_style' ||
-      'style' ||
-      'gaya_komunikasi' => 'Communication Style',
-      'design_preference' ||
-      'formatting' ||
-      'response_style' => 'Design Preference',
-      _ => null,
-    };
-  }
-
-  String memorySectionFor(String category) {
-    final key = category
-        .toLowerCase()
-        .replaceAll('-', '_')
-        .replaceAll(' ', '_');
-    return switch (key) {
-      'preference' ||
-      'preferences' ||
-      'learned_preference' => 'Learned Preferences',
-      'bookmark' || 'bookmarks' => 'Bookmarks',
-      'session' || 'session_note' || 'session_notes' => 'Session Notes',
-      _ => 'Facts',
-    };
-  }
-
-  String upsertFieldInSection({
-    required String content,
-    required String sectionTitle,
-    required String label,
-    required String value,
-  }) {
-    final lines = content.split('\n');
-    var sectionStart = _findHeading(lines, sectionTitle);
-    if (sectionStart == -1) {
-      final separator = content.endsWith('\n') ? '' : '\n';
-      return '$content$separator\n## $sectionTitle\n\n$label: $value\n';
-    }
-
-    final sectionEnd = _findSectionEnd(lines, sectionStart + 1);
-    final labelRegex = RegExp(
-      '^\\s*${RegExp.escape(label)}\\s*:',
-      caseSensitive: false,
-    );
-    for (var i = sectionStart + 1; i < sectionEnd; i++) {
-      if (labelRegex.hasMatch(lines[i])) {
-        lines[i] = '$label: $value';
-        return _joinMarkdownLines(lines);
-      }
-    }
-
-    var insertAt = sectionEnd;
-    while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim().isEmpty) {
-      insertAt--;
-    }
-    lines.insert(insertAt, '$label: $value');
-    return _joinMarkdownLines(lines);
-  }
-
-  String appendBulletToSection({
-    required String content,
-    required String sectionTitle,
-    required String entry,
-  }) {
-    final lines = content.split('\n');
-    final normalizedEntry = entry.toLowerCase();
-    for (final line in lines) {
-      if (line.trim().toLowerCase() == normalizedEntry) {
-        return content;
-      }
-    }
-
-    var sectionStart = _findHeading(lines, sectionTitle);
-    if (sectionStart == -1) {
-      final separator = content.endsWith('\n') ? '' : '\n';
-      return '$content$separator\n## $sectionTitle\n\n$entry\n';
-    }
-
-    final sectionEnd = _findSectionEnd(lines, sectionStart + 1);
-    var insertAt = sectionEnd;
-    while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim().isEmpty) {
-      insertAt--;
-    }
-    lines.insert(insertAt, entry);
-    return _joinMarkdownLines(lines);
-  }
-
   String? extractMarkdownSection(String content, String sectionTitle) {
     final lines = content.split('\n');
     final start = _findHeading(lines, sectionTitle);
@@ -267,93 +164,6 @@ class SystemTools {
       r'\b(password|passwd|api key|apikey|token|secret|otp|one time password|private key|bearer)\b',
     ).hasMatch(text);
   }
-
-  String minimalSoul(String name) =>
-      '''# SOUL.md
-
-## Agent Identity
-
-Name: $name
-Role: Android-native personal agentic AI assistant.
-
----
-
-## User Identity
-
-Name: [Your Name]
-Nickname: [Optional Nickname]
-Preferred Language: [Not set]
-Timezone: [Your Timezone]
-''';
-
-  /// Build a SOUL.md that bakes in the requested persona/role on creation.
-  String buildPersonaSoul({
-    required String name,
-    required String role,
-    required String persona,
-    required String communicationStyle,
-  }) {
-    final buf = StringBuffer()
-      ..writeln('# SOUL.md')
-      ..writeln()
-      ..writeln('## Agent Identity')
-      ..writeln()
-      ..writeln('Name: $name');
-    if (role.isNotEmpty) {
-      buf.writeln('Role: $role');
-    } else {
-      buf.writeln('Role: Android-native personal agentic AI assistant.');
-    }
-    if (persona.isNotEmpty) {
-      buf
-        ..writeln()
-        ..writeln('### Persona')
-        ..writeln()
-        ..writeln(persona);
-    }
-    if (communicationStyle.isNotEmpty) {
-      buf
-        ..writeln()
-        ..writeln('### Communication Style')
-        ..writeln()
-        ..writeln(communicationStyle);
-    }
-    buf
-      ..writeln()
-      ..writeln('---')
-      ..writeln()
-      ..writeln('## User Identity')
-      ..writeln()
-      ..writeln('Name: [Your Name]')
-      ..writeln('Nickname: [Optional Nickname]')
-      ..writeln('Preferred Language: [Not set]')
-      ..writeln('Timezone: [Your Timezone]');
-    return buf.toString();
-  }
-
-  String minimalMemory(String name) => '''# MEMORY.md - $name
-
-## Overview
-
-This file stores persistent memory and context that carries across sessions.
-
----
-
-## Facts
-
----
-
-## Session Notes
-
----
-
-## Learned Preferences
-
----
-
-## Bookmarks
-
-''';
 
   // ─── Private markdown helpers ───────────────────────────────────────────────
 
@@ -376,10 +186,5 @@ This file stores persistent memory and context that carries across sessions.
       }
     }
     return lines.length;
-  }
-
-  String _joinMarkdownLines(List<String> lines) {
-    final joined = lines.join('\n');
-    return joined.endsWith('\n') ? joined : '$joined\n';
   }
 }

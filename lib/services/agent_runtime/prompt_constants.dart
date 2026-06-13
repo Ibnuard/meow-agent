@@ -32,7 +32,7 @@ class PromptConstants {
   /// Cache for systemRules — keyed by `language|isWorkflowAutoExecute`.
   static final Map<String, String> _systemRulesCache = {};
 
-  /// System rules always enforced regardless of SOUL.md content.
+  /// System rules always enforced regardless of agent persona content.
   static String systemRules(
     String language, {
     bool isWorkflowAutoExecute = false,
@@ -50,7 +50,7 @@ class PromptConstants {
   static const String _sharedSystemRules =
       '''- Respect enabled permissions and modules. Do not assume capabilities.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
-- CONFIG ARCHITECTURE: Configurational state (agents, providers, active selections, modules, user preferences) is managed through a single config tool — read config then patch it. Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.''';
+- CONFIG ARCHITECTURE: Configurational state (modules, active selections, user preferences) is managed through the config tool — read config then patch it. Agent and provider CRUD uses dedicated domain tools (agent.create/delete/update, provider.create/delete/update). Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.''';
 
   static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {

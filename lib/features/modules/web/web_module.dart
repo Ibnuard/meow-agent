@@ -8,8 +8,8 @@ import 'domain/http_executor.dart';
 
 /// Web/API module plugin.
 ///
-/// Provides HTTP fetch and registered API call tools. Self-registering per
-/// SKILLS.md — add to runtime_module_plugins.dart and done.
+/// Provides HTTP fetch and registered API call tools. Self-registering —
+/// add to runtime_module_plugins.dart and done.
 class WebModulePlugin extends ModulePlugin {
   const WebModulePlugin();
 

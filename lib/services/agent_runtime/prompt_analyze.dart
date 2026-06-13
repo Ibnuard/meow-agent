@@ -8,32 +8,41 @@ import 'prompt_context.dart' show promptNarrativeFieldRule;
 const promptAnalyzeIntro =
     'You are an AI agent runtime analyzer running on an Android device.';
 
-const promptSystemMarkdownMap = '''Meow Agent markdown model:
-- System markdown = global standard/base schema used for all agents. It is read-only runtime guidance, not per-agent memory.
-- Agent markdown = mutable files inside the current agent workspace: Documents/MeowAgent/Agents/{AgentName}/.
-- SOUL.md stores agent identity, User Identity, profile fields, durable response/style preferences.
-- MEMORY.md stores long-term facts, learned preferences, bookmarks, and concise persistent context.
-- SKILLS.md stores per-agent tool-use preferences; the real tool registry is injected by the runtime.
-- HEARTBEAT.md stores runtime status and must not be used for user profile or memory.
-- If the user provides their name, nickname, timezone, preferred language, role, or communication style, update the current agent workspace SOUL.md via system.profile.update.
-- If the user asks you to remember a fact/preference, append it to the current agent workspace MEMORY.md via system.memory.append.
-- Never update system markdown/base docs for user-specific memory.
+const promptSystemMarkdownMap = '''Meow Agent data model:
+- Identity data (user name, nickname, timezone, preferences) is stored in a local database and managed via system.profile.update.
+- Long-term memory (facts, preferences, bookmarks) is stored in a local database and managed via system.memory.append.
+- Persona/personality of an agent lives in agent_soul (one row per agent). Read via agent.soul.read or system.config.read; write via system.profile.update (self) or agent.update with field=persona (any agent). Personality is NOT a memory fact — never use system.memory.append for persona.
+- The workspace folder (Documents/MeowAgent/Agents/{AgentName}/) is for USER FILES only — documents, PDFs, exports, etc. It is NOT used for identity or memory storage.
+- If the user provides their name, nickname, timezone, preferred language, role, or communication style, update via system.profile.update.
+- If the user asks you to remember a fact/preference, append via system.memory.append.
+- Never store profile or memory data as files.
 
 World model (files.* tools):
 - The MeowAgent root (Documents/MeowAgent/) is the file sandbox. The calling agent's own workspace (Documents/MeowAgent/Agents/{ThisAgent}/) is the default scope.
-- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/<PeerName>/SOUL.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
-- Use this for tasks that span peer agents: swapping personalities, syncing memory snippets, copying files between agent workspaces, etc.
-- DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.''';
+- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/<PeerName>/notes.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
+- Use this for tasks that span peer agents: copying files between agent workspaces, etc.
+- DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.
+
+DB schema (meow_core.db, accessible via sqlite.query for ad-hoc introspection):
+- agents(id, name, provider_id, model, max_context, auto_compact, icon_key, color_key, created_at, updated_at)
+- agent_soul(agent_id, user_name, user_nickname, persona, communication_style, work_role, main_project, design_preference, preferred_language, timezone, persona_meta, updated_at)
+- agent_memory(id, agent_id, category, content, created_at)
+- agent_events(id, agent_id, event_type, state, task, last_tool, last_result, created_at)
+- providers(id, nickname, base_url, api_key_ref, model_default, codename, models_json, created_at, updated_at) -- api_key_ref is a secure-storage handle, not the actual key.
+- modules(id, enabled, config_json, installed_at), agent_module_permissions(agent_id, module_id, enabled, config_json)
+- app_settings(key, value)
+Use sqlite.query only when structured tools (agent.list, agent.soul.read, system.config.read) cannot answer the question (joins, aggregates, custom filters).''';
 
 const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
 - Set true for phrases like: "open [app]", "launch [app]", "go to [url]"
-- Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update for SOUL.md User Identity.
-- Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
+- Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update.
+- Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append.
 - Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "what can you do?", "what are your capabilities?", "where is your workspace?"
 - Capability/ability questions MUST use system.tools.list. Never answer from memory or generic assistant knowledge.
 - Set true when attached files are present and the user asks to inspect, read, summarize, transform, explain, or answer from those attachments. Use attachment tools; never infer attachment contents from filenames.
 - Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
+- For DB introspection: prefer agent.list, agent.soul.read, system.config.read, system.tools.list. Fall back to sqlite.query (read-only SELECT) ONLY for queries those tools cannot answer (joins, aggregates, custom filters). sqlite.query is a power tool — never use it where a structured tool answers the same question.
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
@@ -125,12 +134,18 @@ const promptAnalyzeExamples =
 - "call me <nickname>" → system.profile.update(field: "nickname", value: "<nickname>")
 - "my timezone is <tz>" → system.profile.update(field: "timezone", value: "<tz>")
 - "remember I prefer short answers" → system.memory.append(category: "preference", content: "User prefers short answers")
+- "you are <persona>" / "set your persona to <X>" → system.profile.update(field: "persona", value: "<persona>")
+- "set <name>'s persona to <X>" / "change <name>'s personality to <X>" → agent.update(name: "<name>", field: "persona", value: "<X>")
+- "what is <name>'s persona?" / "show <name>'s personality" → agent.soul.read(name: "<name>")
+- "show me your soul" / "what's your personality?" → agent.soul.read(name: "<self name>")
+- "how many agents have empty persona?" → sqlite.query(sql: "SELECT COUNT(*) AS empty FROM agent_soul WHERE persona IS NULL OR persona = ''")
+- "which provider is used by the most agents?" → sqlite.query(sql: "SELECT provider_id, COUNT(*) c FROM agents GROUP BY provider_id ORDER BY c DESC LIMIT 1")
 - "how many modules do I have?" → system.config.read
 - "where is your workspace?" → system.self
-- "create a new agent named <name>" → system.config.read then system.config.patch, subgoal_seeds: ["create agent <name>"]
-- "create a new agent <name>, personality <persona>" → system.config.read then system.config.patch with a new agent entry and persona metadata
-- "create a new agent with the same config as you, named <name>" → system.config.read then system.config.patch with copied config, subgoal_seeds: ["create agent <name> from self"]
-- "clone yourself as <name>" / "duplicate this agent" → system.config.read then system.config.patch + copy persona from self
+- "create a new agent named <name>" → agent.create(name: "<name>"), subgoal_seeds: ["create agent <name>"]
+- "create a new agent <name>, personality <persona>" → agent.create(name: "<name>", persona: "<persona>")
+- "create a new agent with the same config as you, named <name>" → agent.create(name: "<name>") with copied persona from self, subgoal_seeds: ["create agent <name> from self"]
+- "clone yourself as <name>" / "duplicate this agent" → agent.create(name: "<name>") + copy persona from self
 
 Multi-target examples (subgoal_seeds MUST list each target):
 - "create 3 new agents: <X>, <Y>, <Z>" → subgoal_seeds: ["create agent <X>", "create agent <Y>", "create agent <Z>"]

@@ -57,7 +57,8 @@ extension LedgerStatusX on LedgerStatus {
 /// more than one subgoal. Survives app restarts so a user who confirms a
 /// sensitive step then closes the app can resume on next launch.
 ///
-/// **Ledger ≠ memory.** Soul of the agent (SOUL.md, MEMORY.md) is separate.
+/// **Ledger ≠ memory.** Agent identity and long-term memory live in the
+/// `agent_soul` and `agent_memory` database tables, not in the ledger.
 /// A ledger is the working memory of ONE multi-step task and is
 /// soft-archived (status=completed/aborted/failed) once the task ends.
 ///

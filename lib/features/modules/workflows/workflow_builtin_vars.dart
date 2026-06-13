@@ -1,7 +1,7 @@
 import 'dart:convert';
 
+import '../../../core/storage/agent_soul_repository.dart';
 import '../../../services/agent_runtime/prompt_constants.dart';
-import '../../../services/workspace/workspace_file_service.dart';
 import '../../chat/data/chat_history_service.dart';
 import '../web/data/api_store_repository.dart';
 import '../web/domain/http_executor.dart';
@@ -280,11 +280,13 @@ class WorkflowBuiltInVars {
 
   /// Build the full variable map for a workflow execution.
   ///
-  /// [agentName] is used both as `{{agent_name}}` and to fetch the user's
-  /// SOUL.md identity fields.
-  /// [agentId] is the running agent's id; used to resolve `{{chat_session}}`
+  /// [agentName] is used as `{{agent_name}}`.
+  /// [agentId] is the running agent's id; used to fetch identity fields from
+  /// the local database (`agent_soul` table) and to resolve `{{chat_session}}`
   /// from recent chat history. Pass null if not available — `chat_session`
   /// will resolve to an empty string in that case.
+  /// [soulRepo] is the AgentSoulRepository used to read identity. When null,
+  /// `{{user_name}}` and `{{user_nickname}}` resolve to empty strings.
   /// [triggerVars] are event-derived values like `{{notif}}`. They take
   /// precedence over computed values.
   /// [extra] is for runtime additions (e.g. {{prev}} during chained steps).
@@ -292,6 +294,7 @@ class WorkflowBuiltInVars {
     required String agentName,
     required DateTime now,
     String? agentId,
+    AgentSoulRepository? soulRepo,
     String langCode = 'id',
     Map<String, String> triggerVars = const {},
     Map<String, String> extra = const {},
@@ -310,7 +313,7 @@ class WorkflowBuiltInVars {
 
     // ── Identity ──────────────────────────────────────────────────────────
     vars['agent_name'] = agentName;
-    final identity = await _readUserIdentity(agentName);
+    final identity = await _readUserIdentity(agentId, soulRepo);
     vars['user_name'] = identity.name;
     vars['user_nickname'] = identity.nickname;
     vars['chat_session'] = agentId == null
@@ -583,38 +586,24 @@ class WorkflowBuiltInVars {
     return '${d.day} ${_monthName(d.month, langCode)} ${d.year}';
   }
 
-  // ─── User identity from SOUL.md ───────────────────────────────────────
+  // ─── User identity from database ────────────────────────────────────────
 
-  static Future<_UserIdentity> _readUserIdentity(String agentName) async {
+  static Future<_UserIdentity> _readUserIdentity(
+    String? agentId,
+    AgentSoulRepository? soulRepo,
+  ) async {
+    if (agentId == null || soulRepo == null) return _UserIdentity.empty();
     try {
-      final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
-      if (soul.isEmpty) return _UserIdentity.empty();
-      // Find the User Identity section.
-      final sectionMatch = RegExp(
-        r'##\s*User Identity[^\n]*\n([\s\S]*?)(?=\n##\s|---\s*\n|$)',
-        caseSensitive: false,
-      ).firstMatch(soul);
-      if (sectionMatch == null) return _UserIdentity.empty();
-      final body = sectionMatch.group(1) ?? '';
-      return _UserIdentity(
-        name: _extractField(body, 'Name'),
-        nickname: _extractField(body, 'Nickname'),
-      );
+      final soul = await soulRepo.get(agentId);
+      if (soul == null) return _UserIdentity.empty();
+      final name = (soul.userName ?? '').trim();
+      final nickname = (soul.userNickname ?? '').trim();
+      // Strip bracketed placeholders like [Your Name].
+      final cleanName = RegExp(r'^\[.*\]$').hasMatch(name) ? '' : name;
+      return _UserIdentity(name: cleanName, nickname: nickname);
     } catch (_) {
       return _UserIdentity.empty();
     }
-  }
-
-  static String _extractField(String body, String fieldName) {
-    final m = RegExp(
-      '^$fieldName:[ \\t]*(.*?)[ \\t]*\$',
-      multiLine: true,
-    ).firstMatch(body);
-    if (m == null) return '';
-    final v = (m.group(1) ?? '').trim();
-    // Strip placeholders like [Your Name].
-    if (RegExp(r'^\[.*\]$').hasMatch(v)) return '';
-    return v;
   }
 }
 

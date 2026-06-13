@@ -26,7 +26,7 @@ EXISTENCE & TYPO RULES (CRITICAL — prevents post-confirmation "target not foun
   * If a near-match is plausible (e.g. minor typo, 1-2 character difference like "treaearcher" vs "researcher"), strategy=clarify and ask: did you mean <suggested>?
   * If no plausible near-match exists, strategy=block and list the available targets so the user can choose.
 - Treat case-insensitive equality as exact match. Trim whitespace before comparing.
-- File paths (e.g. Agents/<name>/SOUL.md), notes, calendar items, and app/package targets are NOT ecosystem snapshot entities. Do not block them just because they are absent from the ecosystem snapshot; let the appropriate tool validate path/id/package existence.
+- File paths (e.g. Agents/<name>/notes.md), notes, calendar items, and app/package targets are NOT ecosystem snapshot entities. Do not block them just because they are absent from the ecosystem snapshot; let the appropriate tool validate path/id/package existence.
 - If a target string looks like a workspace path, URL, Android package, note id, notification id, or calendar id, preserve it as that domain target. Do not reinterpret it as an agent/provider/workflow just because it contains a known entity name.
 - Never assume a typo means the user wanted to CREATE a new entity. Creation is only when the user explicitly asks to create.
 
@@ -58,7 +58,7 @@ TARGET GRAPH:
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
 - For WHOLE-COLLECTION bulk targets, leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. For FILTERED bulk targets, leave entity_id empty and set a predicate selector (see protocol above). The runtime fans either out from the snapshot.
 - Current-scoped profile and memory writes are NOT agent snapshot targets. For user identity/profile updates, use entity_type "profile" or omit the target; never emit an agent target like "current_agent" just because the write goes to the current workspace.
-- Path-like targets (for example Agents/<name>/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
+- Path-like targets (for example Agents/<name>/notes.md) MUST use entity_type "file" even when the path contains an agent name.
 - If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
 - URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
 - If a target is selected by a semantic bulk/predicate selector, follow the BULK SELECTOR PROTOCOL above instead of pre-enumerating.

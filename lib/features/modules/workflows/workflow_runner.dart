@@ -3,10 +3,12 @@ import 'dart:collection';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/storage/agent_soul_repository.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../chat/data/chat_history_service.dart';
+import '../../chat/data/chat_messages_notifier.dart';
 import '../../chat/data/unread_service.dart';
 import '../../providers/data/provider_repository.dart';
 import 'workflow_builtin_vars.dart';
@@ -340,6 +342,7 @@ class WorkflowRunner {
     final builtIns = await WorkflowBuiltInVars.resolve(
       agentName: agent.name,
       agentId: wf.agentId,
+      soulRepo: _ref.read(agentSoulRepositoryProvider),
       now: DateTime.now(),
       triggerVars: triggerVars,
     );
@@ -502,6 +505,7 @@ class WorkflowRunner {
     final baseBuiltIns = await WorkflowBuiltInVars.resolve(
       agentName: fallbackAgent.name,
       agentId: fallbackAgent.id,
+      soulRepo: _ref.read(agentSoulRepositoryProvider),
       now: DateTime.now(),
       triggerVars: triggerVars,
     );
@@ -1370,13 +1374,25 @@ class WorkflowRunner {
   }
 
   /// Inject a message into the agent's chat history.
+  ///
+  /// Uses the Riverpod-managed ChatHistoryService so the message persists,
+  /// then notifies the ChatMessagesNotifier so the UI updates reactively
+  /// even if the user is currently viewing that chat screen.
   Future<void> _injectToChat(String agentId, String message) async {
     try {
-      final chatService = ChatHistoryService();
-      await chatService.addMessage(
+      final chatService = _ref.read(chatHistoryServiceProvider);
+      final id = await chatService.addMessage(
         agentId,
         ChatMessage(role: 'assistant', content: message),
       );
+      // Notify the in-memory notifier so open chat screens see the message.
+      try {
+        _ref
+            .read(chatMessagesProvider(agentId).notifier)
+            .addMessage(ChatMessage(id: id, role: 'assistant', content: message));
+      } catch (_) {
+        // Notifier may not exist if no one is watching this agent's chat.
+      }
       // Bump unread badge unless the user is currently viewing that chat.
       await UnreadService.instance.increment(agentId);
     } catch (_) {

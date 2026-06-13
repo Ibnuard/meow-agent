@@ -198,6 +198,13 @@ class ChatRuntimeManager extends ChangeNotifier {
   }
 
   Future<ProviderConfig?> _resolveProvider(String agentId) async {
+    // Wait for the agent list and provider list to finish their initial
+    // async loads. On a cold open these notifiers start empty and populate
+    // from SQLite asynchronously; without this await, the lookup below
+    // would silently see empty lists and bail out as "no provider".
+    await ref.read(agentListProvider.notifier).ready;
+    await ref.read(providerListProvider.notifier).load();
+
     final agents = ref.read(agentListProvider);
     final providers = ref.read(providerListProvider).value ?? [];
     final agent =

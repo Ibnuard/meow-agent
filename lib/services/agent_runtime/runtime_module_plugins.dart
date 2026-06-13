@@ -1,3 +1,4 @@
+import '../../features/modules/agent/agent_domain_module.dart';
 import '../../features/modules/app_agent/app_agent_module.dart';
 import '../../features/modules/attachments/attachment_module.dart';
 import '../../features/modules/calendar/calendar_module.dart';
@@ -6,6 +7,8 @@ import '../../features/modules/device_context/device_module.dart';
 import '../../features/modules/files/files_module.dart';
 import '../../features/modules/notes/notes_module.dart';
 import '../../features/modules/notification_intelligence/notification_module.dart';
+import '../../features/modules/provider/provider_domain_module.dart';
+import '../../features/modules/sqlite/sqlite_query_module.dart';
 import '../../features/modules/system/system_module.dart';
 import '../../features/modules/vm/vm_module.dart';
 import '../../features/modules/web/web_module.dart';
@@ -22,7 +25,12 @@ const List<ModulePlugin> runtimeModulePlugins = [
   FilesModulePlugin(),
   CalendarModulePlugin(),
   WorkflowModulePlugin(),
+  // New domain-specific tool surface (Phase 3 architecture migration).
+  // Replaces system.config.patch for agent and provider mutations.
+  AgentDomainModulePlugin(),
+  ProviderDomainModulePlugin(),
   SystemModulePlugin(),
+  SqliteQueryModulePlugin(),
   ChatModulePlugin(),
   AttachmentModulePlugin(),
   WebModulePlugin(),

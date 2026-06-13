@@ -35,7 +35,7 @@ extension SystemToolsWorkspace on SystemTools {
   Future<ToolExecutionResult> executeSelf() async {
     try {
       final providers = await loadProviders();
-      final agents = loadAgents();
+      final agents = await loadAgents();
       final currentAgent = findCurrentAgent(agents);
       final provider = currentAgent == null
           ? null
@@ -54,10 +54,9 @@ extension SystemToolsWorkspace on SystemTools {
           'provider': provider?.toPublicJson(),
           'workspace': {
             'path': workspacePath,
-            'coreFiles': SystemTools._coreFiles.toList(),
             'mutable': true,
             'note':
-                'This path is the current agent workspace. Profile updates are written here, not to system standard docs.',
+                'This path holds user files only (uploads, exports, PDFs). Identity and memory live in the local database, not here.',
           },
           'counts': {
             'agents': agents.length,
@@ -82,38 +81,29 @@ extension SystemToolsWorkspace on SystemTools {
       success: true,
       toolName: 'system.workspace.schema',
       data: {
-        'model': {
-          'systemMarkdown':
-              'Global standard/base schema used to generate and understand every agent workspace. It is not the per-agent memory state.',
-          'agentMarkdown':
-              'Mutable markdown files inside Documents/MeowAgent/Agents/{AgentName}/. Runtime tools patch these files for the current agent.',
+        'architecture': {
+          'identity':
+              'User profile (name, nickname, timezone, preferences) is stored in a local SQLite database. Use system.profile.update to modify.',
+          'memory':
+              'Long-term memory (facts, preferences, bookmarks) is stored in a local SQLite database. Use system.memory.append to add entries.',
+          'workspace':
+              'The folder Documents/MeowAgent/Agents/{AgentName}/ is for USER FILES only — documents, PDFs, exports. It is NOT used for identity or memory.',
         },
-        'files': {
-          'SOUL.md': {
-            'purpose':
-                'Agent identity, user identity, communication style, and durable profile preferences.',
-            'writePolicy':
-                'Patch only the relevant field or section in the current agent workspace.',
+        'tools': {
+          'system.profile.update': {
+            'purpose': 'Update a user identity field in the database.',
+            'fields': AgentSoulRepository.profileFields,
             'examples': [
-              'User says "nama saya Budi" -> update User Identity / Name.',
-              'User says "panggil aku Di" -> update User Identity / Nickname.',
+              'User says "my name is Budi" -> system.profile.update(field: "name", value: "Budi")',
+              'User says "call me Di" -> system.profile.update(field: "nickname", value: "Di")',
             ],
           },
-          'MEMORY.md': {
+          'system.memory.append': {
             'purpose':
-                'Persistent facts, learned preferences, bookmarks, and concise long-term context.',
-            'writePolicy':
+                'Append a persistent memory entry to the database.',
+            'categories': AgentSoulRepository.memoryCategories,
+            'policy':
                 'Append concise entries. Do not store passwords, API keys, OTPs, or secrets.',
-          },
-          'SKILLS.md': {
-            'purpose':
-                'Per-agent preferences for how to use available tools. The real runtime tool registry is system-managed.',
-            'writePolicy': 'Patch tool-use preferences or constraints only.',
-          },
-          'HEARTBEAT.md': {
-            'purpose':
-                'Runtime status snapshot: current task, state, last tool, last result, and last error.',
-            'writePolicy': 'Runtime-managed. Do not store user profile here.',
           },
         },
       },
@@ -126,7 +116,7 @@ extension SystemToolsWorkspace on SystemTools {
     Map<String, dynamic> args,
   ) async {
     try {
-      final wsName = workspaceAgentName(findCurrentAgent(loadAgents()));
+      final wsName = workspaceAgentName(findCurrentAgent(await loadAgents()));
       if (wsName.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -135,12 +125,12 @@ extension SystemToolsWorkspace on SystemTools {
         );
       }
 
-      final filename = normalizeCoreFilename(args['file'] ?? args['filename']);
-      if (filename == null) {
-        return ToolExecutionResult(
+      final filename = (args['file'] as String? ?? args['filename'] as String? ?? '').trim();
+      if (filename.isEmpty) {
+        return const ToolExecutionResult(
           success: false,
           toolName: 'system.workspace.read',
-          error: 'file must be one of: ${SystemTools._coreFiles.join(', ')}.',
+          error: 'file is required (relative path inside the agent workspace).',
         );
       }
 
@@ -170,18 +160,29 @@ extension SystemToolsWorkspace on SystemTools {
     }
   }
 
-  // ─── system.profile.update ─────────────────────────────────────────────────
+  // ─── system.profile.update ───────────────────────────────
+  //
+  // Phase 7: writes go to the `agent_soul` SQLite table, NOT to SOUL.md.
+  // No filesystem permission required, atomic, reactive (UI subscribers see
+  // the new value immediately).
 
   Future<ToolExecutionResult> executeProfileUpdate(
     Map<String, dynamic> args,
   ) async {
     try {
-      final wsName = workspaceAgentName(findCurrentAgent(loadAgents()));
-      if (wsName.isEmpty) {
+      final repo = coreSoulRepo;
+      if (repo == null) {
         return const ToolExecutionResult(
           success: false,
           toolName: 'system.profile.update',
-          error: 'Current agent workspace is not available.',
+          error: 'Profile store is not available.',
+        );
+      }
+      if (agentId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.profile.update',
+          error: 'No active agent.',
         );
       }
 
@@ -199,44 +200,35 @@ extension SystemToolsWorkspace on SystemTools {
           success: false,
           toolName: 'system.profile.update',
           error:
-              'Refusing to store secrets such as passwords, API keys, tokens, or OTPs in SOUL.md.',
+              'Refusing to store secrets such as passwords, API keys, tokens, or OTPs in the profile.',
         );
       }
 
-      final label = profileFieldLabel(field);
-      if (label == null) {
+      final allowed = AgentSoulRepository.profileFields.toSet();
+      if (!allowed.contains(field)) {
         return ToolExecutionResult(
           success: false,
           toolName: 'system.profile.update',
           error:
-              'Unsupported profile field "$field". Use name, nickname, preferred_language, timezone, work_role, main_project, communication_style, or design_preference.',
+              'Unsupported profile field "$field". Use ${allowed.join(', ')}.',
         );
       }
 
-      final oldContent = await WorkspaceFileService.readFile(
-        wsName,
-        'SOUL.md',
-      );
-      final content = oldContent.trim().isEmpty
-          ? minimalSoul(wsName)
-          : oldContent;
-      final updated = upsertFieldInSection(
-        content: content,
-        sectionTitle: 'User Identity',
-        label: label,
+      final updated = await repo.updateField(
+        agentId: agentId,
+        field: field,
         value: value,
       );
-      await WorkspaceFileService.writeFile(wsName, 'SOUL.md', updated);
 
       return ToolExecutionResult(
         success: true,
         toolName: 'system.profile.update',
         data: {
-          'agentName': wsName,
-          'file': 'SOUL.md',
-          'section': 'User Identity',
-          'field': label,
+          'agentId': agentId,
+          'agentName': agentName,
+          'field': field,
           'value': value,
+          'updatedAt': updated.updatedAt.toIso8601String(),
         },
       );
     } catch (e) {
@@ -248,18 +240,29 @@ extension SystemToolsWorkspace on SystemTools {
     }
   }
 
-  // ─── system.memory.append ──────────────────────────────────────────────────
+  // ─── system.memory.append ────────────────────────────────
+  //
+  // Phase 7: writes append a row to the `agent_memory` SQLite table, NOT to
+  // MEMORY.md. The repo persists category, content, and timestamp; recall is
+  // a single indexed query.
 
   Future<ToolExecutionResult> executeMemoryAppend(
     Map<String, dynamic> args,
   ) async {
     try {
-      final wsName = workspaceAgentName(findCurrentAgent(loadAgents()));
-      if (wsName.isEmpty) {
+      final repo = coreMemoryRepo;
+      if (repo == null) {
         return const ToolExecutionResult(
           success: false,
           toolName: 'system.memory.append',
-          error: 'Current agent workspace is not available.',
+          error: 'Memory store is not available.',
+        );
+      }
+      if (agentId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.memory.append',
+          error: 'No active agent.',
         );
       }
 
@@ -281,36 +284,32 @@ extension SystemToolsWorkspace on SystemTools {
           success: false,
           toolName: 'system.memory.append',
           error:
-              'Refusing to store secrets such as passwords, API keys, tokens, or OTPs in MEMORY.md.',
+              'Refusing to store secrets such as passwords, API keys, tokens, or OTPs in memory.',
         );
       }
 
-      final category = (args['category'] as String? ?? 'fact').trim();
-      final section = memorySectionFor(category);
-      final oldContent = await WorkspaceFileService.readFile(
-        wsName,
-        'MEMORY.md',
+      final rawCategory = (args['category'] as String? ?? 'fact').trim();
+      final allowedCategories = AgentSoulRepository.memoryCategories.toSet();
+      final category = allowedCategories.contains(rawCategory)
+          ? rawCategory
+          : 'fact';
+
+      final entry = await repo.append(
+        agentId: agentId,
+        content: value,
+        category: category,
       );
-      final content = oldContent.trim().isEmpty
-          ? minimalMemory(wsName)
-          : oldContent;
-      final date = DateTime.now().toIso8601String().split('T').first;
-      final entry = '- $date: $value';
-      final updated = appendBulletToSection(
-        content: content,
-        sectionTitle: section,
-        entry: entry,
-      );
-      await WorkspaceFileService.writeFile(wsName, 'MEMORY.md', updated);
 
       return ToolExecutionResult(
         success: true,
         toolName: 'system.memory.append',
         data: {
-          'agentName': wsName,
-          'file': 'MEMORY.md',
-          'section': section,
-          'entry': entry,
+          'agentId': agentId,
+          'agentName': agentName,
+          'memoryId': entry.id,
+          'category': entry.category,
+          'content': entry.content,
+          'createdAt': entry.createdAt.toIso8601String(),
         },
       );
     } catch (e) {

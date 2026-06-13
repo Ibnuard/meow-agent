@@ -1,6 +1,11 @@
 import 'runtime_models.dart';
 
-import '../../core/storage/meow_config_repository.dart';
+import '../../core/storage/agent_repository.dart' as core_agents;
+import '../../core/storage/agent_memory_repository.dart' as core_memory;
+import '../../core/storage/agent_soul_repository.dart' as core_soul;
+import '../../core/storage/app_settings_repository.dart';
+import '../../core/storage/module_entry_repository.dart';
+import '../../core/storage/provider_repository.dart' as core_providers;
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -18,7 +23,8 @@ class ModuleToolContext {
     required this.agentName,
     required this.agentId,
     required this.moduleRepository,
-    this.configRepository,
+    this.appSettings,
+    this.moduleEntries,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
@@ -28,12 +34,17 @@ class ModuleToolContext {
     this.currentUserMessage = '',
     this.describeImage,
     this.allToolDefinitions = const [],
+    this.coreAgentRepo,
+    this.coreProviderRepo,
+    this.coreSoulRepo,
+    this.coreMemoryRepo,
   });
 
   final String agentName;
   final String agentId;
   final ModuleRepository moduleRepository;
-  final MeowConfigRepository? configRepository;
+  final AppSettingsRepository? appSettings;
+  final ModuleEntryRepository? moduleEntries;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;
@@ -50,6 +61,19 @@ class ModuleToolContext {
   /// Every registered [ToolDefinition], for tools that introspect the catalog
   /// (e.g. `system.tools.list`). Supplied by the router.
   final Iterable<ToolDefinition> allToolDefinitions;
+
+  // ---------------------------------------------------------------------------
+  // Core/storage repositories (Phase 7 architecture).
+  //
+  // Domain tool plugins (agent.*, provider.*) read/write through these
+  // directly to SQLite. All fields are optional so test-constructed contexts
+  // can omit repos they don't need.
+  // ---------------------------------------------------------------------------
+
+  final core_agents.AgentRepository? coreAgentRepo;
+  final core_providers.ProviderEntryRepository? coreProviderRepo;
+  final core_soul.AgentSoulRepository? coreSoulRepo;
+  final core_memory.AgentMemoryRepository? coreMemoryRepo;
 }
 
 /// A self-registering feature module.

@@ -1,155 +1,149 @@
-import 'dart:convert';
-
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import '../../../core/storage/local_storage_service.dart';
-import '../../../core/storage/meow_config_repository.dart';
+import '../../../core/storage/module_entry_repository.dart';
+import '../../../core/storage/meow_database.dart';
 import 'module_model.dart';
-
-const _kInstalledModulesKey = 'installed_modules';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// Repository for managing installed modules.
+///
+/// Phase 7: backed by the SQLite `modules` table via [ModuleEntryRepository].
+/// Display metadata (name, description, icon, default settings shape) comes
+/// from [ModuleRegistry.available] at read time — only id, enabled flag, and
+/// the runtime settings map are persisted.
 class ModuleRepository {
-  ModuleRepository({SharedPreferences? prefs, MeowConfigRepository? config})
-    : _prefs = prefs,
-      _config = config;
+  ModuleRepository([ModuleEntryRepository? entries]) : _injected = entries;
 
-  final SharedPreferences? _prefs;
-  final MeowConfigRepository? _config;
+  final ModuleEntryRepository? _injected;
 
-  Future<SharedPreferences> _instance({bool reload = true}) async {
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
-    // Keep direct tool reads in sync with settings changed from UI/native code.
-    if (reload) {
-      await prefs.reload();
-    }
-    return prefs;
-  }
+  /// Resolve the entry repo — prefer the injected one, fallback to a fresh
+  /// instance from the singleton DB for standalone construction (e.g. from
+  /// tool dispatch classes that don't have Riverpod access).
+  ModuleEntryRepository get _entries =>
+      _injected ?? ModuleEntryRepository(MeowDatabase.instance);
 
+  /// Read all installed modules, joined against [ModuleRegistry] for display
+  /// fields. Reconciles the stored `settings` map against the current registry
+  /// shape so newly-added permission keys default to false instead of
+  /// silently inheriting older defaults.
   Future<List<ModuleModel>> getInstalled() async {
-    final prefs = await _instance();
-    final configStored = await _config?.loadModules();
-    final raw = prefs.getStringList(_kInstalledModulesKey) ?? [];
-    final stored = (configStored != null && configStored.isNotEmpty)
-        ? configStored
-        : raw
-              .map(
-                (s) =>
-                    ModuleModel.fromJson(jsonDecode(s) as Map<String, dynamic>),
-              )
-              .toList();
-    final legacyClipboardPersistentNotification = stored
-        .where((m) => m.id == 'clipboard_ai')
-        .map((m) => m.settings['persistent_notification'])
-        .firstOrNull;
-    // Legacy app_control settings are folded into device_context after the
-    // module merge. Preserve user toggles so behavior doesn't silently change.
-    final legacyAppControl = stored
-        .where((m) => m.id == 'app_control')
-        .map((m) => m.settings)
-        .firstOrNull;
-
-    // Migrate: reconcile stored settings against the current registry so the
-    // UI reflects schema changes (added/removed keys) without reinstall. If a
-    // stored module no longer exists in the registry (e.g. retired modules)
-    // we drop it so it disappears from the installed list on next load.
+    final rows = await _entries.listAll();
+    final out = <ModuleModel>[];
     var migrated = false;
-    final reconciled = <ModuleModel>[];
-    for (final m in stored) {
-      final spec = ModuleRegistry.available
-          .where((r) => r.id == m.id)
-          .firstOrNull;
+
+    // Legacy bridges across module merges: clipboard_ai's persistent flag
+    // moved into notification_intelligence; app_control's settings folded
+    // into device_context. Read those once before reconciliation so we can
+    // preserve user toggles when the new keys are absent.
+    bool? legacyClipboardPersistent;
+    Map<String, bool>? legacyAppControl;
+    for (final row in rows) {
+      if (row.id == 'clipboard_ai') {
+        legacyClipboardPersistent =
+            (row.config?['settings'] as Map?)?['persistent_notification']
+                as bool?;
+      } else if (row.id == 'app_control') {
+        final raw = (row.config?['settings'] as Map?)?.cast<String, dynamic>();
+        if (raw != null) {
+          legacyAppControl = {
+            for (final e in raw.entries)
+              if (e.value is bool) e.key: e.value as bool,
+          };
+        }
+      }
+    }
+
+    for (final row in rows) {
+      final spec =
+          ModuleRegistry.available.where((r) => r.id == row.id).firstOrNull;
       if (spec == null) {
+        // Retired module (or legacy clipboard_ai/app_control after merge).
+        // Drop the row so it disappears from the installed list.
+        await _entries.delete(row.id);
         migrated = true;
         continue;
       }
+
+      final stored = <String, bool>{};
+      final rawSettings = (row.config?['settings'] as Map?)
+          ?.cast<String, dynamic>();
+      if (rawSettings != null) {
+        for (final e in rawSettings.entries) {
+          if (e.value is bool) stored[e.key] = e.value as bool;
+        }
+      }
+
       final merged = <String, bool>{};
       for (final entry in spec.settings.entries) {
-        // Keep existing user toggles. New keys must default OFF to avoid silently
-        // enabling newly shipped permissions/tools after app updates.
-        if (m.id == 'notification_intelligence' &&
+        if (spec.id == 'notification_intelligence' &&
             entry.key == 'persistent_notification' &&
-            !m.settings.containsKey(entry.key) &&
-            legacyClipboardPersistentNotification != null) {
-          merged[entry.key] = legacyClipboardPersistentNotification;
-        } else if (m.id == 'device_context' &&
-            !m.settings.containsKey(entry.key) &&
+            !stored.containsKey(entry.key) &&
+            legacyClipboardPersistent != null) {
+          merged[entry.key] = legacyClipboardPersistent;
+        } else if (spec.id == 'device_context' &&
+            !stored.containsKey(entry.key) &&
             legacyAppControl != null &&
             legacyAppControl.containsKey(entry.key)) {
           merged[entry.key] = legacyAppControl[entry.key]!;
         } else {
-          merged[entry.key] = m.settings[entry.key] ?? false;
+          // Existing user toggle wins; new keys default OFF so app updates
+          // don't silently grant new permissions.
+          merged[entry.key] = stored[entry.key] ?? false;
         }
       }
-      if (merged.length != m.settings.length ||
-          !merged.keys.every(m.settings.containsKey) ||
-          m.name != spec.name ||
-          m.description != spec.description ||
-          m.icon != spec.icon) {
+
+      if (merged.length != stored.length ||
+          !merged.keys.every(stored.containsKey)) {
         migrated = true;
       }
-      reconciled.add(
-        m.copyWith(
-          name: spec.name,
-          description: spec.description,
-          icon: spec.icon,
-          settings: merged,
-        ),
+
+      out.add(
+        spec.copyWith(enabled: row.enabled, settings: merged),
       );
     }
+
+    // Persist the reconciled settings so future reads are stable and the
+    // legacy bridge fires only once.
     if (migrated) {
-      await _save(reconciled);
+      for (final m in out) {
+        await _entries.setConfig(m.id, {'settings': m.settings});
+      }
     }
-    return reconciled;
+    return out;
   }
 
   Future<void> install(ModuleModel module) async {
-    final modules = await getInstalled();
-    // Don't duplicate.
-    if (modules.any((m) => m.id == module.id)) return;
+    final existing = await _entries.getById(module.id);
+    if (existing != null) return;
 
     // Installing a module only enables the module itself.
-    // All per-feature permission toggles must start OFF and require explicit user opt-in.
+    // All per-feature permission toggles must start OFF and require explicit
+    // user opt-in.
     final disabledSettings = {
       for (final key in module.settings.keys) key: false,
     };
-    modules.add(module.copyWith(enabled: true, settings: disabledSettings));
-    await _save(modules);
+    await _entries.upsert(module.id);
+    await _entries.setEnabled(module.id, true);
+    await _entries.setConfig(module.id, {'settings': disabledSettings});
   }
 
   Future<void> uninstall(String moduleId) async {
-    final modules = await getInstalled();
-    modules.removeWhere((m) => m.id == moduleId);
-    await _save(modules);
+    await _entries.delete(moduleId);
   }
 
   Future<void> update(ModuleModel module) async {
-    final modules = await getInstalled();
-    final idx = modules.indexWhere((m) => m.id == module.id);
-    if (idx >= 0) {
-      modules[idx] = module;
-      await _save(modules);
-    }
-  }
-
-  Future<void> _save(List<ModuleModel> modules) async {
-    final prefs = await _instance(reload: false);
-    final raw = modules.map((m) => jsonEncode(m.toJson())).toList();
-    await prefs.setStringList(_kInstalledModulesKey, raw);
-    await _config?.saveModules(modules);
+    await _entries.setEnabled(module.id, module.enabled);
+    await _entries.setConfig(module.id, {'settings': module.settings});
   }
 }
 
 /// Provider for the module repository.
 final moduleRepositoryProvider = Provider<ModuleRepository>(
-  (ref) => ModuleRepository(
-    prefs: ref.watch(sharedPreferencesProvider),
-    config: ref.watch(meowConfigRepositoryProvider),
-  ),
+  (ref) => ModuleRepository(ref.watch(moduleEntryRepositoryProvider)),
 );
 
-/// Provider that exposes the list of installed modules.
-final installedModulesProvider = FutureProvider<List<ModuleModel>>((ref) {
-  return ref.read(moduleRepositoryProvider).getInstalled();
+/// Reactive list of installed modules — re-emits whenever the underlying
+/// `modules` table changes (from UI, LLM tool, or background workflow).
+final installedModulesProvider = StreamProvider<List<ModuleModel>>((ref) {
+  final repo = ref.read(moduleRepositoryProvider);
+  final entries = ref.read(moduleEntryRepositoryProvider);
+  return entries.watchAll().asyncMap((_) => repo.getInstalled());
 });

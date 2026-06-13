@@ -50,47 +50,99 @@ const List<CanonicalAction> canonicalActionMap = [
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['create', 'agent'],
-    canonicalTools: ['system.config.patch'],
-    notTools: ['files.mkdir', 'files.write', 'files.create'],
-    note: 'Runtime auto-creates workspace and template files.',
+    canonicalTools: ['agent.create'],
+    notTools: [
+      'files.mkdir',
+      'files.write',
+      'files.create',
+      'system.config.patch',
+    ],
+    note: 'Dedicated tool writes directly to the agents table.',
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['clone', 'agent'],
-    canonicalTools: ['system.config.patch'],
-    notTools: ['files.mkdir', 'files.write', 'files.create'],
-    note: 'Clone = create with copied config. Runtime handles workspace.',
+    canonicalTools: ['agent.create'],
+    notTools: [
+      'files.mkdir',
+      'files.write',
+      'files.create',
+      'system.config.patch',
+    ],
+    note: 'Clone = create with copied persona. Use agent.create with persona arg.',
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['duplicate', 'agent'],
-    canonicalTools: ['system.config.patch'],
-    notTools: ['files.mkdir', 'files.write', 'files.create'],
+    canonicalTools: ['agent.create'],
+    notTools: [
+      'files.mkdir',
+      'files.write',
+      'files.create',
+      'system.config.patch',
+    ],
     note: 'Same as clone.',
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['delete', 'agent'],
-    canonicalTools: ['system.config.patch'],
-    notTools: ['files.delete'],
-    note: 'Runtime deletes workspace folder automatically.',
+    canonicalTools: ['agent.delete'],
+    notTools: ['files.delete', 'system.config.patch'],
+    note: 'Cascade-removes soul, memory, and events.',
+  ),
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['rename', 'agent'],
+    canonicalTools: ['agent.update'],
+    notTools: ['system.config.patch'],
+    note: 'Use agent.update with field=name.',
+  ),
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['list', 'agent'],
+    canonicalTools: ['agent.list'],
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['edit', 'persona'],
-    canonicalTools: ['files.write'],
-    note: 'Write to Agents/<name>/SOUL.md for persona changes.',
+    canonicalTools: ['system.profile.update', 'agent.update'],
+    notTools: ['files.write'],
+    note:
+        'Self → system.profile.update(field=persona). Peer agent → agent.update(name=<peer>, field=persona).',
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['edit', 'soul'],
-    canonicalTools: ['files.write'],
-    note: 'Write to Agents/<name>/SOUL.md.',
+    canonicalTools: ['system.profile.update', 'agent.update'],
+    notTools: ['files.write'],
+    note:
+        'Soul fields (persona, communication_style, work_role, ...) live in agent_soul. Self → system.profile.update. Peer → agent.update with field=<soul_field>.',
+  ),
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['set', 'persona'],
+    canonicalTools: ['system.profile.update', 'agent.update'],
+    notTools: ['files.write', 'system.memory.append'],
+    note:
+        'Personality is persona, NOT a memory fact. Self → system.profile.update. Peer → agent.update.',
+  ),
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['read', 'persona'],
+    canonicalTools: ['agent.soul.read'],
+    note: 'Returns the full soul record for any agent by name.',
+  ),
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['read', 'soul'],
+    canonicalTools: ['agent.soul.read'],
   ),
   CanonicalAction(
     domain: 'system',
     intentKeywords: ['provider'],
-    canonicalTools: ['system.config.patch'],
+    canonicalTools: ['provider.create'],
+    notTools: ['system.config.patch'],
+    note: 'Dedicated provider tools write directly to the providers table.',
   ),
   CanonicalAction(
     domain: 'system',
@@ -117,7 +169,7 @@ const List<CanonicalAction> canonicalActionMap = [
     intentKeywords: ['profile', 'update'],
     canonicalTools: ['system.profile.update'],
     notTools: ['files.write', 'system.config.patch'],
-    note: 'Dedicated tool for SOUL.md identity fields.',
+    note: 'Dedicated tool for user identity fields (database-backed).',
   ),
   CanonicalAction(
     domain: 'system',
@@ -273,6 +325,16 @@ const List<CanonicalAction> canonicalActionMap = [
     domain: 'web',
     intentKeywords: ['fetch', 'url'],
     canonicalTools: ['web.fetch'],
+  ),
+
+  // ─── SQLite Introspection ─────────────────────────────────────────────────
+
+  CanonicalAction(
+    domain: 'system',
+    intentKeywords: ['sql', 'query'],
+    canonicalTools: ['sqlite.query'],
+    notTools: ['system.config.patch'],
+    note: 'Read-only SELECT against meow_core.db. Power tool for ad-hoc introspection.',
   ),
 ];
 

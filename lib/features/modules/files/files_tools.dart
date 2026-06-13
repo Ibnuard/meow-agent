@@ -27,9 +27,9 @@ class FilesTools {
   /// while still preventing traversal to arbitrary device paths.
   ///
   /// A path can be supplied in three forms:
-  /// - relative (`SOUL.md`, `notes/foo.md`) → resolved against the calling
+  /// - relative (`notes/foo.md`, `report.pdf`) → resolved against the calling
   ///   agent's own workspace.
-  /// - workspace-relative (`Agents/Penulis/SOUL.md`) → resolved against the
+  /// - workspace-relative (`Agents/Penulis/notes.md`) → resolved against the
   ///   MeowAgent root, which lets agents reach peer workspaces.
   /// - absolute (`/storage/emulated/0/Documents/MeowAgent/...`) → accepted
   ///   only when the absolute path stays under MeowAgent root.
@@ -60,7 +60,7 @@ class FilesTools {
       resolvedRaw = cleaned;
     } else if (cleaned.startsWith('Agents/') || cleaned.startsWith('agents/')) {
       // Workspace-relative: resolve against MeowAgent root so agents can
-      // address peer workspaces by `Agents/<Name>/SOUL.md`.
+      // address peer workspaces by `Agents/<Name>/notes.md`.
       resolvedRaw = '$rootNorm/$cleaned';
     } else {
       // Default: relative to own workspace, same as before the widening.

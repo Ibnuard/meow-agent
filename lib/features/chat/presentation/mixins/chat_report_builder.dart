@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/chat_history_service.dart';
 import '../../data/chat_runtime_log_service.dart';
+import '../../../../core/storage/agent_memory_repository.dart';
+import '../../../../core/storage/agent_soul_repository.dart';
 import '../../../../services/agent_runtime/context_compactor.dart';
 import '../../../../services/agent_runtime/context_report.dart';
 import '../../../../services/llm/openai_compatible_client.dart';
@@ -157,9 +159,12 @@ mixin ChatReportBuilderMixin<T extends StatefulWidget> on State<T> {
     final languageCode = resolveLanguageCode(languagePref);
     return ContextReport.build(
       agentName: agent.name,
+      agentId: agent.id,
       languageCode: languageCode,
       messages: messagesList,
       maxContextLength: agent.maxContextLength,
+      soulRepo: ref.read(agentSoulRepositoryProvider),
+      memoryRepo: ref.read(agentMemoryRepositoryProvider),
       userMessageHint: inputController.text,
     );
   }

@@ -69,7 +69,7 @@ ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExe
 
 ${PromptConstants.systemMarkdownMap}
 $selfIdentityBlock
-Identity context (from SOUL.md — user-editable):
+Identity context (user profile stored in database):
 ${workspace.soul}
 
 Available tools:

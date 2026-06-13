@@ -26,8 +26,8 @@ This is the user's first message. Before handling their request, politely ask wh
 /// the model treats first/second-person references as third-party and asks
 /// "which agent?" — which breaks the in-character POV.
 ///
-/// [agentName] is the persona name set by the user in SOUL.md (Agent Identity
-/// > Name). The LLM uses this as its own name in the user's language.
+/// [agentName] is the persona name set by the user (stored in the agent_soul
+/// database table). The LLM uses this as its own name in the user's language.
 String promptSelfIdentity({
   required String agentName,
   required String agentId,

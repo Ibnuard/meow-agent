@@ -9,7 +9,7 @@ import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/task_ledger.dart';
 import 'package:meow_agent/services/agent_runtime/tool_permission_policy.dart';
 
-import 'support/fake_workspace_loader.dart';
+import 'support/fake_workspace_folder_service.dart';
 import 'support/scripted_llm_client.dart';
 import 'support/scripted_tool_router.dart';
 
@@ -52,10 +52,9 @@ void main() {
   AgentRuntimeEngine buildEngine({
     required ScriptedLlmClient llm,
     required ScriptedToolRouter router,
-    FakeWorkspaceLoader? workspace,
     TaskLedgerDatabase? ledgerDb,
   }) => AgentRuntimeEngine(
-    workspaceLoader: workspace ?? FakeWorkspaceLoader(),
+    workspaceFolder: FakeWorkspaceFolderService(),
     toolRouter: router,
     contextBuilder: ContextBuilder(),
     languageCode: 'en',

@@ -1,9 +1,17 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/storage/local_storage_service.dart';
-import '../../../core/storage/meow_config_repository.dart';
+import '../../../core/storage/app_settings_repository.dart';
+
+/// Storage key for app language in app_settings table.
+const _languageKey = 'prefs.language';
+
+/// Initial app language code loaded once at app boot in main() and injected
+/// into the [ProviderScope]. Lets [AppLanguageController] start synchronously
+/// without blocking the first frame on a SQLite read.
+final initialAppLanguageProvider = Provider<String>((_) => 'system');
 
 /// Temporary app language switcher.
 /// `system` follows the device locale. For now supported explicit languages:
@@ -30,29 +38,40 @@ extension AppLanguageX on AppLanguage {
   };
 }
 
+/// Persists the user's language preference.
+///
+/// Subscribes to [AppSettingsRepository.watchAll] so writes from any path
+/// (LLM tools via `system.config.patch /prefs/language`, background tasks)
+/// reach the UI immediately.
 class AppLanguageController extends StateNotifier<AppLanguage> {
-  AppLanguageController(LocalStorageService local, this._config)
-    : super(
-        AppLanguageX.fromCode(
-          _config.readPref('language') ?? local.readString(_kLanguageKey),
-        ),
-      );
+  AppLanguageController(this._settings, String initial)
+    : super(AppLanguageX.fromCode(initial)) {
+    _sub = _settings.watchAll().listen((map) {
+      final fresh = AppLanguageX.fromCode(map[_languageKey]);
+      if (mounted && fresh != state) state = fresh;
+    });
+  }
 
-  static const _kLanguageKey = 'meow.app.language';
-
-  final MeowConfigRepository _config;
+  final AppSettingsRepository _settings;
+  StreamSubscription<Map<String, String>>? _sub;
 
   Future<void> set(AppLanguage language) async {
     state = language;
-    await _config.writePref('language', language.code);
+    await _settings.set(_languageKey, language.code);
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
   }
 }
 
 final appLanguageProvider =
     StateNotifierProvider<AppLanguageController, AppLanguage>((ref) {
       return AppLanguageController(
-        ref.watch(localStorageProvider),
-        ref.watch(meowConfigRepositoryProvider),
+        ref.watch(appSettingsRepositoryProvider),
+        ref.watch(initialAppLanguageProvider),
       );
     });
 
@@ -540,8 +559,8 @@ class AppStrings {
   String get saveAgent => isId ? 'Simpan Agen' : 'Save Agent';
   String get deleteAgent => isId ? 'Hapus Agen' : 'Delete Agent';
   String get deleteAgentBody => isId
-      ? 'Ini akan menghapus agen ini secara permanen beserta folder workspace dan semua file terkait (SKILLS.md, SOUL.md, HEARTBEAT.md, MEMORY.md).\n\nTindakan ini tidak bisa dibatalkan.'
-      : 'This will permanently delete this agent, its workspace folder, and all related files (SKILLS.md, SOUL.md, HEARTBEAT.md, MEMORY.md).\n\nThis action cannot be undone.';
+      ? 'Ini akan menghapus agen ini secara permanen dari database beserta folder workspace dan semua file user di dalamnya.\n\nTindakan ini tidak bisa dibatalkan.'
+      : 'This will permanently delete this agent from the database along with its workspace folder and all user files inside.\n\nThis action cannot be undone.';
   String get noAgentsYet => isId ? 'Belum ada agen' : 'No agents yet';
   String get noAgentsCreate => isId
       ? 'Buat agen pertamamu untuk mulai mengobrol.'
@@ -1109,19 +1128,11 @@ class AppStrings {
       isId ? '_Tidak ada konten_' : '_No content_';
 
   // --- Workspace directory ---
-  String get wdSkillsDesc => isId
-      ? 'Tools dan modul yang bisa digunakan agen ini'
-      : 'Tools and modules this agent can use';
-  String get wdSoulDesc => isId
-      ? 'Kepribadian, system prompt, dan mode keamanan'
-      : 'Personality, system prompt, and safety mode';
-  String get wdHeartbeatDesc => isId
-      ? 'Tugas terjadwal dan pemicu event'
-      : 'Scheduled tasks and event triggers';
-  String get wdMemoryDesc => isId
-      ? 'Memori persisten antar sesi'
-      : 'Persistent memory across sessions';
   String get wdDefaultFileDesc => isId ? 'File workspace' : 'Workspace file';
+  String get wdFolderDesc => isId ? 'Folder' : 'Folder';
+  String get wdEmptyWorkspace => isId
+      ? 'Belum ada file di workspace agen ini.'
+      : 'No files in this agent workspace yet.';
   String get wdCannotOpenFileManager => isId
       ? 'Tidak bisa membuka file manager.'
       : 'Could not open file manager.';

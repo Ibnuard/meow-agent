@@ -10,10 +10,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
-import '../../../core/storage/meow_config_repository.dart';
+import '../../../core/storage/app_settings_repository.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
-import '../../../services/workspace/storage_permission_service.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
@@ -35,6 +34,10 @@ import 'mixins/chat_send_handler.dart';
 import 'mixins/chat_command_handler.dart';
 import 'mixins/chat_report_builder.dart';
 import 'mixins/chat_compactor.dart';
+
+/// Initial active agent id, pre-loaded from app_settings in main().
+/// Injected via ProviderScope override so ChatScreen can read it synchronously.
+final initialActiveAgentIdProvider = Provider<String?>((_) => null);
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -68,9 +71,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final ValueNotifier<bool> _showScrollToBottom = ValueNotifier(false);
   late String _activeAgentId;
 
-  // Storage permission state.
-  bool _permissionGranted = true; // Assume true until checked.
-  bool _permissionChecking = true;
+
 
   // Tracks the last manager reply timestamp so we know when to reload.
   DateTime? _lastSeenReplyAt;
@@ -150,17 +151,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final agents = ref.read(agentListProvider);
-    final configActiveAgentId = ref
-        .read(meowConfigRepositoryProvider)
-        .activeAgentId;
+    final storedActiveAgentId = ref.read(initialActiveAgentIdProvider);
     if (widget.agentId == 'default' && agents.isNotEmpty) {
-      _activeAgentId = agents.any((a) => a.id == configActiveAgentId)
-          ? configActiveAgentId!
+      _activeAgentId = agents.any((a) => a.id == storedActiveAgentId)
+          ? storedActiveAgentId!
           : agents.first.id;
     } else {
       _activeAgentId = widget.agentId;
     }
-    ref.read(meowConfigRepositoryProvider).setActiveAgentId(_activeAgentId);
+    ref
+        .read(appSettingsRepositoryProvider)
+        .set('active.agent_id', _activeAgentId);
     if (widget.initialText != null && widget.initialText!.isNotEmpty) {
       _input.text = widget.initialText!;
     }
@@ -171,8 +172,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     // and incoming messages don't bump the badge while user is reading.
     UnreadService.instance.setActive(_activeAgentId);
 
-    // Check storage permission before loading history.
-    _checkStoragePermission();
+    // Phase 7 architecture: chat history and agent identity live in SQLite,
+    // not workspace files. Load history directly without a permission gate.
+    loadHistory(_activeAgentId);
 
     // Subscribe once after first frame so ref is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -182,81 +184,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
-  Future<void> _checkStoragePermission() async {
-    final granted = await StoragePermissionService.instance.isGranted();
-    if (!mounted) return;
-    setState(() {
-      _permissionGranted = granted;
-      _permissionChecking = false;
-    });
-    if (granted) {
-      loadHistory(_activeAgentId);
-    }
-  }
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _checkStoragePermission();
-    }
-  }
-
-  Future<void> _requestStoragePermission() async {
-    final granted = await StoragePermissionService.instance.request();
-    if (!mounted) return;
-    setState(() => _permissionGranted = granted);
-    if (granted) {
-      loadHistory(_activeAgentId);
-    }
-  }
-
-  Widget _buildPermissionError(ColorScheme cs) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.folder_off_outlined,
-              size: 48,
-              color: cs.error.withValues(alpha: 0.7),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              s.storagePermissionTitle,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: cs.onSurface,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              s.storagePermissionBody,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: cs.onSurfaceVariant,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _requestStoragePermission,
-              icon: const Icon(Icons.security_rounded, size: 18),
-              label: Text(s.storagePermissionGrant),
-            ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => StoragePermissionService.instance.openSettings(),
-              child: Text(s.storagePermissionOpenSettings),
-            ),
-          ],
-        ),
-      ),
-    );
+    // No-op: storage permission is no longer required for chat to function.
+    // Files.* tools request permission on-demand when actually invoked.
   }
 
   void _onManagerChanged() {
@@ -872,7 +803,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     UnreadService.instance.clearActive(_activeAgentId);
     UnreadService.instance.setActive(agentId);
     setState(() => _activeAgentId = agentId);
-    ref.read(meowConfigRepositoryProvider).setActiveAgentId(agentId);
+    ref.read(appSettingsRepositoryProvider).set('active.agent_id', agentId);
     loadHistory(agentId);
     _rebuildDateBoundaries();
   }
@@ -1000,11 +931,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
           behavior: HitTestBehavior.translucent,
           child: SafeArea(
-            child: _permissionChecking
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : !_permissionGranted
-                ? _buildPermissionError(cs)
-                : agent == null
+            child: agent == null
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,

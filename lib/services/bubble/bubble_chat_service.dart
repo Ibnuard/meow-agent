@@ -37,7 +37,8 @@ class BubbleChatService {
           return null;
         case 'onCancelBubbleChat':
           // Abort the active runtime task for default agent
-          final agents = _ref.read(agentRepositoryProvider).loadAll();
+          final agents = await _ref.read(agentRepositoryProvider).loadAll();
+          if (agents.isEmpty) return null;
           final defaultAgent = agents.firstWhere(
             (a) => a.id == 'default',
             orElse: () => agents.first,
@@ -65,7 +66,12 @@ class BubbleChatService {
       }
 
       // Resolve default agent and provider
-      final agents = _ref.read(agentRepositoryProvider).loadAll();
+      final agents = await _ref.read(agentRepositoryProvider).loadAll();
+      if (agents.isEmpty) {
+        await _sendResponse(
+            'No agent configured. Open Meow Agent to create one.');
+        return;
+      }
       final defaultAgent = agents.firstWhere(
         (a) => a.id == 'default',
         orElse: () => agents.first,
@@ -120,7 +126,11 @@ class BubbleChatService {
         return;
       }
 
-      final agents = _ref.read(agentRepositoryProvider).loadAll();
+      final agents = await _ref.read(agentRepositoryProvider).loadAll();
+      if (agents.isEmpty) {
+        await _channel.invokeMethod('updateChatInfo', {'info': 'No agent'});
+        return;
+      }
       final defaultAgent = agents.firstWhere(
         (a) => a.id == 'default',
         orElse: () => agents.first,

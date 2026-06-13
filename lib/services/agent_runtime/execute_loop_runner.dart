@@ -19,7 +19,6 @@ import 'task_scope_manager.dart';
 import 'tool_permission_policy.dart';
 import 'tool_router.dart';
 import 'tool_verbalizer.dart';
-import 'workspace_loader.dart';
 
 /// Runs the main tool-execution loop for the agentic runtime.
 ///
@@ -30,14 +29,12 @@ import 'workspace_loader.dart';
 class ExecuteLoopRunner {
   ExecuteLoopRunner({
     required ToolRouter toolRouter,
-    required WorkspaceLoader workspaceLoader,
     required TaskScopeManager taskScope,
     required PreflightChecker preflight,
     required CompletionVerifier completionVerifier,
     required RuntimeMemory memory,
     required String languageCode,
   }) : _toolRouter = toolRouter,
-       _workspaceLoader = workspaceLoader,
        _taskScope = taskScope,
        _preflight = preflight,
        _completionVerifier = completionVerifier,
@@ -45,7 +42,6 @@ class ExecuteLoopRunner {
        _languageCode = languageCode;
 
   final ToolRouter _toolRouter;
-  final WorkspaceLoader _workspaceLoader;
   final TaskScopeManager _taskScope;
   final PreflightChecker _preflight;
   final CompletionVerifier _completionVerifier;
@@ -364,12 +360,6 @@ class ExecuteLoopRunner {
           _emitTaskLedger(emit, request, goalTree);
         }
         logger.logFinalResponse(finalResponse);
-        await _workspaceLoader.updateHeartbeat(
-          request.agentName.isNotEmpty ? request.agentName : request.agentId,
-          state: 'done',
-          task: request.userMessage,
-          lastResult: 'success',
-        );
         AppAgentOverlayService.hide();
         return AgentRuntimeResponse(
           finalMessage: finalResponse,
@@ -577,14 +567,6 @@ class ExecuteLoopRunner {
           // grant Android permission before the next turn. Persisting the denial
           // makes analyzer/selector prompts repeat stale "permission denied"
           // context even after the live permission state has changed.
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: AgentRuntimeState.failed.name,
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-            lastResult: 'permission_denied',
-            lastError: permissionDenied.error,
-          );
           final finalResponse =
               permissionDeniedResponseFor(permissionDenied) ??
               (permissionDenied.error ??
@@ -727,13 +709,6 @@ class ExecuteLoopRunner {
           );
           _pendingActionsCallback?.call(request.agentId, pending);
 
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: state.name,
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-          );
-
           return AgentRuntimeResponse(
             finalMessage: summary,
             success: true,
@@ -771,15 +746,6 @@ class ExecuteLoopRunner {
               language: detectedLang,
             );
             logger.logFinalResponse(finalMsg);
-            await _workspaceLoader.updateHeartbeat(
-              request.agentName.isNotEmpty
-                  ? request.agentName
-                  : request.agentId,
-              state: 'done',
-              task: request.userMessage,
-              lastTool: priorTool.name,
-              lastResult: 'success',
-            );
             await _taskScope.archiveLedgerForRequest(
               request,
               LedgerStatus.completed,
@@ -822,14 +788,6 @@ class ExecuteLoopRunner {
           final actions = permissionDeniedActionsFor(result);
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(permissionFinal);
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: 'failed',
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-            lastResult: 'permission_denied',
-            lastError: result.error,
-          );
           return AgentRuntimeResponse(
             finalMessage: permissionFinal,
             success: false,
@@ -843,14 +801,6 @@ class ExecuteLoopRunner {
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           final finalResponse = _capabilityBoundaryMessage(result);
           logger.logFinalResponse(finalResponse);
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: 'failed',
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-            lastResult: 'capability_boundary',
-            lastError: result.error,
-          );
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
             success: false,
@@ -1009,13 +959,6 @@ class ExecuteLoopRunner {
                       ?.cast<String, dynamic>(),
                 );
           logger.logFinalResponse(localFinal);
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: 'done',
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-            lastResult: 'success',
-          );
           await _taskScope.archiveLedgerForRequest(
             request,
             LedgerStatus.completed,
@@ -1029,15 +972,6 @@ class ExecuteLoopRunner {
             actions: result.actions,
           );
         }
-
-        await _workspaceLoader.updateHeartbeat(
-          request.agentName.isNotEmpty ? request.agentName : request.agentId,
-          state: state.name,
-          task: request.userMessage,
-          lastTool: toolRequest.name,
-          lastResult: result.success ? 'success' : 'failed',
-          lastError: result.error,
-        );
 
         // Review result.
         state = AgentRuntimeState.reviewing;
@@ -1289,13 +1223,6 @@ class ExecuteLoopRunner {
                 )
               : finalResponse;
           logger.logFinalResponse(completedFinal);
-          await _workspaceLoader.updateHeartbeat(
-            request.agentName.isNotEmpty ? request.agentName : request.agentId,
-            state: 'done',
-            task: request.userMessage,
-            lastTool: toolRequest.name,
-            lastResult: 'success',
-          );
           await _taskScope.archiveLedgerForRequest(
             request,
             LedgerStatus.completed,

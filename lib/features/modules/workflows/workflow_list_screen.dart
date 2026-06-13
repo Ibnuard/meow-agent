@@ -22,7 +22,6 @@ class WorkflowListScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
-  final WorkflowRepository _repo = WorkflowRepository();
   List<WorkflowModel> _workflows = [];
   bool _loading = true;
 
@@ -30,10 +29,23 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
 
+  WorkflowRepository get _repo => ref.read(workflowRepositoryProvider);
+
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe to mutations from any source (LLM tools, background runner).
+    ref.listen(workflowListProvider, (_, next) {
+      next.whenData((list) {
+        if (mounted) setState(() => _workflows = list);
+      });
+    });
   }
 
   Future<void> _load() async {

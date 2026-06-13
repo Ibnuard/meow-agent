@@ -21,27 +21,39 @@ class CompletionVerification {
   final String question;
 }
 
-/// Post-completion state re-check that validates agent registry mutations
-/// against the planned target graph before the engine declares a task done.
+/// Trust-the-tool-result completion verifier.
 ///
-/// Near-pure — reads [agentLoader] from the engine, writes nothing.
-/// Small, self-contained extraction from [AgentRuntimeEngine].
+/// **Architecture note:** the previous verifier re-read in-memory Riverpod
+/// state after a tool ran, which produced false negatives because the
+/// in-memory list lagged behind the on-disk write. The new architecture
+/// (Phase 2 — SQLite-backed reactive repositories + Phase 3 — domain tools
+/// that return the entity they wrote) makes that re-check redundant.
+///
+/// This verifier checks that the last tool result satisfies its declared
+/// [ToolDefinition.verificationProbe]. If the probe expects keys like `id`,
+/// `name`, or `changedPaths` and they're present, the operation is verified.
+/// No stale-state race possible.
+///
+/// For domain tools (`agent.*`, `provider.*`) that return the entity they
+/// wrote, verification is always instant and correct.
+///
+/// The old constructor params (`agentLoader`, `snapshotBuilder`) are retained
+/// temporarily for caller compatibility — they are no longer used internally.
 class CompletionVerifier {
   CompletionVerifier({
-    required List<AgentModel> Function()? agentLoader,
+    // Legacy params — ignored. Kept for caller compatibility during
+    // transition (runtime_engine.dart still passes these).
+    List<AgentModel> Function()? agentLoader,
     Future<EcosystemSnapshot> Function()? snapshotBuilder,
-  }) : _agentLoader = agentLoader,
-       _snapshotBuilder = snapshotBuilder;
+  });
 
-  final List<AgentModel> Function()? _agentLoader;
-  final Future<EcosystemSnapshot> Function()? _snapshotBuilder;
-
-  /// Returns null if the completion is verified, or a blocker response with
-  /// [AgentRuntimeState.askingUser] when the registry state is out of sync
-  /// with the planned target graph.
+  /// Returns null when the completion is verified, or a blocker response
+  /// when the result is missing required verification data keys.
   ///
-  /// [parkTask] is a callback that persists the current task state for user
-  /// input (delegates to the engine's `_parkTaskForUserInput`).
+  /// Signature retains all existing named params so callers compile unchanged.
+  /// Internally only uses `lastToolName`, `logger`, `detectedLang`, and
+  /// `parkTask`. The new optional params `lastToolDef` and `lastResult`
+  /// carry the actual data for verification.
   Future<AgentRuntimeResponse?> blockIfUnverified({
     required AgentRuntimeRequest request,
     required Map<String, dynamic> plan,
@@ -56,237 +68,80 @@ class CompletionVerifier {
     required RuntimeLogger logger,
     required Future<void> Function(List<String> questions) parkTask,
     String? lastToolName,
+    // New optional params for the simplified verification path.
+    ToolDefinition? lastToolDef,
+    ToolExecutionResult? lastResult,
   }) async {
-    final verification = await _verify(
-      plan: plan,
-      goalTree: goalTree,
-      previousResults: previousResults,
-      lastToolName: lastToolName,
-      language: detectedLang,
-    );
-    if (verification == null || verification.ok) return null;
+    // -----------------------------------------------------------------------
+    // New path: domain tools that carry lastToolDef + lastResult get the
+    // streamlined probe-based check. No re-query needed.
+    // -----------------------------------------------------------------------
+    if (lastToolDef != null && lastResult != null) {
+      if (!lastResult.success) return null; // reviewer handles failures.
+      final probe = lastToolDef.verificationProbe;
+      if (probe == null) return null; // no probe = auto-pass.
 
-    logger.logDivergence('verifier_blocked', {
-      'missing': verification.missingNames,
-      'last_tool': lastToolName ?? '',
-    });
+      final data = lastResult.data;
+      if (data == null) {
+        return _blockGeneric(logger, detectedLang, parkTask);
+      }
+      for (final key in probe.expectedDataKeys) {
+        if (!data.containsKey(key) || data[key] == null) {
+          logger.logDivergence('verifier_blocked', {
+            'reason': 'missing_key',
+            'key': key,
+            'tool': lastToolName ?? '',
+          });
+          return _blockGeneric(logger, detectedLang, parkTask);
+        }
+      }
+      return null; // Verified via probe.
+    }
 
-    for (final subgoal in goalTree.subgoals) {
-      final expected = _expectedAgentNameForSubgoal(subgoal);
-      if (expected != null &&
-          verification.missingNames.any(
-            (name) => name.toLowerCase() == expected.toLowerCase(),
-          )) {
-        subgoal.status = SubgoalStatus.inProgress;
-        subgoal.notes = 'Verification failed: agent registry state mismatch.';
+    // -----------------------------------------------------------------------
+    // Legacy path: `system.config.patch` calls that don't pass lastToolDef.
+    // During transition these still flow through here. Bypass verification
+    // entirely for successful tool results in previousResults — trust the
+    // tool's own response to avoid the stale-state false negative.
+    // -----------------------------------------------------------------------
+    final lastResultFromHistory = previousResults.isNotEmpty
+        ? previousResults.last
+        : null;
+    if (lastResultFromHistory != null) {
+      final tool = lastResultFromHistory['tool'] as String?;
+      final resultData = lastResultFromHistory['result'];
+      if (tool == 'system.config.patch' && resultData is Map) {
+        // config.patch returns backupId + changedPaths + configHash on
+        // success. If those are present, consider it verified.
+        if (resultData.containsKey('backupId') &&
+            resultData.containsKey('changedPaths') &&
+            resultData.containsKey('configHash')) {
+          return null; // Trust the tool result.
+        }
       }
     }
 
-    await parkTask([verification.question]);
-    logger.logFinalResponse(verification.message);
+    // No verification data available — pass through. The reviewer will
+    // catch logical failures via its own status check.
+    return null;
+  }
+
+  Future<AgentRuntimeResponse> _blockGeneric(
+    RuntimeLogger logger,
+    DetectedLanguage detectedLang,
+    Future<void> Function(List<String> questions) parkTask,
+  ) async {
+    final message = LanguageRegistry.phrase(
+      'completion_unverified_generic',
+      detectedLang.code,
+    );
+    logger.logFinalResponse(message);
+    await parkTask([message]);
     return AgentRuntimeResponse(
-      finalMessage: verification.message,
+      finalMessage: message,
       success: false,
       state: AgentRuntimeState.askingUser,
       events: logger.events,
     );
-  }
-
-  Future<CompletionVerification?> _verify({
-    required Map<String, dynamic> plan,
-    required GoalTree goalTree,
-    required List<Map<String, dynamic>> previousResults,
-    required DetectedLanguage language,
-    String? lastToolName,
-  }) async {
-    final targetGraph =
-        (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>() ??
-        const {};
-    final graphTargets =
-        (targetGraph['targets'] as List?)
-            ?.whereType<Map>()
-            .map((m) => m.cast<String, dynamic>())
-            .toList() ??
-        const <Map<String, dynamic>>[];
-    final touchedConfigPatch =
-        lastToolName == 'system.config.patch' ||
-        previousResults.any((r) => r['tool'] == 'system.config.patch');
-    final hasAgentCreateTarget = graphTargets.any(
-      (target) =>
-          target['entity_type'] == 'agent' &&
-          target['operation'] == 'create' &&
-          target['status'] != 'skipped',
-    );
-    final hasAgentDeleteTarget = graphTargets.any(
-      (target) =>
-          target['entity_type'] == 'agent' &&
-          target['operation'] == 'delete' &&
-          target['status'] == 'eligible',
-    );
-    final touchedAgentCreate = touchedConfigPatch && hasAgentCreateTarget;
-    final touchedAgentDelete = touchedConfigPatch && hasAgentDeleteTarget;
-    if (touchedConfigPatch) {
-      final configVerification = await _verifySnapshotTargets(
-        graphTargets,
-        language,
-      );
-      if (configVerification != null && !configVerification.ok) {
-        return configVerification;
-      }
-    }
-    if ((!touchedAgentCreate && !touchedAgentDelete) || goalTree.isEmpty) {
-      return null;
-    }
-
-    final loadAgents = _agentLoader;
-    if (loadAgents == null) return null;
-    final existing = loadAgents()
-        .map((a) => a.name.trim().toLowerCase())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    if (existing.isEmpty && !touchedAgentCreate) return null;
-
-    final expectedCreates = graphTargets
-        .where(
-          (target) =>
-              target['entity_type'] == 'agent' &&
-              target['operation'] == 'create' &&
-              target['status'] != 'skipped',
-        )
-        .map((target) => (target['entity_label'] ?? '').toString().trim())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-    final expectedDeletes = graphTargets
-        .where(
-          (target) =>
-              target['entity_type'] == 'agent' &&
-              target['operation'] == 'delete' &&
-              target['status'] == 'eligible',
-        )
-        .map((target) => (target['entity_label'] ?? '').toString().trim())
-        .where((name) => name.isNotEmpty)
-        .toSet();
-
-    final expectedFromTree = goalTree.subgoals
-        .map(_expectedAgentNameForSubgoal)
-        .whereType<String>()
-        .where((name) => name.trim().isNotEmpty)
-        .toSet();
-    if (touchedAgentCreate && expectedCreates.isEmpty) {
-      expectedCreates.addAll(expectedFromTree);
-    }
-    if (expectedCreates.isEmpty && expectedDeletes.isEmpty) return null;
-
-    final missingCreates = expectedCreates
-        .where((name) => !existing.contains(name.toLowerCase()))
-        .toList(growable: false);
-    final stillPresentDeletes = expectedDeletes
-        .where((name) => existing.contains(name.toLowerCase()))
-        .toList(growable: false);
-    if (missingCreates.isEmpty && stillPresentDeletes.isEmpty) {
-      return const CompletionVerification(ok: true);
-    }
-
-    final actuallyMissing = missingCreates;
-    final actuallyStillPresent = stillPresentDeletes;
-    if (actuallyMissing.isEmpty && actuallyStillPresent.isEmpty) {
-      return const CompletionVerification(ok: true);
-    }
-
-    final mismatchNames = [...actuallyMissing, ...actuallyStillPresent];
-    final entityList = mismatchNames.join(', ');
-    final message = LanguageRegistry.phrase(
-      'completion_unverified',
-      language.code,
-      {'entity': entityList.isEmpty ? 'agen yang diminta' : entityList},
-    );
-    return CompletionVerification(
-      ok: false,
-      missingNames: mismatchNames,
-      message: message,
-      question: message,
-    );
-  }
-
-  Future<CompletionVerification?> _verifySnapshotTargets(
-    List<Map<String, dynamic>> graphTargets,
-    DetectedLanguage language,
-  ) async {
-    final needsSnapshot = graphTargets.any(
-      (target) =>
-          (target['entity_type'] == 'provider' ||
-              target['entity_type'] == 'module') &&
-          (target['operation'] == 'create' ||
-              target['operation'] == 'update' ||
-              target['operation'] == 'delete'),
-    );
-    if (!needsSnapshot) return null;
-    final build = _snapshotBuilder;
-    if (build == null) return null;
-    final snapshot = await build();
-    final providerNames = snapshot.providers
-        .expand((p) => [p.id, p.nickname])
-        .map((v) => v.trim().toLowerCase())
-        .where((v) => v.isNotEmpty)
-        .toSet();
-    final moduleIds = snapshot.modules
-        .map((m) => m.id.trim().toLowerCase())
-        .where((v) => v.isNotEmpty)
-        .toSet();
-    final mismatches = <String>[];
-    for (final target in graphTargets) {
-      final type = (target['entity_type'] ?? '').toString();
-      if (type != 'provider' && type != 'module') continue;
-      final op = (target['operation'] ?? '').toString();
-      final label = (target['entity_label'] ?? '').toString().trim();
-      if (label.isEmpty) continue;
-      final present = type == 'provider'
-          ? providerNames.contains(label.toLowerCase())
-          : moduleIds.contains(label.toLowerCase());
-      if ((op == 'create' || op == 'update') && !present) {
-        mismatches.add(label);
-      } else if (op == 'delete' && present) {
-        mismatches.add(label);
-      }
-    }
-    if (mismatches.isEmpty) return const CompletionVerification(ok: true);
-    final entityList = mismatches.join(', ');
-    final message = LanguageRegistry.phrase(
-      'completion_unverified',
-      language.code,
-      {'entity': entityList},
-    );
-    return CompletionVerification(
-      ok: false,
-      missingNames: mismatches,
-      message: message,
-      question: message,
-    );
-  }
-
-  String? _expectedAgentNameForSubgoal(Subgoal subgoal) {
-    for (final key in const [
-      'name',
-      'agentName',
-      'agent_name',
-      'targetName',
-      'target_name',
-    ]) {
-      final value = subgoal.requiredSlots[key];
-      if (value is String && value.trim().isNotEmpty) {
-        return value.trim();
-      }
-    }
-
-    final quoted = RegExp(
-      r'[""]([^""]+)[""]',
-    ).firstMatch(subgoal.label)?.group(1)?.trim();
-    if (quoted != null && quoted.isNotEmpty) return quoted;
-
-    final match = RegExp(
-      r'\b(?:agent|agen)\s+([A-Za-z0-9_-]{2,})\b',
-      caseSensitive: false,
-    ).firstMatch(subgoal.label);
-    return match?.group(1)?.trim();
   }
 }

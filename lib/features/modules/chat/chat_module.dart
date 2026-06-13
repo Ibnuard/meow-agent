@@ -72,7 +72,7 @@ class ChatModulePlugin extends ModulePlugin {
         );
       }
 
-      final targetAgentId = _resolveTargetAgentId(args, ctx);
+      final targetAgentId = await _resolveTargetAgentId(args, ctx);
       if (targetAgentId == null || targetAgentId.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -107,23 +107,26 @@ class ChatModulePlugin extends ModulePlugin {
     }
   }
 
-  String? _resolveTargetAgentId(
+  Future<String?> _resolveTargetAgentId(
     Map<String, dynamic> args,
     ModuleToolContext ctx,
-  ) {
+  ) async {
     final rawTarget = (args['agentId'] ?? args['agent'] ?? args['target'] ?? '')
         .toString()
         .trim();
     final repository = ctx.agentRepository;
     if (rawTarget.isNotEmpty && repository != null) {
-      final resolved = _resolveFromRepository(rawTarget, repository);
+      final resolved = await _resolveFromRepository(rawTarget, repository);
       if (resolved != null) return resolved;
     }
     return ctx.agentId.isNotEmpty ? ctx.agentId : null;
   }
 
-  String? _resolveFromRepository(String rawTarget, AgentRepository repository) {
-    final all = repository.loadAll();
+  Future<String?> _resolveFromRepository(
+    String rawTarget,
+    AgentRepository repository,
+  ) async {
+    final all = await repository.loadAll();
     final byId = all.where((a) => a.id == rawTarget).firstOrNull;
     if (byId != null) return byId.id;
 

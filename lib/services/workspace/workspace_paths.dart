@@ -68,30 +68,6 @@ class WorkspacePaths {
     return Directory('${agentsRoot.path}/$safeName');
   }
 
-  /// Get the SOUL.md file for an agent.
-  static Future<File> getSoulFile(String agentName) async {
-    final dir = await getAgentWorkspace(agentName);
-    return File('${dir.path}/SOUL.md');
-  }
-
-  /// Get the MEMORY.md file for an agent.
-  static Future<File> getMemoryFile(String agentName) async {
-    final dir = await getAgentWorkspace(agentName);
-    return File('${dir.path}/MEMORY.md');
-  }
-
-  /// Get the SKILLS.md file for an agent.
-  static Future<File> getSkillsFile(String agentName) async {
-    final dir = await getAgentWorkspace(agentName);
-    return File('${dir.path}/SKILLS.md');
-  }
-
-  /// Get the HEARTBEAT.md file for an agent.
-  static Future<File> getHeartbeatFile(String agentName) async {
-    final dir = await getAgentWorkspace(agentName);
-    return File('${dir.path}/HEARTBEAT.md');
-  }
-
   /// Get the summaries directory for an agent.
   static Future<Directory> getSummariesDir(String agentName) async {
     final dir = await getAgentWorkspace(agentName);

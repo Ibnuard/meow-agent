@@ -1,4 +1,9 @@
-import '../../core/storage/meow_config_repository.dart';
+import '../../core/storage/agent_repository.dart' as core_agents;
+import '../../core/storage/agent_memory_repository.dart' as core_memory;
+import '../../core/storage/agent_soul_repository.dart' as core_soul;
+import '../../core/storage/app_settings_repository.dart';
+import '../../core/storage/module_entry_repository.dart';
+import '../../core/storage/provider_repository.dart' as core_providers;
 import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -21,19 +26,32 @@ class ToolRouter {
     this.agentName = '',
     this.agentId = '',
     ModuleRepository? moduleRepository,
-    this.configRepository,
+    this.appSettings,
+    this.moduleEntries,
     this.agentRepository,
     this.providerRepository,
     this.saveAgent,
     this.deleteAgent,
+    this.coreAgentRepo,
+    this.coreProviderRepo,
+    this.coreSoulRepo,
+    this.coreMemoryRepo,
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
   final ModuleRepository moduleRepository;
-  final MeowConfigRepository? configRepository;
+  final AppSettingsRepository? appSettings;
+  final ModuleEntryRepository? moduleEntries;
   final AgentRepository? agentRepository;
   final ProviderRepository? providerRepository;
   final Future<void> Function(AgentModel agent)? saveAgent;
   final Future<void> Function(String id)? deleteAgent;
+
+  /// Core SQLite-backed repositories. Domain plugins (agent.*, provider.*)
+  /// read/write through these directly.
+  final core_agents.AgentRepository? coreAgentRepo;
+  final core_providers.ProviderEntryRepository? coreProviderRepo;
+  final core_soul.AgentSoulRepository? coreSoulRepo;
+  final core_memory.AgentMemoryRepository? coreMemoryRepo;
 
   /// The current agent name - used by workspace-scoped tools (files module).
   String agentName;
@@ -246,7 +264,8 @@ class ToolRouter {
     agentName: agentName,
     agentId: agentId,
     moduleRepository: moduleRepository,
-    configRepository: configRepository,
+    appSettings: appSettings,
+    moduleEntries: moduleEntries,
     agentRepository: agentRepository,
     providerRepository: providerRepository,
     saveAgent: saveAgent,
@@ -256,6 +275,10 @@ class ToolRouter {
     currentUserMessage: currentUserMessage,
     describeImage: describeImage,
     allToolDefinitions: _registry.values,
+    coreAgentRepo: coreAgentRepo,
+    coreProviderRepo: coreProviderRepo,
+    coreSoulRepo: coreSoulRepo,
+    coreMemoryRepo: coreMemoryRepo,
   );
 
   FilesTools _filesTools() =>

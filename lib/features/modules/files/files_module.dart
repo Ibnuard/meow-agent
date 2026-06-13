@@ -51,7 +51,7 @@ class FilesModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'files.read',
       description:
-          'Read a file under the MeowAgent workspace root. Use "Agents/<Name>/<rel>" to read a peer agent’s file (e.g. "Agents/Penulis/SOUL.md"); the runtime will require confirmation for cross-agent reads.',
+          'Read a file under the MeowAgent workspace root. Use "Agents/<Name>/<rel>" to read a peer agent file (e.g. "Agents/Penulis/notes.md"); the runtime will require confirmation for cross-agent reads.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -66,7 +66,7 @@ class FilesModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'files.write',
       description:
-          'Write or overwrite content to a file under the MeowAgent workspace root. Cross-agent writes (e.g. "Agents/<Name>/SOUL.md") require user confirmation — use this when swapping or syncing peer-agent personas.',
+          'Write or overwrite content to a file under the MeowAgent workspace root. Cross-agent writes (e.g. "Agents/<Name>/notes.md") require user confirmation — use this for sharing user files between peer agents. NOT for identity/persona — use system.profile.update instead.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {

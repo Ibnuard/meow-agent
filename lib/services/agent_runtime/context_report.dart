@@ -1,7 +1,8 @@
+import '../../core/storage/agent_memory_repository.dart';
+import '../../core/storage/agent_soul_repository.dart';
 import '../../features/chat/data/chat_history_service.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../llm/openai_compatible_client.dart';
-import '../workspace/workspace_file_service.dart';
 import 'context_compactor.dart';
 import 'prompt_constants.dart';
 import 'tool_catalog.dart';
@@ -16,9 +17,12 @@ class ContextReport {
 
   static Future<String> build({
     required String agentName,
+    required String agentId,
     required String languageCode,
     required List<ChatMessage> messages,
     required int maxContextLength,
+    AgentSoulRepository? soulRepo,
+    AgentMemoryRepository? memoryRepo,
     String userMessageHint = '',
   }) async {
     final isId = languageCode == 'id';
@@ -41,22 +45,19 @@ class ContextReport {
       toolSelection.toolNames,
     );
 
-    final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
-    final memory = await WorkspaceFileService.readFile(agentName, 'MEMORY.md');
-    final skills = await WorkspaceFileService.readFile(agentName, 'SKILLS.md');
-    final heartbeat = await WorkspaceFileService.readFile(
-      agentName,
-      'HEARTBEAT.md',
-    );
+    // Phase 7: identity & memory live in the database, not in workspace
+    // markdown files. Read from the same repos the runtime engine uses so
+    // the token estimate matches what's actually injected into the prompt.
+    final soul = await soulRepo?.get(agentId);
+    final memoryEntries = await memoryRepo?.recent(agentId, limit: 30);
+    final identityText = _formatIdentity(agentName, soul);
+    final memoryText = _formatMemoryEntries(memoryEntries ?? const []);
 
     // Token estimates by category.
     final identityTokens =
-        OpenAiCompatibleClient.estimateTokens(soul) +
-        OpenAiCompatibleClient.estimateTokens(memory);
-    final knowledgeTokens =
-        OpenAiCompatibleClient.estimateTokens(skills) +
-        OpenAiCompatibleClient.estimateTokens(heartbeat) +
-        OpenAiCompatibleClient.estimateTokens(systemRules);
+        OpenAiCompatibleClient.estimateTokens(identityText) +
+        OpenAiCompatibleClient.estimateTokens(memoryText);
+    final knowledgeTokens = OpenAiCompatibleClient.estimateTokens(systemRules);
     final messagesText = recentMessages
         .map((m) => '${m.role}: ${m.content}')
         .join('\n');
@@ -109,5 +110,57 @@ class ContextReport {
       ..writeln('$remainingTokens tokens ${isId ? 'tersisa' : 'remaining'}.');
 
     return buf.toString().trim();
+  }
+
+  // ─── Identity / memory formatting ──────────────────────────────────────────
+  //
+  // Mirrors `_formatSoul` / `_formatMemory` in [AgentRuntimeEngine] so the
+  // token estimate matches the bytes the runtime actually sends to the LLM.
+
+  static String _formatIdentity(String agentName, AgentSoul? soul) {
+    if (soul == null) return '';
+    final buf = StringBuffer()
+      ..writeln('# Soul — $agentName')
+      ..writeln()
+      ..writeln('## User Identity')
+      ..writeln('Name: ${soul.userName ?? '[Your Name]'}')
+      ..writeln('Nickname: ${soul.userNickname ?? ''}')
+      ..writeln('Preferred Language: ${soul.preferredLanguage ?? ''}')
+      ..writeln('Timezone: ${soul.timezone ?? ''}')
+      ..writeln()
+      ..writeln('## Profile')
+      ..writeln('Work Role: ${soul.workRole ?? ''}')
+      ..writeln('Main Project: ${soul.mainProject ?? ''}')
+      ..writeln('Communication Style: ${soul.communicationStyle ?? ''}')
+      ..writeln('Design Preference: ${soul.designPreference ?? ''}');
+    if ((soul.persona ?? '').isNotEmpty) {
+      buf
+        ..writeln()
+        ..writeln('## Persona')
+        ..writeln(soul.persona);
+    }
+    return buf.toString();
+  }
+
+  static String _formatMemoryEntries(List<AgentMemoryEntry> entries) {
+    if (entries.isEmpty) return '';
+    final buf = StringBuffer()
+      ..writeln('# Memory')
+      ..writeln();
+    final byCat = <String, List<AgentMemoryEntry>>{};
+    for (final e in entries) {
+      byCat.putIfAbsent(e.category, () => []).add(e);
+    }
+    for (final entry in byCat.entries) {
+      buf
+        ..writeln('## ${entry.key}')
+        ..writeln();
+      for (final m in entry.value) {
+        final date = m.createdAt.toIso8601String().split('T').first;
+        buf.writeln('- $date: ${m.content}');
+      }
+      buf.writeln();
+    }
+    return buf.toString();
   }
 }

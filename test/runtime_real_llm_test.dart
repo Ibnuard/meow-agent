@@ -25,7 +25,7 @@ import 'package:meow_agent/services/agent_runtime/task_ledger.dart';
 import 'package:meow_agent/services/llm/openai_compatible_client.dart';
 
 import 'support/env_loader.dart';
-import 'support/fake_workspace_loader.dart';
+import 'support/fake_workspace_folder_service.dart';
 import 'support/scripted_tool_router.dart';
 
 void main() {
@@ -46,11 +46,10 @@ void main() {
 
   AgentRuntimeEngine buildEngine({
     required ScriptedToolRouter router,
-    FakeWorkspaceLoader? workspace,
   }) {
     final llm = EnvLoader.isAvailable ? OpenAiCompatibleClient() : null;
     return AgentRuntimeEngine(
-      workspaceLoader: workspace ?? FakeWorkspaceLoader(),
+      workspaceFolder: FakeWorkspaceFolderService(),
       toolRouter: router,
       contextBuilder: ContextBuilder(),
       languageCode: 'en',

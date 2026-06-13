@@ -31,12 +31,12 @@ class WorkflowTools {
   /// agent id. Returns null if no match was found and the repository is wired.
   /// When the repository is missing (e.g. unit tests), the input is returned
   /// as-is so legacy id-only flows keep working.
-  String? _resolveAgentId(String? raw) {
+  Future<String?> _resolveAgentId(String? raw) async {
     final value = raw?.trim();
     if (value == null || value.isEmpty) return null;
     final repo = _agentRepository;
     if (repo == null) return value;
-    final agents = repo.loadAll();
+    final agents = await repo.loadAll();
     if (agents.isEmpty) return null;
     final byId = agents.where((a) => a.id == value).firstOrNull;
     if (byId != null) return byId.id;
@@ -78,7 +78,7 @@ class WorkflowTools {
     final overrideRef = _readAgentRef(args);
     String resolvedAgentId = agentId;
     if (overrideRef != null && overrideRef.isNotEmpty) {
-      final resolved = _resolveAgentId(overrideRef);
+      final resolved = await _resolveAgentId(overrideRef);
       if (resolved == null) {
         return ToolExecutionResult(
           success: false,
@@ -480,7 +480,7 @@ class WorkflowTools {
     String? newAgentId;
     final agentRef = _readAgentRef(args);
     if (agentRef != null && agentRef.isNotEmpty) {
-      final resolved = _resolveAgentId(agentRef);
+      final resolved = await _resolveAgentId(agentRef);
       if (resolved == null) {
         return ToolExecutionResult(
           success: false,

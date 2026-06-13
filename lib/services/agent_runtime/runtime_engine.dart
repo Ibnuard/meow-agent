@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/storage/core_storage_providers.dart';
 import '../../features/modules/data/module_repository.dart';
-import '../../core/storage/meow_config_repository.dart';
+import '../../core/storage/app_settings_repository.dart';
+import '../../core/storage/module_entry_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../../features/providers/data/provider_config.dart';
@@ -41,7 +43,8 @@ import 'tool_catalog.dart';
 
 import 'tool_router.dart';
 import 'tool_verbalizer.dart';
-import 'workspace_loader.dart';
+import 'workspace_context_builder.dart';
+import 'workspace_folder_service.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/modules/workflows/workflow_repository.dart';
 
@@ -52,12 +55,15 @@ typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 /// Stateful: maintains pending actions per agent.
 class AgentRuntimeEngine {
   AgentRuntimeEngine({
-    required this.workspaceLoader,
+    required this.workspaceFolder,
     required this.toolRouter,
     required this.contextBuilder,
     required this.languageCode,
     this.snapshotBuilder,
     this.agentLoader,
+    this.soulRepo,
+    this.memoryRepo,
+    this.eventRepo,
     TaskLedgerDatabase? ledgerDb,
     OpenAiCompatibleClient? llmClient,
     Future<EcosystemSnapshot> Function()? snapshotOverride,
@@ -100,7 +106,6 @@ class AgentRuntimeEngine {
     _taskScope.attachConfirmation(_confirmation);
     _loopRunner = ExecuteLoopRunner(
       toolRouter: toolRouter,
-      workspaceLoader: workspaceLoader,
       taskScope: _taskScope,
       preflight: _preflight,
       completionVerifier: _completionVerifier,
@@ -112,12 +117,15 @@ class AgentRuntimeEngine {
     });
   }
 
-  final WorkspaceLoader workspaceLoader;
+  final WorkspaceFolderService workspaceFolder;
   final ToolRouter toolRouter;
   final ContextBuilder contextBuilder;
   final String languageCode;
   final EcosystemSnapshotBuilder? snapshotBuilder;
   final List<AgentModel> Function()? agentLoader;
+  final AgentSoulRepository? soulRepo;
+  final AgentMemoryRepository? memoryRepo;
+  final AgentEventRepository? eventRepo;
   final TaskLedgerDatabase ledgerDb;
   final OpenAiCompatibleClient _client;
   final Future<EcosystemSnapshot> Function()? _snapshotOverride;
@@ -126,6 +134,10 @@ class AgentRuntimeEngine {
   late final TaskScopeManager _taskScope;
   late final ConfirmationManager _confirmation;
   late final ExecuteLoopRunner _loopRunner;
+  late final WorkspaceContextBuilder _contextBuilder = WorkspaceContextBuilder(
+    soulRepo: soulRepo,
+    memoryRepo: memoryRepo,
+  );
   static const int maxSteps = 5;
   final RuntimeMemory _memory = RuntimeMemory();
   final LanguageDetector _languageDetector = LanguageDetector();
@@ -144,6 +156,50 @@ class AgentRuntimeEngine {
     if (!userNotIntroduced || isWorkflowAutoExecute) return base;
     return '$base\n\n${PromptConstants.introductionGateRule}';
   }
+
+  /// Build an [AgentWorkspace] from SQLite-backed repos.
+  /// Delegates to [WorkspaceContextBuilder] for the actual formatting.
+  Future<AgentWorkspace> _buildWorkspace(
+    String agentName,
+    String agentId,
+  ) async {
+    return _contextBuilder.build(agentName, agentId);
+  }
+
+  /// True if the user hasn't introduced themselves yet. Drives the
+  /// introduction gate. Phase 7: reads `agent_soul.user_name` directly.
+  /// Treats null, empty, and bracketed placeholders ("[Your Name]") as missing.
+  bool _isUserNameMissing(AgentSoul? soul) {
+    return WorkspaceContextBuilder.isUserNameMissing(soul);
+  }
+
+  /// Best-effort activity event logger. Inserts a row into `agent_events`
+  /// when the optional repo is wired; silently no-ops otherwise. Failures
+  /// never propagate — telemetry must not break a turn.
+  Future<void> _logEvent({
+    required String agentId,
+    required String eventType,
+    String? state,
+    String? task,
+    String? lastTool,
+    String? lastResult,
+  }) async {
+    final repo = eventRepo;
+    if (repo == null || agentId.isEmpty) return;
+    try {
+      await repo.log(
+        agentId: agentId,
+        eventType: eventType,
+        state: state,
+        task: task,
+        lastTool: lastTool,
+        lastResult: lastResult,
+      );
+    } catch (_) {
+      // Telemetry is fire-and-forget.
+    }
+  }
+
 
   Map<String, PendingAction> get _pendingActions =>
       _confirmation.pendingActions;
@@ -313,17 +369,12 @@ class AgentRuntimeEngine {
               phase: 'attachment_vision',
             );
           };
-      await workspaceLoader.ensureWorkspace(wsName);
-      if (detectedLang.isHighConfidence) {
-        await workspaceLoader.maybeFillPreferredLanguage(
-          wsName,
-          detectedLang.label,
-        );
-      }
-      final workspace = await workspaceLoader.load(wsName);
-      final userNotIntroduced = WorkspaceLoader.isUserNameMissing(
-        workspace.soul,
-      );
+      await workspaceFolder.ensureFolder(wsName);
+      // Phase 7: identity lives in agent_soul. Check the DB row directly to
+      // decide whether the introduction gate should fire.
+      final activeSoul = await soulRepo?.get(request.agentId);
+      final workspace = await _buildWorkspace(wsName, request.agentId);
+      final userNotIntroduced = _isUserNameMissing(activeSoul);
       // Drop transient provider-error messages from history before slicing —
       // they describe past connection state, not real conversational context.
       // Without this filter the LLM sees its own "I can't connect" reply from
@@ -404,8 +455,9 @@ class AgentRuntimeEngine {
       var state = AgentRuntimeState.analyzing;
       logger.logStateChange(state, 'Analyzing user intent');
       emit(logger.events.last);
-      await workspaceLoader.updateHeartbeat(
-        wsName,
+      _logEvent(
+        agentId: request.agentId,
+        eventType: 'state_change',
         state: state.name,
         task: effectiveUserMessage,
       );
@@ -783,7 +835,7 @@ class AgentRuntimeEngine {
           agentId: request.agentId,
         );
         final identityBlock =
-            'Identity context (from SOUL.md — user-editable):\n${workspace.soul}';
+            'Identity context (user profile stored in database):\n${workspace.soul}';
         final recentToolMemory = _memory.formatForPrompt(request.agentId);
         final toolMemoryBlock = recentToolMemory.isEmpty
             ? ''
@@ -872,8 +924,9 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.planning;
         logger.logStateChange(state, 'Creating execution plan');
         emit(logger.events.last);
-        await workspaceLoader.updateHeartbeat(
-          request.agentName.isNotEmpty ? request.agentName : request.agentId,
+        _logEvent(
+          agentId: request.agentId,
+          eventType: 'state_change',
           state: state.name,
           task: request.userMessage,
         );
@@ -1151,14 +1204,6 @@ class AgentRuntimeEngine {
         final actions = _loopRunner.permissionDeniedActionsFor(result);
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
-        await workspaceLoader.updateHeartbeat(
-          request.agentName.isNotEmpty ? request.agentName : request.agentId,
-          state: 'failed',
-          task: request.userMessage,
-          lastTool: pending.toolName,
-          lastResult: 'permission_denied',
-          lastError: result.error,
-        );
         return AgentRuntimeResponse(
           finalMessage: permissionFinal,
           success: false,
@@ -1278,18 +1323,16 @@ class AgentRuntimeEngine {
                         ?.cast<String, dynamic>(),
                   );
             logger.logFinalResponse(successMsg);
-            await workspaceLoader.updateHeartbeat(
-              request.agentName.isNotEmpty
-                  ? request.agentName
-                  : request.agentId,
-              state: 'done',
-              task: pending.toolName,
-              lastTool: pending.toolName,
-              lastResult: 'success',
-            );
             await _taskScope.archiveLedgerForRequest(
               request,
               LedgerStatus.completed,
+            );
+            _logEvent(
+              agentId: request.agentId,
+              eventType: 'turn_complete',
+              state: AgentRuntimeState.done.name,
+              task: request.userMessage,
+              lastResult: 'success',
             );
             return AgentRuntimeResponse(
               finalMessage: successMsg,
@@ -1339,13 +1382,6 @@ class AgentRuntimeEngine {
                 language: detectedLang,
               );
         logger.logFinalResponse(successMsg);
-        await workspaceLoader.updateHeartbeat(
-          request.agentName.isNotEmpty ? request.agentName : request.agentId,
-          state: 'done',
-          task: request.userMessage,
-          lastTool: pending.toolName,
-          lastResult: 'success',
-        );
         return AgentRuntimeResponse(
           finalMessage: successMsg,
           success: true,
@@ -1354,14 +1390,6 @@ class AgentRuntimeEngine {
           actions: result.actions,
         );
       }
-      await workspaceLoader.updateHeartbeat(
-        request.agentName.isNotEmpty ? request.agentName : request.agentId,
-        state: state.name,
-        task: request.userMessage,
-        lastTool: pending.toolName,
-        lastResult: 'failed',
-        lastError: result.error,
-      );
       state = AgentRuntimeState.reviewing;
       logger.logStateChange(state, 'Reviewing tool result');
       emit(logger.events.last);
@@ -1646,14 +1674,21 @@ class AgentRuntimeEngine {
 final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
   final languagePref = ref.watch(appLanguageProvider);
   return AgentRuntimeEngine(
-    workspaceLoader: WorkspaceLoader(),
+    workspaceFolder: WorkspaceFolderService(),
     toolRouter: ToolRouter(
       moduleRepository: ref.watch(moduleRepositoryProvider),
-      configRepository: ref.watch(meowConfigRepositoryProvider),
+      appSettings: ref.read(appSettingsRepositoryProvider),
+      moduleEntries: ref.read(moduleEntryRepositoryProvider),
       agentRepository: ref.watch(agentRepositoryProvider),
       providerRepository: ref.watch(providerRepositoryProvider),
       saveAgent: ref.read(agentListProvider.notifier).save,
       deleteAgent: ref.read(agentListProvider.notifier).delete,
+      // SQLite-backed core repos for domain tool plugins (agent.create,
+      // provider.create, etc.). These write directly to meow_core.db.
+      coreAgentRepo: ref.read(coreAgentRepositoryProvider),
+      coreProviderRepo: ref.read(coreProviderEntryRepositoryProvider),
+      coreSoulRepo: ref.read(coreAgentSoulRepositoryProvider),
+      coreMemoryRepo: ref.read(coreAgentMemoryRepositoryProvider),
     ),
     contextBuilder: ContextBuilder(),
     languageCode: resolveLanguageCode(languagePref),
@@ -1663,5 +1698,10 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
       workflowRepository: ref.watch(workflowRepositoryProvider),
     ),
     agentLoader: () => ref.read(agentListProvider),
+    // Phase 5b: feed soul + memory from SQLite so the LLM gets real
+    // identity/memory context instead of empty strings.
+    soulRepo: ref.read(coreAgentSoulRepositoryProvider),
+    memoryRepo: ref.read(coreAgentMemoryRepositoryProvider),
+    eventRepo: ref.read(coreAgentEventRepositoryProvider),
   );
 });

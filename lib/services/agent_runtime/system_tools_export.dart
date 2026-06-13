@@ -8,7 +8,7 @@ extension SystemToolsExport on SystemTools {
   /// and module settings. The runtime caller can write this to a file.
   Future<ToolExecutionResult> executeExportAll() async {
     try {
-      final agents = loadAgents();
+      final agents = await loadAgents();
       final providers = await loadProviders();
       final modules = await moduleRepository.getInstalled();
       final snapshot = {
@@ -76,7 +76,7 @@ extension SystemToolsExport on SystemTools {
       final repo = agentRepository;
       final save = saveAgent;
       if ((repo != null || save != null) && snapshot['agents'] is List) {
-        final existing = loadAgents();
+        final existing = await loadAgents();
         final existingNames = existing.map((a) => a.name.toLowerCase()).toSet();
         if (mode == 'replace') {
           for (final a in existing) {

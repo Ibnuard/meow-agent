@@ -56,11 +56,11 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.workspace.read',
       description:
-          'Read one core markdown file from the current agent workspace. Use for SOUL.md, MEMORY.md, SKILLS.md, or HEARTBEAT.md.',
+          'Read a user file from the current agent workspace folder (Documents/MeowAgent/Agents/{AgentName}/). This is for user-uploaded documents, exports, and PDFs — NOT for identity or memory (those live in the database; use system.profile.update / system.memory.append).',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
-        'file': 'string (required: SOUL.md|MEMORY.md|SKILLS.md|HEARTBEAT.md)',
+        'file': 'string (required: relative path inside the agent workspace)',
         'section': 'string (optional markdown section title)',
       },
       isRetrieval: true,
@@ -68,7 +68,7 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.profile.update',
       description:
-          'Update a specific User Identity/Profile field in the current agent workspace SOUL.md. Use for user name, nickname, timezone, role, language, and communication style.',
+          'Update a User Identity/Profile field for the current agent. Writes to the local database (agent_soul table). Use for user name, nickname, timezone, role, language, communication style, design preference, and persona/personality.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {
@@ -88,7 +88,7 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.memory.append',
       description:
-          'Append a concise long-term fact or preference to the current agent workspace MEMORY.md. Never store secrets.',
+          'Append a concise long-term fact or preference to the local database (agent_memory table). Never store secrets.',
       risk: 'sensitive-lite',
       requiresConfirmation: false,
       inputSchema: {
@@ -108,7 +108,7 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.config.read',
       description:
-          'Read the master app configuration from meow.json. Use this before configuration changes or when inspecting agents, providers, modules, active selections, and user preferences.',
+          'Read the master app configuration. Returns agents, providers (no API keys), modules, active selections, and user preferences. Live data is merged from the local database.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -120,7 +120,7 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.config.patch',
       description:
-          'Apply JSON Patch-style operations to meow.json for configurational state changes. The runtime backs up, validates, writes atomically, reloads, and verifies config state.',
+          'Apply JSON Patch-style operations to non-entity configuration (modules, prefs, active selections). For agents and providers, use the dedicated tools (agent.create / agent.delete / agent.update / provider.create / provider.delete / provider.update) — patching /agents or /providers is rejected.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {
@@ -147,7 +147,7 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.export_all',
       description:
-          'Export a JSON snapshot of agents, providers (no API keys), and module settings. The result is returned in tool data; runtime caller can write it to a file via files.write for backup.',
+          'Export a JSON snapshot of agents, providers (no API keys), and module settings. The result is returned in tool data for backup or transfer purposes.',
       risk: 'safe',
       requiresConfirmation: false,
     ),
@@ -173,12 +173,15 @@ class SystemModulePlugin extends ModulePlugin {
       agentId: ctx.agentId,
       agentName: ctx.agentName,
       moduleRepository: ctx.moduleRepository,
-      configRepository: ctx.configRepository,
+      appSettings: ctx.appSettings,
+      moduleEntries: ctx.moduleEntries,
       agentRepository: ctx.agentRepository,
       providerRepository: ctx.providerRepository,
       saveAgent: ctx.saveAgent,
       deleteAgent: ctx.deleteAgent,
       toolDefinitions: ctx.allToolDefinitions,
+      coreSoulRepo: ctx.coreSoulRepo,
+      coreMemoryRepo: ctx.coreMemoryRepo,
     );
     switch (request.name) {
       case 'system.self':
