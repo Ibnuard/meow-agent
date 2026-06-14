@@ -54,31 +54,33 @@ class VmRuntimeManager(private val context: Context) {
         get() = File(context.filesDir, "vm-runtime/downloads")
 
     private val binDir: File
-        get() = File(context.codeCacheDir, "vm-runtime/bin")
+        get() = File(context.applicationInfo.nativeLibraryDir)
 
     private val stagedProot: File
-        get() = File(binDir, "proot")
+        get() = File(binDir, "libproot.so")
 
-    /// Companion binary that proot uses to bypass Android 10+ W^X
-    /// (which forbids exec() of files in /data/data). Without this, proot
-    /// can launch but cannot exec /bin/sh inside the chroot, surfacing as
-    /// "sh not found" / "execve: Permission denied" the moment the user
-    /// runs any command.
+    /// Companion binary that proot uses to bypass Android 10+ W^X.
+    /// Bundled in jniLibs as libproot-loader.so so Android places it on an
+    /// executable mount point (nativeLibraryDir). PROOT_LOADER env points here.
     private val stagedLoader: File
-        get() = File(binDir, "loader")
+        get() = File(binDir, "libproot-loader.so")
 
     private val stagedTalloc: File
-        get() = File(binDir, "libtalloc.so.2")
+        get() = File(binDir, "libtalloc.so")
+
+    /// Shared-memory shim required by proot 5.1.107.78+.
+    private val stagedShmem: File
+        get() = File(binDir, "libandroid-shmem.so")
 
     private val binariesInstalled: Boolean
         get() = stagedProot.exists() &&
-            stagedProot.canExecute() &&
             stagedLoader.exists() &&
-            stagedLoader.canExecute() &&
             stagedTalloc.exists() &&
+            stagedShmem.exists() &&
             stagedProot.length() > 0 &&
             stagedLoader.length() > 0 &&
-            stagedTalloc.length() > 0
+            stagedTalloc.length() > 0 &&
+            stagedShmem.length() > 0
 
     fun snapshot(): Map<String, Any?> {
         val installed = isRootfsInstalled()
@@ -114,92 +116,53 @@ class VmRuntimeManager(private val context: Context) {
     }
 
     private fun ensureBinariesInstalled(onProgress: (String) -> Unit) {
-        if (binariesInstalled) return
-
-        val termuxArch = termuxArch()
-            ?: throw IOException("VM runtime binary is only available for arm64 devices.")
-
-        binDir.mkdirs()
-        downloadDir.mkdirs()
-        val specs = listOf(
-            BinaryPackageSpec(
-                url = "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_${PROOT_VERSION}_${termuxArch}.deb",
-                packageId = "proot",
-                files = listOf(
-                    StagedFile(
-                        nameInPackage = "proot",
-                        destination = stagedProot,
-                        executable = true,
-                    ),
-                    // proot needs its companion loader staged next to it so
-                    // PROOT_LOADER can point at it; without this, proot can't
-                    // exec anything inside the chroot on Android 10+.
-                    StagedFile(
-                        nameInPackage = "loader",
-                        destination = stagedLoader,
-                        executable = true,
-                    ),
-                ),
-            ),
-            BinaryPackageSpec(
-                url = "https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_${TALLOC_VERSION}_${termuxArch}.deb",
-                packageId = "libtalloc",
-                files = listOf(
-                    StagedFile(
-                        nameInPackage = "libtalloc.so.2",
-                        destination = stagedTalloc,
-                        executable = false,
-                    ),
-                ),
-            ),
-        )
-
-        specs.forEachIndexed { index, spec ->
-            val step = index + 1
-            lastMessage = "Downloading runtime binary $step / ${specs.size}..."
-            onProgress(lastMessage)
-            installBinaryPackage(spec)
-        }
-
-        stagedProot.setExecutable(true, false)
-        stagedLoader.setExecutable(true, false)
+        // Binaries are bundled in the APK via jniLibs/arm64-v8a/ and extracted
+        // by Android to nativeLibraryDir at install time. No download needed.
+        // Just verify they're present — if not, the APK is misconfigured.
         if (!binariesInstalled) {
-            throw IOException("Runtime binaries could not be installed.")
-        }
-    }
-
-    private fun termuxArch(): String? {
-        return if (Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) "aarch64" else null
-    }
-
-    private fun installBinaryPackage(spec: BinaryPackageSpec) {
-        val debFile = File(downloadDir, "${spec.packageId}.deb")
-        val extractDir = File(downloadDir, "extract-${spec.packageId}")
-        if (debFile.exists()) debFile.delete()
-        if (extractDir.exists()) extractDir.deleteRecursively()
-
-        downloadFile(spec.url, debFile)
-        extractDebData(debFile, extractDir)
-
-        for (file in spec.files) {
-            val extracted = extractDir.walkTopDown().firstOrNull { f ->
-                f.isFile &&
-                    (f.name == file.nameInPackage ||
-                        f.name.startsWith("${file.nameInPackage}."))
-            } ?: throw IOException(
-                "${file.nameInPackage} was not found in package ${spec.packageId}."
+            throw IOException(
+                "VM runtime binaries not found in native library directory. " +
+                "Ensure libproot.so, libproot-loader.so, libtalloc.so, and " +
+                "libandroid-shmem.so are in jniLibs/arm64-v8a/."
             )
-
-            if (file.destination.exists()) file.destination.delete()
-            file.destination.parentFile?.mkdirs()
-            extracted.copyTo(file.destination, overwrite = true)
-            file.destination.setReadable(true, false)
-            file.destination.setWritable(false, false)
-            file.destination.setExecutable(file.executable, false)
         }
+        // proot's dynamic linker expects exact sonames: libtalloc.so.2 and
+        // libandroid-shmem.so (no version). nativeLibraryDir only has the
+        // Android-mandated names (lib*.so). Create symlinks with the names
+        // the linker expects in a writable dir so LD_LIBRARY_PATH resolves.
+        ensureLinkerSymlinks()
+    }
 
-        debFile.delete()
-        extractDir.deleteRecursively()
+    /// Directory for symlinks that map sonames proot expects to the actual
+    /// bundled .so files in nativeLibraryDir.
+    private val libSymlinkDir: File
+        get() = File(context.codeCacheDir, "vm-runtime/lib")
+
+    private fun ensureLinkerSymlinks() {
+        libSymlinkDir.mkdirs()
+        // libtalloc.so.2 → libtalloc.so
+        createSymlinkIfNeeded(
+            link = File(libSymlinkDir, "libtalloc.so.2"),
+            target = stagedTalloc,
+        )
+        // libandroid-shmem.so → keep same name (no version suffix needed)
+        createSymlinkIfNeeded(
+            link = File(libSymlinkDir, "libandroid-shmem.so"),
+            target = stagedShmem,
+        )
+    }
+
+    private fun createSymlinkIfNeeded(link: File, target: File) {
+        if (link.exists()) link.delete()
+        try {
+            java.nio.file.Files.createSymbolicLink(
+                link.toPath(),
+                target.toPath(),
+            )
+        } catch (e: Exception) {
+            // Fallback: copy the file if symlinks aren't supported.
+            target.copyTo(link, overwrite = true)
+        }
     }
 
     private fun downloadFile(url: String, target: File) {
@@ -216,43 +179,6 @@ class VmRuntimeManager(private val context: Context) {
                 }
             }
         }
-    }
-
-    private fun extractDebData(debFile: File, target: File) {
-        target.mkdirs()
-        debFile.inputStream().buffered().use { input ->
-            val magic = ByteArray(8)
-            if (readFully(input, magic) != magic.size || String(magic) != "!<arch>\n") {
-                throw IOException("Invalid deb archive.")
-            }
-
-            while (true) {
-                val header = ByteArray(60)
-                val headerRead = readFully(input, header)
-                if (headerRead == 0) break
-                if (headerRead < header.size) throw IOException("Invalid ar member header.")
-
-                val name = String(header, 0, 16).trim().trimEnd('/')
-                val sizeText = String(header, 48, 10).trim()
-                val size = sizeText.toLongOrNull()
-                    ?: throw IOException("Invalid ar member size.")
-                val archiveFile = File(downloadDir, name)
-
-                if (name.startsWith("data.tar.")) {
-                    FileOutputStream(archiveFile).use { output ->
-                        copyN(input, output, size)
-                    }
-                    if (size % 2L != 0L) skipBytes(input, 1)
-                    extractDataTar(archiveFile, target)
-                    archiveFile.delete()
-                    return
-                }
-
-                skipBytes(input, size)
-                if (size % 2L != 0L) skipBytes(input, 1)
-            }
-        }
-        throw IOException("data.tar payload was not found in deb package.")
     }
 
     private fun extractDataTar(archive: File, target: File) {
@@ -539,7 +465,7 @@ class VmRuntimeManager(private val context: Context) {
                     "LANG" to "C.UTF-8",
                     // proot needs libtalloc.so.2; we staged it in binDir under
                     // that exact name so the dynamic linker resolves it.
-                    "LD_LIBRARY_PATH" to binDir.absolutePath,
+                    "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
                     // proot's companion loader. The compile-time default
                     // points to Termux's prefix (/data/data/com.termux/...),
                     // which doesn't exist inside our app sandbox; without
@@ -746,22 +672,8 @@ class VmRuntimeManager(private val context: Context) {
         return name
     }
 
-    private data class StagedFile(
-        val nameInPackage: String,
-        val destination: File,
-        val executable: Boolean,
-    )
-
-    private data class BinaryPackageSpec(
-        val url: String,
-        val packageId: String,
-        val files: List<StagedFile>,
-    )
-
     companion object {
         private const val TAG = "VmRuntime"
-        private const val PROOT_VERSION = "5.1.107.77"
-        private const val TALLOC_VERSION = "2.4.3"
 
         const val STATUS_UNKNOWN = "unknown"
         const val STATUS_UNAVAILABLE = "unavailable"

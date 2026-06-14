@@ -1260,6 +1260,61 @@ class AppStrings {
   // --- Settings ---
   String get aboutTitle => isId ? 'Tentang Meow Agent' : 'About Meow Agent';
 
+  // --- Profile Backup (Settings → Profile section) ---
+  String get profileSection => isId ? 'Profil' : 'Profile';
+  String get exportProfile => isId ? 'Ekspor Profil' : 'Export Profile';
+  String get exportProfileDesc => isId
+      ? 'Simpan agen dan provider ke file backup.'
+      : 'Save agents and providers to a backup file.';
+  String get importProfile => isId ? 'Impor Profil' : 'Import Profile';
+  String get importProfileDesc => isId
+      ? 'Pulihkan agen dan provider dari file backup.'
+      : 'Restore agents and providers from a backup file.';
+  String get profileExportSuccess =>
+      isId ? 'Profil berhasil diekspor.' : 'Profile exported successfully.';
+  String get profileExportFailed =>
+      isId ? 'Gagal mengekspor profil.' : 'Failed to export profile.';
+  String get profileExportEmpty => isId
+      ? 'Tidak ada agen atau provider yang bisa diekspor.'
+      : 'No agents or providers available to export.';
+  String profileImportSuccess(int agents, int providers) => isId
+      ? '$agents agen, $providers provider berhasil diimpor.'
+      : '$agents agents, $providers providers imported successfully.';
+  String get profileImportNoApiKey => isId
+      ? 'API key tidak disertakan dalam backup. Isi ulang di tiap provider setelah impor.'
+      : 'API keys are not included in the backup. Re-enter them in each provider after importing.';
+  String get profileImportMerge =>
+      isId ? 'Gabung (Lewati Duplikat)' : 'Merge (Skip Duplicates)';
+  String get profileImportMergeDesc => isId
+      ? 'Tambahkan agen dan provider baru. Yang sudah ada tidak diubah.'
+      : 'Add new agents and providers. Existing ones are kept.';
+  String get profileImportReplace =>
+      isId ? 'Ganti Semua' : 'Replace All';
+  String get profileImportReplaceDesc => isId
+      ? 'Hapus semua agen dan provider yang ada, lalu impor dari file.'
+      : 'Delete all existing agents and providers, then import from the file.';
+  String get profileImportReplaceConfirmTitle =>
+      isId ? 'Ganti Semua Profil?' : 'Replace All Profile?';
+  String get profileImportReplaceConfirmBody => isId
+      ? 'Semua agen dan provider yang ada akan dihapus. Aksi ini tidak bisa dibatalkan.'
+      : 'All existing agents and providers will be deleted. This cannot be undone.';
+  String get profileImportInvalidFile => isId
+      ? 'File tidak valid atau format tidak dikenali.'
+      : 'Invalid file or unrecognized format.';
+  String get profileImportPreviewTitle =>
+      isId ? 'Pratinjau Impor' : 'Import Preview';
+  String profileImportPreviewSummary(int agents, int providers) => isId
+      ? 'File ini berisi $agents agen dan $providers provider.'
+      : 'This file contains $agents agents and $providers providers.';
+  String profileImportSkipped(String name, String reason) => isId
+      ? '"$name" dilewati: $reason'
+      : '"$name" skipped: $reason';
+  String get profileImportReasonOrphanProvider =>
+      isId ? 'provider tidak ditemukan' : 'provider not found';
+  String get profileImportReasonDuplicate =>
+      isId ? 'sudah ada' : 'already exists';
+  String get profileImportButtonImport => isId ? 'Impor' : 'Import';
+
   // --- API Store ---
   String get apiStoreTitle => 'API Store';
   String get apiStoreEditTitle => isId ? 'Edit API' : 'Edit API';

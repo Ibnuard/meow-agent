@@ -88,6 +88,50 @@ class AgentSoul {
     'updated_at': updatedAt.toIso8601String(),
   };
 
+  /// CamelCase JSON shape used for profile import/export. Distinct from
+  /// [toRow] which targets the SQLite schema (snake_case).
+  Map<String, dynamic> toJson() => {
+    'agentId': agentId,
+    'userName': userName,
+    'userNickname': userNickname,
+    'preferredLanguage': preferredLanguage,
+    'timezone': timezone,
+    'workRole': workRole,
+    'mainProject': mainProject,
+    'communicationStyle': communicationStyle,
+    'designPreference': designPreference,
+    'persona': persona,
+    'personaMeta': personaMeta,
+    'updatedAt': updatedAt.toIso8601String(),
+  };
+
+  /// Read a soul from the camelCase JSON produced by [toJson]. Tolerant of
+  /// missing or null fields so partial backups still round-trip cleanly.
+  factory AgentSoul.fromJson(Map<String, dynamic> json) {
+    final metaRaw = json['personaMeta'];
+    Map<String, dynamic>? meta;
+    if (metaRaw is Map) {
+      meta = Map<String, dynamic>.from(metaRaw);
+    }
+    final updatedAtRaw = json['updatedAt'] as String?;
+    return AgentSoul(
+      agentId: (json['agentId'] as String?) ?? '',
+      userName: json['userName'] as String?,
+      userNickname: json['userNickname'] as String?,
+      preferredLanguage: json['preferredLanguage'] as String?,
+      timezone: json['timezone'] as String?,
+      workRole: json['workRole'] as String?,
+      mainProject: json['mainProject'] as String?,
+      communicationStyle: json['communicationStyle'] as String?,
+      designPreference: json['designPreference'] as String?,
+      persona: json['persona'] as String?,
+      personaMeta: meta,
+      updatedAt: updatedAtRaw != null
+          ? (DateTime.tryParse(updatedAtRaw) ?? DateTime.now())
+          : DateTime.now(),
+    );
+  }
+
   factory AgentSoul.fromRow(Map<String, dynamic> row) {
     final metaRaw = row['persona_meta'] as String?;
     Map<String, dynamic>? meta;

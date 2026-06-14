@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,15 +12,26 @@ import '../../../app/widgets/widgets.dart';
 import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
 import '../data/notification_sound_provider.dart';
+import '../data/profile_backup_service.dart';
 import '../../chat/data/chat_notification_service.dart';
 
 import '../../providers/data/provider_repository.dart';
+import '../../agents/data/agent_repository.dart';
+import 'profile_import_sheet.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _exporting = false;
+  bool _importing = false;
+
+  @override
+  Widget build(BuildContext context) {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
     final themeMode = ref.watch(themeModeProvider);
@@ -92,6 +106,40 @@ class SettingsScreen extends ConsumerWidget {
                   ),
                   onTap: () =>
                       _showSoundSheet(context, ref, strings),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 28),
+
+            // ─── PROFILE (backup & restore) ─────────────────────
+            _SectionHeader(label: strings.profileSection),
+            const SizedBox(height: 10),
+            _SettingsGroup(
+              children: [
+                _SettingsTile(
+                  icon: Icons.upload_rounded,
+                  label: strings.exportProfile,
+                  trailing: _exporting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _exporting ? null : () => _handleExport(strings),
+                ),
+                _SettingsTile(
+                  icon: Icons.download_rounded,
+                  label: strings.importProfile,
+                  trailing: _importing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _importing ? null : () => _handleImport(strings),
                 ),
               ],
             ),
@@ -260,6 +308,112 @@ class SettingsScreen extends ConsumerWidget {
           : 'This is a notification preview.',
       soundFileName: sound.fileName,
     );
+  }
+
+  // ─── Profile Export ──────────────────────────────────────────────────────
+
+  Future<void> _handleExport(AppStrings s) async {
+    setState(() => _exporting = true);
+    try {
+      final service = ref.read(profileBackupServiceProvider);
+      final snapshot = await service.buildSnapshot();
+      final jsonStr = ProfileBackupService.encodeSnapshot(snapshot);
+      final bytes = utf8.encode(jsonStr);
+
+      final now = DateTime.now();
+      final datePart =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: s.exportProfile,
+        fileName: 'meow-profile-$datePart.json',
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+      if (result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileExportSuccess)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileExportFailed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  // ─── Profile Import ──────────────────────────────────────────────────────
+
+  Future<void> _handleImport(AppStrings s) async {
+    setState(() => _importing = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final bytes = picked.files.first.bytes;
+      if (bytes == null) return;
+      final jsonStr = utf8.decode(bytes);
+      final snapshot = ProfileBackupService.decodeSnapshot(jsonStr);
+      if (snapshot == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.profileImportInvalidFile)),
+          );
+        }
+        return;
+      }
+
+      final service = ref.read(profileBackupServiceProvider);
+      final preview = await service.validate(snapshot);
+      if (!preview.isValid) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.profileImportInvalidFile)),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      final mode = await ProfileImportSheet.show(
+        context,
+        preview: preview,
+        strings: s,
+      );
+      if (mode == null) return; // User dismissed.
+
+      final stats = await service.apply(snapshot, mode: mode);
+
+      // Refresh providers and agent lists.
+      await ref.read(providerListProvider.notifier).load();
+      await ref.read(agentListProvider.notifier).reload();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              s.profileImportSuccess(stats.agentsAdded, stats.providersAdded),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileImportInvalidFile)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
   }
 }
 

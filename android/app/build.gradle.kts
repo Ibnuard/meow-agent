@@ -40,6 +40,15 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Ensure native libraries (proot, loader, libtalloc, libandroid-shmem)
+    // are extracted to the filesystem at install time. proot needs real file
+    // paths — it cannot exec from inside the APK.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 dependencies {
