@@ -84,7 +84,7 @@ mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
       await permissionManager.request(PermissionType.phoneState);
     }
 
-    if (key == 'allow_url_intents' && value) {
+    if (key == 'allow_open_apps' && value) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

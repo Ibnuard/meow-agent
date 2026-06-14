@@ -36,9 +36,10 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
   Future<void> handleSuperPowerToggle(String key, bool value) async {
     if (module == null || module!.id != 'super_power') return;
 
-    // Both toggles require Shizuku to be ready.
-    const shizukuKeys = {'app_agentic', 'run_locked_device'};
-    if (shizukuKeys.contains(key) && value) {
+    // Only run_locked_device requires Shizuku — app_agentic just needs the
+    // Android Accessibility Service. Shizuku is reserved for the locked-screen
+    // automation path (wake/unlock/relock).
+    if (key == 'run_locked_device' && value) {
       final status = await refreshShizukuStatus();
       if (!status.isReady) {
         if (mounted) {
@@ -51,42 +52,42 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
         }
         return;
       }
+    }
 
-      // app_agentic requires Accessibility Service to be enabled.
-      if (key == 'app_agentic') {
-        final accessibilityOn = await isAccessibilityEnabled();
-        if (!accessibilityOn) {
-          if (mounted) {
-            final confirmed = await showMeowConfirmDialog(
-              context,
-              isId: s.isId,
-              title: s.accessibilityPermTitle,
-              message: s.accessibilityPermBody,
-              confirmLabel: s.openSettings,
-              cancelLabel: s.cancel,
-              icon: Icons.accessibility_new_rounded,
-              destructive: false,
-            );
-            if (confirmed) {
-              await permissionManager.openAccessibilitySettings();
-            }
+    // app_agentic requires Accessibility Service to be enabled.
+    if (key == 'app_agentic' && value) {
+      final accessibilityOn = await isAccessibilityEnabled();
+      if (!accessibilityOn) {
+        if (mounted) {
+          final confirmed = await showMeowConfirmDialog(
+            context,
+            isId: s.isId,
+            title: s.accessibilityPermTitle,
+            message: s.accessibilityPermBody,
+            confirmLabel: s.openSettings,
+            cancelLabel: s.cancel,
+            icon: Icons.accessibility_new_rounded,
+            destructive: false,
+          );
+          if (confirmed) {
+            await permissionManager.openAccessibilitySettings();
           }
-          // Mark pending — toggle will activate on resume if accessibility
-          // is confirmed enabled after user navigates to system settings.
-          pendingAppAgenticEnable = true;
-          return;
         }
+        // Mark pending — toggle will activate on resume if accessibility
+        // is confirmed enabled after user navigates to system settings.
+        pendingAppAgenticEnable = true;
+        return;
       }
+    }
 
-      // run_locked_device requires a stored device PIN.
-      if (key == 'run_locked_device') {
-        final hasPin = await PinStorageService.instance.hasPin();
-        if (!hasPin) {
-          if (mounted) {
-            final pin = await PinInputDialog.show(context, s);
-            if (pin == null) return; // User cancelled
-            refreshDevicePinPanel();
-          }
+    // run_locked_device additionally needs a stored device PIN.
+    if (key == 'run_locked_device' && value) {
+      final hasPin = await PinStorageService.instance.hasPin();
+      if (!hasPin) {
+        if (mounted) {
+          final pin = await PinInputDialog.show(context, s);
+          if (pin == null) return; // User cancelled
+          refreshDevicePinPanel();
         }
       }
     }

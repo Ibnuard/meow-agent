@@ -83,6 +83,21 @@ class ModuleRepository {
             legacyAppControl != null &&
             legacyAppControl.containsKey(entry.key)) {
           merged[entry.key] = legacyAppControl[entry.key]!;
+        } else if (spec.id == 'device_context' &&
+            entry.key == 'allow_open_apps' &&
+            !stored.containsKey(entry.key)) {
+          // Legacy bridge: allow_system_settings + allow_url_intents merged
+          // into allow_open_apps. Preserve user choice — if either was true,
+          // the new combined toggle starts ON.
+          final hadSettings = stored['allow_system_settings'] ?? false;
+          final hadUrl = stored['allow_url_intents'] ?? false;
+          merged[entry.key] = hadSettings || hadUrl;
+        } else if (spec.id == 'notification_intelligence' &&
+            entry.key == 'allow_reply' &&
+            !stored.containsKey(entry.key)) {
+          // Legacy bridge: allow_reply_suggestion merged into allow_reply.
+          // Preserve user choice.
+          merged[entry.key] = stored['allow_reply_suggestion'] ?? false;
         } else {
           // Existing user toggle wins; new keys default OFF so app updates
           // don't silently grant new permissions.

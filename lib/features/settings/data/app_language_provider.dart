@@ -323,8 +323,8 @@ class AppStrings {
       ? 'Izinkan "Tampil di atas aplikasi lain" untuk menggunakan bubble.'
       : 'Allow "Display over other apps" to use the bubble.';
   String get urlIntentsEnabled => isId
-      ? 'URL intents diaktifkan. AI sekarang dapat membuka URL.'
-      : 'URL intents enabled. AI can now open URLs.';
+      ? 'Izin membuka aplikasi diaktifkan.'
+      : 'App launch permission enabled.';
   String get alarmsPermissionRequired => isId
       ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
       : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.';
@@ -1509,17 +1509,11 @@ class AppStrings {
             ? 'Agen dapat mengganti isi papan klip dengan teks baru. Aksi ini tetap butuh konfirmasi.'
             : 'Agent can replace clipboard contents with new text. This still requires confirmation.',
       ),
-      'allow_system_settings' => (
-        isId ? 'Izinkan Pengaturan Sistem' : 'Allow System Settings',
+      'allow_open_apps' => (
+        isId ? 'Izinkan Buka Aplikasi' : 'Open Installed Apps',
         isId
-            ? 'AI dapat membuka halaman pengaturan sistem Android.'
-            : 'AI can open Android system settings screens.',
-      ),
-      'allow_url_intents' => (
-        isId ? 'Izinkan Buka URL' : 'Allow URL Intents',
-        isId
-            ? 'AI dapat membuka URL di browser.'
-            : 'AI can open URLs in the browser.',
+            ? 'AI dapat membuka aplikasi terinstall, halaman pengaturan Android, dan URL di browser.'
+            : 'AI can open installed apps, Android system settings, and URLs in the browser.',
       ),
       'allow_background_launch' => (
         isId ? 'Izinkan Buka di Latar Belakang' : 'Allow Background Launch',
@@ -1533,32 +1527,14 @@ class AppStrings {
       'allow_read' => (
         isId ? 'Izinkan Baca Notifikasi' : 'Allow Read Notifications',
         isId
-            ? 'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.'
-            : 'Agent can read recent notifications. Requires Notification access permission.',
+            ? 'Agen dapat membaca, merangkum, menandai penting, dan membuka aplikasi sumber notifikasi. Membutuhkan izin akses Notifikasi.'
+            : 'Agent can read, summarize, classify importance, and open source apps of notifications. Requires Notification access permission.',
       ),
-      'allow_summary' => (
-        isId ? 'Izinkan Ringkasan Notifikasi' : 'Allow Notification Summaries',
+      'allow_reply' => (
+        isId ? 'Izinkan Balas Notifikasi' : 'Allow Notification Replies',
         isId
-            ? 'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.'
-            : 'Agent can group and summarize recent notifications.',
-      ),
-      'allow_classify' => (
-        isId ? 'Izinkan Deteksi Penting' : 'Allow Importance Detection',
-        isId
-            ? 'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.'
-            : 'Agent can flag urgent or important notifications.',
-      ),
-      'allow_reply_suggestion' => (
-        isId ? 'Izinkan Saran Balasan' : 'Allow Reply Suggestions',
-        isId
-            ? 'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.'
-            : 'Agent can suggest replies. Will NOT auto-send.',
-      ),
-      'allow_open_source_app' => (
-        isId ? 'Izinkan Buka Aplikasi Sumber' : 'Allow Open Source App',
-        isId
-            ? 'Agen dapat membuka aplikasi yang mengirim notifikasi.'
-            : 'Agent can open the app that sent a notification.',
+            ? 'Agen dapat menyarankan dan mengirim balasan langsung ke notifikasi (WhatsApp, Telegram, dll).'
+            : 'Agent can suggest and send direct replies to notifications (WhatsApp, Telegram, etc).',
       ),
       'persistent_notification' => (
         isId ? 'Tombol Cepat Papan Klip' : 'Clipboard Quick Action',
@@ -1595,18 +1571,6 @@ class AppStrings {
         isId
             ? 'Agen dapat mencari catatan berdasarkan kata kunci.'
             : 'Agent can search notes by keyword.',
-      ),
-      'allow_export' => (
-        isId ? 'Izinkan Export Note' : 'Allow Export Notes',
-        isId
-            ? 'Agen dapat mengekspor catatan sebagai file markdown ke workspace.'
-            : 'Agent can export notes as markdown files to the workspace.',
-      ),
-      'require_confirm_sensitive' => (
-        isId ? 'Konfirmasi Aksi Sensitif' : 'Confirm Sensitive Actions',
-        isId
-            ? 'Wajib konfirmasi pengguna sebelum update atau hapus catatan.'
-            : 'Require user confirmation before updating or deleting notes.',
       ),
       _ => (key, ''),
     },
@@ -1757,14 +1721,6 @@ class AppStrings {
         isId
             ? 'Izinkan agen membaca dan mengontrol layar aplikasi lain via Accessibility.'
             : 'Allow the agent to read and control other app screens via Accessibility.',
-      ),
-      'app_agentic_support_shizuku' => (
-        isId
-            ? 'Dukungan App Agentic (Shizuku)'
-            : 'App Agentic Support (Shizuku)',
-        isId
-            ? 'Tambahkan kontrol shell-level untuk membuka aplikasi, tombol sistem, dan fallback gesture.'
-            : 'Add shell-level control for app launch, system keys, and gesture fallback.',
       ),
       'run_locked_device' => (
         isId

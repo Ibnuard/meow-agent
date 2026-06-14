@@ -184,7 +184,19 @@ class AgentDomainModulePlugin extends ModulePlugin {
       );
     }
 
-    final model = (request.args['model'] ?? '').toString().trim();
+    // Resolve model: explicit arg → current agent's model → provider default.
+    // Without this, the new agent shows "no model" in the UI and relies on a
+    // silent fallback at chat time — confusing for users.
+    var model = (request.args['model'] ?? '').toString().trim();
+    if (model.isEmpty) {
+      final currentAgent = await repo.getById(ctx.agentId);
+      model = currentAgent?.model ?? '';
+    }
+    if (model.isEmpty && ctx.coreProviderRepo != null) {
+      final provider = await ctx.coreProviderRepo!.getById(providerId);
+      model = provider?.modelDefault ?? '';
+    }
+
     final agent = await repo.create(
       name: name,
       providerId: providerId,
@@ -435,7 +447,21 @@ class AgentDomainModulePlugin extends ModulePlugin {
             : persona,
         'communication_style': soul?.communicationStyle ?? '',
         'work_role': soul?.workRole ?? '',
+        // POV marker: lets the reviewer / direct-response LLM tell itself
+        // apart from peer agents when answering "what other agents exist /
+        // besides you" questions. Without this, the LLM sees its own row in
+        // the list and mentions itself as a "different agent".
+        'is_self': a.id == ctx.agentId,
       });
+    }
+
+    // Resolve self name once. Tolerant of empty registry / missing self.
+    String selfName = '';
+    for (final a in agents) {
+      if (a.id == ctx.agentId) {
+        selfName = a.name;
+        break;
+      }
     }
 
     return ToolExecutionResult(
@@ -443,7 +469,17 @@ class AgentDomainModulePlugin extends ModulePlugin {
       toolName: request.name,
       data: {
         'count': agents.length,
+        'self_id': ctx.agentId,
+        'self_name': selfName,
         'agents': entries,
+        // Inline POV note so the LLM never has to infer self-vs-other from
+        // the entries alone. The reviewer rules already enforce first-person
+        // POV; this just makes the data side unambiguous.
+        'pov_note':
+            'You ARE the entry where is_self=true. When the user asks about '
+            'OTHER agents or agents BESIDES you, list only entries where '
+            'is_self=false. When asked about your own persona, use the '
+            'is_self=true entry and speak in first person ("I am ...").',
       },
     );
   }

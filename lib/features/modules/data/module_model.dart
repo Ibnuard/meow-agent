@@ -77,8 +77,7 @@ class ModuleRegistry {
       'allow_bluetooth': true,
       'allow_clipboard_read': false,
       'allow_clipboard_write': false,
-      'allow_system_settings': false,
-      'allow_url_intents': true,
+      'allow_open_apps': false,
       'allow_background_launch': false,
     },
   );
@@ -91,10 +90,7 @@ class ModuleRegistry {
     icon: '🔔',
     settings: {
       'allow_read': false,
-      'allow_summary': false,
-      'allow_classify': false,
-      'allow_reply_suggestion': false,
-      'allow_open_source_app': false,
+      'allow_reply': false,
       'persistent_notification': false,
     },
   );
@@ -110,8 +106,6 @@ class ModuleRegistry {
       'allow_create': true,
       'allow_read': true,
       'allow_search': true,
-      'allow_export': true,
-      'require_confirm_sensitive': true,
     },
   );
 
@@ -215,7 +209,6 @@ class ModuleRegistry {
     settings: {
       'overlay_bubble': false,
       'app_agentic': false,
-      'app_agentic_support_shizuku': false,
       'run_locked_device': false,
     },
   );

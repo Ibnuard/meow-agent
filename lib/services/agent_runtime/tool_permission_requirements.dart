@@ -24,26 +24,32 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
   ),
   'app.resolve': ToolPermissionRequirement(
     moduleId: 'device_context',
+    settingKey: 'allow_open_apps',
+    settingLabel: 'Open Installed Apps',
     actionLabel: 'find installed apps',
   ),
   'app.open': ToolPermissionRequirement(
     moduleId: 'device_context',
+    settingKey: 'allow_open_apps',
+    settingLabel: 'Open Installed Apps',
     actionLabel: 'open apps',
   ),
   'app.list_installed': ToolPermissionRequirement(
     moduleId: 'device_context',
+    settingKey: 'allow_open_apps',
+    settingLabel: 'Open Installed Apps',
     actionLabel: 'list installed apps',
   ),
   'settings.open': ToolPermissionRequirement(
     moduleId: 'device_context',
-    settingKey: 'allow_system_settings',
-    settingLabel: 'Allow System Settings',
+    settingKey: 'allow_open_apps',
+    settingLabel: 'Open Installed Apps',
     actionLabel: 'open Android settings',
   ),
   'intent.open_url': ToolPermissionRequirement(
     moduleId: 'device_context',
-    settingKey: 'allow_url_intents',
-    settingLabel: 'Allow URL Intents',
+    settingKey: 'allow_open_apps',
+    settingLabel: 'Open Installed Apps',
     actionLabel: 'open URLs',
   ),
   'app_agent.inspect': ToolPermissionRequirement(
@@ -168,36 +174,44 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
   ),
   'notification.status': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Notifications',
     actionLabel: 'check notification access',
   ),
   'notification.read_recent': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
     settingKey: 'allow_read',
-    settingLabel: 'Allow Read Notifications',
+    settingLabel: 'Read Notifications',
     actionLabel: 'read notifications',
   ),
   'notification.summarize': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
-    settingKey: 'allow_summary',
-    settingLabel: 'Allow Notification Summaries',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Notifications',
     actionLabel: 'summarize notifications',
   ),
   'notification.classify': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
-    settingKey: 'allow_classify',
-    settingLabel: 'Allow Importance Detection',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Notifications',
     actionLabel: 'classify notifications',
   ),
   'notification.reply_suggestion': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
-    settingKey: 'allow_reply_suggestion',
-    settingLabel: 'Allow Reply Suggestions',
+    settingKey: 'allow_reply',
+    settingLabel: 'Reply to Notifications',
     actionLabel: 'suggest notification replies',
+  ),
+  'notification.reply': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_reply',
+    settingLabel: 'Reply to Notifications',
+    actionLabel: 'reply to notifications directly',
   ),
   'notification.open_app': ToolPermissionRequirement(
     moduleId: 'notification_intelligence',
-    settingKey: 'allow_open_source_app',
-    settingLabel: 'Allow Open Source App',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Notifications',
     actionLabel: 'open the notification source app',
   ),
   'notes.create': ToolPermissionRequirement(
@@ -244,8 +258,8 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
   ),
   'notes.export': ToolPermissionRequirement(
     moduleId: 'notes',
-    settingKey: 'allow_export',
-    settingLabel: 'Allow Export Notes',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Notes',
     actionLabel: 'export notes',
     androidPermission: PermissionType.storage,
   ),
@@ -382,6 +396,68 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Allow Update Workflows',
     actionLabel: 'enable or disable workflows',
   ),
+  // ─── Web / API Store module ─────────────────────────────────────────────
+  'web.fetch': ToolPermissionRequirement(
+    moduleId: 'web',
+    settingKey: 'allow_fetch',
+    settingLabel: 'Fetch URL',
+    actionLabel: 'make HTTP requests',
+  ),
+  'web.api.list': ToolPermissionRequirement(
+    moduleId: 'web',
+    settingKey: 'allow_call',
+    settingLabel: 'Call APIs',
+    actionLabel: 'list registered APIs',
+  ),
+  'web.api.call': ToolPermissionRequirement(
+    moduleId: 'web',
+    settingKey: 'allow_call',
+    settingLabel: 'Call APIs',
+    actionLabel: 'call registered APIs',
+  ),
+  'web.api.register': ToolPermissionRequirement(
+    moduleId: 'web',
+    settingKey: 'allow_register',
+    settingLabel: 'Register APIs',
+    actionLabel: 'register new APIs',
+  ),
+  'web.api.remove': ToolPermissionRequirement(
+    moduleId: 'web',
+    settingKey: 'allow_remove',
+    settingLabel: 'Remove APIs',
+    actionLabel: 'remove registered APIs',
+  ),
+
+  // ─── Communication module ──────────────────────────────────────────────
+  'communication.resolve_contact': ToolPermissionRequirement(
+    moduleId: 'communication',
+    settingKey: 'contact_access',
+    settingLabel: 'Contact Access',
+    actionLabel: 'resolve contacts',
+    androidPermission: PermissionType.contacts,
+  ),
+  'communication.list_contacts': ToolPermissionRequirement(
+    moduleId: 'communication',
+    settingKey: 'contact_access',
+    settingLabel: 'Contact Access',
+    actionLabel: 'list contacts',
+    androidPermission: PermissionType.contacts,
+  ),
+  'communication.call': ToolPermissionRequirement(
+    moduleId: 'communication',
+    settingKey: 'call_enabled',
+    settingLabel: 'Phone Calls',
+    actionLabel: 'make phone calls',
+    androidPermission: PermissionType.callPhone,
+  ),
+  'communication.send_sms': ToolPermissionRequirement(
+    moduleId: 'communication',
+    settingKey: 'sms_enabled',
+    settingLabel: 'SMS',
+    actionLabel: 'send SMS messages',
+    androidPermission: PermissionType.sendSms,
+  ),
+
   // VM module: agent surface is intentionally narrow. Only `vm.status`
   // (safe read), `vm.list_plugins` (safe read), and `vm.run_command` (gated)
   // are exposed. Install/start/stop and plugin install are user-only.

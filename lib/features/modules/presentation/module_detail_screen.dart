@@ -771,8 +771,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) {
     if (module.id != 'super_power') return true;
-    // Legacy key — no longer shown as a separate toggle.
-    if (entry.key == 'app_agentic_support_shizuku') return false;
     if (entry.key == 'run_locked_device') {
       return module.settings['app_agentic'] == true;
     }
@@ -987,8 +985,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       'allow_battery' || 'allow_charging' => 'power',
       'allow_network' || 'allow_bluetooth' => 'connectivity',
       'allow_foreground_app' ||
-      'allow_system_settings' ||
-      'allow_url_intents' ||
+      'allow_open_apps' ||
       'allow_background_launch' => 'apps',
       'allow_storage' || 'allow_time_locale' || 'allow_dnd' => 'system',
       'allow_clipboard_read' || 'allow_clipboard_write' => 'clipboard',
