@@ -89,6 +89,10 @@ class LanguageRegistry {
       'permission_action_default': 'menjalankan aksi itu',
       'action_install_module': 'Pasang {module}',
       'action_open_module': 'Buka {module}',
+      'action_open_accessibility':
+          'Buka Pengaturan Aksesibilitas',
+      'accessibility_not_connected':
+          'Layanan aksesibilitas Meow Agent belum aktif. Aktifkan dulu agar aku bisa mengontrol layar aplikasi lain.',
       'task_aborted_heads_up':
           'Tugas sebelumnya ("{previous}") aku tunda dulu — kita lanjut yang baru.',
       'task_aborted_heads_up_unknown':
@@ -193,6 +197,10 @@ class LanguageRegistry {
       'permission_action_default': 'do that',
       'action_install_module': 'Install {module}',
       'action_open_module': 'Open {module}',
+      'action_open_accessibility':
+          'Open Accessibility Settings',
+      'accessibility_not_connected':
+          'Meow Agent accessibility service is not active. Enable it first so I can control other app screens.',
       'task_aborted_heads_up':
           'Set the previous task ("{previous}") aside — moving on to the new one.',
       'task_aborted_heads_up_unknown':

@@ -12,6 +12,7 @@ import '../../features/modules/data/module_repository.dart';
 import '../../features/providers/data/provider_config.dart';
 import '../../features/providers/data/provider_repository.dart';
 import '../workspace/workspace_file_service.dart';
+import 'module_plugin.dart';
 import 'runtime_models.dart';
 import 'tool_permission_policy.dart';
 

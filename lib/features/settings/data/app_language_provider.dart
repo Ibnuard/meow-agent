@@ -369,6 +369,38 @@ class AppStrings {
             'Buka Settings dan aktifkan "Meow Agent Automation".'
       : 'App Agentic requires Accessibility Service to read and control other app screens. '
             'Open Settings and enable "Meow Agent Automation".';
+  String get overlayPermTitle => isId
+      ? 'Izin Tampil di Atas Aplikasi Lain'
+      : 'Display Over Other Apps Permission';
+  String get overlayPermBodyAgentic => isId
+      ? 'App Agentic juga butuh izin "Tampil di atas aplikasi lain" untuk menampilkan border progres saat agen sedang mengontrol layar. '
+            'Buka Settings dan aktifkan izin tersebut untuk Meow Agent.'
+      : 'App Agentic also needs the "Display over other apps" permission to render the progress border while the agent is controlling the screen. '
+            'Open Settings and enable it for Meow Agent.';
+  String get appAgenticPrereqsTitle => isId
+      ? 'Syarat App Agentic'
+      : 'App Agentic Requirements';
+  String get appAgenticPrereqsDesc => isId
+      ? 'Toggle App Agentic baru bisa diaktifkan setelah kedua izin Android di bawah ini diberikan.'
+      : 'The App Agentic toggle can only be enabled after both Android permissions below are granted.';
+  String get appAgenticPrereqAccessibility => isId
+      ? 'Layanan Aksesibilitas (Meow Agent Automation)'
+      : 'Accessibility Service (Meow Agent Automation)';
+  String get appAgenticPrereqOverlay => isId
+      ? 'Tampil di atas aplikasi lain'
+      : 'Display over other apps';
+  String get appAgenticPrereqsAllMet => isId
+      ? 'Semua izin sudah aktif. Toggle App Agentic siap dinyalakan.'
+      : 'All permissions granted. App Agentic toggle is ready.';
+  String get appAgenticPrereqsNotMet => isId
+      ? 'Aktifkan dulu izin yang ditandai untuk bisa menyalakan App Agentic.'
+      : 'Grant the missing permissions before enabling App Agentic.';
+  String get appAgenticBtnAccessibility => isId
+      ? 'Aktifkan Aksesibilitas'
+      : 'Enable Accessibility';
+  String get appAgenticBtnOverlay => isId
+      ? 'Izinkan Overlay'
+      : 'Allow Overlay';
   String get shizukuSupportRequired => isId
       ? 'Aktifkan dukungan Shizuku terlebih dahulu.'
       : 'Enable Shizuku support first.';

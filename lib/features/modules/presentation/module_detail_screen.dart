@@ -48,6 +48,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   bool _pendingAppAgenticEnable = false;
   bool _moduleLoaded = false;
   bool _installingMissingModule = false;
+  // App Agentic prerequisites status. Refreshed on screen entry, lifecycle
+  // resume, and after each Cek Status / Request Permission tap. Drives the
+  // App Agentic Requirements panel and the toggle gate.
+  bool _accessibilityEnabled = false;
+  bool _overlayPermissionGranted = false;
+  bool _checkingAppAgenticPrereqs = false;
   Future<Widget?>? _pinStatusFuture;
 
   @override
@@ -160,8 +166,26 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     _syncCommunicationState();
     await _syncSuperPowerBubble();
     await syncSuperPowerPermissions();
+    await _refreshAppAgenticPrereqs();
     await refreshShizukuStatus();
     _refreshPinStatus();
+  }
+
+  /// Refresh the live status of App Agentic's two Android prerequisites:
+  /// Accessibility Service and SYSTEM_ALERT_WINDOW ("Display over other apps").
+  Future<void> _refreshAppAgenticPrereqs() async {
+    if (_module?.id != 'super_power') return;
+    if (mounted) setState(() => _checkingAppAgenticPrereqs = true);
+    final accessibility = await isAccessibilityEnabled();
+    final overlay = await permissionManager.isGranted(
+      PermissionType.systemAlertWindow,
+    );
+    if (!mounted) return;
+    setState(() {
+      _accessibilityEnabled = accessibility;
+      _overlayPermissionGranted = overlay;
+      _checkingAppAgenticPrereqs = false;
+    });
   }
 
   ModuleModel? _availableModuleSpec() {
@@ -205,6 +229,25 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
+
+    // Hard gate for App Agentic: refuse to flip the toggle ON unless BOTH
+    // Android prerequisites (Accessibility + Display over other apps) are
+    // currently granted. The prereqs panel above the toggle is the single
+    // place where users grant them; this gate just enforces the contract.
+    if (key == 'app_agentic' && value) {
+      await _refreshAppAgenticPrereqs();
+      if (!_accessibilityEnabled || !_overlayPermissionGranted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(s.appAgenticPrereqsNotMet),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+    }
 
     // Gate Android permissions FIRST — if denied, abort before any handler.
     final permitted = await handlePermissionGatedToggle(key, value);
@@ -632,6 +675,20 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          if (module.id == 'super_power' && module.enabled) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: extras.card,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: extras.subtleBorder),
+              ),
+              child: _buildAppAgenticPrereqsPanel(cs: cs, s: s),
             ),
             const SizedBox(height: 20),
           ],
@@ -1125,6 +1182,202 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
               ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppAgenticPrereqsPanel({
+    required ColorScheme cs,
+    required AppStrings s,
+  }) {
+    final allMet = _accessibilityEnabled && _overlayPermissionGranted;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          s.appAgenticPrereqsTitle,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          s.appAgenticPrereqsDesc,
+          style: TextStyle(
+            fontSize: 12,
+            color: cs.onSurfaceVariant,
+            height: 1.4,
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Accessibility status row.
+        _buildPrereqRow(
+          cs: cs,
+          label: s.appAgenticPrereqAccessibility,
+          granted: _accessibilityEnabled,
+        ),
+        const SizedBox(height: 8),
+        // Overlay permission status row.
+        _buildPrereqRow(
+          cs: cs,
+          label: s.appAgenticPrereqOverlay,
+          granted: _overlayPermissionGranted,
+        ),
+        const SizedBox(height: 12),
+        // Status indicator.
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: (allMet ? Colors.green : cs.error).withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color:
+                  (allMet ? Colors.green : cs.error).withValues(alpha: 0.24),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                allMet
+                    ? Icons.check_circle_rounded
+                    : Icons.info_outline_rounded,
+                size: 18,
+                color: allMet ? Colors.green : cs.error,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  allMet
+                      ? s.appAgenticPrereqsAllMet
+                      : s.appAgenticPrereqsNotMet,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: cs.onSurface,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!allMet) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              if (!_accessibilityEnabled)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await permissionManager.openAccessibilitySettings();
+                    },
+                    icon: const Icon(Icons.accessibility_new_rounded, size: 16),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        s.appAgenticBtnAccessibility,
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.primary,
+                      side: BorderSide(
+                        color: cs.primary.withValues(alpha: 0.4),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              if (!_accessibilityEnabled && !_overlayPermissionGranted)
+                const SizedBox(width: 10),
+              if (!_overlayPermissionGranted)
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await permissionManager.request(
+                        PermissionType.systemAlertWindow,
+                      );
+                      await _refreshAppAgenticPrereqs();
+                    },
+                    icon: const Icon(Icons.layers_rounded, size: 16),
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        s.appAgenticBtnOverlay,
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: cs.primary,
+                      side: BorderSide(
+                        color: cs.primary.withValues(alpha: 0.4),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+        if (!_checkingAppAgenticPrereqs && !allMet) ...[
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await _refreshAppAgenticPrereqs();
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: Text(s.checkStatus),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cs.onSurfaceVariant,
+                side: BorderSide(
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPrereqRow({
+    required ColorScheme cs,
+    required String label,
+    required bool granted,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          granted
+              ? Icons.check_circle_rounded
+              : Icons.cancel_rounded,
+          size: 16,
+          color: granted ? Colors.green : cs.error,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: cs.onSurface,
             ),
           ),
         ),

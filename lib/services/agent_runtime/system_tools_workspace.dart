@@ -7,18 +7,43 @@ extension SystemToolsWorkspace on SystemTools {
 
   // ─── system.rtb ─────────────────────────────────────────────────────────────
 
-  /// Return to base: bring the user back to Meow Agent from any external app.
-  Future<ToolExecutionResult> executeReturnToBase() async {
+  /// Return to base: optionally surface a message to chat, then bring the
+  /// user back to Meow Agent from any external app.
+  ///
+  /// When [args] contains a non-empty `message`, it is returned in the tool
+  /// result as `pending_chat_message`. The chat runtime manager picks this up
+  /// AFTER the runtime loop finishes and inserts it into chat history at the
+  /// correct chronological position — AFTER the task ledger message.
+  ///
+  /// We deliberately do NOT persist the message here mid-loop, because doing
+  /// so puts the bubble BEFORE the ledger/reply in the message timeline (the
+  /// task ledger is added by the post-run handler later). Deferring keeps the
+  /// chronological order natural: ledger → summary → final reply.
+  Future<ToolExecutionResult> executeReturnToBase(
+    Map<String, dynamic> args,
+    ModuleToolContext ctx,
+  ) async {
     try {
+      final message = (args['message'] ?? '').toString().trim();
+
+      // Navigate back to Meow Agent.
       final success = await _rtbChannel.invokeMethod<bool>(
             'openApp',
             {'package': _selfPackage},
           ) ??
           false;
+
       return ToolExecutionResult(
         success: success,
         toolName: 'system.rtb',
-        data: {'package': _selfPackage, 'returned': success},
+        data: {
+          'package': _selfPackage,
+          'returned': success,
+          if (message.isNotEmpty) ...{
+            'pending_chat_message': message,
+            'message_delivered': true,
+          },
+        },
         error: success ? null : 'Could not return to Meow Agent.',
       );
     } catch (e) {

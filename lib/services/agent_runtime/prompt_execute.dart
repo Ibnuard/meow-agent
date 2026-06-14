@@ -62,7 +62,8 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
     - NEVER use app_agent.key, app_agent.open, or any app_agent tool to launch an app. Those are for interacting with an already-open screen.
     - If the user's ONLY goal is to open/launch an app (no further interaction), return status="done" immediately after app.open succeeds. Do NOT inspect or use app_agent tools.
   * SCREEN AUTOMATION (after app is open):
-    - If the user wants to control the currently visible Android app, inspect the screen first.
+    - MANDATORY FIRST STEP: After EVERY successful app.open, the very next tool MUST be app_agent.inspect. No exceptions. Do NOT call app_agent.click, app_agent.click_by_text, app_agent.find_by_text, or any action tool directly after app.open — you do not know the screen state yet. The app may already be on the target page (user navigated before asking), may be on a loading screen, or may show a different state than expected.
+    - After app_agent.inspect, check if the current screen ALREADY satisfies any pending subgoals (e.g. the user already navigated to the notifications tab before asking). If so, mark those subgoals as done and proceed to the next pending one. Do NOT blindly attempt navigation that is already complete — clicking a tab you are already on may trigger unexpected behavior.
     - If app_agent.inspect shows the wrong package/app for the goal, do NOT inspect again. Use app.resolve/app.open for the target app, then app_agent.inspect.
     - After app_agent.inspect, choose exactly one concrete action from the visible node tree: app_agent.click, app_agent.set_text, or app_agent.scroll.
     - Use only node_id values from the latest app_agent.inspect result. Do not invent node IDs.
@@ -77,9 +78,11 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).
 - RETURN TO MEOW AGENT AFTER APP AGENTIC TASKS:
-  * After completing all app-agentic subgoals in an external app, if the task includes a delivery step back to Meow Agent (chat.send, summarize and report, etc.), you MUST call system.rtb (return to base) as the FINAL tool call before returning status="done". The user should not be left stranded in the external app.
-  * Use system.rtb — NOT app.open. system.rtb is the dedicated tool for returning to Meow Agent, requires no confirmation, and signals the end of agentic mode cleanly.
-  * If the task is purely "open app X" with no return requirement, skip this step.''';
+  * After completing all app-agentic subgoals in an external app, if the task includes a delivery step back to Meow Agent (chat.send, summarize and report, etc.), use system.rtb with the message argument: system.rtb({"message": "<your full summary/report content here>"}). This atomically delivers the content to the chat AND navigates back — one tool call, no risk of forgetting either step.
+  * The correct shape is ALWAYS: system.rtb with a non-empty `message` arg containing the full markdown content the user asked for. Do NOT call chat.send separately when system.rtb covers it.
+  * If the subgoal says "send to chat" / "report back" / "summarize and send" (in any language), system.rtb({"message": "..."}) fulfills it in one call. If you call system.rtb WITHOUT a message argument when the user asked for a delivery, the user receives NOTHING — the summary exists only in your internal narrative, which the user never sees.
+  * Use system.rtb — NOT app.open — to return to Meow Agent. system.rtb is the dedicated tool for both delivery and navigation back, requires no confirmation, and signals the end of agentic mode cleanly.
+  * If the task is purely "open app X" with no return requirement, skip system.rtb entirely.''';
 
 // ─── Reviewer ────────────────────────────────────────────────────────────────
 
@@ -116,8 +119,10 @@ const promptAppAgenticReviewRules = '''APP AGENTIC REVIEW RULES:
 - If a node action failed because node_not_found, stale screen, no_active_window, or the UI changed, return status="retry" or "continue" with another app_agent.inspect.
 - If the screen lacks the required target after reasonable scrolling/searching, ask the user for help instead of claiming success.
 - RETURN TO MEOW AGENT (CRITICAL):
-  * When all app-agentic subgoals are complete and the user's original task ends with a delivery back to Meow Agent (e.g. "send to chat", "report back", "summarize and send"), the LAST action MUST be system.rtb (return to base) to bring the user back. The task is NOT complete while the user is stranded in the external app.
-  * If the task involves reading/summarizing external content and reporting back, you MUST: (1) gather the data via inspect, (2) call chat.send with the summary, (3) call system.rtb to return. Only then return status="done".
+  * When all app-agentic subgoals are complete and the user's original task ends with a delivery back to Meow Agent (e.g. "send to chat", "report back", "summarize and send"), the LAST tool call MUST be system.rtb with a non-empty `message` argument containing the full content. This delivers AND returns in one step.
+  * If the task involves reading/summarizing external content and reporting back, the correct final tool is: system.rtb({"message": "<full summary>"}) — this delivers the content to chat AND navigates back. Only then return status="done".
+  * system.rtb WITHOUT a message argument is pure navigation — it delivers nothing. If the user asked for a delivery ("send to chat" / "report back" / equivalent in any language) and system.rtb was called without message, the delivery subgoal is NOT done. Return status="continue" so the selector calls system.rtb again with the message.
+  * When reviewing a successful system.rtb result: check if `message_delivered: true` is in the tool data. If YES, the delivery subgoal is done. If NOT (no message was sent), the delivery subgoal is still pending.
   * NEVER use app.open to return to Meow Agent. Use system.rtb instead — it is safe, requires no confirmation, and is the correct tool for this purpose.
 - SUBGOAL COMPLETION INTEGRITY (CRITICAL — anti-shortcut):
   * A subgoal that requires a tool call (chat.send, app.open, notes.create, etc.) can ONLY be marked "done" AFTER that tool has been called AND returned success=true in previous_results.

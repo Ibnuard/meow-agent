@@ -48,17 +48,19 @@ const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
 
 TONE vs INTENT (CRITICAL — read first before analyzing any message):
-- The CURRENT user message ALWAYS takes priority over preceding conversation TONE.
+- The CURRENT user message ALWAYS takes priority over preceding conversation TONE and TOPIC.
+- TOPIC SWITCH RULE: If the CURRENT user message introduces a clearly DIFFERENT topic, action, or intent than the recent conversation, analyze it as a STANDALONE request. Conversation history is context for continuations, NOT a lens that overrides new requests. "Recent chat was about food" + "current message says open app X" = the current message is about opening app X, NOT about food.
 - If the CURRENT message contains a clear ACTION VERB + a clear TARGET (in any language): set requires_tools=true. This is true EVEN IF the preceding messages were casual greetings, friendly chat, or small talk.
 - Example: recent conversation is "Hello!" / "Hello, how can I help?" — then user says "delete all agents without a provider". The greeting does NOT make the delete request a chat — it is a destructive multi-target action → requires_tools=true.
 - Example: recent conversation is friendly banter — then user says "open the calendar". The banter does NOT make "open the calendar" a chat → requires_tools=true.
+- Example: recent conversation is about food storage — then user says "open app X and summarize tweets". The food topic is IRRELEVANT — analyze the current message on its own merit → requires_tools=true, tool_groups=["app","app_agent"].
 - The presence of a greeting, name-calling, or casual phrasing in the current or preceding messages NEVER downgrades a clear action request to chat/requires_tools=false.
 - Only set requires_tools=false if the CURRENT message itself is genuinely ambiguous, purely conversational, or missing required details AFTER applying this rule.
 
-Conversation continuity rules:
-- Recent conversation is authoritative context, especially the immediately previous assistant question and current user reply.
-- If the previous assistant message asked clarifying questions, treat the current user message as answers to those questions.
-- Merge the current user answers with the original request from recent conversation before deciding intent, goal, missing_info, and requires_tools.
+Conversation continuity rules (apply ONLY when the current message clearly continues the previous turn):
+- Continuity applies when the previous assistant message asked a clarifying question AND the current user message is a short answer to it. In that case, treat the current message as filling the gaps in the original request.
+- Continuity does NOT apply when the current message introduces a different action, target, or topic. Apply the TOPIC SWITCH RULE above instead.
+- If continuity applies: merge the current user answers with the original request from recent conversation before deciding intent, goal, missing_info, and requires_tools.
 - Do NOT ask again for information that the user already answered, even if the answer is short or informal.
 - If the user answers multiple pending questions in one message, extract all answered details and only ask for truly missing details.
 - Example: original request "create a workflow at 1:15 AM ...", assistant asks "what message? which contact?", user replies "1 AM, message: workflow result to agent" → keep workflow context and only ask the still-missing contact if needed.

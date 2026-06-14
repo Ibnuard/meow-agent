@@ -797,6 +797,39 @@ class ExecuteLoopRunner {
           );
         }
 
+        // Accessibility service not connected — the user needs to enable it
+        // at the Android level before app_agent tools can function. Surface a
+        // friendly localized message with an action button that opens the
+        // accessibility settings page directly.
+        if (!result.success &&
+            _isAccessibilityServiceFailure(result)) {
+          final code = _languageCode;
+          final message = LanguageRegistry.phrase(
+            'accessibility_not_connected',
+            code,
+          );
+          final actions = [
+            ResultAction(
+              label: LanguageRegistry.phrase(
+                'action_open_accessibility',
+                code,
+              ),
+              icon: 'accessibility_new_rounded',
+              type: 'open_accessibility_settings',
+              target: 'accessibility',
+            ),
+          ];
+          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+          logger.logFinalResponse(message);
+          return AgentRuntimeResponse(
+            finalMessage: message,
+            success: false,
+            state: AgentRuntimeState.failed,
+            events: logger.events,
+            actions: actions,
+          );
+        }
+
         if (!result.success && _isCapabilityBoundaryFailure(result)) {
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           final finalResponse = _capabilityBoundaryMessage(result);
@@ -1052,7 +1085,7 @@ class ExecuteLoopRunner {
               );
             } else if ((toolRequest.name == 'app.open' ||
                     toolRequest.name == 'app.resolve') &&
-                _planRequiresAppAgent(goalTree)) {
+                planRequiresAppAgent(goalTree)) {
               AppAgentOverlayService.show(
                 operation: _appAgentOperationTag(toolRequest.name),
                 narrative: reviewNarrative,
@@ -1878,6 +1911,19 @@ class ExecuteLoopRunner {
     return error.contains('required') || error.contains('missing');
   }
 
+  /// True when the tool failed because the Android Accessibility Service is
+  /// not connected. Only matches app_agent.* tools — other tool failures with
+  /// generic "not connected" errors should not trigger the accessibility
+  /// settings shortcut.
+  bool _isAccessibilityServiceFailure(ToolExecutionResult result) {
+    if (!result.toolName.startsWith('app_agent.')) return false;
+    final error = (result.error ?? '').toLowerCase();
+    final dataError = (result.data?['error']?.toString() ?? '').toLowerCase();
+    return error.contains('accessibility_service_not_connected') ||
+        dataError.contains('accessibility_service_not_connected') ||
+        error.contains('no_active_window');
+  }
+
   bool _isCapabilityBoundaryFailure(ToolExecutionResult result) {
     final failureKind = result.data?['failureKind']?.toString().toLowerCase();
     if (failureKind == 'capability_boundary') {
@@ -1912,7 +1958,7 @@ class ExecuteLoopRunner {
   /// stuck overlay on the external app.
   ///
   /// Language-agnostic: relies on subgoal structure, not label keywords.
-  bool _planRequiresAppAgent(GoalTree goalTree) {
+  bool planRequiresAppAgent(GoalTree goalTree) {
     if (goalTree.isEmpty) return false;
     // Count pending (non-terminal) subgoals. If more than one remains, the
     // task has work beyond the current open/resolve step — likely screen

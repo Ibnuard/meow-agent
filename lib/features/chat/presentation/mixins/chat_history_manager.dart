@@ -16,6 +16,7 @@ import '../../../modules/workflows/workflow_list_screen.dart';
 import '../../../agents/data/workspace_service.dart';
 import '../../../agents/data/agent_repository.dart';
 import '../../../providers/data/provider_repository.dart';
+import '../../../../services/permission/permission_manager.dart';
 import '../../data/token_usage_service.dart';
 
 /// History loading, persistence, and message action handling.
@@ -115,6 +116,11 @@ mixin ChatHistoryManagerMixin<T extends StatefulWidget> on State<T> {
       case 'open_folder':
         final ws = ref.read(workspaceServiceProvider);
         await ws.openInFileManager(action.target);
+        break;
+      case 'open_accessibility_settings':
+        await ref
+            .read(permissionManagerProvider)
+            .openAccessibilitySettings();
         break;
       case 'open_url':
         break;

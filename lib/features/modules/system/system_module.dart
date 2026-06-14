@@ -41,9 +41,17 @@ class SystemModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'system.rtb',
       description:
-          'Return to base. Brings the user back to the Meow Agent app from any external app launched during agentic mode (after app_agent.* operations). Use this as the FINAL step when the task involves opening an external app and then delivering a result back. No confirmation needed — this returns to the app the user is already chatting in.',
+          'Return to base. Brings the user back to the Meow Agent app from any external app launched during agentic mode. '
+          'If a message argument is provided, it is delivered as an assistant chat bubble BEFORE returning — this is the '
+          'correct way to send gathered data (summaries, reports, extracted text) back to the user after app-agentic tasks. '
+          'Using message eliminates the need for a separate chat.send call.',
       risk: 'safe',
       requiresConfirmation: false,
+      inputSchema: {
+        'message':
+            'string (optional — markdown content to deliver to chat before returning. Use this to send summaries, reports, '
+            'or any content gathered during agentic mode. If omitted, just returns without sending a message.)',
+      },
     ),
     ToolDefinition(
       name: 'system.workspace.schema',
@@ -187,7 +195,7 @@ class SystemModulePlugin extends ModulePlugin {
       case 'system.self':
         return tools.executeSelf();
       case 'system.rtb':
-        return tools.executeReturnToBase();
+        return tools.executeReturnToBase(request.args, ctx);
       case 'system.workspace.schema':
         return tools.executeWorkspaceSchema();
       case 'system.workspace.read':

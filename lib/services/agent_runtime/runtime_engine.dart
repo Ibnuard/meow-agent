@@ -13,6 +13,7 @@ import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import '../llm/llm_error_mapper.dart';
+import '../app_agent/app_agent_overlay_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
@@ -1331,6 +1332,19 @@ class AgentRuntimeEngine {
             'Resuming execute loop after confirmation (subgoals remaining: ${goalTree.subgoals.where((s) => !s.isTerminal).length})',
           );
           emit(logger.events.last);
+          // Show the agentic overlay immediately after a confirmed app.open
+          // when the plan has subsequent app_agent.* work. Without this, the
+          // user sees LinkedIn open with no overlay — the overlay would only
+          // appear once the next app_agent.* tool fires, causing a jarring
+          // gap where it looks like "agentic mode didn't start".
+          if ((pending.toolName == 'app.open' ||
+                  pending.toolName == 'app.resolve') &&
+              _loopRunner.planRequiresAppAgent(goalTree)) {
+            AppAgentOverlayService.show(
+              operation: 'open',
+              narrative: '',
+            );
+          }
           return _loopRunner.run(
             request: resumedRequest,
             plan: plan,

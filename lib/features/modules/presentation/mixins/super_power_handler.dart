@@ -54,8 +54,11 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
       }
     }
 
-    // app_agentic requires Accessibility Service to be enabled.
+    // app_agentic requires Accessibility Service to be enabled AND
+    // SYSTEM_ALERT_WINDOW for the agentic border overlay that shows
+    // automation progress on top of the target app.
     if (key == 'app_agentic' && value) {
+      // 1. Check Accessibility Service first.
       final accessibilityOn = await isAccessibilityEnabled();
       if (!accessibilityOn) {
         if (mounted) {
@@ -77,6 +80,33 @@ mixin SuperPowerHandlerMixin<T extends ConsumerStatefulWidget> on ConsumerState<
         // is confirmed enabled after user navigates to system settings.
         pendingAppAgenticEnable = true;
         return;
+      }
+
+      // 2. Check "Display over other apps" for the agentic overlay.
+      final canDraw = await permissionManager.isGranted(
+        PermissionType.systemAlertWindow,
+      );
+      if (!canDraw) {
+        if (mounted) {
+          final confirmed = await showMeowConfirmDialog(
+            context,
+            isId: s.isId,
+            title: s.overlayPermTitle,
+            message: s.overlayPermBodyAgentic,
+            confirmLabel: s.openSettings,
+            cancelLabel: s.cancel,
+            icon: Icons.layers_rounded,
+            destructive: false,
+          );
+          if (confirmed) {
+            await permissionManager.request(PermissionType.systemAlertWindow);
+          }
+          // Re-check after the user returns from system settings.
+          final granted = await permissionManager.isGranted(
+            PermissionType.systemAlertWindow,
+          );
+          if (!granted) return;
+        }
       }
     }
 

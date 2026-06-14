@@ -488,14 +488,29 @@ class ChatRuntimeManager extends ChangeNotifier {
       persistedMessages.add(persistedReply);
       await UnreadService.instance.increment(agentId);
 
+      // If system.rtb was called with a message argument, the content was
+      // deferred (not persisted mid-loop) so it lands AFTER the task ledger
+      // and the generic "done" reply in the timeline — appearing as the
+      // newest message, which is what the user expects.
+      final rtbMessageContent = _extractRtbPendingMessage(response);
+      if (rtbMessageContent != null) {
+        final rtbMsg = ChatMessage(
+          role: 'assistant',
+          content: rtbMessageContent,
+        );
+        final rtbId = await history.addMessage(agentId, rtbMsg);
+        persistedMessages.add(rtbMsg.copyWith(id: rtbId));
+        await UnreadService.instance.increment(agentId);
+      }
+
       // If chat.send was called during the run, its messages were inserted
       // directly into the DB but not into our persistedMessages list. Reload
       // from DB to pick them up so the UI shows the full result.
       final hasChatSend = response.events.any(
         (e) =>
             e.type == 'tool_result' &&
-            e.data?['tool'] == 'chat.send' &&
-            e.data?['success'] == true,
+            e.data?['success'] == true &&
+            e.data?['tool'] == 'chat.send',
       );
       if (hasChatSend) {
         final sessionId = ref
@@ -916,6 +931,28 @@ class ChatRuntimeManager extends ChangeNotifier {
       fallbackCode: engine.languageCode,
     );
     return detected.confidence >= 0.5 ? detected.code : engine.languageCode;
+  }
+
+  /// Extract the deferred chat message content from a successful system.rtb
+  /// tool result, if any. Returns null when the run did not include an
+  /// rtb-with-message call.
+  ///
+  /// system.rtb stores the user-facing summary in `data.pending_chat_message`
+  /// instead of persisting it mid-loop, so the caller can insert it AFTER
+  /// the task ledger — the chronological position users expect.
+  String? _extractRtbPendingMessage(AgentRuntimeResponse response) {
+    for (final event in response.events) {
+      if (event.type != 'tool_result') continue;
+      if (event.data?['tool'] != 'system.rtb') continue;
+      if (event.data?['success'] != true) continue;
+      final inner = event.data?['data'];
+      if (inner is! Map) continue;
+      final pending = inner['pending_chat_message'];
+      if (pending is String && pending.trim().isNotEmpty) {
+        return pending.trim();
+      }
+    }
+    return null;
   }
 
   /// Fire a local notification for a new agent reply, but ONLY when the user
