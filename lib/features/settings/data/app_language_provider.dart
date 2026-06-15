@@ -476,8 +476,8 @@ class AppStrings {
   String get vmRuntimeStarting =>
       isId ? 'Memulai runtime...' : 'Starting runtime...';
   String get vmRuntimeDownloading => isId
-      ? 'Mengunduh runtime. Tetap di layar ini.'
-      : 'Downloading runtime. Keep this screen open.';
+      ? 'Mengunduh runtime. Proses berjalan di latar belakang.'
+      : 'Downloading runtime. Running in background.';
 
   // Plugin section
   String get vmPluginsTitle => isId ? 'Plugin' : 'Plugins';
@@ -495,9 +495,9 @@ class AppStrings {
       isId ? 'Pasang $name?' : 'Install $name?';
   String vmPluginConfirmBody(String name, int sizeMb) => isId
       ? '$name akan diunduh dan dipasang di dalam runtime. Estimasi $sizeMb MB. '
-            'Tetap di layar ini sampai selesai.'
+            'Proses berjalan di latar belakang.'
       : '$name will be downloaded and installed inside the runtime. '
-            'Estimated $sizeMb MB. Keep this screen open until done.';
+            'Estimated $sizeMb MB. Runs in the background.';
   String vmPluginInstallSuccess(String name) =>
       isId ? '$name terpasang.' : '$name installed.';
   String vmPluginInstallFailed(String name) =>

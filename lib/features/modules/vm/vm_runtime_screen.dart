@@ -30,12 +30,13 @@ class VmRuntimeScreen extends ConsumerStatefulWidget {
 class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
   bool _busy = false;
   final _installingPlugins = <String>{};
+  final _pluginProgress = <String, String>{};
   Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _checkStatus());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkAndReattach());
   }
 
   @override
@@ -69,20 +70,56 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
     _startPolling();
     final snapshot = await action();
     _pollTimer?.cancel();
+    if (!mounted) return;
     await ref.read(vmRuntimeRepositoryProvider).saveSnapshot(snapshot);
     ref.invalidate(vmRuntimeSnapshotProvider);
-    final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
-    final message = _statusMessage(snapshot, s);
-    if (mounted && message.isNotEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-    }
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _checkStatus() =>
-      _runRuntime(() => ref.read(vmRuntimeServiceProvider).status());
+  Future<void> _checkStatus() async {
+    final snapshot = await ref.read(vmRuntimeServiceProvider).status();
+    if (!mounted) return;
+    await ref.read(vmRuntimeRepositoryProvider).saveSnapshot(snapshot);
+    ref.invalidate(vmRuntimeSnapshotProvider);
+  }
+
+  /// On screen entry, check if a download is already in-flight (native side
+  /// still running). If so, re-enter the busy state and poll for progress.
+  Future<void> _checkAndReattach() async {
+    final snapshot = await ref.read(vmRuntimeServiceProvider).status();
+    if (!mounted) return;
+    await ref.read(vmRuntimeRepositoryProvider).saveSnapshot(snapshot);
+    ref.invalidate(vmRuntimeSnapshotProvider);
+    if (snapshot.status == VmRuntimeStatus.downloading ||
+        snapshot.status == VmRuntimeStatus.starting) {
+      setState(() => _busy = true);
+      _startPolling();
+      _awaitCompletion();
+    }
+  }
+
+  /// Poll until native status leaves downloading/starting, then finalize.
+  void _awaitCompletion() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) async {
+      if (!mounted) {
+        _pollTimer?.cancel();
+        return;
+      }
+      final snapshot = await ref.read(vmRuntimeServiceProvider).status();
+      if (!mounted) {
+        _pollTimer?.cancel();
+        return;
+      }
+      await ref.read(vmRuntimeRepositoryProvider).saveSnapshot(snapshot);
+      ref.invalidate(vmRuntimeSnapshotProvider);
+      if (snapshot.status != VmRuntimeStatus.downloading &&
+          snapshot.status != VmRuntimeStatus.starting) {
+        _pollTimer?.cancel();
+        if (mounted) setState(() => _busy = false);
+      }
+    });
+  }
 
   Future<void> _install() {
     const preset = VmRootfsPreset.defaultPreset;
@@ -121,7 +158,10 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
     );
     if (!confirmed || !mounted) return;
 
-    setState(() => _installingPlugins.add(plugin.id));
+    setState(() {
+      _installingPlugins.add(plugin.id);
+      _pluginProgress[plugin.id] = 'Downloading...';
+    });
     final repo = ref.read(vmRuntimeRepositoryProvider);
     await repo.savePluginState(
       VmPluginState(
@@ -131,6 +171,20 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
     );
     ref.invalidate(vmPluginStatesProvider);
 
+    // Poll for progress messages during installation.
+    final progressTimer = Timer.periodic(
+      const Duration(milliseconds: 800),
+      (_) async {
+        if (!mounted || !_installingPlugins.contains(plugin.id)) return;
+        final snapshot = await ref.read(vmRuntimeServiceProvider).status();
+        if (mounted && snapshot.message.isNotEmpty) {
+          setState(() => _pluginProgress[plugin.id] = snapshot.message);
+        }
+      },
+    );
+
+    setState(() => _pluginProgress[plugin.id] = 'Installing ${plugin.name}...');
+
     final result = await ref
         .read(vmRuntimeServiceProvider)
         .installPlugin(
@@ -138,9 +192,14 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
           installCommand: plugin.installCommand,
         );
 
+    progressTimer.cancel();
+
     // After install, probe to capture version output.
     var version = '';
     if (result.success) {
+      if (mounted) {
+        setState(() => _pluginProgress[plugin.id] = 'Verifying installation...');
+      }
       final probe = await ref
           .read(vmRuntimeServiceProvider)
           .probePlugin(
@@ -152,6 +211,12 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
       }
     }
 
+    final errorMessage = result.success
+        ? ''
+        : (result.message.isNotEmpty
+            ? result.message
+            : (result.stderr.isNotEmpty ? result.stderr : 'Unknown error'));
+
     await repo.savePluginState(
       VmPluginState(
         pluginId: plugin.id,
@@ -159,15 +224,28 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
             ? VmPluginStatus.installed
             : VmPluginStatus.error,
         version: version,
-        message: result.success ? '' : (result.message.isNotEmpty
-            ? result.message
-            : (result.stderr.isNotEmpty ? result.stderr : '')),
+        message: errorMessage,
       ),
     );
     ref.invalidate(vmPluginStatesProvider);
 
     if (!mounted) return;
-    setState(() => _installingPlugins.remove(plugin.id));
+    setState(() {
+      _installingPlugins.remove(plugin.id);
+      if (result.success) {
+        _pluginProgress[plugin.id] = 'Installed successfully';
+      } else {
+        _pluginProgress[plugin.id] = 'Failed: $errorMessage';
+      }
+    });
+
+    // Clear success message after a delay.
+    if (result.success) {
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _pluginProgress.remove(plugin.id));
+      });
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -264,6 +342,7 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
             s: s,
             canInstall: canManagePlugins,
             installingIds: _installingPlugins,
+            progressMessages: _pluginProgress,
             onInstall: _installPlugin,
           ),
         ],
@@ -458,12 +537,14 @@ class _PluginSection extends ConsumerWidget {
     required this.s,
     required this.canInstall,
     required this.installingIds,
+    required this.progressMessages,
     required this.onInstall,
   });
 
   final AppStrings s;
   final bool canInstall;
   final Set<String> installingIds;
+  final Map<String, String> progressMessages;
   final void Function(VmPlugin plugin) onInstall;
 
   @override
@@ -517,6 +598,7 @@ class _PluginSection extends ConsumerWidget {
             plugin: plugin,
             state: states[plugin.id],
             isInstalling: installingIds.contains(plugin.id),
+            progressMessage: progressMessages[plugin.id],
             canInstall: canInstall,
             onInstall: () => onInstall(plugin),
             s: s,
@@ -533,6 +615,7 @@ class _PluginRow extends StatelessWidget {
     required this.plugin,
     required this.state,
     required this.isInstalling,
+    this.progressMessage,
     required this.canInstall,
     required this.onInstall,
     required this.s,
@@ -541,6 +624,7 @@ class _PluginRow extends StatelessWidget {
   final VmPlugin plugin;
   final VmPluginState? state;
   final bool isInstalling;
+  final String? progressMessage;
   final bool canInstall;
   final VoidCallback onInstall;
   final AppStrings s;
@@ -553,6 +637,9 @@ class _PluginRow extends StatelessWidget {
     final installed = state?.status == VmPluginStatus.installed;
     final installButtonEnabled = canInstall && !isInstalling && !installed;
 
+    final hasFailed = state?.status == VmPluginStatus.error;
+    final showProgress = progressMessage != null && progressMessage!.isNotEmpty;
+
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -562,88 +649,168 @@ class _PluginRow extends StatelessWidget {
           color: isDark ? extras.subtleBorder : const Color(0xFFEAF0F8),
         ),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: plugin.accent.withValues(alpha: isDark ? 0.18 : 0.12),
-              borderRadius: BorderRadius.circular(15),
-              border: Border.all(color: extras.subtleBorder),
-            ),
-            alignment: Alignment.center,
-            child: Icon(plugin.icon, color: plugin.accent, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: plugin.accent.withValues(alpha: isDark ? 0.18 : 0.12),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: extras.subtleBorder),
+                ),
+                alignment: Alignment.center,
+                child: Icon(plugin.icon, color: plugin.accent, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(
-                        plugin.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: cs.onSurface,
-                          height: 1.1,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            plugin.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: cs.onSurface,
+                              height: 1.1,
+                            ),
+                          ),
                         ),
+                        if (installed && state!.version.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              state!.version,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      plugin.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurfaceVariant,
+                        height: 1.3,
                       ),
                     ),
-                    if (installed && state!.version.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      Flexible(
+                    const SizedBox(height: 4),
+                    Text(
+                      '~${plugin.estimatedSizeMb} MB',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              _PluginActionButton(
+                installed: installed,
+                isInstalling: isInstalling,
+                enabled: installButtonEnabled,
+                onPressed: installButtonEnabled ? onInstall : null,
+                s: s,
+              ),
+            ],
+          ),
+          if (showProgress || hasFailed) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: hasFailed && !isInstalling
+                    ? Colors.red.withValues(alpha: 0.08)
+                    : cs.primary.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (isInstalling) ...[
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: cs.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ] else if (hasFailed) ...[
+                        Icon(
+                          Icons.error_outline_rounded,
+                          size: 14,
+                          color: Colors.red.shade400,
+                        ),
+                        const SizedBox(width: 6),
+                      ] else ...[
+                        Icon(
+                          Icons.check_circle_outline_rounded,
+                          size: 14,
+                          color: Colors.green.shade400,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
                         child: Text(
-                          state!.version,
-                          maxLines: 1,
+                          showProgress
+                              ? progressMessage!
+                              : (state?.message ?? ''),
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
-                            color: cs.onSurfaceVariant,
+                            color: hasFailed && !isInstalling
+                                ? Colors.red.shade300
+                                : cs.onSurfaceVariant,
+                            height: 1.3,
                           ),
                         ),
                       ),
                     ],
+                  ),
+                  if (isInstalling) ...[
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        minHeight: 3,
+                        backgroundColor: cs.primary.withValues(alpha: 0.1),
+                        color: cs.primary,
+                      ),
+                    ),
                   ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  plugin.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurfaceVariant,
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '~${plugin.estimatedSizeMb} MB',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.85),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 10),
-          _PluginActionButton(
-            installed: installed,
-            isInstalling: isInstalling,
-            enabled: installButtonEnabled,
-            onPressed: installButtonEnabled ? onInstall : null,
-            s: s,
-          ),
+          ],
         ],
       ),
     );

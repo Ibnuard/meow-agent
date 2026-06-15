@@ -200,7 +200,11 @@ class _VmTerminalScreenState extends ConsumerState<VmTerminalScreen> {
                 controller: _scrollController,
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 8),
                 itemCount: _entries.length,
-                itemBuilder: (_, i) => _EntryView(entry: _entries[i]),
+                itemBuilder: (_, i) => _EntryView(
+                  entry: _entries[i],
+                  showCwd: i == 0 ||
+                      _entries[i].cwd != _entries[i - 1].cwd,
+                ),
               ),
             ),
             _PromptBar(
@@ -223,14 +227,15 @@ class _VmTerminalScreenState extends ConsumerState<VmTerminalScreen> {
 }
 
 class _EntryView extends StatelessWidget {
-  const _EntryView({required this.entry});
+  const _EntryView({required this.entry, this.showCwd = true});
 
   final _TerminalEntry entry;
+  final bool showCwd;
 
   static const _mono = TextStyle(
     fontFamily: 'monospace',
     fontSize: 12.5,
-    height: 1.35,
+    height: 1.4,
     color: Color(0xFFD9DEE6),
   );
 
@@ -238,90 +243,112 @@ class _EntryView extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasCommand = entry.command.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (hasCommand)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF111A2E),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-              ),
-              child: RichText(
-                text: TextSpan(
-                  style: _mono,
-                  children: [
-                    TextSpan(
-                      text: '${_truncCwd(entry.cwd)} ',
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12.5,
-                        color: Color(0xFF7DD3FC),
-                      ),
-                    ),
-                    const TextSpan(
-                      text: '\$ ',
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12.5,
-                        color: Color(0xFF34D399),
-                      ),
-                    ),
-                    TextSpan(text: entry.command),
-                  ],
+          if (showCwd && hasCommand)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(
+                _truncCwd(entry.cwd),
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: Color(0xFF4B8BBE),
                 ),
+              ),
+            ),
+          if (hasCommand)
+            RichText(
+              text: TextSpan(
+                style: _mono,
+                children: [
+                  const TextSpan(
+                    text: '❯ ',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF34D399),
+                    ),
+                  ),
+                  TextSpan(text: entry.command),
+                ],
               ),
             ),
           if (entry.running) ...[
-            const SizedBox(height: 6),
-            Row(
-              children: const [
-                SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 1.6,
-                    color: Color(0xFF7DD3FC),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  SizedBox(
+                    width: 10,
+                    height: 10,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.4,
+                      color: Color(0xFF7DD3FC),
+                    ),
                   ),
-                ),
-                SizedBox(width: 8),
-                Text(
-                  'running...',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 12,
-                    color: Color(0xFF94A3B8),
+                  SizedBox(width: 6),
+                  Text(
+                    'running...',
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11.5,
+                      color: Color(0xFF64748B),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
           if (entry.stdout.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            SelectableText(entry.stdout, style: _mono),
+            const SizedBox(height: 4),
+            Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.only(left: 10),
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Color(0xFF1E3A5F), width: 1.5),
+                ),
+              ),
+              child: SelectableText(entry.stdout, style: _mono),
+            ),
           ],
           if (entry.stderr.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            SelectableText(
-              entry.stderr,
-              style: _mono.copyWith(color: const Color(0xFFFCA5A5)),
+            const SizedBox(height: 4),
+            Container(
+              margin: const EdgeInsets.only(left: 8),
+              padding: const EdgeInsets.only(left: 10),
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Color(0xFF7F1D1D), width: 1.5),
+                ),
+              ),
+              child: SelectableText(
+                entry.stderr,
+                style: _mono.copyWith(color: const Color(0xFFFCA5A5)),
+              ),
             ),
           ],
           if (!entry.running &&
               entry.exitCode != null &&
               entry.exitCode != 0 &&
               hasCommand) ...[
-            const SizedBox(height: 4),
-            Text(
-              'exit ${entry.exitCode}',
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11,
-                color: Color(0xFFFCA5A5),
-                fontWeight: FontWeight.w700,
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Text(
+                'exit ${entry.exitCode}',
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 10.5,
+                  color: Color(0xFFFCA5A5),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
@@ -413,6 +440,22 @@ class _PromptBar extends StatelessWidget {
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => onSubmit(),
                     decoration: InputDecoration(
+                      prefixIcon: const Padding(
+                        padding: EdgeInsets.only(left: 12, right: 4),
+                        child: Text(
+                          '❯',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF34D399),
+                          ),
+                        ),
+                      ),
+                      prefixIconConstraints: const BoxConstraints(
+                        minWidth: 0,
+                        minHeight: 0,
+                      ),
                       hintText: busy ? '...' : s.vmTerminalHint,
                       hintStyle: const TextStyle(
                         fontFamily: 'monospace',
@@ -422,22 +465,22 @@ class _PromptBar extends StatelessWidget {
                       filled: true,
                       fillColor: const Color(0xFF111A2E),
                       contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
+                        horizontal: 12,
                         vertical: 12,
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(color: Color(0xFF1B2540)),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(
                           color: Color(0xFF3B82F6),
                           width: 1.4,
                         ),
                       ),
                       disabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(10),
                         borderSide: const BorderSide(color: Color(0xFF1B2540)),
                       ),
                     ),
@@ -447,14 +490,14 @@ class _PromptBar extends StatelessWidget {
               const SizedBox(width: 10),
               Material(
                 color: const Color(0xFF3B82F6),
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                   onTap: busy ? null : onSubmit,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 14,
+                      horizontal: 16,
+                      vertical: 12,
                     ),
                     child: busy
                         ? const SizedBox(

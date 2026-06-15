@@ -8,28 +8,34 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 
 /**
- * Foreground service that owns the lifetime of long-running VM operations
- * (rootfs download, plugin install, dev server). Without an FGS, Android may
- * kill these jobs mid-flight on doze or memory pressure.
- *
- * The service itself does not run proot — proot runs as a child process from
- * [VmRuntimeManager]. The service exists purely to keep the app process
- * alive long enough for those operations to complete.
+ * Foreground service that owns the lifetime of the persistent proot session
+ * and long-running VM operations (rootfs download, plugin install, dev server).
+ * Without an FGS + wake lock, Android may kill the proot process on doze or
+ * memory pressure.
  */
 class VmRuntimeService : Service() {
+
+    private var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
         ensureChannel()
+        acquireWakeLock()
+    }
+
+    override fun onDestroy() {
+        releaseWakeLock()
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val title = intent?.getStringExtra(EXTRA_TITLE) ?: "VM Runtime"
         val text = intent?.getStringExtra(EXTRA_TEXT)
-            ?: "Local Linux runtime is active."
+            ?: "Sesi Linux aktif."
         val notification = buildNotification(title, text)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -45,6 +51,19 @@ class VmRuntimeService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun acquireWakeLock() {
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "meow:vm_runtime_session"
+        ).apply { acquire() }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
+    }
+
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -52,7 +71,7 @@ class VmRuntimeService : Service() {
                 "VM Runtime",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps the local Linux runtime alive during long operations"
+                description = "Keeps the local Linux runtime session alive"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)

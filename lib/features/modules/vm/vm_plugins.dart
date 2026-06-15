@@ -105,6 +105,7 @@ class VmPluginCatalog {
     icon: Icons.flash_on_rounded,
     accent: Color(0xFFFBBF24),
     installCommand:
+        'apt-get update && apt-get install -y unzip curl && '
         'curl -fsSL https://bun.sh/install | bash && '
         'ln -sf "\$HOME/.bun/bin/bun" /usr/local/bin/bun',
     versionCommand: 'bun --version',
@@ -147,7 +148,7 @@ class VmPluginCatalog {
     icon: Icons.construction_rounded,
     accent: Color(0xFF64748B),
     installCommand:
-        'apt-get update && apt-get install -y build-essential curl ca-certificates',
+        'apt-get update && apt-get install -y build-essential',
     versionCommand: 'gcc --version',
     estimatedSizeMb: 180,
     tags: ['gcc', 'make', 'build', 'compiler', 'native'],

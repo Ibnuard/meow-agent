@@ -123,14 +123,35 @@ class VmModulePlugin extends ModulePlugin {
   }
 
   /// Build the `vm.list_plugins` payload from the curated catalog plus
-  /// persisted install state. The agent never sees opaque ids: each entry
-  /// includes name, description, tags, and install status.
+  /// persisted install state. For plugins with unknown status, do a live
+  /// probe to detect manual installs (e.g. via terminal).
   Future<ToolExecutionResult> _listPluginsResult(String toolName) async {
     final repo = VmRuntimeRepository();
+    final service = const VmRuntimeService();
     final states = await repo.readPluginStates();
-    final entries = VmPluginCatalog.available.map((plugin) {
-      final state = states[plugin.id];
-      return {
+    final entries = <Map<String, dynamic>>[];
+
+    for (final plugin in VmPluginCatalog.available) {
+      var state = states[plugin.id];
+      // Live-probe plugins with unknown/notInstalled status to catch
+      // manual installs done via the terminal.
+      if (state == null ||
+          state.status == VmPluginStatus.unknown ||
+          state.status == VmPluginStatus.notInstalled) {
+        final probe = await service.probePlugin(
+          pluginId: plugin.id,
+          versionCommand: plugin.versionCommand,
+        );
+        if (probe.success && probe.stdout.trim().isNotEmpty) {
+          state = VmPluginState(
+            pluginId: plugin.id,
+            status: VmPluginStatus.installed,
+            version: probe.stdout.trim(),
+          );
+          await repo.savePluginState(state);
+        }
+      }
+      entries.add({
         'id': plugin.id,
         'name': plugin.name,
         'description': plugin.description,
@@ -139,8 +160,8 @@ class VmModulePlugin extends ModulePlugin {
         'status': (state?.status ?? VmPluginStatus.unknown).wireName,
         if (state != null && state.version.isNotEmpty)
           'version': state.version,
-      };
-    }).toList(growable: false);
+      });
+    }
 
     return ToolExecutionResult(
       toolName: toolName,

@@ -36,6 +36,7 @@ import org.tukaani.xz.XZInputStream
 class VmRuntimeManager(private val context: Context) {
 
     private val mutex = Mutex()
+    private val sessionMutex = Mutex()
 
     // @Volatile so the UI can poll snapshot() during a long-running download
     // (which holds the mutex). The lock is only for serialising operations,
@@ -43,6 +44,12 @@ class VmRuntimeManager(private val context: Context) {
     @Volatile private var status: String = STATUS_UNKNOWN
     @Volatile private var lastMessage: String = ""
     @Volatile private var runtimeVersion: String = ""
+
+    // Persistent proot session fields.
+    @Volatile private var sessionProcess: Process? = null
+    private var sessionStdin: java.io.BufferedWriter? = null
+    private var sessionStdoutReader: Thread? = null
+    private val sessionOutputBuffer = java.util.concurrent.LinkedBlockingQueue<String>()
 
     private val rootfsDir: File
         get() = File(context.filesDir, "vm-runtime/rootfs")
@@ -276,6 +283,12 @@ class VmRuntimeManager(private val context: Context) {
             configureRootfs()
 
             workspaceDir.mkdirs()
+
+            // Bootstrap: install essential tools that plugins and apt/dpkg need.
+            // This runs once after extraction so individual plugin installs stay
+            // simple and don't each need to pull common dependencies.
+            lastMessage = "Installing base tools..."
+            bootstrapRootfs()
             runtimeVersion = version
             // Auto-promote to RUNNING. The user's mental model is
             // "Download → Done". A separate Start tap is power-user noise
@@ -297,18 +310,202 @@ class VmRuntimeManager(private val context: Context) {
         if (!isRootfsInstalled()) {
             return@withLock fail("Runtime is not installed. Tap Install Runtime first.")
         }
-        // Proot is invoked per-command, but we keep a "service running" flag so
-        // the UI reflects intent. A future iteration may keep a long-lived
-        // session via a PTY.
-        status = STATUS_RUNNING
-        lastMessage = ""
+        // If session already alive, just return running state.
+        if (sessionProcess?.isAlive == true) {
+            status = STATUS_RUNNING
+            lastMessage = ""
+            return@withLock snapshot()
+        }
+        try {
+            startSession()
+            status = STATUS_RUNNING
+            lastMessage = ""
+        } catch (e: Exception) {
+            return@withLock fail("Failed to start session: ${e.message}")
+        }
         snapshot()
     }
 
     suspend fun stop(): Map<String, Any?> = mutex.withLock {
+        stopSession()
         status = STATUS_STOPPED
         lastMessage = ""
         snapshot()
+    }
+
+    val isSessionAlive: Boolean
+        get() = sessionProcess?.isAlive == true
+
+    private fun startSession() {
+        configureRootfs()
+        workspaceDir.mkdirs()
+        val shellPath = shellPathInsideRootfs()
+            ?: throw IOException("Runtime shell was not found in rootfs.")
+
+        val pb = ProcessBuilder(
+            listOf(
+                linkerPath(),
+                stagedProot.absolutePath,
+                "-0",
+                "--link2symlink",
+                "--kill-on-exit",
+                "-r", rootfsDir.absolutePath,
+                "-w", "/root",
+                "-b", "/dev",
+                "-b", "/proc",
+                "-b", "/sys",
+                "-b", "${workspaceDir.absolutePath}:/root/workspace",
+                shellPath,
+            )
+        )
+        pb.environment().putAll(
+            mapOf(
+                "HOME" to "/root",
+                "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "TERM" to "xterm-256color",
+                "LANG" to "C.UTF-8",
+                "TMPDIR" to "/tmp",
+                "TMP" to "/tmp",
+                "TEMP" to "/tmp",
+                "DEBIAN_FRONTEND" to "noninteractive",
+                "DEBCONF_NONINTERACTIVE_SEEN" to "true",
+                "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
+                "PROOT_LOADER" to stagedLoader.absolutePath,
+                "PROOT_TMP_DIR" to context.cacheDir.absolutePath
+            )
+        )
+        pb.redirectErrorStream(true)
+
+        val process = pb.start()
+        sessionProcess = process
+        sessionStdin = process.outputStream.bufferedWriter()
+
+        // Background thread that reads stdout line-by-line and puts into queue.
+        sessionStdoutReader = Thread({
+            try {
+                val reader = process.inputStream.bufferedReader()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    sessionOutputBuffer.offer(line!!)
+                }
+            } catch (_: Exception) {
+                // Process died or stream closed.
+            } finally {
+                if (status == STATUS_RUNNING) {
+                    status = STATUS_ERROR
+                    lastMessage = "Session exited unexpectedly."
+                }
+            }
+        }, "proot-stdout-reader").also { it.isDaemon = true; it.start() }
+
+        // Wait briefly for shell to be ready.
+        Thread.sleep(200)
+        if (!process.isAlive) {
+            throw IOException("Proot process exited immediately.")
+        }
+    }
+
+    private fun stopSession() {
+        try {
+            sessionStdin?.write("exit\n")
+            sessionStdin?.flush()
+        } catch (_: Exception) {}
+
+        val proc = sessionProcess
+        if (proc != null) {
+            try { proc.waitFor(2, TimeUnit.SECONDS) } catch (_: Exception) {}
+            if (proc.isAlive) proc.destroyForcibly()
+        }
+        sessionProcess = null
+        sessionStdin = null
+        sessionStdoutReader?.interrupt()
+        sessionStdoutReader = null
+        sessionOutputBuffer.clear()
+    }
+
+    /**
+     * Run a command in the persistent session. Falls back to one-shot if
+     * session is not alive.
+     */
+    suspend fun runCommand(
+        command: String,
+        timeoutMs: Long
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        if (sessionProcess?.isAlive == true) {
+            return@withContext runCommandInSession(command, timeoutMs)
+        }
+        return@withContext runCommandOneShot(command, timeoutMs)
+    }
+
+    private suspend fun runCommandInSession(
+        command: String,
+        timeoutMs: Long
+    ): Map<String, Any?> = sessionMutex.withLock {
+        val marker = "___MEOW_END_${System.nanoTime()}___"
+        val stdin = sessionStdin
+            ?: return@withLock commandFail("Session stdin is not available.")
+
+        // Drain any leftover output from previous commands.
+        sessionOutputBuffer.clear()
+
+        try {
+            // Send the command followed by an end-marker echo.
+            stdin.write(command)
+            stdin.newLine()
+            stdin.write("__meow_exit=\$?; echo \"$marker \$__meow_exit\"")
+            stdin.newLine()
+            stdin.flush()
+        } catch (e: Exception) {
+            return@withLock commandFail("Failed to write command: ${e.message}")
+        }
+
+        // Collect output lines until marker appears or timeout.
+        val output = StringBuilder()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var exitCode = 0
+        var found = false
+
+        while (System.currentTimeMillis() < deadline) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) break
+            val line = sessionOutputBuffer.poll(
+                remaining.coerceAtMost(200),
+                TimeUnit.MILLISECONDS
+            )
+            if (line == null) {
+                // Check if process died.
+                if (sessionProcess?.isAlive != true) {
+                    return@withLock commandFail("Session process died during command execution.")
+                }
+                continue
+            }
+            if (line.startsWith(marker)) {
+                // Extract exit code from marker line.
+                val parts = line.removePrefix(marker).trim()
+                exitCode = parts.toIntOrNull() ?: 0
+                found = true
+                break
+            }
+            output.appendLine(line)
+        }
+
+        if (!found) {
+            return@withLock mapOf(
+                "success" to false,
+                "exit_code" to -1,
+                "stdout" to output.toString().trimEnd(),
+                "stderr" to "",
+                "message" to "Command timed out after ${timeoutMs}ms."
+            )
+        }
+
+        mapOf(
+            "success" to (exitCode == 0),
+            "exit_code" to exitCode,
+            "stdout" to output.toString().trimEnd(),
+            "stderr" to "",
+            "message" to ""
+        )
     }
 
     /**
@@ -398,6 +595,34 @@ class VmRuntimeManager(private val context: Context) {
         }
     }
 
+    /**
+     * Bootstrap essential tools after rootfs extraction. Runs once so that
+     * individual plugin installs don't each need to pull common dependencies.
+     * Failures here are non-fatal — we log and continue.
+     */
+    private suspend fun bootstrapRootfs() {
+        // Ensure /tmp exists inside rootfs (mktemp needs it).
+        val tmpDir = File(rootfsDir, "tmp")
+        if (!tmpDir.exists()) tmpDir.mkdirs()
+
+        val bootstrapCmd =
+            "export DEBIAN_FRONTEND=noninteractive && " +
+            "mkdir -p /tmp && chmod 1777 /tmp && " +
+            "apt-get update && " +
+            "apt-get install -y --no-install-recommends " +
+            "apt-utils ca-certificates curl wget unzip gnupg"
+
+        try {
+            val result = runCommand(bootstrapCmd, 300000) // 5 min timeout
+            val success = result["success"] as? Boolean ?: false
+            if (!success) {
+                Log.w(TAG, "Bootstrap non-fatal failure: ${result["stderr"]}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Bootstrap exception (non-fatal): ${e.message}")
+        }
+    }
+
     private fun shellPathInsideRootfs(): String? {
         return listOf(
             "/bin/sh" to File(rootfsDir, "bin/sh"),
@@ -410,20 +635,16 @@ class VmRuntimeManager(private val context: Context) {
     }
 
     /**
-     * Run a single shell command inside the chroot via proot.
-     *
-     * Returns a map with: success, exit_code, stdout, stderr, message.
+     * One-shot: spawn a fresh proot process, run command, wait, return.
+     * Used as fallback when session is not alive, and for bootstrap/install.
      */
-    suspend fun runCommand(
+    private suspend fun runCommandOneShot(
         command: String,
         timeoutMs: Long
     ): Map<String, Any?> = withContext(Dispatchers.IO) {
         if (!isRootfsInstalled()) {
             return@withContext commandFail("Runtime is not installed.")
         }
-        // Self-heal: existing installs predating the loader fix have rootfs
-        // but no loader. Re-stage the small proot/libtalloc debs (~500 KB)
-        // on demand instead of forcing the user to reinstall the rootfs.
         if (!binariesInstalled) {
             try {
                 mutex.withLock {
@@ -445,9 +666,9 @@ class VmRuntimeManager(private val context: Context) {
                 listOf(
                     linkerPath(),
                     stagedProot.absolutePath,
-                    // Fake-root inside the chroot so apt/dpkg/chown/chmod
-                    // succeed; without this, plugin installs fail with EPERM.
                     "-0",
+                    "--link2symlink",
+                    "--kill-on-exit",
                     "-r", rootfsDir.absolutePath,
                     "-w", "/root",
                     "-b", "/dev",
@@ -463,13 +684,12 @@ class VmRuntimeManager(private val context: Context) {
                     "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                     "TERM" to "xterm-256color",
                     "LANG" to "C.UTF-8",
-                    // proot needs libtalloc.so.2; we staged it in binDir under
-                    // that exact name so the dynamic linker resolves it.
+                    "TMPDIR" to "/tmp",
+                    "TMP" to "/tmp",
+                    "TEMP" to "/tmp",
+                    "DEBIAN_FRONTEND" to "noninteractive",
+                    "DEBCONF_NONINTERACTIVE_SEEN" to "true",
                     "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
-                    // proot's companion loader. The compile-time default
-                    // points to Termux's prefix (/data/data/com.termux/...),
-                    // which doesn't exist inside our app sandbox; without
-                    // this override, every exec inside the chroot fails.
                     "PROOT_LOADER" to stagedLoader.absolutePath,
                     "PROOT_TMP_DIR" to context.cacheDir.absolutePath
                 )
@@ -557,6 +777,12 @@ class VmRuntimeManager(private val context: Context) {
 
                 val name = parseName(header)
                 if (name.isEmpty()) continue
+                if (name.contains("PaxHeaders")) {
+                    val sz = if (String(header, 124, 12).trim().trim(' ').isEmpty()) 0L
+                             else String(header, 124, 12).trim().trim(' ').toLong(8)
+                    skipBytes(gz, paddedSize(sz))
+                    continue
+                }
 
                 val sizeOctal = String(header, 124, 12).trim().trim('\u0000')
                 val size = if (sizeOctal.isEmpty()) 0L else sizeOctal.toLong(8)
@@ -571,6 +797,10 @@ class VmRuntimeManager(private val context: Context) {
                 }
 
                 when (typeFlag) {
+                    'x', 'g' -> {
+                        // PAX extended headers — skip, don't extract.
+                        skipBytes(gz, paddedSize(size))
+                    }
                     '5' -> outPath.mkdirs()
                     '2' -> {
                         outPath.parentFile?.mkdirs()
@@ -612,7 +842,7 @@ class VmRuntimeManager(private val context: Context) {
                         }
                     }
                 }
-                if (typeFlag != '5' && typeFlag != '2' && typeFlag != '1') {
+                if (typeFlag != '5' && typeFlag != '2' && typeFlag != '1' && typeFlag != 'x' && typeFlag != 'g') {
                     val padding = paddedSize(size) - size
                     skipBytes(gz, padding)
                 }

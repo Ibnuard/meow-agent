@@ -46,15 +46,24 @@ class VmRuntimePlugin(private val context: Context) :
                     val snapshot = manager.downloadRootfs(url, sha256, version) { stage ->
                         updateNotification("Installing runtime", stage)
                     }
+                    val success = snapshot["status"] != "error"
+                    if (success) {
+                        updateNotification("VM Runtime", "Runtime siap digunakan.")
+                    } else {
+                        updateNotification("VM Runtime", "Gagal install runtime.")
+                    }
                     withContext(Dispatchers.Main) { result.success(snapshot) }
+                    // Keep completion notification visible briefly before stopping.
+                    kotlinx.coroutines.delay(3000)
                     stopService()
                 }
             }
             "start" -> {
-                startService("VM Runtime", "Linux runtime is active.")
+                startService("VM Runtime", "Sesi Linux aktif.")
                 scope.launch {
                     val snapshot = manager.start()
                     withContext(Dispatchers.Main) { result.success(snapshot) }
+                    // Keep FGS alive — don't stop it here.
                 }
             }
             "stop" -> {
@@ -91,7 +100,14 @@ class VmRuntimePlugin(private val context: Context) :
                 startService("Installing $pluginId", "This may take a few minutes.")
                 scope.launch {
                     val payload = manager.installPlugin(pluginId, installCommand, timeout)
+                    val success = payload["success"] as? Boolean ?: false
+                    if (success) {
+                        updateNotification("Plugin Installed", "$pluginId berhasil dipasang.")
+                    } else {
+                        updateNotification("Plugin Failed", "Gagal memasang $pluginId.")
+                    }
                     withContext(Dispatchers.Main) { result.success(payload) }
+                    kotlinx.coroutines.delay(3000)
                     stopService()
                 }
             }
