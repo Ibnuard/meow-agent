@@ -42,7 +42,7 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
 
     <application
-        android:label="meow_agent"
+        android:label="Meow Agent"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:extractNativeLibs="true">
