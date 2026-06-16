@@ -664,6 +664,12 @@ class TargetResolver {
         request: request,
       );
 
+      resolved = _guardAgentReadTarget(
+        resolved: resolved,
+        request: request,
+        activeAgentId: activeAgentId,
+      );
+
       if (_requiresSnapshotTarget(entityType, operation) &&
           resolved.entityId.isEmpty) {
         final nearMatch = SnapshotTargetResolver.resolve(
@@ -772,6 +778,71 @@ class TargetResolver {
       status: ResolvedTargetStatus.missing,
       reason: 'agent_path_target_not_found',
       selector: selector,
+    );
+  }
+
+  /// Guard non-destructive agent READ targets against silent cross-turn bleed.
+  ///
+  /// The reflector can emit an agent label that leaked from a PRIOR turn (e.g.
+  /// the user deleted "agent C" and listed peers last turn, then asks "what is
+  /// your personality?" this turn). An exact snapshot match on that stale label
+  /// fills [resolved.entityId] and short-circuits every downstream safety net,
+  /// silently answering about the wrong agent.
+  ///
+  /// Scope is deliberately narrow — this only touches the SILENT path:
+  /// - Read-only ops only (read/get/list). Destructive ops (delete/update/...)
+  ///   already pass through a user confirmation gate, so a wrong target there
+  ///   is visible and correctable; we must not downgrade a legitimately
+  ///   reflector-resolved delete.
+  /// - Bulk/predicate targets are skipped — those are fanned out by the runtime
+  ///   from live snapshot state, not from a model-supplied label, so they are
+  ///   trustworthy.
+  ///
+  /// When a read target is NOT the active agent and the literal user message
+  /// does NOT name it, the label leaked from history → rebind to the active
+  /// agent (a pronoun/self question like "your personality" is about the
+  /// current agent). This mirrors the proven check already used for
+  /// peer-agent FILE paths in [_resolvePeerAgentPathTarget].
+  static ResolvedTarget _guardAgentReadTarget({
+    required ResolvedTarget resolved,
+    required AgentRuntimeRequest request,
+    required String activeAgentId,
+  }) {
+    if (resolved.entityType != 'agent') return resolved;
+    if (resolved.entityId.isEmpty) return resolved;
+    if (!resolved.isEligible) return resolved;
+    // Only the silent read path is guarded — see doc above.
+    if (!_isReadOnlyOperation(resolved.operation)) return resolved;
+    // Runtime-fanned bulk/predicate targets are trustworthy, not leaked labels.
+    if (_isBulkSelector(resolved.selector) ||
+        _isPredicateSelector(resolved.selector)) {
+      return resolved;
+    }
+    // Already pinned to the active agent upstream — nothing to guard.
+    if (resolved.selector['resolved_reference'] == 'current_agent') {
+      return resolved;
+    }
+    if (activeAgentId.isEmpty) return resolved;
+    if (resolved.entityId == activeAgentId) return resolved;
+
+    final userNamedExactAgent = TargetReferenceUtils.messageMentionsExactAgent(
+      request.userMessage,
+      resolved.entityLabel,
+    );
+    if (userNamedExactAgent) return resolved;
+
+    // A self-ish read with a target the user did not name this turn → the
+    // label leaked from history. Bind to the active agent.
+    return resolved.copyWith(
+      entityId: activeAgentId,
+      entityLabel: request.agentName.isNotEmpty
+          ? request.agentName
+          : resolved.entityLabel,
+      selector: {
+        ...resolved.selector,
+        'resolved_reference': 'current_agent',
+        'rebound_from': resolved.entityLabel,
+      },
     );
   }
 

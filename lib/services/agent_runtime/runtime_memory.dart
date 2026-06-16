@@ -4,9 +4,19 @@
 /// Reviewer compresses tool data into natural replies (losing IDs and
 /// structured fields), so without this memory the planner cannot reference
 /// prior tool output (e.g. "delete that note", "open the one I just found").
+///
+/// Entries persist across turns but are SCOPED BY RECENCY when surfaced into
+/// prompts (see [formatForPrompt]): a result from a task minutes ago is a
+/// useful reuse candidate ("the note I just found"); one from hours ago is
+/// stale and only invites context bleed, so it is not injected.
 class RuntimeMemory {
   /// Max tool results to keep per agent. Older entries are dropped FIFO.
   static const int maxEntries = 8;
+
+  /// How recent a tool result must be to surface into analyzer/selector
+  /// prompts. Older entries stay recorded (so explicit lookups can still find
+  /// them) but are not injected as ambient reuse candidates.
+  static const Duration promptRelevanceWindow = Duration(minutes: 30);
 
   /// agentId → ordered list of tool result entries (oldest first).
   final Map<String, List<ToolMemoryEntry>> _byAgent = {};
@@ -52,13 +62,21 @@ class RuntimeMemory {
 
   /// Build a compact string block describing recent tool results for prompts.
   /// Returns empty string if no entries.
-  String formatForPrompt(String agentId) {
+  ///
+  /// Only entries within [promptRelevanceWindow] are surfaced — a stale result
+  /// from a finished task hours ago must not re-anchor an unrelated new turn.
+  /// Pass [now] for deterministic testing.
+  String formatForPrompt(String agentId, {DateTime? now}) {
     final entries = _byAgent[agentId];
     if (entries == null || entries.isEmpty) return '';
 
+    final cutoff = (now ?? DateTime.now()).subtract(promptRelevanceWindow);
+    final fresh = entries.where((e) => e.at.isAfter(cutoff)).toList();
+    if (fresh.isEmpty) return '';
+
     final buf = StringBuffer();
-    for (var i = 0; i < entries.length; i++) {
-      final e = entries[i];
+    for (var i = 0; i < fresh.length; i++) {
+      final e = fresh[i];
       buf.writeln(
         '[${i + 1}] ${e.toolName} '
         '(${e.success ? 'success' : 'failed'}) '

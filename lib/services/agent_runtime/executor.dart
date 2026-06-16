@@ -23,6 +23,7 @@ class Executor {
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
     required RuntimeLogger logger,
+    String userMessage = '',
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
@@ -35,6 +36,7 @@ class Executor {
       currentStep: currentStep,
       previousResults: previousResults,
       availableTools: availableTools,
+      userMessage: userMessage,
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
       goalTree: goalTree,
@@ -56,6 +58,8 @@ class Executor {
     String language = 'English',
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) async {
     final prompt = PromptTemplates.reviewPrompt(
       result: result,
@@ -65,6 +69,8 @@ class Executor {
       language: language,
       goalTree: goalTree,
       recentMessages: recentMessages,
+      agentName: agentName,
+      agentId: agentId,
     );
 
     return _caller.call(prompt, 'review', logger);

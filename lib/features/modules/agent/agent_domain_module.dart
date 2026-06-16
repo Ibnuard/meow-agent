@@ -1,6 +1,8 @@
+import '../../../core/storage/agent_repository.dart' as core_agents;
 import '../../../core/storage/agent_soul_repository.dart';
 import '../../../services/agent_runtime/module_plugin.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/agent_runtime/target_reference_utils.dart';
 
 /// Domain tool module for agent CRUD operations.
 ///
@@ -387,21 +389,47 @@ class AgentDomainModulePlugin extends ModulePlugin {
       );
     }
 
-    final name = (request.args['name'] ?? '').toString().trim();
-    if (name.isEmpty) {
-      return ToolExecutionResult(
-        success: false,
-        toolName: request.name,
-        error: 'Agent name is required.',
-      );
-    }
+    final requestedName = (request.args['name'] ?? '').toString().trim();
 
-    final agent = await repo.getByName(name);
+    // Self-resolution guard.
+    //
+    // "What is your personality?" maps to agent.soul.read(name: "<self>"), but
+    // the model can supply a stale peer name leaked from a prior turn, an empty
+    // value, or the agent's UUID (when no display name was set). In all of
+    // those cases we must read the CURRENT agent's soul unless the user clearly
+    // named a different existing agent in their literal message. This keeps an
+    // identity question pinned to the active agent instead of echoing a peer.
+    final selfId = ctx.agentId.trim();
+    final selfName = ctx.agentName.trim();
+    final userNamedThisAgent = requestedName.isNotEmpty &&
+        TargetReferenceUtils.messageMentionsExactAgent(
+          ctx.currentUserMessage,
+          requestedName,
+        );
+    final looksLikeSelfReference = requestedName.isEmpty ||
+        TargetReferenceUtils.isCurrentAgentReference(requestedName) ||
+        (selfId.isNotEmpty && requestedName == selfId) ||
+        (selfName.isNotEmpty &&
+            requestedName.toLowerCase() == selfName.toLowerCase());
+
+    // Resolve the target agent. Prefer an explicit, user-named peer; otherwise
+    // fall back to the active agent by id.
+    final agent = await _resolveSoulTarget(
+      repo: repo,
+      requestedName: requestedName,
+      selfId: selfId,
+      userNamedThisAgent: userNamedThisAgent,
+      looksLikeSelfReference: looksLikeSelfReference,
+    );
+
     if (agent == null) {
+      final label = requestedName.isEmpty ? selfName : requestedName;
       return ToolExecutionResult(
         success: false,
         toolName: request.name,
-        error: 'Agent "$name" not found.',
+        error: label.isEmpty
+            ? 'Agent not found.'
+            : 'Agent "$label" not found.',
       );
     }
 
@@ -412,6 +440,7 @@ class AgentDomainModulePlugin extends ModulePlugin {
       data: {
         'agent_id': agent.id,
         'agent_name': agent.name,
+        'is_self': agent.id == selfId,
         'user_name': soul?.userName ?? '',
         'user_nickname': soul?.userNickname ?? '',
         'persona': soul?.persona ?? '',
@@ -423,6 +452,33 @@ class AgentDomainModulePlugin extends ModulePlugin {
         'timezone': soul?.timezone ?? '',
       },
     );
+  }
+
+  /// Resolve which agent's soul to read, with self as the safe default.
+  ///
+  /// See [_soulRead] for the rationale. Extracted so the conditional cascade
+  /// keeps type inference on the repository's `Agent` return type.
+  Future<core_agents.Agent?> _resolveSoulTarget({
+    required core_agents.AgentRepository repo,
+    required String requestedName,
+    required String selfId,
+    required bool userNamedThisAgent,
+    required bool looksLikeSelfReference,
+  }) async {
+    if (userNamedThisAgent && !looksLikeSelfReference) {
+      return repo.getByName(requestedName);
+    }
+    if (looksLikeSelfReference && selfId.isNotEmpty) {
+      return repo.getById(selfId);
+    }
+    if (requestedName.isNotEmpty) {
+      // A concrete name the user did not echo this turn — try it, but fall
+      // back to self rather than failing a self-ish identity question.
+      return await repo.getByName(requestedName) ??
+          (selfId.isNotEmpty ? await repo.getById(selfId) : null);
+    }
+    if (selfId.isNotEmpty) return repo.getById(selfId);
+    return null;
   }
 
   Future<ToolExecutionResult> _list(

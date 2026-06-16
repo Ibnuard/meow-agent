@@ -92,6 +92,17 @@ class ExecuteLoopRunner {
     ToolCallRequest? lastDeliveryTool;
     ToolExecutionResult? lastDeliveryResult;
 
+    // Deterministic narrative de-duplication.
+    //
+    // The select/review prompts instruct the model to "never repeat the same
+    // narrative", but that is a soft rule a weak model ignores — producing the
+    // visible looping where the same "thinking" line is emitted every step.
+    // We enforce it in code: keep the recently emitted narratives for THIS
+    // turn and suppress a new one that is identical or near-identical to a
+    // recent one. Bounded to the last few so legitimately revisiting a phase
+    // much later is still allowed.
+    final recentNarratives = <String>[];
+
     // Conversation history snapshot (latest 20, chronological).
     // Provider-error sentinel messages are stripped first — they describe a
     // past connection failure, not real conversational context, and must not
@@ -176,6 +187,7 @@ class ExecuteLoopRunner {
         previousResults: previousResults,
         availableTools: availableTools,
         logger: logger,
+        userMessage: request.userMessage,
         recentToolMemory: memorySnapshot,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         goalTree: goalTree,
@@ -220,6 +232,8 @@ class ExecuteLoopRunner {
             rethink: rethink,
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
+            initialPreviousResults: previousResults,
+            initialStep: currentStep,
             nullSelectionRecoveryCount: nullSelectionRecoveryCount + 1,
           );
         }
@@ -247,7 +261,9 @@ class ExecuteLoopRunner {
           'decision': status,
         });
       }
-      if (selectNarrative.isNotEmpty) {
+      if (selectNarrative.isNotEmpty &&
+          !_isDuplicateNarrative(selectNarrative, recentNarratives)) {
+        _rememberNarrative(selectNarrative, recentNarratives);
         logger.logNarrative('select_tool', selectNarrative);
         emit(logger.events.last);
         // Realtime narrator surface for app agent automation only.
@@ -299,6 +315,27 @@ class ExecuteLoopRunner {
             return fail(
               _runtimePhrase('runtime_tool_selection_missing'),
               logger,
+            );
+          }
+
+          // Even AFTER a tool has run, a selector that keeps oscillating
+          // done/tool re-narrates every pass and burns the budget. Bound it:
+          // 3+ premature-done overrides means the selector cannot converge —
+          // synthesize from what we have instead of looping to exhaustion.
+          if (prematureDoneCount >= 3) {
+            logger.logError(
+              'Selector oscillated on status=done $prematureDoneCount times '
+              'after executing $toolsExecutedSoFar tool(s). Stopping the loop '
+              'and synthesizing from available results.',
+            );
+            return await _finishFromResults(
+              request: request,
+              previousResults: previousResults,
+              goalTree: goalTree,
+              verbalizer: verbalizer,
+              detectedLang: detectedLang,
+              logger: logger,
+              emit: emit,
             );
           }
 
@@ -406,6 +443,8 @@ class ExecuteLoopRunner {
             rethink: rethink,
             autoApproveSensitive: autoApproveSensitive,
             isWorkflowAutoExecute: isWorkflowAutoExecute,
+            initialPreviousResults: previousResults,
+            initialStep: currentStep,
           );
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -444,6 +483,8 @@ class ExecuteLoopRunner {
               rethink: rethink,
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
+              initialPreviousResults: previousResults,
+              initialStep: currentStep,
             );
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -487,8 +528,14 @@ class ExecuteLoopRunner {
           }
         }
 
-        // Stuck detection.
-        if (stuck.observe(toolName: toolRequest.name, args: toolRequest.args)) {
+        // Stuck detection (semantic — keys on tool + target entity so a
+        // selector that loops on the same target while tweaking incidental
+        // args still trips).
+        if (stuck.observe(
+          toolName: toolRequest.name,
+          args: toolRequest.args,
+          target: _targetFromArgs(toolRequest.args),
+        )) {
           if (!rePlanned) {
             rePlanned = true;
             stuck.reset();
@@ -529,6 +576,8 @@ class ExecuteLoopRunner {
               rethink: rethink,
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
+              initialPreviousResults: previousResults,
+              initialStep: currentStep,
             );
           }
           final abortMsg =
@@ -900,6 +949,8 @@ class ExecuteLoopRunner {
                   rethink: rethink,
                   autoApproveSensitive: autoApproveSensitive,
                   isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  initialPreviousResults: previousResults,
+                  initialStep: currentStep,
                 );
               }
               await _taskScope.finishScopeForRequest(
@@ -1020,6 +1071,10 @@ class ExecuteLoopRunner {
           language: detectedLang.label,
           goalTree: goalTree,
           recentMessages: loopRecentMsgs,
+          agentName: request.agentName.isNotEmpty
+              ? request.agentName
+              : request.agentId,
+          agentId: request.agentId,
         );
         emit(logger.events.last);
 
@@ -1065,7 +1120,9 @@ class ExecuteLoopRunner {
               'decision': reviewStatus,
             });
           }
-          if (reviewNarrative.isNotEmpty) {
+          if (reviewNarrative.isNotEmpty &&
+              !_isDuplicateNarrative(reviewNarrative, recentNarratives)) {
+            _rememberNarrative(reviewNarrative, recentNarratives);
             logger.logNarrative('review', reviewNarrative);
             emit(logger.events.last);
             // Surface review narrative on the overlay only if the just-
@@ -1182,7 +1239,7 @@ class ExecuteLoopRunner {
             previousResults.add({
               'step': currentStep,
               'tool': toolRequest.name,
-              'result': result.data,
+              'result': _shrinkResult(result.data),
               'note':
                   'Reviewer status=done overridden because subgoals remain.',
             });
@@ -1336,6 +1393,8 @@ class ExecuteLoopRunner {
               rethink: rethink,
               autoApproveSensitive: autoApproveSensitive,
               isWorkflowAutoExecute: isWorkflowAutoExecute,
+              initialPreviousResults: previousResults,
+              initialStep: currentStep,
             );
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -1351,7 +1410,7 @@ class ExecuteLoopRunner {
           previousResults.add({
             'step': currentStep,
             'tool': toolRequest.name,
-            'result': result.data,
+            'result': _shrinkResult(result.data),
             'retried': true,
           });
           continue;
@@ -1360,7 +1419,7 @@ class ExecuteLoopRunner {
         previousResults.add({
           'step': currentStep,
           'tool': toolRequest.name,
-          'result': result.data,
+          'result': _shrinkResult(result.data),
         });
         currentStep++;
         retryCount = 0;
@@ -1478,6 +1537,92 @@ class ExecuteLoopRunner {
     );
   }
 
+  /// How many recently-emitted narratives to remember for de-duplication.
+  static const int _narrativeMemoryWindow = 4;
+
+  /// True when [candidate] is identical or near-identical to a recently
+  /// emitted narrative. Near-identical means the normalized text matches, or
+  /// one is a prefix/substring of the other (catches the common case where the
+  /// model re-emits the same line with a trailing tweak).
+  static bool _isDuplicateNarrative(
+    String candidate,
+    List<String> recent,
+  ) {
+    final norm = _normalizeNarrative(candidate);
+    if (norm.isEmpty) return false;
+    for (final prior in recent) {
+      if (prior == norm) return true;
+      if (norm.length >= 12 &&
+          (prior.contains(norm) || norm.contains(prior))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static void _rememberNarrative(String narrative, List<String> recent) {
+    final norm = _normalizeNarrative(narrative);
+    if (norm.isEmpty) return;
+    recent.add(norm);
+    if (recent.length > _narrativeMemoryWindow) {
+      recent.removeAt(0);
+    }
+  }
+
+  static String _normalizeNarrative(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Extract a stable target identifier from tool args for semantic stuck
+  /// detection. Returns the first present id/name-like field; empty when none
+  /// (caller then falls back to full-arg matching). Generic across domains —
+  /// covers the common id/name/target/path/package/url keys.
+  static String _targetFromArgs(Map<String, dynamic> args) {
+    const keys = [
+      'id',
+      'agent_id',
+      'agentId',
+      'name',
+      'agent_name',
+      'agentName',
+      'target',
+      'node_id',
+      'nodeId',
+      'path',
+      'package',
+      'url',
+      'title',
+      'query',
+    ];
+    for (final k in keys) {
+      final v = args[k];
+      if (v is String && v.trim().isNotEmpty) return '$k=${v.trim()}';
+    }
+    return '';
+  }
+
+  /// Compact a tool result before it is appended to [previousResults] and
+  /// re-serialized into the selector prompt every iteration. Without this the
+  /// accumulated context grows unbounded, inflating tokens and increasing the
+  /// chance the model re-derives the same action/narrative. Long strings are
+  /// truncated and long lists are capped — enough survives for the selector to
+  /// reference IDs/names, but the prompt stays bounded.
+  static Map<String, dynamic>? _shrinkResult(Map<String, dynamic>? data) {
+    if (data == null) return null;
+    final out = <String, dynamic>{};
+    data.forEach((k, v) {
+      if (v is String && v.length > 600) {
+        out[k] = '${v.substring(0, 600)}…(+${v.length - 600} chars)';
+      } else if (v is List && v.length > 10) {
+        out[k] = [...v.take(10), '…(+${v.length - 10} more)'];
+      } else {
+        out[k] = v;
+      }
+    });
+    return out;
+  }
+
   /// Check if the tool result warrants answering directly vs. going through the
   /// full review pipeline.
   bool shouldAnswerFromToolResult({
@@ -1577,6 +1722,53 @@ class ExecuteLoopRunner {
         params: {'moduleId': moduleId},
       ),
     ];
+  }
+
+  /// Synthesize a final response from accumulated results when the selector
+  /// oscillates and cannot converge. Mirrors the completed-tree path but does
+  /// not require a live tool result (we are in the select branch).
+  Future<AgentRuntimeResponse> _finishFromResults({
+    required AgentRuntimeRequest request,
+    required List<Map<String, dynamic>> previousResults,
+    required GoalTree goalTree,
+    required ToolVerbalizer verbalizer,
+    required DetectedLanguage detectedLang,
+    required RuntimeLogger logger,
+    required void Function(RuntimeEvent) emit,
+  }) async {
+    final terminalSubgoals = goalTree.isEmpty
+        ? const <Subgoal>[]
+        : goalTree.subgoals
+              .where(
+                (s) =>
+                    s.status == SubgoalStatus.done ||
+                    s.status == SubgoalStatus.failed ||
+                    s.status == SubgoalStatus.skipped,
+              )
+              .toList(growable: false);
+    final finalMsg = terminalSubgoals.isNotEmpty
+        ? await verbalizer.taskSummary(
+            mainGoal: goalTree.mainGoal,
+            completedSubgoals: terminalSubgoals
+                .map((s) => _subgoalToSummary(s))
+                .toList(growable: false),
+            language: detectedLang,
+          )
+        : await verbalizer.abort(
+            reason: 'selector could not converge on a final answer',
+            language: detectedLang,
+          );
+    logger.logFinalResponse(finalMsg);
+    await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+    AppAgentOverlayService.hide();
+    return AgentRuntimeResponse(
+      finalMessage: finalMsg,
+      success: terminalSubgoals.isNotEmpty,
+      state: terminalSubgoals.isNotEmpty
+          ? AgentRuntimeState.done
+          : AgentRuntimeState.failed,
+      events: logger.events,
+    );
   }
 
   /// Build the final user-facing message when the goal tree completes.

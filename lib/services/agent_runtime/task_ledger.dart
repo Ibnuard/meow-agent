@@ -304,9 +304,18 @@ class TaskLedgerDatabase {
   /// Look up the ACTIVE ledger for an (agent, source) pair, if any.
   /// At most one is expected per scope — DB does not enforce uniqueness so
   /// the runtime is responsible for resolving conflicts via clarify.
+  ///
+  /// [maxAge] guards against a stale "ghost task": a ledger parked long ago
+  /// (user walked away mid-task, never resumed) must not silently re-anchor an
+  /// unrelated new turn hours later. An active ledger older than [maxAge] is
+  /// auto-archived (aborted) and treated as absent. Defaults to null (no age
+  /// guard) so lifecycle callers (archive, restore-pending-confirmation) keep
+  /// exact behavior; the engine opts in at the context-building call where the
+  /// bleed actually happens.
   Future<TaskLedger?> findActive({
     required String agentId,
     required LedgerSource source,
+    Duration? maxAge,
   }) async {
     final db = await database;
     final rows = await db.query(
@@ -317,7 +326,19 @@ class TaskLedgerDatabase {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return _fromRow(rows.first);
+    final ledger = _fromRow(rows.first);
+    if (maxAge != null) {
+      final age = DateTime.now().difference(ledger.updatedAt);
+      if (age > maxAge) {
+        // Soft-archive the stale ledger so it stops resurfacing, then report
+        // no active task. The new turn starts clean.
+        ledger.status = LedgerStatus.aborted;
+        ledger.completedAt = DateTime.now();
+        await upsert(ledger);
+        return null;
+      }
+    }
+    return ledger;
   }
 
   Future<TaskLedger?> findById(String id) async {

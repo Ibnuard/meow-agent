@@ -121,6 +121,7 @@ ${PromptConstants.planResponseFormat}''';
     required int currentStep,
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
+    String userMessage = '',
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
@@ -165,10 +166,22 @@ ${PromptConstants.planResponseFormat}''';
               'original text that builds on the history (do not just resend '
               'it). In BOTH cases stay grounded — never invent items, names, '
               'numbers, or facts that are not present in the history above.\n';
+    // The literal current instruction is the authoritative source of intent.
+    // The execution plan and history below are DERIVED and may paraphrase or
+    // carry entities from prior turns. When they conflict with the words the
+    // user actually just typed, the literal instruction wins — this is what
+    // keeps the selector pinned to the current request instead of drifting to
+    // a prior-turn entity/goal.
+    final literalInstructionBlock = userMessage.trim().isEmpty
+        ? ''
+        : '\nLITERAL CURRENT INSTRUCTION (authoritative — this is exactly what '
+              'the user just asked; prefer the entities, target, and intent '
+              'named HERE over anything in the plan, history, or memory below '
+              'when they conflict):\n"$userMessage"\n';
     return '''${PromptConstants.selectToolIntro}
 ${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 ${PromptConstants.policyMinimal}
-
+$literalInstructionBlock
 ${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
@@ -192,7 +205,12 @@ ${PromptConstants.selectToolResponseFormat}''';
     String language = 'English',
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) {
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final goalBlock = goalTree == null || goalTree.isEmpty
         ? ''
         : '\nGoal tree state (BEFORE this review):\n${goalTree.toCompactString()}\n'
@@ -215,7 +233,7 @@ ${PromptConstants.selectToolResponseFormat}''';
         ? '${PromptConstants.appAgenticReviewRules}\n\n'
         : '';
     return '''${PromptConstants.reviewIntro}
-
+$selfIdentityBlock
 ${PromptConstants.policyGround}
 
 ${PromptConstants.policyRecover}

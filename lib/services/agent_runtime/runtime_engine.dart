@@ -384,6 +384,12 @@ class AgentRuntimeEngine {
         source: request.source == RequestSource.workflow
             ? LedgerSource.workflow
             : LedgerSource.chat,
+        // Age guard: a task parked for hours must not silently re-anchor an
+        // unrelated new turn. Workflows run unattended on a schedule, so the
+        // guard only applies to interactive chat ledgers.
+        maxAge: request.source == RequestSource.workflow
+            ? null
+            : const Duration(hours: 6),
       );
       String activeTaskContext = '';
       if (activeLedger != null) {
@@ -543,8 +549,14 @@ class AgentRuntimeEngine {
         if (relation == 'none' &&
             pendingDecision != ConfirmationDecision.confirmed &&
             pendingDecision != ConfirmationDecision.rejected &&
-            pendingDecision != ConfirmationDecision.previewOnly &&
-            analysis['requires_tools'] == true) {
+            pendingDecision != ConfirmationDecision.previewOnly) {
+          // The analyzer classified the new message as unrelated to the active
+          // task ("none"). Regardless of whether it needs tools, that means the
+          // prior task must NOT stay in focus — promote to new_task so the
+          // stale scope is archived and activeTaskContext is dropped from every
+          // downstream prompt. (Previously this only fired when
+          // requires_tools==true, leaving a no-tools follow-up anchored to the
+          // old goal — a context-bleed channel.)
           relation = 'new_task';
         }
         // For continuation/revision the agent is resuming a persisted multi-step
@@ -744,6 +756,8 @@ class AgentRuntimeEngine {
           language: detectedLang,
           logger: logger,
           recentMessages: recentMsgs,
+          agentName: wsName,
+          agentId: request.agentId,
         );
         final targetResolution = TargetResolver.resolveReflection(
           reflection: reflection,
@@ -1016,6 +1030,8 @@ class AgentRuntimeEngine {
             language: detectedLang,
             logger: logger,
             recentMessages: recentMsgs,
+            agentName: wsName,
+            agentId: request.agentId,
           );
           // Resolve targets from the fresh reflection so the planner LLM and
           // the goal-tree fan-out fallback both see the snapshot-matched

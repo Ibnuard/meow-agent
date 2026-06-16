@@ -161,6 +161,109 @@ void main() {
       expect(result.reflection.strategy, ReflectionStrategy.directExecute);
     });
 
+    test(
+      'read of a peer agent NOT named this turn rebinds to the active agent '
+      '(context-bleed guard)',
+      () {
+        // Simulates the reported bug: a prior turn surfaced "Agent A", then the
+        // user asks "what is your personality?" and the reflector leaks the
+        // stale "Agent A" label as the read target. The user did not name
+        // Agent A this turn, so the runtime must answer about the active agent.
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'read personality',
+            subgoals: [Subgoal(id: 'sg_read', label: 'read personality')],
+          ),
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg_read',
+              operation: 'read',
+              entityType: 'agent',
+              entityId: 'agent_a',
+              entityLabel: 'Agent A',
+            ),
+          ],
+        );
+
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot(),
+          request: request(userMessage: 'apa kepribadian kamu?'),
+          language: language,
+        );
+
+        final target = result.graph.eligibleTargets.single;
+        expect(target.entityId, 'mina');
+        expect(target.entityLabel, 'Mina');
+        expect(target.selector['resolved_reference'], 'current_agent');
+        expect(target.selector['rebound_from'], 'Agent A');
+      },
+    );
+
+    test('read of a peer agent the user NAMES this turn is preserved', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Agent A personality',
+          subgoals: [Subgoal(id: 'sg_read', label: 'read Agent A personality')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_read',
+            operation: 'read',
+            entityType: 'agent',
+            entityId: 'agent_a',
+            entityLabel: 'Agent A',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: "what is Agent A's personality?"),
+        language: language,
+      );
+
+      final target = result.graph.eligibleTargets.single;
+      expect(target.entityId, 'agent_a');
+      expect(target.entityLabel, 'Agent A');
+      expect(target.selector['resolved_reference'], isNull);
+    });
+
+    test('DELETE of a peer agent is NOT rebound by the read guard', () {
+      // The guard must only touch the silent read path — a destructive op goes
+      // through the confirmation gate and must keep its resolved target.
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'delete Agent A',
+          subgoals: [Subgoal(id: 'sg_del', label: 'delete Agent A')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_del',
+            operation: 'delete',
+            entityType: 'agent',
+            entityId: 'agent_a',
+            entityLabel: 'Agent A',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: 'hapus agent itu'),
+        language: language,
+      );
+
+      final target = result.graph.targets.single;
+      expect(target.entityId, 'agent_a');
+      expect(target.selector['resolved_reference'], isNull);
+    });
+
     test('drops unlinked impacts when valid targets are known', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.clarify,

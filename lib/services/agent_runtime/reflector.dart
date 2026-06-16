@@ -219,6 +219,8 @@ class Reflector {
     required DetectedLanguage language,
     required RuntimeLogger logger,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) async {
     final analyzerSeedTree = _seedTreeFromAnalysis(analysis, userMessage);
 
@@ -240,6 +242,8 @@ class Reflector {
       availableTools: availableTools,
       language: language,
       recentMessages: recentMessages,
+      agentName: agentName,
+      agentId: agentId,
     );
 
     Map<String, dynamic>? parsed;
@@ -295,7 +299,12 @@ class Reflector {
     required List<ToolDefinition> availableTools,
     required DetectedLanguage language,
     required List<Map<String, String>> recentMessages,
+    String agentName = '',
+    String agentId = '',
   }) {
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final historyBlock = recentMessages.isEmpty
         ? 'No prior conversation.'
         : recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n');
@@ -354,8 +363,13 @@ class Reflector {
     return '''${PromptConstants.reflectIntro}
 
 ${PromptConstants.policyMinimal}
-
+$selfIdentityBlock
 ${PromptConstants.reflectRules(language.label)}
+
+SELF-TARGET BINDING (CRITICAL — prevents focusing on the wrong agent):
+- When the user's CURRENT message refers to THIS agent with a first/second-person reference ("you", "your personality", "this agent", "yourself") and the operation is a READ (read/get/list a persona/config/identity), emit the target with entity_type="agent", operation="read", and entity_label="current_agent". The runtime binds that to the active agent.
+- Do NOT copy an agent name that appeared only in EARLIER turns (e.g. an agent the user listed or deleted before) into the current target. The current user message is authoritative for who the target is.
+- Only emit a DIFFERENT agent's name as the target when the user names that agent in the CURRENT message.
 
 CRITICAL — ANALYZER DECISION BINDING:
 - The analyzer has ALREADY classified this request: requires_tools=${analysis['requires_tools']}, intent="${analysis['intent']}", goal="${analysis['goal']}".
