@@ -33,6 +33,49 @@ class VmRuntimeService {
     });
   }
 
+  Future<VmServerResult> startServer({
+    required String name,
+    required String command,
+    required String cwd,
+    required int port,
+    int readyTimeoutMs = 10000,
+    String readyPath = '/',
+    String expectedText = '',
+  }) async {
+    return _invokeServer('startServer', {
+      'name': name,
+      'command': command,
+      'cwd': cwd,
+      'port': port,
+      'ready_timeout_ms': readyTimeoutMs,
+      'ready_path': readyPath,
+      'expected_text': expectedText,
+    });
+  }
+
+  Future<VmServerResult> stopServer(String name) {
+    return _invokeServer('stopServer', {'name': name});
+  }
+
+  Future<Map<String, dynamic>> listServers() async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, dynamic>('listServers');
+      return raw ?? const {'success': false, 'servers': []};
+    } on MissingPluginException {
+      return const {
+        'success': false,
+        'servers': [],
+        'message': 'Native VM runtime is not connected yet.',
+      };
+    } on PlatformException catch (e) {
+      return {
+        'success': false,
+        'servers': [],
+        'message': e.message ?? 'VM runtime request failed.',
+      };
+    }
+  }
+
   /// Install a plugin by running its [installCommand] inside the runtime.
   /// The native side streams progress to a notification; we just await the
   /// final result.
@@ -101,6 +144,29 @@ class VmRuntimeService {
       );
     } on PlatformException catch (e) {
       return VmCommandResult.unavailable(
+        e.message ?? 'VM runtime request failed.',
+      );
+    }
+  }
+
+  Future<VmServerResult> _invokeServer(
+    String method,
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, dynamic>(method, args);
+      if (raw == null) {
+        return VmServerResult.unavailable(
+          'VM runtime returned no result for $method.',
+        );
+      }
+      return VmServerResult.fromJson(raw);
+    } on MissingPluginException {
+      return VmServerResult.unavailable(
+        'Native VM runtime is not connected yet.',
+      );
+    } on PlatformException catch (e) {
+      return VmServerResult.unavailable(
         e.message ?? 'VM runtime request failed.',
       );
     }

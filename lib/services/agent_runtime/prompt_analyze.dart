@@ -164,8 +164,10 @@ CRITICAL ROUTING RULES:
 VM routing examples:
 - "run <command>" / "jalankan <command>" → vm.run_command → tool_groups: ["vm"]
 - "install python" / "install git" → vm.run_command(apt-get install ...) → tool_groups: ["vm"]
-- "start a web server" / "jalankan server" → vm.run_command → tool_groups: ["vm"]
-- "buatkan landing page dan jalankan servernya" → files.create + vm.run_command → tool_groups: ["files", "vm"]
+- "start a web server" / "jalankan server" → vm.start_server → tool_groups: ["vm"]
+- "buatkan landing page dan jalankan servernya" → files.create + vm.start_server → tool_groups: ["files", "vm"]
+- "stop server <name>" → vm.stop_server → tool_groups: ["vm"]
+- "list running servers" → vm.list_servers → tool_groups: ["vm"]
 - "check if node is installed" / "cek plugin" → vm.list_plugins → tool_groups: ["vm"]
 - "what's the VM status" → vm.status → tool_groups: ["vm"]''';
 

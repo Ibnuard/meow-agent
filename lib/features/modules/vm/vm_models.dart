@@ -116,6 +116,9 @@ class VmRuntimeSnapshot {
     this.runtimeBinaryPath = '',
     this.rootfsPath = '',
     this.workspacePath = '',
+    this.vmWorkingDir = '',
+    this.agentFilesDir = '',
+    this.agentFilesAvailable = false,
     this.message = '',
     this.updatedAt,
   });
@@ -142,6 +145,9 @@ class VmRuntimeSnapshot {
       runtimeBinaryPath: json['runtime_binary_path'] as String? ?? '',
       rootfsPath: json['rootfs_path'] as String? ?? '',
       workspacePath: json['workspace_path'] as String? ?? '',
+      vmWorkingDir: json['vm_working_dir'] as String? ?? '',
+      agentFilesDir: json['agent_files_dir'] as String? ?? '',
+      agentFilesAvailable: json['agent_files_available'] as bool? ?? false,
       message: json['message'] as String? ?? '',
       updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
     );
@@ -157,6 +163,17 @@ class VmRuntimeSnapshot {
   final String runtimeBinaryPath;
   final String rootfsPath;
   final String workspacePath;
+
+  /// In-guest path safe for builds/installs/git (internal ext4).
+  final String vmWorkingDir;
+
+  /// In-guest path where the agent's shared workspace files (from the files
+  /// module) are mounted. Use this to read/serve files created via files.*.
+  final String agentFilesDir;
+
+  /// Whether the shared agent-files dir exists and is mounted into the VM.
+  final bool agentFilesAvailable;
+
   final String message;
   final DateTime? updatedAt;
 
@@ -171,6 +188,9 @@ class VmRuntimeSnapshot {
     'runtime_binary_path': runtimeBinaryPath,
     'rootfs_path': rootfsPath,
     'workspace_path': workspacePath,
+    if (vmWorkingDir.isNotEmpty) 'vm_working_dir': vmWorkingDir,
+    if (agentFilesDir.isNotEmpty) 'agent_files_dir': agentFilesDir,
+    'agent_files_available': agentFilesAvailable,
     'message': message,
     if (updatedAt != null) 'updated_at': updatedAt!.toIso8601String(),
   };
@@ -186,6 +206,9 @@ class VmRuntimeSnapshot {
     String? runtimeBinaryPath,
     String? rootfsPath,
     String? workspacePath,
+    String? vmWorkingDir,
+    String? agentFilesDir,
+    bool? agentFilesAvailable,
     String? message,
     DateTime? updatedAt,
   }) {
@@ -202,10 +225,78 @@ class VmRuntimeSnapshot {
       runtimeBinaryPath: runtimeBinaryPath ?? this.runtimeBinaryPath,
       rootfsPath: rootfsPath ?? this.rootfsPath,
       workspacePath: workspacePath ?? this.workspacePath,
+      vmWorkingDir: vmWorkingDir ?? this.vmWorkingDir,
+      agentFilesDir: agentFilesDir ?? this.agentFilesDir,
+      agentFilesAvailable: agentFilesAvailable ?? this.agentFilesAvailable,
       message: message ?? this.message,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+}
+
+class VmServerResult {
+  const VmServerResult({
+    required this.success,
+    this.name = '',
+    this.port = -1,
+    this.pid,
+    this.alive = false,
+    this.listening = false,
+    this.url = '',
+    this.cwd = '',
+    this.logPath = '',
+    this.logTail = '',
+    this.message = '',
+    this.raw = const {},
+  });
+
+  factory VmServerResult.fromJson(Map<String, dynamic> json) => VmServerResult(
+    success: json['success'] as bool? ?? false,
+    name: json['name'] as String? ?? '',
+    port: json['port'] as int? ?? -1,
+    pid: json['pid'] as int?,
+    alive: json['alive'] as bool? ?? false,
+    listening: json['listening'] as bool? ?? false,
+    url: json['url'] as String? ?? '',
+    cwd: json['cwd'] as String? ?? '',
+    logPath: json['log_path'] as String? ?? '',
+    logTail: json['log_tail'] as String? ?? '',
+    message: json['message'] as String? ?? '',
+    raw: json,
+  );
+
+  factory VmServerResult.unavailable(String message) => VmServerResult(
+    success: false,
+    message: message,
+  );
+
+  final bool success;
+  final String name;
+  final int port;
+  final int? pid;
+  final bool alive;
+  final bool listening;
+  final String url;
+  final String cwd;
+  final String logPath;
+  final String logTail;
+  final String message;
+  final Map<String, dynamic> raw;
+
+  Map<String, dynamic> toJson() => {
+    ...raw,
+    'success': success,
+    if (name.isNotEmpty) 'name': name,
+    if (port > 0) 'port': port,
+    if (pid != null) 'pid': pid,
+    'alive': alive,
+    'listening': listening,
+    if (url.isNotEmpty) 'url': url,
+    if (cwd.isNotEmpty) 'cwd': cwd,
+    if (logPath.isNotEmpty) 'log_path': logPath,
+    if (logTail.isNotEmpty) 'log_tail': logTail,
+    if (message.isNotEmpty) 'message': message,
+  };
 }
 
 /// Result of running a single shell command in the VM runtime.

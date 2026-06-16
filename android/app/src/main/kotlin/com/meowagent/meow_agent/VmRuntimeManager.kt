@@ -12,8 +12,12 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import org.tukaani.xz.XZInputStream
@@ -51,6 +55,24 @@ class VmRuntimeManager(private val context: Context) {
     private var sessionStdoutReader: Thread? = null
     private val sessionOutputBuffer = java.util.concurrent.LinkedBlockingQueue<String>()
 
+    /// Long-running servers spawned via [startServer]. Each one is a DEDICATED
+    /// proot child process (NOT routed through the persistent session shell)
+    /// so it is not coupled to session-command lifetimes — that's exactly what
+    /// would let `nohup ... &` from inside the session get reaped on the next
+    /// command. Indexed by caller-supplied name; native side is the source of
+    /// truth for liveness.
+    private data class ManagedServer(
+        val name: String,
+        val port: Int,
+        val command: String,
+        val cwd: String,
+        val logPath: String,
+        val process: Process,
+        val startedAt: Long,
+    )
+
+    private val servers = ConcurrentHashMap<String, ManagedServer>()
+
     private val rootfsDir: File
         get() = File(context.filesDir, "vm-runtime/rootfs")
 
@@ -59,6 +81,21 @@ class VmRuntimeManager(private val context: Context) {
 
     private val downloadDir: File
         get() = File(context.filesDir, "vm-runtime/downloads")
+
+    /// Public MeowAgent root on shared storage. This is where the files module
+    /// (`files.create`) writes agent workspace files — a DIFFERENT filesystem
+    /// from the VM's internal [workspaceDir]. We bind-mount it INTO the proot
+    /// guest at [GUEST_MEOW_DIR] so the agent can serve/read those files from
+    /// inside the VM without copying. Static reads/serves work fine over the
+    /// shared-storage FUSE; heavy build work (npm/bun install, git) must stay
+    /// in [workspaceDir] (internal ext4) because FUSE has no symlink support.
+    private val meowSharedDir: File
+        get() = File(
+            android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOCUMENTS
+            ),
+            "MeowAgent"
+        )
 
     private val binDir: File
         get() = File(context.applicationInfo.nativeLibraryDir)
@@ -107,7 +144,15 @@ class VmRuntimeManager(private val context: Context) {
             "service_running" to (status == STATUS_RUNNING),
             "runtime_version" to runtimeVersion,
             "rootfs_path" to rootfsDir.absolutePath,
+            // Host path — used by the UI file browser, NOT valid inside the VM.
             "workspace_path" to workspaceDir.absolutePath,
+            // IN-GUEST paths — these are the ones a shell command must use.
+            // vm_working_dir: internal ext4, safe for installs/builds/git.
+            // agent_files_dir: the agent's shared workspace (where files.create
+            // writes), bind-mounted in so the VM can read/serve those files.
+            "vm_working_dir" to GUEST_WORKSPACE_DIR,
+            "agent_files_dir" to GUEST_MEOW_DIR,
+            "agent_files_available" to meowSharedDir.exists(),
             "message" to lastMessage,
             "updated_at" to System.currentTimeMillis().toString()
         )
@@ -336,6 +381,25 @@ class VmRuntimeManager(private val context: Context) {
     val isSessionAlive: Boolean
         get() = sessionProcess?.isAlive == true
 
+    /// Build the optional MeowAgent shared-dir bind args for proot. Empty when
+    /// the public dir doesn't exist yet (no agent files written) — proot would
+    /// reject a bind of a missing host path. The dir is created lazily by the
+    /// files module on first write; we attempt mkdirs() so a serve right after
+    /// install still gets the mount.
+    private fun meowBindArgs(): Array<String> {
+        return try {
+            val dir = meowSharedDir
+            if (!dir.exists()) dir.mkdirs()
+            if (dir.exists()) {
+                arrayOf("-b", "${dir.absolutePath}:$GUEST_MEOW_DIR")
+            } else {
+                emptyArray()
+            }
+        } catch (_: Exception) {
+            emptyArray()
+        }
+    }
+
     private fun startSession() {
         configureRootfs()
         workspaceDir.mkdirs()
@@ -354,7 +418,8 @@ class VmRuntimeManager(private val context: Context) {
                 "-b", "/dev",
                 "-b", "/proc",
                 "-b", "/sys",
-                "-b", "${workspaceDir.absolutePath}:/root/workspace",
+                "-b", "${workspaceDir.absolutePath}:$GUEST_WORKSPACE_DIR",
+                *meowBindArgs(),
                 shellPath,
             )
         )
@@ -674,7 +739,8 @@ class VmRuntimeManager(private val context: Context) {
                     "-b", "/dev",
                     "-b", "/proc",
                     "-b", "/sys",
-                    "-b", "${workspaceDir.absolutePath}:/root/workspace",
+                    "-b", "${workspaceDir.absolutePath}:$GUEST_WORKSPACE_DIR",
+                    *meowBindArgs(),
                     shellPath, "-c", command,
                 )
             )
@@ -720,6 +786,123 @@ class VmRuntimeManager(private val context: Context) {
         }
     }
 
+    suspend fun startServer(
+        name: String,
+        command: String,
+        cwd: String,
+        port: Int,
+        readyTimeoutMs: Long,
+        readyPath: String = "/",
+        expectedText: String = ""
+    ): Map<String, Any?> = withContext(Dispatchers.IO) {
+        if (name.isBlank()) return@withContext serverFail(name, port, "Server name is required.")
+        if (command.isBlank()) return@withContext serverFail(name, port, "Command is required.")
+        if (port <= 0 || port > 65535) return@withContext serverFail(name, port, "Invalid port: $port")
+        if (!isRootfsInstalled()) return@withContext serverFail(name, port, "Runtime is not installed.")
+        if (!binariesInstalled) {
+            try { mutex.withLock { ensureBinariesInstalled { } } }
+            catch (e: Exception) { return@withContext serverFail(name, port, "Runtime binary could not be staged: ${e.message}") }
+        }
+
+        stopServer(name)
+        configureRootfs()
+        workspaceDir.mkdirs()
+        val shellPath = shellPathInsideRootfs()
+            ?: return@withContext serverFail(name, port, "Runtime shell was not found in rootfs.")
+        val logDir = File(context.filesDir, "vm-runtime/server-logs").apply { mkdirs() }
+        val safe = name.replace(Regex("[^A-Za-z0-9_.-]+"), "_").ifBlank { "server" }
+        val logFile = File(logDir, "$safe.log")
+        if (logFile.exists()) logFile.delete()
+
+        val workDir = cwd.ifBlank { GUEST_WORKSPACE_DIR }
+        val wrapped = "cd ${shellQuote(workDir)} && exec $command"
+        val pb = ProcessBuilder(
+            listOf(
+                linkerPath(), stagedProot.absolutePath,
+                "-0", "--link2symlink", "--kill-on-exit",
+                "-r", rootfsDir.absolutePath,
+                "-w", "/root",
+                "-b", "/dev", "-b", "/proc", "-b", "/sys",
+                "-b", "${workspaceDir.absolutePath}:$GUEST_WORKSPACE_DIR",
+                *meowBindArgs(),
+                shellPath, "-c", wrapped,
+            )
+        )
+        pb.environment().putAll(prootEnv())
+        pb.redirectErrorStream(true)
+        pb.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+
+        return@withContext try {
+            val process = pb.start()
+            val server = ManagedServer(name, port, command, workDir, logFile.absolutePath, process, System.currentTimeMillis())
+            servers[name] = server
+            val path = normalizeReadyPath(readyPath)
+            val deadline = System.currentTimeMillis() + readyTimeoutMs.coerceAtLeast(1000)
+            var lastCheck = ""
+            while (System.currentTimeMillis() < deadline) {
+                if (!process.isAlive) {
+                    servers.remove(name)
+                    return@withContext serverFail(name, port, "Server process exited before readiness check passed.", logFile)
+                }
+                val check = checkHttpReady(port, path, expectedText)
+                lastCheck = check["message"]?.toString() ?: ""
+                if (check["ready"] == true) {
+                    return@withContext serverResult(
+                        server,
+                        true,
+                        "Server is ready.",
+                        path,
+                        expectedText,
+                        check
+                    )
+                }
+                Thread.sleep(300)
+            }
+            if (!process.isAlive) {
+                servers.remove(name)
+                return@withContext serverFail(name, port, "Server process exited before readiness check passed.", logFile)
+            }
+            serverResult(
+                server,
+                false,
+                "Server started but readiness check failed before timeout: $lastCheck",
+                path,
+                expectedText,
+                mapOf("message" to lastCheck)
+            )
+        } catch (e: Exception) {
+            serverFail(name, port, "Failed to start server: ${e.message ?: e.javaClass.simpleName}", logFile)
+        }
+    }
+
+    suspend fun stopServer(name: String): Map<String, Any?> = withContext(Dispatchers.IO) {
+        val server = servers.remove(name)
+            ?: return@withContext mapOf("success" to true, "stopped" to false, "name" to name, "message" to "No tracked server named $name.")
+        try { server.process.destroy() } catch (_: Exception) {}
+        try { server.process.waitFor(1500, TimeUnit.MILLISECONDS) } catch (_: Exception) {}
+        if (server.process.isAlive) server.process.destroyForcibly()
+        mapOf("success" to true, "stopped" to true, "name" to name, "port" to server.port, "message" to "Server stopped.")
+    }
+
+    fun listServers(): Map<String, Any?> {
+        val entries = servers.values.map { server ->
+            val alive = server.process.isAlive
+            val listening = alive && isPortOpen(server.port)
+            mapOf(
+                "name" to server.name,
+                "port" to server.port,
+                "pid" to processPid(server.process),
+                "alive" to alive,
+                "listening" to listening,
+                "url" to "http://127.0.0.1:${server.port}/",
+                "cwd" to server.cwd,
+                "log_path" to server.logPath,
+                "started_at" to server.startedAt,
+            )
+        }
+        return mapOf("success" to true, "servers" to entries, "count" to entries.size)
+    }
+
     private fun linkerPath(): String {
         return if (Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
             "/system/bin/linker64"
@@ -754,6 +937,131 @@ class VmRuntimeManager(private val context: Context) {
         "stderr" to "",
         "message" to message
     )
+
+    private fun prootEnv(): Map<String, String> = mapOf(
+        "HOME" to "/root",
+        "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "TERM" to "xterm-256color",
+        "LANG" to "C.UTF-8",
+        "TMPDIR" to "/tmp",
+        "TMP" to "/tmp",
+        "TEMP" to "/tmp",
+        "DEBIAN_FRONTEND" to "noninteractive",
+        "DEBCONF_NONINTERACTIVE_SEEN" to "true",
+        "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
+        "PROOT_LOADER" to stagedLoader.absolutePath,
+        "PROOT_TMP_DIR" to context.cacheDir.absolutePath,
+    )
+
+    private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
+
+    private fun processPid(process: Process): Long? {
+        return try {
+            val method = Process::class.java.methods.firstOrNull { it.name == "pid" && it.parameterTypes.isEmpty() }
+            (method?.invoke(process) as? Long)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun normalizeReadyPath(path: String): String {
+        val trimmed = path.trim().ifEmpty { "/" }
+        return if (trimmed.startsWith("/")) trimmed else "/$trimmed"
+    }
+
+    private fun isPortOpen(port: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 300)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun checkHttpReady(port: Int, path: String, expectedText: String): Map<String, Any?> {
+        val url = "http://127.0.0.1:$port$path"
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 500
+            conn.readTimeout = 800
+            conn.instanceFollowRedirects = false
+            val code = conn.responseCode
+            val okStatus = code in 200..399
+            val body = try {
+                val stream = if (code >= 400) conn.errorStream else conn.inputStream
+                stream?.bufferedReader()?.use { it.readText().take(8192) } ?: ""
+            } catch (_: Exception) { "" }
+            val expectedOk = expectedText.isBlank() || body.contains(expectedText, ignoreCase = true)
+            mapOf(
+                "ready" to (okStatus && expectedOk),
+                "http_status" to code,
+                "url" to url,
+                "expected_text" to expectedText,
+                "expected_text_found" to expectedOk,
+                "body_snippet" to body.take(500),
+                "message" to when {
+                    !okStatus -> "HTTP $code from $url"
+                    !expectedOk -> "HTTP $code but expected text was not found at $url"
+                    else -> "HTTP $code ready at $url"
+                }
+            )
+        } catch (e: Exception) {
+            mapOf(
+                "ready" to false,
+                "url" to url,
+                "message" to (e.message ?: e.javaClass.simpleName)
+            )
+        }
+    }
+
+    private fun serverResult(
+        server: ManagedServer,
+        listening: Boolean,
+        message: String,
+        readyPath: String = "/",
+        expectedText: String = "",
+        readiness: Map<String, Any?> = emptyMap()
+    ): Map<String, Any?> {
+        return mapOf(
+            "success" to listening,
+            "name" to server.name,
+            "port" to server.port,
+            "pid" to processPid(server.process),
+            "alive" to server.process.isAlive,
+            "listening" to listening,
+            "url" to "http://127.0.0.1:${server.port}$readyPath",
+            "ready_path" to readyPath,
+            "expected_text" to expectedText,
+            "readiness" to readiness,
+            "cwd" to server.cwd,
+            "log_path" to server.logPath,
+            "log_tail" to readTail(File(server.logPath)),
+            "message" to message,
+        )
+    }
+
+    private fun serverFail(name: String, port: Int, message: String, logFile: File? = null): Map<String, Any?> {
+        return mapOf(
+            "success" to false,
+            "name" to name,
+            "port" to port,
+            "listening" to false,
+            "message" to message,
+            "log_tail" to readTail(logFile),
+        )
+    }
+
+    private fun readTail(file: File?): String {
+        return try {
+            if (file == null || !file.exists()) return ""
+            val lines = file.readLines()
+            lines.takeLast(80).joinToString("\n")
+        } catch (_: Exception) {
+            ""
+        }
+    }
 
     /**
      * Minimal tar.gz extractor. Supports regular files, directories, and
@@ -914,6 +1222,15 @@ class VmRuntimeManager(private val context: Context) {
         const val STATUS_RUNNING = "running"
         const val STATUS_STOPPED = "stopped"
         const val STATUS_ERROR = "error"
+
+        /// In-guest mount point for the VM's internal working dir (ext4 —
+        /// safe for builds, installs, git).
+        const val GUEST_WORKSPACE_DIR = "/root/workspace"
+
+        /// In-guest mount point for the public MeowAgent shared dir (where the
+        /// files module writes agent workspace files). Read/serve static files
+        /// from here; do NOT run installs/git here (FUSE has no symlinks).
+        const val GUEST_MEOW_DIR = "/root/meow"
 
         @Volatile
         private var instance: VmRuntimeManager? = null

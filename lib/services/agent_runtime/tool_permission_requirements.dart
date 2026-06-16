@@ -458,9 +458,8 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     androidPermission: PermissionType.sendSms,
   ),
 
-  // VM module: agent surface is intentionally narrow. Only `vm.status`
-  // (safe read), `vm.list_plugins` (safe read), and `vm.run_command` (gated)
-  // are exposed. Install/start/stop and plugin install are user-only.
+  // VM module: agent surface is intentionally narrow. Safe reads are ungated;
+  // command/server process control is gated behind Run Command.
   'vm.status': ToolPermissionRequirement(
     moduleId: 'vm',
     actionLabel: 'read VM runtime status',
@@ -474,5 +473,21 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_run_command',
     settingLabel: 'Run Command',
     actionLabel: 'run commands in the VM runtime',
+  ),
+  'vm.start_server': ToolPermissionRequirement(
+    moduleId: 'vm',
+    settingKey: 'allow_run_command',
+    settingLabel: 'Run Command',
+    actionLabel: 'start server processes in the VM runtime',
+  ),
+  'vm.stop_server': ToolPermissionRequirement(
+    moduleId: 'vm',
+    settingKey: 'allow_run_command',
+    settingLabel: 'Run Command',
+    actionLabel: 'stop server processes in the VM runtime',
+  ),
+  'vm.list_servers': ToolPermissionRequirement(
+    moduleId: 'vm',
+    actionLabel: 'list running VM servers',
   ),
 };

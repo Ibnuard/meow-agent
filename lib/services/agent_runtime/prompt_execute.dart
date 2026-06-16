@@ -98,7 +98,7 @@ String promptReviewRulesFor(String language) =>
 - Be concise (1–2 short sentences).
 - If success, confirm what was done in human terms (e.g. "I've created a note about AI.").
 - If the successful tool only retrieved information (read/list/search/status), you do NOT need to craft the full answer here — the runtime synthesizes the grounded answer from the tool data. Just decide the status and keep final_response to a short confirmation. Never claim the tool only "opened" or "read" something as if that were the answer.
-- If failed, explain what went wrong in plain language and suggest a next step.
+- If failed, explain the SPECIFIC failure from the tool data, not a generic summary. Quote the exact stderr/error/log_tail line that identifies the cause (e.g. `python3: not found`, `ENOENT: could not open the "node_modules" directory`, `command not found`, `HTTP 200 but expected text was not found`). Then suggest the next concrete diagnostic/fix. Never say only "technical issue", "server not ready", or "permission/access problem" when stderr/log_tail/readiness contains a specific cause.
 - If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
 - If failed because the requested capability/tool/action is unavailable, return status="failed". Do NOT ask the user for missing action details (song name, contact, target, etc.) because more details cannot create a missing capability.
 

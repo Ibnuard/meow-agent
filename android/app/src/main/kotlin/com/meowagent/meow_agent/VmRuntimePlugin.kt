@@ -81,6 +81,34 @@ class VmRuntimePlugin(private val context: Context) :
                     withContext(Dispatchers.Main) { result.success(payload) }
                 }
             }
+            "startServer" -> {
+                val name = call.argument<String>("name") ?: "server"
+                val command = call.argument<String>("command") ?: ""
+                val cwd = call.argument<String>("cwd") ?: VmRuntimeManager.GUEST_WORKSPACE_DIR
+                val port = call.argument<Int>("port") ?: -1
+                val readyTimeout = (call.argument<Int>("ready_timeout_ms") ?: 10_000).toLong()
+                val readyPath = call.argument<String>("ready_path") ?: "/"
+                val expectedText = call.argument<String>("expected_text") ?: ""
+                updateNotification("VM Server", "Starting $name on port $port...")
+                scope.launch {
+                    val payload = manager.startServer(name, command, cwd, port, readyTimeout, readyPath, expectedText)
+                    val ok = payload["success"] as? Boolean ?: false
+                    if (ok) updateNotification("VM Server", "$name listening on port $port.")
+                    else updateNotification("VM Server", "$name failed to start.")
+                    withContext(Dispatchers.Main) { result.success(payload) }
+                }
+            }
+            "stopServer" -> {
+                val name = call.argument<String>("name") ?: "server"
+                scope.launch {
+                    val payload = manager.stopServer(name)
+                    updateNotification("VM Runtime", "Sesi Linux aktif.")
+                    withContext(Dispatchers.Main) { result.success(payload) }
+                }
+            }
+            "listServers" -> {
+                result.success(manager.listServers())
+            }
             "installPlugin" -> {
                 val pluginId = call.argument<String>("plugin_id") ?: ""
                 val installCommand = call.argument<String>("install_command") ?: ""

@@ -977,6 +977,13 @@ class ExecuteLoopRunner {
             result.success &&
             shortCircuitActive != null &&
             _isRetrievalTool(toolRequest.name) &&
+            // A PRECURSOR tool (vm.status, vm.list_plugins, app.resolve) is a
+            // pre-flight check that must be FOLLOWED by an action — it can
+            // never complete an action subgoal on its own. Without this guard
+            // a "create file + serve with bun" task ends right after vm.status:
+            // status is retrieval + the last planned step, so the action
+            // subgoal gets force-marked done and the serve command never runs.
+            !_isPrecursorTool(toolRequest.name) &&
             !goalTree.subgoals.any(
               (s) => !s.isTerminal && s.id != shortCircuitActive.id,
             );
@@ -1634,7 +1641,23 @@ class ExecuteLoopRunner {
       return false;
     }
     if (userMessage.trim().isEmpty) return false;
+    // A precursor (pre-flight) tool result is never the final answer — it must
+    // be followed by the action it gates.
+    if (_isPrecursorTool(toolName)) return false;
     return _isRetrievalTool(toolName);
+  }
+
+  /// Tools that are PRE-FLIGHT checks gating a later action, never an outcome
+  /// on their own. Their own descriptions say "use this BEFORE …". Treating a
+  /// precursor result as task completion strands the real action (e.g. ending
+  /// after `vm.status` without ever running `vm.run_command`).
+  static bool _isPrecursorTool(String toolName) {
+    const precursors = {
+      'vm.status',
+      'vm.list_plugins',
+      'app.resolve',
+    };
+    return precursors.contains(toolName.toLowerCase());
   }
 
   /// Build a localized permission-denied response when the tool result carries
