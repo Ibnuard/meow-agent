@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -55,6 +56,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   bool _overlayPermissionGranted = false;
   bool _checkingAppAgenticPrereqs = false;
   Future<Widget?>? _pinStatusFuture;
+  // Manual offset added when the user taps "Shuffle" on the Today Prompt card.
+  // The base index rotates deterministically every 6 hours; shuffle just nudges
+  // it forward within the current module's prompt list.
+  int _promptShuffleOffset = 0;
 
   @override
   ModuleModel? get module => _module;
@@ -485,6 +490,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               onChanged: _toggleEnabled,
             ),
           ),
+
+          const SizedBox(height: 20),
+
+          _buildTodayPromptCard(module: module, cs: cs, extras: extras),
 
           const SizedBox(height: 20),
 
@@ -1508,6 +1517,162 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
           ),
         );
       },
+    );
+  }
+
+  /// Picks the index of today's prompt. Rotates deterministically every 6
+  /// hours based on the wall clock, so all entry points agree without storage.
+  /// The shuffle offset nudges it forward within the module's prompt list.
+  int _todayPromptIndex(int promptCount) {
+    if (promptCount <= 0) return 0;
+    final now = DateTime.now();
+    // Number of 6-hour slots since epoch — changes 4 times a day.
+    final slot = now.millisecondsSinceEpoch ~/ (6 * 60 * 60 * 1000);
+    return (slot + _promptShuffleOffset) % promptCount;
+  }
+
+  Widget _buildTodayPromptCard({
+    required ModuleModel module,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    final prompts = s.modulePrompts(module.id);
+    if (prompts.isEmpty) return const SizedBox.shrink();
+    final prompt = prompts[_todayPromptIndex(prompts.length)];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            cs.primary.withValues(alpha: 0.14),
+            cs.primary.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 17,
+                  color: cs.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.todayPromptTitle,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: extras.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: extras.subtleBorder),
+            ),
+            child: Text(
+              prompt,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.4,
+                color: cs.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            s.todayPromptSubtitle,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.35,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: prompt));
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(s.todayPromptCopied),
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(s.todayPromptCopy, maxLines: 1, softWrap: false),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: cs.primary,
+                    side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() => _promptShuffleOffset++);
+                  },
+                  icon: const Icon(Icons.shuffle_rounded, size: 16),
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      s.todayPromptShuffle,
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: cs.onSurfaceVariant,
+                    side: BorderSide(
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 

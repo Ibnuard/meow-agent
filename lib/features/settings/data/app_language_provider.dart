@@ -666,6 +666,168 @@ class AppStrings {
   String get moduleDescSuperPower => isId
       ? 'Fitur lanjutan: bubble AI mengambang dan kontrol perangkat via Shizuku untuk otomatisasi tingkat lanjut.'
       : 'Advanced features: floating AI bubble overlay and Shizuku-powered device control for next-level automation.';
+
+  // --- Today Prompt (module detail) ---
+  String get todayPromptTitle => isId ? 'Prompt Hari Ini' : 'Today\'s Prompt';
+  String get todayPromptSubtitle => isId
+      ? 'Ide prompt yang bisa kamu coba dengan modul ini. Berganti otomatis tiap beberapa jam.'
+      : 'A prompt idea you can try with this module. Refreshes automatically every few hours.';
+  String get todayPromptCopy => isId ? 'Salin' : 'Copy';
+  String get todayPromptCopied => isId ? 'Prompt disalin.' : 'Prompt copied.';
+  String get todayPromptShuffle => isId ? 'Ganti' : 'Shuffle';
+
+  /// Example prompts a user can try, grouped per module. These are user-facing
+  /// suggestions shown in the "Today's Prompt" card, not LLM engine prompts.
+  List<String> modulePrompts(String moduleId) {
+    switch (moduleId) {
+      case 'device_context':
+        return isId
+            ? const [
+                'Berapa persen baterai sekarang dan apakah sedang mengisi?',
+                'Aku terhubung ke WiFi atau data seluler?',
+                'Buka pengaturan Bluetooth.',
+                'Apa aplikasi yang sedang aktif di layar?',
+                'Mode jangan ganggu sedang aktif atau tidak?',
+              ]
+            : const [
+                'What\'s my battery level and is it charging?',
+                'Am I on WiFi or mobile data right now?',
+                'Open the Bluetooth settings.',
+                'Which app is currently in the foreground?',
+                'Is Do Not Disturb mode on?',
+              ];
+      case 'notification_intelligence':
+        return isId
+            ? const [
+                'Ringkas notifikasi yang masuk hari ini.',
+                'Ada pesan penting yang belum kubaca?',
+                'Beri tahu aku kalau ada notifikasi dari email.',
+                'Balas notifikasi terakhir dengan "Oke, segera."',
+              ]
+            : const [
+                'Summarize the notifications I got today.',
+                'Any important messages I haven\'t read?',
+                'Let me know when an email notification arrives.',
+                'Reply to the last notification with "Okay, on it."',
+              ];
+      case 'notes':
+        return isId
+            ? const [
+                'Buat catatan ide untuk proyek minggu ini.',
+                'Catat daftar belanja: kopi, susu, telur.',
+                'Cari catatan yang menyebut "meeting".',
+                'Ringkas semua catatanku jadi poin-poin.',
+              ]
+            : const [
+                'Create a note with ideas for this week\'s project.',
+                'Save a shopping list: coffee, milk, eggs.',
+                'Find notes that mention "meeting".',
+                'Summarize all my notes into bullet points.',
+              ];
+      case 'files':
+        return isId
+            ? const [
+                'Buat file todo.md berisi tugas hari ini.',
+                'Tampilkan isi file catatan terbaru.',
+                'Rapikan file di workspace ke dalam folder.',
+                'Hapus file sementara yang sudah tidak dipakai.',
+              ]
+            : const [
+                'Create a todo.md file with today\'s tasks.',
+                'Show me the contents of my latest note file.',
+                'Organize the workspace files into folders.',
+                'Delete temporary files I no longer need.',
+              ];
+      case 'calendar':
+        return isId
+            ? const [
+                'Jadwalkan meeting besok jam 10 pagi.',
+                'Apa saja agenda ku minggu ini?',
+                'Ingatkan aku bayar tagihan tanggal 25.',
+                'Pindahkan janji sore ke jam 4.',
+              ]
+            : const [
+                'Schedule a meeting tomorrow at 10 AM.',
+                'What\'s on my agenda this week?',
+                'Remind me to pay the bill on the 25th.',
+                'Move my afternoon appointment to 4 PM.',
+              ];
+      case 'workflows':
+        return isId
+            ? const [
+                'Buat workflow yang merangkum berita tiap pagi jam 7.',
+                'Jalankan ringkasan harian sekarang.',
+                'Buat pengingat minum air tiap 2 jam.',
+                'Workflow apa saja yang sedang aktif?',
+              ]
+            : const [
+                'Create a workflow that summarizes news every morning at 7.',
+                'Run my daily summary now.',
+                'Make a reminder to drink water every 2 hours.',
+                'Which workflows are currently active?',
+              ];
+      case 'web':
+        return isId
+            ? const [
+                'Daftarkan API cuaca dan panggil untuk kota ku.',
+                'Ambil data dari endpoint yang sudah tersimpan.',
+                'Cek harga kripto lewat API tersimpan.',
+                'API apa saja yang sudah aku simpan?',
+              ]
+            : const [
+                'Register a weather API and call it for my city.',
+                'Fetch data from a stored endpoint.',
+                'Check crypto prices via a stored API.',
+                'Which APIs have I already saved?',
+              ];
+      case 'vm':
+        return isId
+            ? const [
+                'Jalankan "ls -la" di runtime.',
+                'Cek versi Node.js yang terpasang.',
+                'Buat folder proyek baru lewat terminal.',
+                'Tampilkan penggunaan disk di runtime.',
+              ]
+            : const [
+                'Run "ls -la" inside the runtime.',
+                'Check the installed Node.js version.',
+                'Create a new project folder via the terminal.',
+                'Show disk usage inside the runtime.',
+              ];
+      case 'communication':
+        return isId
+            ? const [
+                'Telepon kontak bernama "Budi".',
+                'Kirim SMS ke Ibu: "Aku pulang malam."',
+                'Cari nomor kontak "Andi".',
+                'Telepon nomor terakhir yang kuhubungi.',
+              ]
+            : const [
+                'Call the contact named "Budi".',
+                'Send an SMS to Mom: "I\'ll be home late."',
+                'Look up the contact "Andi".',
+                'Call the last number I dialed.',
+              ];
+      case 'super_power':
+        return isId
+            ? const [
+                'Buka WhatsApp dan kirim pesan ke grup keluarga.',
+                'Bantu aku isi form di aplikasi ini.',
+                'Tap tombol kirim di layar.',
+                'Scroll ke bawah dan baca isi halaman.',
+              ]
+            : const [
+                'Open WhatsApp and send a message to the family group.',
+                'Help me fill out the form in this app.',
+                'Tap the send button on screen.',
+                'Scroll down and read the page content.',
+              ];
+      default:
+        return isId
+            ? const ['Apa yang bisa modul ini lakukan?']
+            : const ['What can this module do?'];
+    }
+  }
   String get welcomeTitle =>
       isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId
