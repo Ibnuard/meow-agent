@@ -12,7 +12,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
@@ -983,30 +982,37 @@ class VmRuntimeManager(private val context: Context) {
     private fun checkHttpReady(port: Int, path: String, expectedText: String): Map<String, Any?> {
         val url = "http://127.0.0.1:$port$path"
         return try {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 500
-            conn.readTimeout = 800
-            conn.instanceFollowRedirects = false
-            val code = conn.responseCode
-            val okStatus = code in 200..399
-            val body = try {
-                val stream = if (code >= 400) conn.errorStream else conn.inputStream
-                stream?.bufferedReader()?.use { it.readText().take(8192) } ?: ""
-            } catch (_: Exception) { "" }
-            val expectedOk = expectedText.isBlank() || body.contains(expectedText, ignoreCase = true)
-            mapOf(
-                "ready" to (okStatus && expectedOk),
-                "http_status" to code,
-                "url" to url,
-                "expected_text" to expectedText,
-                "expected_text_found" to expectedOk,
-                "body_snippet" to body.take(500),
-                "message" to when {
-                    !okStatus -> "HTTP $code from $url"
-                    !expectedOk -> "HTTP $code but expected text was not found at $url"
-                    else -> "HTTP $code ready at $url"
-                }
-            )
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", port), 500)
+                socket.soTimeout = 1000
+                val out = socket.getOutputStream().bufferedWriter()
+                out.write("GET $path HTTP/1.1\r\n")
+                out.write("Host: 127.0.0.1:$port\r\n")
+                out.write("Connection: close\r\n")
+                out.write("User-Agent: MeowVmRuntime/1\r\n")
+                out.write("\r\n")
+                out.flush()
+                val raw = socket.getInputStream().bufferedReader().use { it.readText().take(8192) }
+                val statusLine = raw.lineSequence().firstOrNull().orEmpty()
+                val code = Regex("HTTP/\\d(?:\\.\\d)?\\s+(\\d{3})").find(statusLine)
+                    ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: -1
+                val okStatus = code in 200..399
+                val body = raw.substringAfter("\r\n\r\n", raw.substringAfter("\n\n", ""))
+                val expectedOk = expectedText.isBlank() || body.contains(expectedText, ignoreCase = true)
+                mapOf(
+                    "ready" to (okStatus && expectedOk),
+                    "http_status" to code,
+                    "url" to url,
+                    "expected_text" to expectedText,
+                    "expected_text_found" to expectedOk,
+                    "body_snippet" to body.take(500),
+                    "message" to when {
+                        !okStatus -> "HTTP $code from $url"
+                        !expectedOk -> "HTTP $code but expected text was not found at $url"
+                        else -> "HTTP $code ready at $url"
+                    }
+                )
+            }
         } catch (e: Exception) {
             mapOf(
                 "ready" to false,

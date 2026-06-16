@@ -12,6 +12,7 @@ import '../data/agent_appearance.dart';
 import '../data/agent_model.dart';
 import '../data/agent_repository.dart';
 import '../data/workspace_service.dart';
+import 'agent_profile_editor.dart';
 import 'workspace_directory_screen.dart';
 
 /// Screen to add or edit an agent.
@@ -311,6 +312,16 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                     ),
                   ),
                 ),
+              ),
+              const SizedBox(height: 16),
+
+              // Agent profile section (Soul/Memory/Heartbeat).
+              _AgentProfileSection(
+                agentId: widget.agentId!,
+                agentName: _nameController.text.isNotEmpty
+                    ? _nameController.text
+                    : 'Agent',
+                isId: s.isId,
               ),
               const SizedBox(height: 24),
             ],
@@ -1063,6 +1074,267 @@ class _PickerLabel extends StatelessWidget {
         fontWeight: FontWeight.w600,
         color: cs.onSurfaceVariant,
         letterSpacing: 0.4,
+      ),
+    );
+  }
+}
+
+/// Collapsible "Agent Profile" section in agent edit screen.
+/// Shows profile tiles backed by SQLite repositories.
+class _AgentProfileSection extends ConsumerStatefulWidget {
+  const _AgentProfileSection({
+    required this.agentId,
+    required this.agentName,
+    required this.isId,
+  });
+
+  final String agentId;
+  final String agentName;
+  final bool isId;
+
+  @override
+  ConsumerState<_AgentProfileSection> createState() =>
+      _AgentProfileSectionState();
+}
+
+class _AgentProfileSectionState extends ConsumerState<_AgentProfileSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final cs = context.cs;
+    final extras = context.extras;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Tappable header.
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          Icons.psychology_rounded,
+                          size: 18,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s.agentProfileSection,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              s.agentProfileSectionDesc,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Expandable body.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                      child: Column(
+                        children: [
+                          Divider(height: 1, color: extras.subtleBorder),
+                          const SizedBox(height: 12),
+                          _ProfileTile(
+                            icon: Icons.face_rounded,
+                            title: s.agentSoulTitle,
+                            subtitle: s.agentSoulDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentSoulEditorScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _ProfileTile(
+                            icon: Icons.memory_rounded,
+                            title: s.agentMemoryTitle,
+                            subtitle: s.agentMemoryDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentMemoryEditorScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _ProfileTile(
+                            icon: Icons.monitor_heart_outlined,
+                            title: s.agentHeartbeatTitle,
+                            subtitle: s.agentHeartbeatDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentHeartbeatScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Individual clickable row tile within the Agent Profile section.
+class _ProfileTile extends StatelessWidget {
+  const _ProfileTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.cs,
+    required this.extras,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final ColorScheme cs;
+  final MeowExtras extras;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: extras.subtleBorder),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 17, color: cs.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

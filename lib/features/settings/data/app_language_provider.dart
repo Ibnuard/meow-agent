@@ -2031,6 +2031,101 @@ class AppStrings {
       ? '❌ Workflow "$title" gagal: $error'
       : '❌ Workflow "$title" failed: $error';
 
+  // --- Agent profile editor (soul/memory/heartbeat/skills) ---
+  String get agentProfileSection => isId ? 'Profil Agen' : 'Agent Profile';
+  String get agentProfileSectionDesc => isId
+      ? 'Kelola soul, memori, dan aktivitas agen.'
+      : 'Manage agent soul, memory, and activity.';
+  String get agentSoulTitle => 'Soul';
+  String get agentSoulDesc => isId
+      ? 'Identitas pengguna dan persona yang membentuk agen.'
+      : 'User identity and persona that shape the agent.';
+  String get agentMemoryTitle => 'Memory';
+  String get agentMemoryDesc => isId
+      ? 'Fakta dan catatan jangka panjang yang disimpan agen.'
+      : 'Long-term facts and notes the agent stores.';
+  String get agentHeartbeatTitle => 'Heartbeat';
+  String get agentHeartbeatDesc => isId
+      ? 'Log aktivitas dan status terakhir agen.'
+      : 'Activity log and recent agent status.';
+  String get agentSkillsTitle => 'Skills';
+  String get agentSkillsDesc => isId
+      ? 'Kemampuan dan tool yang tersedia untuk agen.'
+      : 'Available capabilities and tools for the agent.';
+  String agentMemoryCount(int count) =>
+      isId ? '$count entri' : '$count entries';
+  String agentHeartbeatCount(int count) =>
+      isId ? '$count event' : '$count events';
+  String get agentSkillsAuto => isId
+      ? 'Otomatis dari modul yang terpasang'
+      : 'Auto-generated from installed modules';
+  String get agentSoulEmpty => isId
+      ? 'Belum ada profil. Agen akan bertanya saat pertama kali chat.'
+      : 'No profile yet. Agent will ask on first chat.';
+
+  // Soul editor fields — labels and hints
+  String get soulFieldName => isId ? 'Nama Kamu' : 'Your Name';
+  String get soulFieldNameHint =>
+      isId ? 'Nama lengkap yang kamu gunakan' : 'The full name you go by';
+  String get soulFieldNickname =>
+      isId ? 'Panggilan Kamu' : 'What should I call you?';
+  String get soulFieldNicknameHint =>
+      isId ? 'Mis: Bro, Kak, Boss...' : 'e.g. Bro, Boss, Chief...';
+  String get soulFieldLanguage =>
+      isId ? 'Bahasa yang Kamu Pakai' : 'Your Preferred Language';
+  String get soulFieldLanguageHint =>
+      isId ? 'Mis: Indonesian, English' : 'e.g. English, Indonesian';
+  String get soulFieldTimezone => isId ? 'Zona Waktu Kamu' : 'Your Timezone';
+  String get soulFieldTimezoneHint =>
+      isId ? 'Mis: Asia/Jakarta, UTC+7' : 'e.g. Asia/Jakarta, UTC+7';
+  String get soulFieldWorkRole =>
+      isId ? 'Pekerjaan / Peran Kamu' : 'Your Job / Role';
+  String get soulFieldWorkRoleHint => isId
+      ? 'Mis: Software Engineer, Mahasiswa'
+      : 'e.g. Software Engineer, Student';
+  String get soulFieldProject =>
+      isId ? 'Proyek yang Sedang Kamu Kerjakan' : 'Project You\'re Working On';
+  String get soulFieldProjectHint =>
+      isId ? 'Mis: Aplikasi mobile, Skripsi' : 'e.g. Mobile app, Thesis';
+  String get soulFieldCommStyle =>
+      isId ? 'Gaya Bicara Agen' : 'Agent Speaking Style';
+  String get soulFieldCommStyleHint => isId
+      ? 'Mis: santai, formal, to the point'
+      : 'e.g. casual, formal, straight to the point';
+  String get soulFieldDesignPref =>
+      isId ? 'Preferensi Desain Kamu' : 'Your Design Preference';
+  String get soulFieldDesignPrefHint => isId
+      ? 'Mis: minimalis, colorful, dark mode'
+      : 'e.g. minimalist, colorful, dark mode';
+  String get soulFieldPersona => isId ? 'Persona Agen' : 'Agent Persona';
+  String get soulFieldPersonaHint => isId
+      ? 'Kepribadian, batasan, atau instruksi khusus untuk agen ini'
+      : 'Personality, boundaries, or special instructions for this agent';
+  String get soulSaved => isId ? 'Profil disimpan.' : 'Profile saved.';
+  String get soulEditorSubtitle => isId
+      ? 'Isi identitas kamu dan cara agen ini sebaiknya bersikap. Semua opsional — isi yang perlu saja.'
+      : 'Set your identity and how this agent should behave. All optional — fill in only what matters.';
+
+  // Memory editor
+  String get memoryAddEntry => isId ? 'Tambah Entri' : 'Add Entry';
+  String get memoryDeleteConfirm =>
+      isId ? 'Hapus entri memori ini?' : 'Delete this memory entry?';
+  String get memoryEmpty => isId
+      ? 'Belum ada memori. Agen akan menyimpan fakta dari percakapan.'
+      : 'No memories yet. Agent will store facts from conversations.';
+  String get memoryCategoryFact => isId ? 'Fakta' : 'Fact';
+  String get memoryCategoryPreference => isId ? 'Preferensi' : 'Preference';
+  String get memoryCategoryBookmark => 'Bookmark';
+  String get memoryCategorySession => isId ? 'Catatan Sesi' : 'Session Note';
+  String get memoryContentHint =>
+      isId ? 'Isi entri memori...' : 'Memory content...';
+  String get memoryDeleted =>
+      isId ? 'Entri memori dihapus.' : 'Memory entry deleted.';
+
+  // Heartbeat viewer
+  String get heartbeatEmpty =>
+      isId ? 'Belum ada aktivitas tercatat.' : 'No activity recorded yet.';
+
   // --- Misc labels ---
   String get errorPrefix => 'Error';
   String errorWithMessage(String message) =>
