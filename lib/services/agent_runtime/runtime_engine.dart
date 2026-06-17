@@ -18,7 +18,9 @@ import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
+import 'json_utils.dart';
 import 'language_detector.dart';
+import 'memory_extractor.dart';
 import 'narrative_narrator.dart';
 
 import 'pending_action.dart';
@@ -158,11 +160,16 @@ class AgentRuntimeEngine {
 
   /// Build an [AgentWorkspace] from SQLite-backed repos.
   /// Delegates to [WorkspaceContextBuilder] for the actual formatting.
+  ///
+  /// [userMessage] (optional) drives keyword-based memory recall — only
+  /// memory entries relevant to the current turn are surfaced into the
+  /// prompt. When null, the latest N entries are used (legacy behavior).
   Future<AgentWorkspace> _buildWorkspace(
     String agentName,
-    String agentId,
-  ) async {
-    return _contextBuilder.build(agentName, agentId);
+    String agentId, {
+    String? userMessage,
+  }) async {
+    return _contextBuilder.build(agentName, agentId, userMessage: userMessage);
   }
 
   /// True if the user hasn't introduced themselves yet. Drives the
@@ -199,6 +206,99 @@ class AgentRuntimeEngine {
     }
   }
 
+  /// Best-effort implicit memory extraction after successful tool work.
+  /// Failure is ignored; memory must never block the visible user response.
+  Future<void> _maybeExtractMemory({
+    required AgentRuntimeRequest request,
+    required OpenAiCompatibleClient client,
+    required LlmProviderConfig config,
+    required RuntimeLogger logger,
+  }) async {
+    final repo = memoryRepo;
+    if (repo == null || request.agentId.isEmpty) return;
+    final toolResults = logger.events
+        .where((e) => e.type == 'tool_result' && e.data?['success'] == true)
+        .map((e) => {'tool': e.data?['tool'], 'result': e.data?['data']})
+        .toList(growable: false);
+    if (toolResults.isEmpty) return;
+
+    try {
+      await MemoryExtractor(
+        client: client,
+        config: config,
+        memoryRepo: repo,
+      ).extractAfterTask(
+        agentId: request.agentId,
+        userMessage: request.userMessage,
+        toolResults: toolResults,
+        logger: logger,
+      );
+    } catch (_) {
+      // Fire-and-forget.
+    }
+  }
+
+  /// Best-effort idle session summarization.
+  ///
+  /// There is no background scheduler in the runtime engine, so "idle" is
+  /// detected on the next turn: if the previous agent event is older than the
+  /// idle threshold, summarize the recent chat slice into a `session` memory.
+  Future<void> _maybeSummarizeIdleSession({
+    required AgentRuntimeRequest request,
+    required OpenAiCompatibleClient client,
+    required LlmProviderConfig config,
+  }) async {
+    final memories = memoryRepo;
+    final events = eventRepo;
+    if (memories == null || events == null || request.agentId.isEmpty) return;
+    if (request.recentMessages.length < 4) return;
+
+    try {
+      final recentEvents = await events.recent(request.agentId, limit: 1);
+      if (recentEvents.isNotEmpty) {
+        final gap = DateTime.now().difference(recentEvents.first.createdAt);
+        if (gap < const Duration(minutes: 5)) return;
+      }
+
+      final recentSession = await memories.byCategory(
+        request.agentId,
+        'session',
+        limit: 1,
+      );
+      if (recentSession.isNotEmpty) {
+        final age = DateTime.now().difference(recentSession.first.createdAt);
+        if (age < const Duration(minutes: 30)) return;
+      }
+
+      final transcript = request.recentMessages
+          .take(20)
+          .map((m) => '${m.role}: ${m.content}')
+          .join('\n');
+      if (transcript.trim().isEmpty) return;
+
+      final response = await client.chat(
+        config: config,
+        phase: 'session_summary',
+        messages: [
+          {'role': 'system', 'content': PromptConstants.sessionSummarySystem},
+          {
+            'role': 'user',
+            'content': PromptConstants.sessionSummaryUser(transcript),
+          },
+        ],
+      );
+      final parsed = JsonUtils.tryParseObject(response);
+      final summary = (parsed?['summary'] ?? '').toString().trim();
+      if (summary.isEmpty || summary.length < 20) return;
+      await memories.append(
+        agentId: request.agentId,
+        content: summary,
+        category: 'session',
+      );
+    } catch (_) {
+      // Fire-and-forget.
+    }
+  }
 
   Map<String, PendingAction> get _pendingActions =>
       _confirmation.pendingActions;
@@ -257,6 +357,11 @@ class AgentRuntimeEngine {
       ),
     );
     final client = _client;
+    await _maybeSummarizeIdleSession(
+      request: request,
+      client: client,
+      config: llmConfig,
+    );
     final planner = Planner(
       client: client,
       config: llmConfig,
@@ -358,7 +463,11 @@ class AgentRuntimeEngine {
       // Phase 7: identity lives in agent_soul. Check the DB row directly to
       // decide whether the introduction gate should fire.
       final activeSoul = await soulRepo?.get(request.agentId);
-      final workspace = await _buildWorkspace(wsName, request.agentId);
+      final workspace = await _buildWorkspace(
+        wsName,
+        request.agentId,
+        userMessage: request.userMessage,
+      );
       final userNotIntroduced = _isUserNameMissing(activeSoul);
       // Drop transient provider-error messages from history before slicing —
       // they describe past connection state, not real conversational context.
@@ -1098,6 +1207,13 @@ class AgentRuntimeEngine {
         fastPath: isFastPath,
       );
 
+      await _maybeExtractMemory(
+        request: loopRequest,
+        client: client,
+        config: llmConfig,
+        logger: logger,
+      );
+
       // Fast-path exhausted: retry in normal mode with the same plan/tree.
       if (loopResponse.state == AgentRuntimeState.fastPathExhausted) {
         logger.logDivergence('fast_path_exhausted', {
@@ -1356,10 +1472,7 @@ class AgentRuntimeEngine {
           if ((pending.toolName == 'app.open' ||
                   pending.toolName == 'app.resolve') &&
               _loopRunner.planRequiresAppAgent(goalTree)) {
-            AppAgentOverlayService.show(
-              operation: 'open',
-              narrative: '',
-            );
+            AppAgentOverlayService.show(operation: 'open', narrative: '');
           }
           return _loopRunner.run(
             request: resumedRequest,

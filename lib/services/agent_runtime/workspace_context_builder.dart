@@ -17,9 +17,28 @@ class WorkspaceContextBuilder {
   final AgentSoulRepository? soulRepo;
   final AgentMemoryRepository? memoryRepo;
 
+  /// Max recent entries pulled from DB before relevance filtering.
+  static const int _recentMemoryPoolSize = 60;
+
+  /// Max entries surfaced into the prompt after relevance scoring. Recent +
+  /// relevant entries combined; we cap so the prompt never bloats.
+  static const int _maxPromptMemoryEntries = 12;
+
+  /// Always-keep recency window. Anything within this window is kept
+  /// regardless of keyword match — fresh facts are usually relevant.
+  static const Duration _alwaysKeepRecency = Duration(days: 3);
+
   /// Build an [AgentWorkspace] from SQLite. Falls back to empty when repos
   /// aren't injected (e.g. in tests using a default-constructed engine).
-  Future<AgentWorkspace> build(String agentName, String agentId) async {
+  ///
+  /// When [userMessage] is provided, memory entries are scored by keyword
+  /// overlap and only the top-scoring + recent ones are surfaced. Without it,
+  /// the previous behavior (latest N entries) is preserved.
+  Future<AgentWorkspace> build(
+    String agentName,
+    String agentId, {
+    String? userMessage,
+  }) async {
     if (soulRepo == null && memoryRepo == null) {
       return const AgentWorkspace(
         soul: '',
@@ -30,19 +49,107 @@ class WorkspaceContextBuilder {
     }
 
     final soulFuture = soulRepo?.get(agentId);
-    final memoryFuture = memoryRepo?.recent(agentId, limit: 30);
+    final memoryFuture = memoryRepo?.recent(
+      agentId,
+      limit: _recentMemoryPoolSize,
+    );
 
     final soul = soulFuture == null ? null : await soulFuture;
-    final memoryEntries = memoryFuture == null
+    final memoryPool = memoryFuture == null
         ? const <AgentMemoryEntry>[]
         : await memoryFuture;
 
+    final selected = _selectRelevantMemory(
+      pool: memoryPool,
+      userMessage: userMessage,
+    );
+
     return AgentWorkspace(
       soul: formatSoul(agentName, soul),
-      memory: formatMemory(memoryEntries),
+      memory: formatMemory(selected),
       skills: '',
       heartbeat: '',
     );
+  }
+
+  /// Pick which memory entries to inject into the prompt.
+  ///
+  /// Strategy:
+  /// 1. Always keep entries within [_alwaysKeepRecency] (fresh wins).
+  /// 2. For older entries, score by keyword overlap with [userMessage] and
+  ///    pick the top scorers.
+  /// 3. Cap final list at [_maxPromptMemoryEntries].
+  /// 4. If [userMessage] is null/empty, fall back to the most recent N — same
+  ///    behavior as before this method existed.
+  static List<AgentMemoryEntry> _selectRelevantMemory({
+    required List<AgentMemoryEntry> pool,
+    required String? userMessage,
+  }) {
+    if (pool.isEmpty) return const [];
+
+    final now = DateTime.now();
+    final keywords = _extractKeywords(userMessage);
+
+    if (keywords.isEmpty) {
+      // No useful query — preserve the legacy "latest N" behavior.
+      return pool.take(_maxPromptMemoryEntries).toList(growable: false);
+    }
+
+    final fresh = <AgentMemoryEntry>[];
+    final scored = <_ScoredEntry>[];
+    for (final entry in pool) {
+      final age = now.difference(entry.createdAt);
+      if (age <= _alwaysKeepRecency) {
+        fresh.add(entry);
+        continue;
+      }
+      final score = _scoreEntry(entry, keywords);
+      if (score > 0) {
+        scored.add(_ScoredEntry(entry: entry, score: score));
+      }
+    }
+
+    scored.sort((a, b) => b.score.compareTo(a.score));
+
+    final remainingSlots = _maxPromptMemoryEntries - fresh.length;
+    final picked = <AgentMemoryEntry>[
+      ...fresh,
+      if (remainingSlots > 0)
+        ...scored.take(remainingSlots).map((e) => e.entry),
+    ];
+
+    // Re-order chronologically (newest first) so the rendered markdown
+    // matches the existing prompt expectation.
+    picked.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return picked;
+  }
+
+  /// Tokenize the user message into language-generic terms.
+  ///
+  /// No stopword lists: runtime policy forbids per-language word lists. We keep
+  /// this deliberately simple and only require a minimum token length.
+  static Set<String> _extractKeywords(String? userMessage) {
+    if (userMessage == null) return const {};
+    final trimmed = userMessage.trim();
+    if (trimmed.isEmpty) return const {};
+
+    final tokens = trimmed
+        .toLowerCase()
+        .split(RegExp(r'[^\p{L}\p{N}]+', unicode: true))
+        .where((t) => t.length >= 4);
+    return tokens.toSet();
+  }
+
+  /// Score an entry by counting language-generic term overlap with its content.
+  /// Category match is a small bonus.
+  static int _scoreEntry(AgentMemoryEntry entry, Set<String> keywords) {
+    final content = entry.content.toLowerCase();
+    var score = 0;
+    for (final kw in keywords) {
+      if (content.contains(kw)) score += 2;
+    }
+    if (keywords.contains(entry.category.toLowerCase())) score += 1;
+    return score;
   }
 
   /// True if the user hasn't introduced themselves yet. Drives the
@@ -134,4 +241,12 @@ Design Preference:
         return category;
     }
   }
+}
+
+/// A memory entry paired with its relevance score during recall selection.
+class _ScoredEntry {
+  const _ScoredEntry({required this.entry, required this.score});
+
+  final AgentMemoryEntry entry;
+  final int score;
 }

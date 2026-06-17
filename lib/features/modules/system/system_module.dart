@@ -114,6 +114,20 @@ class SystemModulePlugin extends ModulePlugin {
       ),
     ),
     ToolDefinition(
+      name: 'system.memory.search',
+      description:
+          'Search long-term memory entries by keyword or category. Returns matching entries from the agent_memory table. Use this to proactively recall relevant context before answering or planning.',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'query': 'string (optional: substring search over memory content)',
+        'category':
+            'string (optional: fact|preference|bookmark|session — filter by category)',
+        'limit': 'int (optional, default 20, max 50)',
+      },
+      isRetrieval: true,
+    ),
+    ToolDefinition(
       name: 'system.config.read',
       description:
           'Read the master app configuration. Returns agents, providers (no API keys), modules, active selections, and user preferences. Live data is merged from the local database.',
@@ -204,6 +218,8 @@ class SystemModulePlugin extends ModulePlugin {
         return tools.executeProfileUpdate(request.args);
       case 'system.memory.append':
         return tools.executeMemoryAppend(request.args);
+      case 'system.memory.search':
+        return tools.executeMemorySearch(request.args);
       case 'system.config.read':
         return tools.executeConfigRead(request.args);
       case 'system.config.patch':

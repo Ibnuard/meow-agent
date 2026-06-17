@@ -27,10 +27,10 @@ extension SystemToolsWorkspace on SystemTools {
       final message = (args['message'] ?? '').toString().trim();
 
       // Navigate back to Meow Agent.
-      final success = await _rtbChannel.invokeMethod<bool>(
-            'openApp',
-            {'package': _selfPackage},
-          ) ??
+      final success =
+          await _rtbChannel.invokeMethod<bool>('openApp', {
+            'package': _selfPackage,
+          }) ??
           false;
 
       return ToolExecutionResult(
@@ -124,8 +124,7 @@ extension SystemToolsWorkspace on SystemTools {
             ],
           },
           'system.memory.append': {
-            'purpose':
-                'Append a persistent memory entry to the database.',
+            'purpose': 'Append a persistent memory entry to the database.',
             'categories': AgentSoulRepository.memoryCategories,
             'policy':
                 'Append concise entries. Do not store passwords, API keys, OTPs, or secrets.',
@@ -150,7 +149,8 @@ extension SystemToolsWorkspace on SystemTools {
         );
       }
 
-      final filename = (args['file'] as String? ?? args['filename'] as String? ?? '').trim();
+      final filename =
+          (args['file'] as String? ?? args['filename'] as String? ?? '').trim();
       if (filename.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -341,6 +341,86 @@ extension SystemToolsWorkspace on SystemTools {
       return ToolExecutionResult(
         success: false,
         toolName: 'system.memory.append',
+        error: e.toString(),
+      );
+    }
+  }
+
+  // ─── system.memory.search ────────────────────────────────
+  //
+  // Lets the agent proactively recall durable facts/preferences before
+  // answering or planning, instead of relying only on the ambient memory
+  // block injected into prompts. Backed by an indexed query (substring LIKE
+  // and/or category filter) on the `agent_memory` table.
+
+  Future<ToolExecutionResult> executeMemorySearch(
+    Map<String, dynamic> args,
+  ) async {
+    try {
+      final repo = coreMemoryRepo;
+      if (repo == null) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.memory.search',
+          error: 'Memory store is not available.',
+        );
+      }
+      if (agentId.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'system.memory.search',
+          error: 'No active agent.',
+        );
+      }
+
+      final query = (args['query'] as String? ?? '').trim();
+      final rawCategory = (args['category'] as String? ?? '').trim();
+      final allowedCategories = AgentSoulRepository.memoryCategories.toSet();
+      final category = allowedCategories.contains(rawCategory)
+          ? rawCategory
+          : '';
+      final rawLimit = args['limit'];
+      final limit = switch (rawLimit) {
+        final int n => n.clamp(1, 50),
+        final String s => (int.tryParse(s) ?? 20).clamp(1, 50),
+        _ => 20,
+      };
+
+      List<AgentMemoryEntry> entries;
+      if (query.isNotEmpty) {
+        entries = await repo.search(agentId, query, limit: limit);
+        if (category.isNotEmpty) {
+          entries = entries.where((e) => e.category == category).toList();
+        }
+      } else if (category.isNotEmpty) {
+        entries = await repo.byCategory(agentId, category, limit: limit);
+      } else {
+        entries = await repo.recent(agentId, limit: limit);
+      }
+
+      return ToolExecutionResult(
+        success: true,
+        toolName: 'system.memory.search',
+        data: {
+          'agentId': agentId,
+          'query': query.isEmpty ? null : query,
+          'category': category.isEmpty ? null : category,
+          'count': entries.length,
+          'entries': [
+            for (final e in entries)
+              {
+                'memoryId': e.id,
+                'category': e.category,
+                'content': e.content,
+                'createdAt': e.createdAt.toIso8601String(),
+              },
+          ],
+        },
+      );
+    } catch (e) {
+      return ToolExecutionResult(
+        success: false,
+        toolName: 'system.memory.search',
         error: e.toString(),
       );
     }

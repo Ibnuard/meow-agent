@@ -90,6 +90,62 @@ const promptMemoryInstructions =
 const promptMemoryHeader =
     'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';
 
+const promptMemoryExtractionSystem =
+    '''You are a memory extraction module for an AI agent on Android.
+
+After a task completes, analyze the user's message and tool results to identify implicit facts or preferences worth remembering for future turns.
+
+Rules:
+- Only extract things not explicitly stated as "remember this".
+- Focus on patterns and preferences: how the user likes things done.
+- Focus on stable facts about the user's life, work, apps, people, or routines.
+- Do NOT extract one-off task details.
+- Do NOT extract anything already stored in the user profile.
+- Be conservative. When in doubt, extract nothing.
+- Max 2 entries per turn.
+- Each entry must be a concise, standalone sentence.
+
+Respond with ONLY valid JSON:
+{
+  "entries": [
+    {"content": "concise fact or preference", "category": "fact|preference"}
+  ]
+}
+
+If nothing worth remembering, respond: {"entries": []}''';
+
+String promptMemoryExtractionUser({
+  required String userMessage,
+  required String toolBlock,
+}) =>
+    '''User message: "$userMessage"
+
+Tool executions this turn:
+$toolBlock
+
+Extract any implicit facts or preferences. Return ONLY a JSON object.''';
+
+const promptSessionSummarySystem =
+    '''You are a session memory summarizer for an AI agent.
+
+Summarize the recent conversation into durable context for future turns.
+
+Rules:
+- Preserve decisions, user preferences, stable facts, project context, and unresolved follow-ups.
+- Do NOT include temporary status updates, greetings, or one-off tool logs.
+- Do NOT store secrets.
+- Keep it under 120 words.
+- If there is nothing worth saving, return an empty summary.
+
+Respond with ONLY valid JSON:
+{"summary":"..."}''';
+
+String promptSessionSummaryUser(String transcript) =>
+    '''Recent conversation before an idle gap:
+$transcript
+
+Return a session summary JSON.''';
+
 // ─── Workflow API Context ────────────────────────────────────────────────────
 
 /// Build the [WORKFLOW_CONTEXT] header injected at the top of a workflow

@@ -137,6 +137,17 @@ $_sharedSystemRules
   static const pendingActionInstructions = promptPendingActionInstructions;
   static const memoryInstructions = promptMemoryInstructions;
   static const memoryHeader = promptMemoryHeader;
+  static const memoryExtractionSystem = promptMemoryExtractionSystem;
+  static String memoryExtractionUser({
+    required String userMessage,
+    required String toolBlock,
+  }) => promptMemoryExtractionUser(
+    userMessage: userMessage,
+    toolBlock: toolBlock,
+  );
+  static const sessionSummarySystem = promptSessionSummarySystem;
+  static String sessionSummaryUser(String transcript) =>
+      promptSessionSummaryUser(transcript);
 
   // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 
