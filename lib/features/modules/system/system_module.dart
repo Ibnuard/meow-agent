@@ -110,7 +110,10 @@ class SystemModulePlugin extends ModulePlugin {
       verificationProbe: ToolVerificationProbe(
         kind: 'tool_result_data',
         entityType: 'memory',
-        expectedDataKeys: ['entry'],
+        // The handler returns memoryId (the inserted row id) — its presence
+        // proves the DB insert landed. Must match the actual payload keys in
+        // system_tools_workspace.dart executeMemoryAppend (NOT 'entry').
+        expectedDataKeys: ['memoryId'],
       ),
     ),
     ToolDefinition(

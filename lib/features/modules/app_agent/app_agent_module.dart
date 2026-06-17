@@ -33,6 +33,7 @@ class AppAgentModulePlugin extends ModulePlugin {
           'Nodes include id, class, text, content description, bounds, and flags.',
       risk: 'safe',
       requiresConfirmation: false,
+      isRetrieval: true,
       inputSchema: {
         'reason': 'string optional short reason for inspecting the screen',
       },
@@ -96,6 +97,7 @@ class AppAgentModulePlugin extends ModulePlugin {
           '(chat name, contact, button label, group, etc).',
       risk: 'safe',
       requiresConfirmation: false,
+      isRetrieval: true,
       inputSchema: {
         'query': 'string text or label to search for (case-insensitive)',
         'mode': 'string optional: "contains" (default) or "exact"',

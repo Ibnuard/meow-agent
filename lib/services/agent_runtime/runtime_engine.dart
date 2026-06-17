@@ -54,6 +54,17 @@ import '../../features/modules/workflows/workflow_repository.dart';
 /// Callback for real-time event streaming.
 typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 
+/// Entity types whose targets are resolved against the live ecosystem snapshot.
+/// Only these may be passed to the planner as authoritative "resolved target"
+/// labels — non-snapshot targets (app/message/screen/etc.) are not validated
+/// and can carry prior-turn context bleed, so they are excluded.
+const Set<String> _snapshotBackedEntities = {
+  'agent',
+  'workflow',
+  'provider',
+  'module',
+};
+
 /// The main agentic runtime engine.
 /// Stateful: maintains pending actions per agent.
 class AgentRuntimeEngine {
@@ -607,8 +618,9 @@ class AgentRuntimeEngine {
         });
       }
       if (gatedAnalyzeNarrative.isNotEmpty) {
-        logger.logNarrative('analyze', gatedAnalyzeNarrative);
-        emit(logger.events.last);
+        if (logger.logNarrative('analyze', gatedAnalyzeNarrative)) {
+          emit(logger.events.last);
+        }
       }
       final analyzerLangCode = (analysis['detected_language'] ?? '')
           .toString()
@@ -730,8 +742,9 @@ class AgentRuntimeEngine {
             'Active task scope archived (aborted) due to new_task classification. Tools re-narrowed to ${availableTools.length} from analyzer tool_groups. Heads-up surfaced.',
           );
           emit(logger.events.last);
-          logger.logNarrative('relation', headsUp);
-          emit(logger.events.last);
+          if (logger.logNarrative('relation', headsUp)) {
+            emit(logger.events.last);
+          }
         } else if (pendingClarification != null &&
             effectiveUserMessage != mergedUserMessage) {
           effectiveUserMessage = mergedUserMessage;
@@ -910,8 +923,9 @@ class AgentRuntimeEngine {
               'decision': reflection.strategy.name,
             });
           }
-          logger.logNarrative('reflect', gatedReflect);
-          emit(logger.events.last);
+          if (logger.logNarrative('reflect', gatedReflect)) {
+            emit(logger.events.last);
+          }
         }
         if (reflection.strategy == ReflectionStrategy.clarify &&
             reflection.clarifyQuestions.isNotEmpty) {
@@ -1053,8 +1067,26 @@ class AgentRuntimeEngine {
         );
         // Build resolved target labels for the planner so it can emit
         // per-entity subgoals for bulk/fan-out operations.
+        //
+        // ONLY snapshot-backed entity types (agent/workflow/provider/module)
+        // are passed as authoritative resolved labels. Those are genuinely
+        // matched against live state, so they cannot carry prior-turn bleed.
+        //
+        // App/message/screen/etc. targets are NOT snapshot-validated — the
+        // reflector can (and did, in a context-bleed case) copy a PRIOR task's
+        // app target ("open LinkedIn") into a brand-new task ("open Facebook")
+        // because the prior turn is still in recentMessages. Feeding those as
+        // "use verbatim" labels forces the planner to build the wrong goal.
+        // For non-snapshot targets the analyzer's goal + subgoal_seeds (which
+        // reflect the CURRENT message) are authoritative, so we leave
+        // resolvedLabels empty and let the planner build from them.
         final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
             ? targetGraph.eligibleTargets
+                  .where(
+                    (t) => _snapshotBackedEntities.contains(
+                      t.entityType.trim().toLowerCase(),
+                    ),
+                  )
                   .map(
                     (t) =>
                         '${t.operation} ${t.entityType}: ${t.entityLabel}'
@@ -1091,8 +1123,11 @@ class AgentRuntimeEngine {
         }
         final planNarrative = (plan['narrative'] ?? '').toString();
         if (planNarrative.isNotEmpty) {
-          logger.logNarrative('plan', planNarrative);
-          emit(logger.events.last);
+          // 'plan' is not a bubble phase (it just restates reflect). Logged for
+          // /log visibility only; logNarrative drops it from the chat surface.
+          if (logger.logNarrative('plan', planNarrative)) {
+            emit(logger.events.last);
+          }
         }
       }
       final plannerGoalTree = _buildGoalTree(
@@ -1165,8 +1200,16 @@ class AgentRuntimeEngine {
             language: detectedLang,
           );
           final reTargetGraph = reTargetResolution.graph;
+          // Same snapshot-backed-only filter as the main plan path: never feed
+          // non-snapshot (app/message/screen) targets as authoritative labels,
+          // they can carry prior-turn bleed.
           final reResolvedLabels = reTargetGraph.isNotEmpty
               ? reTargetGraph.eligibleTargets
+                    .where(
+                      (t) => _snapshotBackedEntities.contains(
+                        t.entityType.trim().toLowerCase(),
+                      ),
+                    )
                     .map(
                       (t) =>
                           '${t.operation} ${t.entityType}: ${t.entityLabel}'
@@ -1269,6 +1312,8 @@ class AgentRuntimeEngine {
           'Run cancelled by user',
         );
         await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
+        // Return to Meow Agent if cancelled while driving an external app.
+        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,

@@ -264,6 +264,11 @@ class ConfirmationManager {
     final ledger = await _ledgerDb.findActive(
       agentId: agentId,
       source: LedgerSource.chat,
+      // Bound resume to recent work. Without this, a "lanjut"/"continue" turn
+      // could rehydrate a stale active ledger from many hours ago and execute
+      // its pending tool against the wrong task. Matches the 6h chat window
+      // used for activeTaskContext in runtime_engine.
+      maxAge: const Duration(hours: 6),
     );
     if (ledger == null) return;
     final toolName = ledger.pendingToolName;

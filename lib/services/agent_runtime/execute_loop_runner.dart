@@ -92,17 +92,6 @@ class ExecuteLoopRunner {
     ToolCallRequest? lastDeliveryTool;
     ToolExecutionResult? lastDeliveryResult;
 
-    // Deterministic narrative de-duplication.
-    //
-    // The select/review prompts instruct the model to "never repeat the same
-    // narrative", but that is a soft rule a weak model ignores — producing the
-    // visible looping where the same "thinking" line is emitted every step.
-    // We enforce it in code: keep the recently emitted narratives for THIS
-    // turn and suppress a new one that is identical or near-identical to a
-    // recent one. Bounded to the last few so legitimately revisiting a phase
-    // much later is still allowed.
-    final recentNarratives = <String>[];
-
     // Conversation history snapshot (latest 20, chronological).
     // Provider-error sentinel messages are stripped first — they describe a
     // past connection failure, not real conversational context, and must not
@@ -131,7 +120,8 @@ class ExecuteLoopRunner {
       // Cooperative cancellation check.
       if (_taskScope.isCancelled(request.agentId)) {
         _taskScope.clearCancellation(request.agentId);
-        AppAgentOverlayService.hide();
+        // Return the user to Meow Agent if a cancel landed mid-automation.
+        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,
@@ -201,8 +191,7 @@ class ExecuteLoopRunner {
 
       if (selection == null) {
         if (nullSelectionRecoveryCount >= 1) {
-          logger.logNarrative(
-            'recovery',
+          logger.logError(
             'Repeated null tool selection. Aborting to prevent infinite loop.',
           );
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -261,12 +250,10 @@ class ExecuteLoopRunner {
           'decision': status,
         });
       }
-      if (selectNarrative.isNotEmpty &&
-          !_isDuplicateNarrative(selectNarrative, recentNarratives)) {
-        _rememberNarrative(selectNarrative, recentNarratives);
-        logger.logNarrative('select_tool', selectNarrative);
-        emit(logger.events.last);
-        // Realtime narrator surface for app agent automation only.
+      // 'select_tool' is NOT a chat-bubble phase (per-step tool chatter caused
+      // the stacked duplicate narratives). We still drive the app-agent overlay
+      // narration here — that's a separate surface from the chat bubble.
+      if (selectNarrative.isNotEmpty) {
         final overlayOp = _selectionOperationTag(selection);
         if (overlayOp != null) {
           AppAgentOverlayService.show(
@@ -621,7 +608,58 @@ class ExecuteLoopRunner {
               (permissionDenied.error ??
                   _runtimePhrase('runtime_permission_denied'));
           final actions = permissionDeniedActionsFor(permissionDenied);
-          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+
+          // Park the task as a resumable pending action rather than discarding
+          // it. The blocked tool is queued with the full goal-tree/plan state so
+          // that once the user enables the module/permission and says "lanjut",
+          // THIS (recent) task resumes — instead of a stale older ledger being
+          // grabbed by the continuation path. Only park when there is real
+          // progress to resume; trivial single-shot reads just fail.
+          if (request.source == RequestSource.chat &&
+              goalTree.isNotEmpty &&
+              !goalTree.isComplete) {
+            final ledger = await _taskScope.persistLedgerAtGate(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLangCode: detectedLang.code,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              pendingTool: toolRequest,
+            );
+            final pending = PendingAction(
+              toolName: toolRequest.name,
+              toolArgs: toolRequest.args,
+              userFacingSummary: finalResponse,
+              languageCode: detectedLang.code,
+              resumeContext: {
+                'ledger_id': ledger.id,
+                'plan': plan,
+                'goal_tree': goalTree.toJson(),
+                'previous_results': previousResults,
+                'current_step': currentStep,
+                'available_tools': availableTools,
+                'memory_snapshot': memorySnapshot,
+                'auto_approve_sensitive': autoApproveSensitive,
+                'is_workflow_auto_execute': isWorkflowAutoExecute,
+                'language_code': detectedLang.code,
+                'language_label': detectedLang.label,
+                'language_script': detectedLang.script,
+                'language_confidence': detectedLang.confidence,
+                'user_message': request.userMessage,
+              },
+            );
+            _pendingActionsCallback?.call(request.agentId, pending);
+          } else {
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+          }
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
@@ -835,7 +873,55 @@ class ExecuteLoopRunner {
         final permissionFinal = permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
           final actions = permissionDeniedActionsFor(result);
-          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+          // Mirror the pre-flight gate: park a resumable ledger so the recent
+          // task (not a stale one) resumes once the permission is granted.
+          if (request.source == RequestSource.chat &&
+              goalTree.isNotEmpty &&
+              !goalTree.isComplete) {
+            final ledger = await _taskScope.persistLedgerAtGate(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: previousResults,
+              currentStep: currentStep,
+              availableTools: availableTools,
+              memorySnapshot: memorySnapshot,
+              detectedLangCode: detectedLang.code,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              pendingTool: toolRequest,
+            );
+            _pendingActionsCallback?.call(
+              request.agentId,
+              PendingAction(
+                toolName: toolRequest.name,
+                toolArgs: toolRequest.args,
+                userFacingSummary: permissionFinal,
+                languageCode: detectedLang.code,
+                resumeContext: {
+                  'ledger_id': ledger.id,
+                  'plan': plan,
+                  'goal_tree': goalTree.toJson(),
+                  'previous_results': previousResults,
+                  'current_step': currentStep,
+                  'available_tools': availableTools,
+                  'memory_snapshot': memorySnapshot,
+                  'auto_approve_sensitive': autoApproveSensitive,
+                  'is_workflow_auto_execute': isWorkflowAutoExecute,
+                  'language_code': detectedLang.code,
+                  'language_label': detectedLang.label,
+                  'language_script': detectedLang.script,
+                  'language_confidence': detectedLang.confidence,
+                  'user_message': request.userMessage,
+                },
+              ),
+            );
+          } else {
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+          }
           logger.logFinalResponse(permissionFinal);
           return AgentRuntimeResponse(
             finalMessage: permissionFinal,
@@ -1127,11 +1213,9 @@ class ExecuteLoopRunner {
               'decision': reviewStatus,
             });
           }
-          if (reviewNarrative.isNotEmpty &&
-              !_isDuplicateNarrative(reviewNarrative, recentNarratives)) {
-            _rememberNarrative(reviewNarrative, recentNarratives);
-            logger.logNarrative('review', reviewNarrative);
-            emit(logger.events.last);
+          // 'review' is NOT a chat-bubble phase. Keep the app-agent overlay
+          // narration (separate surface) but don't add a per-step chat bubble.
+          if (reviewNarrative.isNotEmpty) {
             // Surface review narrative on the overlay only if the just-
             // executed tool was an app agent operation, so we don't
             // overlay borders during normal chat-only tool flows.
@@ -1298,27 +1382,47 @@ class ExecuteLoopRunner {
                 lastToolName: toolRequest.name,
               );
           if (verificationBlocker != null) return verificationBlocker;
+          // When the task ends on an answer/respond subgoal (e.g. "summarize the
+          // posts and tell me here"), the REVIEWER's final_response IS the
+          // synthesized answer — composed from everything it saw across the
+          // whole flow. It MUST be the message the user sees.
+          //
+          // Critical: do NOT fall back to `finalResponse` here. For an app_agent
+          // read flow the last tool is `app_agent.inspect` (a retrieval tool),
+          // so `finalResponse` was built by answerFromToolResult against the RAW
+          // accessibility node tree — which yields a generic recap, not the
+          // summary. And taskSummary is label-only. Both drop the actual
+          // content, leaving the user thinking it was "sent" when nothing
+          // arrived. Use the reviewer's composed answer verbatim.
+          final hasAnswerSubgoal = goalTree.subgoals.any(
+            (s) => s.isTerminal && _isAnswerOnlySubgoal(s),
+          );
+          final reviewAnswer = (review['final_response'] as String?)?.trim();
+          final hasSubstantiveAnswer =
+              reviewAnswer != null && reviewAnswer.length > 12;
           final completedFinal =
-              goalTree.isNotEmpty &&
-                  goalTree.subgoals
-                          .where(
-                            (s) =>
-                                s.status == SubgoalStatus.done ||
-                                s.status == SubgoalStatus.failed ||
-                                s.status == SubgoalStatus.skipped,
-                          )
-                          .length >
-                      1
-              ? await finalForCompletedTree(
-                  goalTree: goalTree,
-                  fallbackTool: toolRequest,
-                  fallbackResult: result,
-                  verbalizer: verbalizer,
-                  language: detectedLang,
-                  targetGraph: (plan['runtime_target_graph'] as Map?)
-                      ?.cast<String, dynamic>(),
-                )
-              : finalResponse;
+              (hasAnswerSubgoal && hasSubstantiveAnswer)
+              ? reviewAnswer
+              : (goalTree.isNotEmpty &&
+                    goalTree.subgoals
+                            .where(
+                              (s) =>
+                                  s.status == SubgoalStatus.done ||
+                                  s.status == SubgoalStatus.failed ||
+                                  s.status == SubgoalStatus.skipped,
+                            )
+                            .length >
+                        1
+                ? await finalForCompletedTree(
+                    goalTree: goalTree,
+                    fallbackTool: toolRequest,
+                    fallbackResult: result,
+                    verbalizer: verbalizer,
+                    language: detectedLang,
+                    targetGraph: (plan['runtime_target_graph'] as Map?)
+                        ?.cast<String, dynamic>(),
+                  )
+                : finalResponse);
           logger.logFinalResponse(completedFinal);
           await _taskScope.archiveLedgerForRequest(
             request,
@@ -1535,7 +1639,11 @@ class ExecuteLoopRunner {
   /// Build a failure response.
   AgentRuntimeResponse fail(String message, RuntimeLogger logger) {
     logger.logError(message);
-    AppAgentOverlayService.hide();
+    // If the failure happened mid-agentic-flow (overlay active, user stranded
+    // in an external app — e.g. a provider/LLM error during automation), hide
+    // the border AND return to Meow Agent. Falls back to a plain hide when the
+    // overlay wasn't active (normal chat failures stay put).
+    AppAgentOverlayService.hideAndReturnToBase();
     return AgentRuntimeResponse(
       finalMessage: message,
       success: false,
@@ -1543,43 +1651,6 @@ class ExecuteLoopRunner {
       events: logger.events,
     );
   }
-
-  /// How many recently-emitted narratives to remember for de-duplication.
-  static const int _narrativeMemoryWindow = 4;
-
-  /// True when [candidate] is identical or near-identical to a recently
-  /// emitted narrative. Near-identical means the normalized text matches, or
-  /// one is a prefix/substring of the other (catches the common case where the
-  /// model re-emits the same line with a trailing tweak).
-  static bool _isDuplicateNarrative(
-    String candidate,
-    List<String> recent,
-  ) {
-    final norm = _normalizeNarrative(candidate);
-    if (norm.isEmpty) return false;
-    for (final prior in recent) {
-      if (prior == norm) return true;
-      if (norm.length >= 12 &&
-          (prior.contains(norm) || norm.contains(prior))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  static void _rememberNarrative(String narrative, List<String> recent) {
-    final norm = _normalizeNarrative(narrative);
-    if (norm.isEmpty) return;
-    recent.add(norm);
-    if (recent.length > _narrativeMemoryWindow) {
-      recent.removeAt(0);
-    }
-  }
-
-  static String _normalizeNarrative(String value) => value
-      .trim()
-      .toLowerCase()
-      .replaceAll(RegExp(r'\s+'), ' ');
 
   /// Extract a stable target identifier from tool args for semantic stuck
   /// detection. Returns the first present id/name-like field; empty when none

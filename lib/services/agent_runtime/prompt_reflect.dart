@@ -53,8 +53,10 @@ BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type and langua
 
 TARGET GRAPH:
 - Emit `targets`: one machine-readable target per concrete entity acted on. Group related targets under the same subgoal_id (e.g. "sg1", "sg2") — these are grouping labels, not full subgoals (the planner builds the goal tree downstream).
-- operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
-- entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
+- operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, respond, unknown.
+- entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, screen, message, unknown.
+- A step whose outcome is to ANSWER, SUMMARIZE, or REPORT something back to the user in chat (not call a delivery tool) is operation="respond" with entity_type="message" and entity_label describing the answer (e.g. "tweet summary"). Use this for "summarize X here", "tell me Y", "what does the screen say" — NOT operation/entity "unknown". Only use a dedicated send/deliver tool when the user explicitly asks to send it elsewhere.
+- Reading on-screen content via accessibility (the current app screen) is operation="read" with entity_type="screen".
 - For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
 - For WHOLE-COLLECTION bulk targets, leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. For FILTERED bulk targets, leave entity_id empty and set a predicate selector (see protocol above). The runtime fans either out from the snapshot.
 - Current-scoped profile and memory writes are NOT agent snapshot targets. For user identity/profile updates, use entity_type "profile" or omit the target; never emit an agent target like "current_agent" just because the write goes to the current workspace.
