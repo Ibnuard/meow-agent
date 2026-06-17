@@ -1187,6 +1187,40 @@ class ExecuteLoopRunner {
           reviewStatus = 'ask_user';
         }
 
+        // Expand-click degrade guard. A failed app_agent.click on the SAME node,
+        // repeated, must NOT keep burning the scarce (2-attempt) recovery budget
+        // and abort the whole task — a failed "see more"/expand is non-fatal for
+        // a read/summarize goal. After a prior identical failed click, force the
+        // status back to `continue` so the selector (governed by the DEGRADE
+        // GRACEFULLY prompt rule) summarizes from the visible text instead of
+        // recovering/aborting. Keyed on node_id (from the native result map),
+        // generic — no app specifics.
+        if (!result.success && toolRequest.name == 'app_agent.click') {
+          final nodeId = (result.data?['node_id'] ??
+                  toolRequest.args['node_id'] ??
+                  toolRequest.args['nodeId'])
+              ?.toString();
+          if (nodeId != null && nodeId.isNotEmpty) {
+            final priorClickFails = previousResults.where((p) {
+              if (p['tool'] != 'app_agent.click') return false;
+              final res = p['result'];
+              if (res is! Map<String, dynamic>) return false;
+              return res['success'] == false &&
+                  (res['node_id']?.toString() == nodeId);
+            }).length;
+            if (priorClickFails >= 1) {
+              logger.logStateChange(
+                state,
+                'Expand-click degrade guard: ${priorClickFails + 1} failed '
+                'clicks on node $nodeId — continuing with readable text instead '
+                'of recovery/abort',
+              );
+              reviewStatus = 'continue';
+              review?['status'] = 'continue';
+            }
+          }
+        }
+
         // Empty-result loop guard.
         if (result.success &&
             isEffectivelyEmpty(result.data) &&

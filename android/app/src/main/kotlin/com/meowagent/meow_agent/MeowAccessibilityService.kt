@@ -1282,31 +1282,54 @@ class MeowAccessibilityService : AccessibilityService() {
      * dispatchGesture is async (callback-based) but the tool call chain is
      * synchronous. Bridge it with a latch, bounded so a dropped callback never
      * hangs the runtime turn.
+     *
+     * IMPORTANT — success must NOT hinge on callback TIMING. The touch is
+     * delivered to the target the moment the gesture is dispatched; the
+     * onCompleted callback only confirms the stroke animation finished and can
+     * arrive late, after the latch, or be dropped entirely — which previously
+     * made a tap that PHYSICALLY worked (e.g. expanding a "see more" span)
+     * report failure. So we treat the result as:
+     *   - dispatched == false           → real failure (capability not effective
+     *                                      / OS rejected the queue) → false
+     *   - onCancelled fired             → real failure (interrupted) → false
+     *   - onCompleted OR latch timeout  → success (the stroke was delivered)
+     * We still wait briefly so an explicit onCancelled can veto.
      */
     private fun dispatchAndAwait(gesture: GestureDescription): Boolean {
         val latch = CountDownLatch(1)
-        var ok = false
+        var cancelled = false
         val dispatched = dispatchGesture(
             gesture,
             object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(d: GestureDescription?) {
-                    ok = true
                     latch.countDown()
                 }
 
                 override fun onCancelled(d: GestureDescription?) {
-                    ok = false
+                    cancelled = true
                     latch.countDown()
                 }
             },
             ensureGestureHandler()
         )
-        if (!dispatched) return false
-        return try {
-            latch.await(2, TimeUnit.SECONDS) && ok
+        if (!dispatched) {
+            Log.w(TAG, "dispatchGesture rejected (canPerformGestures not effective? re-grant accessibility)")
+            return false
+        }
+        val completed = try {
+            latch.await(2, TimeUnit.SECONDS)
         } catch (_: InterruptedException) {
             false
         }
+        // Success unless the system explicitly cancelled the stroke. A timeout
+        // (completed == false, cancelled == false) means the callback was late
+        // or dropped — the touch was still delivered, so treat it as success.
+        val ok = !cancelled
+        Log.d(
+            TAG,
+            "gesture dispatched=true completed=$completed cancelled=$cancelled -> success=$ok",
+        )
+        return ok
     }
 
     /**
