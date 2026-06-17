@@ -993,4 +993,59 @@ void main() {
     expect(answerCall.lastUserContent, contains('(es)'));
     expect(res.finalMessage, 'Tu batería está al 80%.');
   });
+
+  // ── Scenario 21: App Agentic foresight preflight ───────────────────────
+  // When the plan needs app_agent (tool_groups contains 'app_agent') but the
+  // App Agentic permission is OFF, the engine fails BEFORE the loop opens any
+  // app — so the user is never stranded in an external app behind a dead
+  // overlay. Asserts: no tool dispatched at all, failed state, an action to
+  // open the module, and that reflect/plan/selectTool never ran.
+  test('S21 app_agent task with App Agentic off fails before opening any app',
+      () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"open.fb.read.posts","goal":"open facebook and read 2 posts",'
+            '"requires_tools":true,"risk":"sensitive","tool_groups":["app","app_agent"],'
+            '"missing_info":[],"subgoal_seeds":["open facebook","read 2 posts",'
+            '"summarize"],"task_relation":"none","narrative":""}',
+      ],
+      'reflect': [
+        '{"strategy":"direct_execute","goal_tree":{"main_goal":"open fb read posts",'
+            '"completion_criteria":["posts read"],"subgoals":[{"id":"sg1",'
+            '"label":"open facebook","required_slots":{},"missing_slots":[],'
+            '"status":"pending"}]},"narrative":""}',
+      ],
+      'plan': [
+        '{"main_goal":"open fb read posts","completion_criteria":["posts read"],'
+            '"subgoals":[{"id":"sg1","label":"open facebook","required_slots":{},'
+            '"missing_slots":[],"status":"pending"}],"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"app.resolve",'
+            '"args":{"query":"Facebook"},"risk":"safe",'
+            '"requires_confirmation":false},"narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: const {},
+      // App Agentic OFF: the prefix-rule probe tool is denied.
+      deniedTools: {'app_agent.inspect'},
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('buka facebook cari 2 post di timeline'),
+      provider: provider(),
+    );
+
+    // Failed early — and CRUCIALLY no tool was ever dispatched (FB not opened).
+    expect(res.state, AgentRuntimeState.failed);
+    expect(res.success, false);
+    expect(router.dispatchSequence, isEmpty);
+    // Surfaces an action to open the module so the user can enable the toggle.
+    expect(res.actions, isNotEmpty);
+    expect(res.actions.first.target, '/modules/super_power');
+    // The loop never ran: no selectTool/review past the analyze gate.
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+  });
 }

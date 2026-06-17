@@ -2,7 +2,9 @@ package com.meowagent.meow_agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.graphics.Path
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -15,6 +17,8 @@ import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Queued accessibility actions for cross-app automation.
@@ -158,6 +162,24 @@ class MeowAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var retryCount = 0
 
+    // Dedicated background thread for gesture-completion callbacks. The
+    // tool-call chain blocks the MAIN thread waiting on the gesture latch, so
+    // the callback MUST be delivered off the main thread or it would deadlock
+    // until the latch timeout. Created lazily on first gesture.
+    private var gestureThread: android.os.HandlerThread? = null
+    private var gestureHandler: Handler? = null
+
+    private fun ensureGestureHandler(): Handler {
+        var h = gestureHandler
+        if (h == null) {
+            val t = android.os.HandlerThread("meow-gesture").also { it.start() }
+            h = Handler(t.looper)
+            gestureThread = t
+            gestureHandler = h
+        }
+        return h
+    }
+
     // Track group send state machine.
     private var groupState: GroupSendState = GroupSendState.IDLE
 
@@ -177,6 +199,9 @@ class MeowAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         instance = null
+        gestureThread?.quitSafely()
+        gestureThread = null
+        gestureHandler = null
         super.onDestroy()
     }
 
@@ -1147,9 +1172,18 @@ class MeowAccessibilityService : AccessibilityService() {
                     "node_id" to nodeId
                 )
             } else {
+                val bounds = Rect()
+                node.getBoundsInScreen(bounds)
                 val performed = when (action) {
                     "click" -> node.performAction(AccessibilityNodeInfo.ACTION_CLICK) ||
-                            (findClickableParent(node)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+                            (findClickableParent(node)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) ||
+                            // Accessibility ACTION_CLICK is refused by many custom
+                            // controls that are visually tappable but report
+                            // clickable=false (e.g. inline "see more"/"lainnya"
+                            // spans, feed widgets). Fall back to a coordinate tap
+                            // at the node center — works regardless of the app's
+                            // accessibility flags. Generic, not app-specific.
+                            gestureTap(bounds)
                     "set_text" -> {
                         val args = Bundle().apply {
                             putCharSequence(
@@ -1160,13 +1194,18 @@ class MeowAccessibilityService : AccessibilityService() {
                         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
                     }
                     "scroll_forward", "scroll_down" ->
-                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) ||
+                            // The targeted node may be non-scrollable or scroll on
+                            // the wrong axis (e.g. a HorizontalScrollView when the
+                            // feed scrolls vertically). Fall back to a vertical
+                            // swipe gesture over the node area.
+                            gestureSwipe(bounds, down = true)
                     "scroll_backward", "scroll_up" ->
-                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                        node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) ||
+                            gestureSwipe(bounds, down = false)
                     "focus" -> node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                     else -> false
                 }
-                val bounds = Rect()
                 node.getBoundsInScreen(bounds)
                 mapOf(
                     "success" to performed,
@@ -1191,6 +1230,82 @@ class MeowAccessibilityService : AccessibilityService() {
             )
         } finally {
             root.recycle()
+        }
+    }
+
+    /**
+     * Coordinate-tap fallback for when AccessibilityNodeInfo.ACTION_CLICK is
+     * refused (custom controls that are visually tappable but report
+     * clickable=false — inline "see more" spans, feed widgets, etc.). Dispatches
+     * a short tap at the node center and blocks (bounded) for the result.
+     * Generic: depends only on screen coordinates, not on any app.
+     */
+    private fun gestureTap(bounds: Rect): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        if (bounds.isEmpty) return false
+        val cx = bounds.exactCenterX()
+        val cy = bounds.exactCenterY()
+        if (cx <= 0f || cy <= 0f) return false
+        val path = Path().apply { moveTo(cx, cy) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L))
+            .build()
+        return dispatchAndAwait(gesture)
+    }
+
+    /**
+     * Vertical-swipe fallback for when ACTION_SCROLL_FORWARD/BACKWARD is refused
+     * or hits the wrong-axis container (e.g. a HorizontalScrollView while the
+     * feed scrolls vertically). Swipes within the node bounds; [down]=true
+     * reveals content below (finger moves up). Bounded blocking.
+     */
+    private fun gestureSwipe(bounds: Rect, down: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
+        if (bounds.isEmpty || bounds.height() < 40) return false
+        val x = bounds.exactCenterX().coerceAtLeast(1f)
+        // Swipe across the middle 60% of the node height to avoid edge insets.
+        val top = bounds.top + bounds.height() * 0.2f
+        val btm = bounds.bottom - bounds.height() * 0.2f
+        val startY = if (down) btm else top
+        val endY = if (down) top else btm
+        val path = Path().apply {
+            moveTo(x, startY)
+            lineTo(x, endY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0L, 300L))
+            .build()
+        return dispatchAndAwait(gesture)
+    }
+
+    /**
+     * dispatchGesture is async (callback-based) but the tool call chain is
+     * synchronous. Bridge it with a latch, bounded so a dropped callback never
+     * hangs the runtime turn.
+     */
+    private fun dispatchAndAwait(gesture: GestureDescription): Boolean {
+        val latch = CountDownLatch(1)
+        var ok = false
+        val dispatched = dispatchGesture(
+            gesture,
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(d: GestureDescription?) {
+                    ok = true
+                    latch.countDown()
+                }
+
+                override fun onCancelled(d: GestureDescription?) {
+                    ok = false
+                    latch.countDown()
+                }
+            },
+            ensureGestureHandler()
+        )
+        if (!dispatched) return false
+        return try {
+            latch.await(2, TimeUnit.SECONDS) && ok
+        } catch (_: InterruptedException) {
+            false
         }
     }
 

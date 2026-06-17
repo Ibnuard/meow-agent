@@ -1244,6 +1244,44 @@ class AgentRuntimeEngine {
         }
       }
 
+      // FORESIGHT preflight: if the plan will need App Agentic (the analyzer
+      // routed to the app_agent catalog group) but that permission is OFF,
+      // fail BEFORE the loop opens any app. Otherwise the loop would run
+      // app.open (allowed) and only hit the wall at app_agent.inspect — leaving
+      // the user stranded in the external app behind a dead overlay. The in-loop
+      // gate stays as the safety net; this is the early, no-side-effect exit.
+      // Skipped for unattended workflow runs (no user to grant a toggle).
+      final preflightGroups = (analysis['tool_groups'] as List?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const <String>[];
+      if (request.source != RequestSource.workflow &&
+          preflightGroups.contains('app_agent')) {
+        // 'app_agent.inspect' is a representative real tool; the 'app_agent.'
+        // prefix rule resolves it to the super_power module / app_agentic toggle.
+        final denied = await toolRouter.permissionDeniedResult(
+          'app_agent.inspect',
+        );
+        if (denied != null) {
+          final preMessage =
+              _loopRunner.permissionDeniedResponseFor(denied) ??
+              (denied.error ?? 'App Agentic is required for this task.');
+          final preActions = _loopRunner.permissionDeniedActionsFor(denied);
+          await _taskScope.finishScopeForRequest(
+            request,
+            LedgerStatus.failed,
+          );
+          logger.logFinalResponse(preMessage);
+          return AgentRuntimeResponse(
+            finalMessage: preMessage,
+            success: false,
+            state: AgentRuntimeState.failed,
+            events: logger.events,
+            actions: preActions,
+          );
+        }
+      }
+
       final loopResponse = await _loopRunner.run(
         request: loopRequest,
         plan: plan,
@@ -1401,6 +1439,9 @@ class AgentRuntimeEngine {
         final actions = _loopRunner.permissionDeniedActionsFor(result);
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
+        // Safety net: a permission denial on a confirmed/resumed tool must tear
+        // down the agentic overlay + return to Meow Agent (self-guarding).
+        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: permissionFinal,
           success: false,

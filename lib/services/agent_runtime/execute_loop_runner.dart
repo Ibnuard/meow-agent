@@ -661,6 +661,10 @@ class ExecuteLoopRunner {
             );
           }
           logger.logFinalResponse(finalResponse);
+          // Safety net: a permission denial mid-flow must never leave the
+          // agentic overlay stranded on an external app. Self-guarding — no-op
+          // RTB when the overlay was never shown (chat-only denials).
+          AppAgentOverlayService.hideAndReturnToBase();
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
             success: false,
@@ -923,6 +927,9 @@ class ExecuteLoopRunner {
             );
           }
           logger.logFinalResponse(permissionFinal);
+          // Safety net: tear down the agentic overlay + return to Meow Agent on
+          // a post-execute permission denial (self-guarding, see B1).
+          AppAgentOverlayService.hideAndReturnToBase();
           return AgentRuntimeResponse(
             finalMessage: permissionFinal,
             success: false,
@@ -956,6 +963,9 @@ class ExecuteLoopRunner {
           ];
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(message);
+          // Accessibility off mid-flow is the same stuck-overlay class — tear
+          // down and return to Meow Agent (self-guarding).
+          AppAgentOverlayService.hideAndReturnToBase();
           return AgentRuntimeResponse(
             finalMessage: message,
             success: false,
@@ -1692,6 +1702,14 @@ class ExecuteLoopRunner {
     data.forEach((k, v) {
       if (v is String && v.length > 600) {
         out[k] = '${v.substring(0, 600)}…(+${v.length - 600} chars)';
+      } else if (v is List && _isNodeTree(v)) {
+        // app_agent.inspect screen node tree. The selector picks a node_id from
+        // THIS list, so a blind 10-item cap blinds it to expand affordances
+        // ("see more"/"lainnya") and to later posts — the exact reason the agent
+        // could only scroll instead of clicking. Keep ACTIONABLE + content nodes
+        // (compacted to the fields needed to choose an action) up to a higher
+        // cap; drop only inert structural/empty nodes.
+        out[k] = _compactNodeTree(v);
       } else if (v is List && v.length > 10) {
         out[k] = [...v.take(10), '…(+${v.length - 10} more)'];
       } else {
@@ -1699,6 +1717,54 @@ class ExecuteLoopRunner {
       }
     });
     return out;
+  }
+
+  /// True when [list] looks like an accessibility node tree (maps carrying an
+  /// `id` plus interaction flags) rather than an ordinary data list.
+  static bool _isNodeTree(List<dynamic> list) {
+    if (list.isEmpty) return false;
+    final first = list.first;
+    return first is Map &&
+        first.containsKey('id') &&
+        (first.containsKey('clickable') ||
+            first.containsKey('editable') ||
+            first.containsKey('scrollable'));
+  }
+
+  /// Compact a node tree for the selector prompt: keep nodes that are
+  /// actionable (clickable/editable/scrollable) OR carry content (text/desc),
+  /// project each to the fields the selector actually needs to choose a target,
+  /// and bound the total. Inert empty structural nodes are dropped. This keeps
+  /// expand affordances and post content visible without exploding tokens.
+  static List<dynamic> _compactNodeTree(List<dynamic> nodes) {
+    const maxNodes = 45;
+    final kept = <Map<String, dynamic>>[];
+    for (final n in nodes) {
+      if (n is! Map) continue;
+      final text = (n['text'] ?? '').toString().trim();
+      final desc = (n['desc'] ?? '').toString().trim();
+      final clickable = n['clickable'] == true;
+      final editable = n['editable'] == true;
+      final scrollable = n['scrollable'] == true;
+      final hasContent = text.isNotEmpty || desc.isNotEmpty;
+      final actionable = clickable || editable || scrollable;
+      if (!hasContent && !actionable) continue; // drop inert structural nodes
+      kept.add({
+        'id': n['id'],
+        if (text.isNotEmpty)
+          'text': text.length > 400 ? '${text.substring(0, 400)}…' : text,
+        if (desc.isNotEmpty)
+          'desc': desc.length > 200 ? '${desc.substring(0, 200)}…' : desc,
+        if (clickable) 'clickable': true,
+        if (editable) 'editable': true,
+        if (scrollable) 'scrollable': true,
+      });
+      if (kept.length >= maxNodes) {
+        kept.add({'_truncated': 'more nodes off-screen; scroll to reveal'});
+        break;
+      }
+    }
+    return kept;
   }
 
   /// Check if the tool result warrants answering directly vs. going through the

@@ -25,7 +25,14 @@ class ScriptedToolRouter extends ToolRouter {
     required Map<String, ToolExecutionResult> results,
     super.agentName = 'TestAgent',
     super.agentId = 'test-agent',
-  }) : _results = results;
+    Set<String> deniedTools = const {},
+  })  : _results = results,
+        _deniedTools = deniedTools;
+
+  /// Tool names that [permissionDeniedResult] should report as blocked. Empty
+  /// by default so existing scenarios deny nothing. Used to exercise the
+  /// app-agentic foresight preflight (permission OFF) without a real module DB.
+  final Set<String> _deniedTools;
 
   /// Canned results keyed by tool name. A name may map to a queue-like list
   /// via [resultsByCall] when the same tool is called multiple times with
@@ -65,10 +72,27 @@ class ScriptedToolRouter extends ToolRouter {
     return _resultFor(request);
   }
 
-  /// No real permission policy in tests — nothing is ever denied.
+  /// No real permission policy in tests — a tool is denied only when listed in
+  /// [_deniedTools]; everything else is allowed. Mirrors the prefix-rule shape
+  /// (e.g. denying 'app_agent.inspect' simulates App Agentic being OFF).
   @override
-  Future<ToolExecutionResult?> permissionDeniedResult(String toolName) async =>
-      null;
+  Future<ToolExecutionResult?> permissionDeniedResult(String toolName) async {
+    if (!_deniedTools.contains(toolName)) return null;
+    return ToolExecutionResult(
+      success: false,
+      toolName: toolName,
+      data: const {
+        'errorCode': 'module_permission_denied',
+        'reason': 'settingDisabled',
+        'moduleId': 'super_power',
+        'moduleName': 'Super Power',
+        'settingKey': 'app_agentic',
+        'settingLabel': 'App Agentic',
+        'actionLabel': 'control apps on screen',
+      },
+      error: 'module_permission_denied: settingDisabled. Module: "Super Power".',
+    );
+  }
 
   /// No filesystem in tests — never escalate to a cross-workspace gate.
   @override

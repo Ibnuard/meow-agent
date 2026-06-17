@@ -16,6 +16,7 @@ import '../../providers/data/provider_repository.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/notification_sound_provider.dart';
 import 'chat_history_service.dart';
+import 'chat_messages_notifier.dart';
 import 'chat_notification_service.dart';
 import 'chat_runtime_log_service.dart';
 import 'chat_session_service.dart';
@@ -602,10 +603,56 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
+  /// Strip the `[[CONFIRMATION_REQUIRED]]` marker from the most-recent
+  /// persisted confirmation message so the in-chat Accept/Reject card clears.
+  ///
+  /// The chat bubble renders its action row purely off the stored marker
+  /// (meow_bubble.dart), independent of live pending state. When the user
+  /// resolves a confirmation via the NOTIFICATION action buttons, the in-chat
+  /// path (`handleConfirmation`, which deletes the message) never runs — so
+  /// without this the card lingers, visible and tappable, looking unresolved.
+  /// Called from both [confirm] and [reject] so every surface stays in sync.
+  Future<void> _resolveConfirmationCard(String agentId) async {
+    try {
+      final sessionId = ref
+          .read(chatSessionServiceProvider)
+          .currentSessionId(agentId);
+      final latest = await history.loadLatest(agentId, sessionId: sessionId);
+      for (var i = latest.length - 1; i >= 0; i--) {
+        final m = latest[i];
+        if (m.role != 'assistant') continue;
+        if (!m.content.contains('[[CONFIRMATION_REQUIRED]]')) continue;
+        final cleaned = m.content
+            .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+            .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
+            .trim();
+        if (m.id != null) {
+          final cleanedMsg = m.copyWith(content: cleaned);
+          // Persist the stripped text...
+          await history.updateMessage(cleanedMsg);
+          // ...AND upsert into the live in-memory list the chat screen renders
+          // from. A DB-only update never reaches the UI (the screen reads the
+          // chatMessagesProvider notifier state), which is why a notification
+          // accept previously left the card on screen. Upsert matches by id and
+          // replaces the marker version, clearing the Accept/Reject row.
+          ref
+              .read(chatMessagesProvider(agentId).notifier)
+              .upsertMessage(cleanedMsg);
+        }
+        break; // only the latest pending confirmation can be active
+      }
+    } catch (_) {
+      // Best-effort UI cleanup — never block the actual confirm/reject flow.
+    }
+  }
+
   Future<void> confirm(String agentId, {bool alwaysApprove = false}) async {
     final s = sessionFor(agentId);
     final tool = s.pendingTool;
     if (tool == null) return;
+    // Resolve the lingering confirmation card BEFORE executing so a notification
+    // accept clears the in-chat Accept/Reject row too (see helper doc).
+    await _resolveConfirmationCard(agentId);
 
     final provider = await _resolveProvider(agentId);
     if (provider == null || !provider.isComplete) {
@@ -829,6 +876,9 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   /// Reject a pending tool.
   Future<void> reject(String agentId) async {
+    // Strip the lingering confirmation card marker (see [confirm] for why) so
+    // a reject from the notification also clears the in-chat Accept/Reject row.
+    await _resolveConfirmationCard(agentId);
     // Reuse the language captured when the pending action was created so
     // the rejection message stays consistent with the prompt the user saw.
     final pending = engine.getPendingAction(agentId);
