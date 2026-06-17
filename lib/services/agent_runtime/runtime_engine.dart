@@ -345,6 +345,28 @@ class AgentRuntimeEngine {
     await ledgerDb.deleteAllForAgent(agentId);
   }
 
+  /// Whether a confirmed "lanjut"/"continue" on a parked ledger should RESTART
+  /// the task from its original goal rather than replay the single parked tool.
+  ///
+  /// App-automation tasks operate on LIVE device state (the foreground app, the
+  /// on-screen accessibility tree). When a task parks for a permission, the user
+  /// physically leaves the target app to flip the toggle, so any captured
+  /// screen/foreground state and the parked tool's args are now stale. Replaying
+  /// the parked tool (e.g. `device.foreground_app` returning "Meow Agent", or a
+  /// stale `app_agent.inspect`) makes the agent act on the wrong screen and give
+  /// up. Restarting from `ledger.originalUserMessage` re-issues `app.open`
+  /// deterministically and drives the real goal again.
+  ///
+  /// Language-agnostic: uses the structural [planRequiresAppAgent] signal plus a
+  /// tool-identifier family (not localized text). Non-app tasks (file ops gated
+  /// on a module toggle, etc.) return false and keep the safe mid-flight replay.
+  bool _resumeRequiresRestart(TaskLedger ledger) {
+    if (_loopRunner.planRequiresAppAgent(ledger.goalTree)) return true;
+    const liveStateTools = {'app.open', 'app.resolve', 'device.foreground_app'};
+    final parked = ledger.pendingToolName ?? '';
+    return parked.startsWith('app_agent.') || liveStateTools.contains(parked);
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // run() — the main entry point
   // ═══════════════════════════════════════════════════════════════
@@ -414,6 +436,10 @@ class AgentRuntimeEngine {
       }
       var pending = _pendingActions[request.agentId];
       var pendingDecision = ConfirmationDecision.none;
+      // When set, a confirmed resume chose to RESTART an app-automation task
+      // from its original goal rather than replay the stale parked tool. Applied
+      // to effectiveUserMessage further down (its declaration site).
+      String? restartFromOriginalMessage;
       if (pending != null) {
         pendingDecision = ConfirmationChecker.check(request.userMessage);
         logger.logStateChange(
@@ -421,17 +447,47 @@ class AgentRuntimeEngine {
           'Pending action detected: ${pending.toolName}, deterministic decision: ${pendingDecision.name}',
         );
         emit(logger.events.last);
-        final pendingResponse = await _confirmation.handleDecision(
-          request: request,
-          pending: pending,
-          decision: pendingDecision,
-          executor: executor,
-          verbalizer: verbalizer,
-          detectedLang: detectedLang,
-          logger: logger,
-          emit: emit,
-        );
-        if (pendingResponse != null) return pendingResponse;
+        // RESTART-ON-RESUME: for app-automation tasks the parked tool + captured
+        // screen/foreground state are stale (the user left the target app to
+        // grant a permission). Re-run the original goal from scratch instead of
+        // firing the fragment — the fresh plan re-issues app.open deterministically.
+        var didRestart = false;
+        if (pendingDecision == ConfirmationDecision.confirmed) {
+          final restartLedger = await ledgerDb.findActive(
+            agentId: request.agentId,
+            source: LedgerSource.chat,
+            // SAME 6h guard as the other resume paths — do not widen.
+            maxAge: const Duration(hours: 6),
+          );
+          if (restartLedger != null &&
+              _resumeRequiresRestart(restartLedger) &&
+              restartLedger.originalUserMessage.trim().isNotEmpty) {
+            _confirmation.clearPending(request.agentId);
+            pending = null;
+            pendingDecision = ConfirmationDecision.none;
+            restartFromOriginalMessage = restartLedger.originalUserMessage;
+            didRestart = true;
+            logger.logStateChange(
+              AgentRuntimeState.analyzing,
+              'Restarting app-automation task from original goal after permission grant '
+              '(stale parked tool dropped).',
+            );
+            emit(logger.events.last);
+          }
+        }
+        if (!didRestart) {
+          final pendingResponse = await _confirmation.handleDecision(
+            request: request,
+            pending: pending!,
+            decision: pendingDecision,
+            executor: executor,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            logger: logger,
+            emit: emit,
+          );
+          if (pendingResponse != null) return pendingResponse;
+        }
       }
       final wsName = request.agentName.isNotEmpty
           ? request.agentName
@@ -549,6 +605,12 @@ class AgentRuntimeEngine {
           : (pendingClarification != null
                 ? mergedUserMessage
                 : userMessageWithAttachments);
+      // App-automation restart-on-resume: re-plan from the ORIGINAL goal (e.g.
+      // "buka facebook, cek 2 post, summarize"), not the bare "lanjutkan" turn,
+      // so analyze/plan/loop rebuild the real task and re-open the app.
+      if (restartFromOriginalMessage != null) {
+        effectiveUserMessage = restartFromOriginalMessage;
+      }
       var toolSelection = ToolCatalog.select(
         userMessage: request.userMessage,
         pendingAction: pending,
@@ -1267,10 +1329,45 @@ class AgentRuntimeEngine {
               _loopRunner.permissionDeniedResponseFor(denied) ??
               (denied.error ?? 'App Agentic is required for this task.');
           final preActions = _loopRunner.permissionDeniedActionsFor(denied);
-          await _taskScope.finishScopeForRequest(
-            request,
-            LedgerStatus.failed,
-          );
+          // PARK (don't delete): App Agentic is a toggle the user can flip on,
+          // so the task is recoverable. Persist a resumable ledger carrying the
+          // ORIGINAL goal + a synthetic app_agent.inspect pending marker. After
+          // the user enables the toggle and says "lanjut", _resumeRequiresRestart
+          // sees the app_agent pending tool and restarts the task from the
+          // original message (re-opening the app), instead of leaving nothing to
+          // resume (the old finishScopeForRequest(failed) hard-deleted it).
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            final ledger = await _taskScope.persistLedgerAtGate(
+              request: request,
+              plan: plan,
+              goalTree: goalTree,
+              previousResults: const <Map<String, dynamic>>[],
+              currentStep: 0,
+              availableTools: availableTools,
+              memorySnapshot: _memory.formatForPrompt(request.agentId),
+              detectedLangCode: detectedLang.code,
+              autoApproveSensitive: autoApproveSensitive,
+              isWorkflowAutoExecute: isWorkflowAutoExecute,
+              pendingTool: const ToolCallRequest(
+                name: 'app_agent.inspect',
+                args: {},
+                risk: 'safe',
+                requiresConfirmation: false,
+              ),
+            );
+            _pendingActions[request.agentId] = PendingAction(
+              toolName: 'app_agent.inspect',
+              toolArgs: const {},
+              userFacingSummary: preMessage,
+              languageCode: detectedLang.code,
+              resumeContext: {'ledger_id': ledger.id},
+            );
+          } else {
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+          }
           logger.logFinalResponse(preMessage);
           return AgentRuntimeResponse(
             finalMessage: preMessage,
