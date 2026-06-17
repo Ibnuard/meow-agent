@@ -1438,35 +1438,53 @@ class ExecuteLoopRunner {
           // summary. And taskSummary is label-only. Both drop the actual
           // content, leaving the user thinking it was "sent" when nothing
           // arrived. Use the reviewer's composed answer verbatim.
+          //
+          // Deterministic source first: system.rtb / chat.send put the EXACT
+          // delivered text in result.data. That text was literally shown to the
+          // user, so echoing it as the final reply can never be wrong.
+          final deliveredContent = _extractDeliveredContent(
+            result,
+            previousResults,
+          );
           final hasAnswerSubgoal = goalTree.subgoals.any(
             (s) => s.isTerminal && _isAnswerOnlySubgoal(s),
+          );
+          // A delivery subgoal (system.rtb / chat.send) carries the content the
+          // user asked for but uses a delivery TOOL, not _operation=respond — so
+          // _isAnswerOnlySubgoal misses it. Without this, a "summarize and send"
+          // task finalizes to the label-only recap and the real summary is lost.
+          final hasDeliverySubgoal = goalTree.subgoals.any(
+            (s) => s.isTerminal && _isDeliverySubgoal(s),
           );
           final reviewAnswer = (review['final_response'] as String?)?.trim();
           final hasSubstantiveAnswer =
               reviewAnswer != null && reviewAnswer.length > 12;
           final completedFinal =
-              (hasAnswerSubgoal && hasSubstantiveAnswer)
-              ? reviewAnswer
-              : (goalTree.isNotEmpty &&
-                    goalTree.subgoals
-                            .where(
-                              (s) =>
-                                  s.status == SubgoalStatus.done ||
-                                  s.status == SubgoalStatus.failed ||
-                                  s.status == SubgoalStatus.skipped,
-                            )
-                            .length >
-                        1
-                ? await finalForCompletedTree(
-                    goalTree: goalTree,
-                    fallbackTool: toolRequest,
-                    fallbackResult: result,
-                    verbalizer: verbalizer,
-                    language: detectedLang,
-                    targetGraph: (plan['runtime_target_graph'] as Map?)
-                        ?.cast<String, dynamic>(),
-                  )
-                : finalResponse);
+              (deliveredContent != null && deliveredContent.isNotEmpty)
+              ? deliveredContent
+              : ((hasAnswerSubgoal || hasDeliverySubgoal) &&
+                        hasSubstantiveAnswer)
+                  ? reviewAnswer
+                  : (goalTree.isNotEmpty &&
+                        goalTree.subgoals
+                                .where(
+                                  (s) =>
+                                      s.status == SubgoalStatus.done ||
+                                      s.status == SubgoalStatus.failed ||
+                                      s.status == SubgoalStatus.skipped,
+                                )
+                                .length >
+                            1
+                    ? await finalForCompletedTree(
+                        goalTree: goalTree,
+                        fallbackTool: toolRequest,
+                        fallbackResult: result,
+                        verbalizer: verbalizer,
+                        language: detectedLang,
+                        targetGraph: (plan['runtime_target_graph'] as Map?)
+                            ?.cast<String, dynamic>(),
+                      )
+                    : finalResponse);
           logger.logFinalResponse(completedFinal);
           await _taskScope.archiveLedgerForRequest(
             request,
@@ -2266,6 +2284,50 @@ class ExecuteLoopRunner {
 
     final tool = _subgoalSlot(subgoal, const ['tool', 'tool_name']);
     return tool.toLowerCase() == 'none';
+  }
+
+  /// A terminal DELIVERY subgoal carries the content the user asked for but uses
+  /// a delivery TOOL (system.rtb / chat.send) rather than an `_operation=respond`
+  /// verb — so [_isAnswerOnlySubgoal] misses it. Used at finalize so a
+  /// "summarize and send" task surfaces the real content, not a label recap.
+  bool _isDeliverySubgoal(Subgoal subgoal) {
+    final tool = _subgoalSlot(subgoal, const ['tool', 'tool_name'])
+        .toLowerCase();
+    return tool == 'system.rtb' || tool == 'chat.send';
+  }
+
+  /// Pull the literal user-facing text already delivered by `system.rtb` (which
+  /// puts the message in `data.pending_chat_message` with `message_delivered`).
+  /// This is the exact text shown to the user, so echoing it as the final reply
+  /// can never be wrong. Checks the live result first, then the most recent
+  /// delivery in [previousResults]. Returns null when nothing was delivered.
+  ///
+  /// Note: `chat.send` does NOT carry its body in the result (only ids/length),
+  /// so it is not recoverable here — those flows fall back to the reviewer's
+  /// composed answer via the `hasDeliverySubgoal` gate.
+  String? _extractDeliveredContent(
+    ToolExecutionResult result,
+    List<Map<String, dynamic>> previousResults,
+  ) {
+    String? fromData(Map? data) {
+      if (data == null) return null;
+      if (data['message_delivered'] == true) {
+        final m = (data['pending_chat_message'] ?? '').toString().trim();
+        if (m.isNotEmpty) return m;
+      }
+      return null;
+    }
+
+    final live = fromData(result.data);
+    if (live != null) return live;
+    for (final entry in previousResults.reversed) {
+      final inner = entry['result'];
+      if (inner is Map) {
+        final v = fromData(inner);
+        if (v != null) return v;
+      }
+    }
+    return null;
   }
 
   String _subgoalSlot(Subgoal subgoal, List<String> keys) {

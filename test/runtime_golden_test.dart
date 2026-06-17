@@ -1144,4 +1144,86 @@ void main() {
     expect(llm.countOf('analyze'), 1);
     expect(router.dispatchSequence, contains('app.resolve'));
   });
+
+  // ── Scenario 23: summarize-and-deliver surfaces the ACTUAL content ─────
+  // A read+summarize+deliver task ends on a system.rtb DELIVERY subgoal (a
+  // tool call, not _operation=respond). The final user-facing message MUST be
+  // the actual delivered summary (system.rtb's pending_chat_message), NOT a
+  // label-only "I opened, summarized, and sent it" recap. Guards the gap that
+  // left answer-only subgoals fixed but delivery subgoals dropping content.
+  test('S23 summarize+deliver final message is the summary, not a recap',
+      () async {
+    const summary = 'Post 1: Bar Bor asks about free wifi. Post 2: Hanasui '
+        'sponsored blush promo.';
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"fb.summarize.deliver","goal":"summarize 2 FB posts and send",'
+            '"requires_tools":true,"risk":"safe","tool_groups":["app_agent"],'
+            '"missing_info":[],"subgoal_seeds":["read posts","summarize and send"],'
+            '"task_relation":"none","narrative":""}',
+      ],
+      'reflect': [
+        '{"strategy":"direct_execute","goal_tree":{"main_goal":"summarize+send",'
+            '"completion_criteria":["summary delivered"],"subgoals":[{"id":"sg1",'
+            '"label":"read posts","required_slots":{},"missing_slots":[],'
+            '"status":"pending"},{"id":"sg2","label":"send summary to chat",'
+            '"required_slots":{"tool":"system.rtb"},"missing_slots":[],'
+            '"status":"pending"}]},"narrative":""}',
+      ],
+      'plan': [
+        '{"main_goal":"summarize+send","completion_criteria":["delivered"],'
+            '"subgoals":[{"id":"sg1","label":"read posts","required_slots":{},'
+            '"missing_slots":[],"status":"pending"},{"id":"sg2",'
+            '"label":"send summary to chat","required_slots":{"tool":"system.rtb"},'
+            '"missing_slots":[],"status":"pending"}],"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"app_agent.inspect","args":{},'
+            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+        '{"status":"tool_required","tool":{"name":"system.rtb",'
+            '"args":{"message":"$summary"},"risk":"safe",'
+            '"requires_confirmation":false},"narrative":""}',
+      ],
+      'review': [
+        '{"status":"continue","reason":"posts read","subgoal_update":{"id":"sg1",'
+            '"status":"done"},"narrative":""}',
+        '{"status":"done","final_response":"I summarized and sent it.",'
+            '"subgoal_update":{"id":"sg2","status":"done"},"narrative":""}',
+      ],
+      'verbalize.success': ['Done.'],
+      'verbalize.task_summary': ['I opened FB, summarized, and sent it.'],
+      'verbalize.answer_from_tool_result': ['answer'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'app_agent.inspect': const ToolExecutionResult(
+          success: true,
+          toolName: 'app_agent.inspect',
+          data: {
+            'nodes': [
+              {'id': 1, 'text': 'Bar Bor wifi', 'clickable': false},
+            ],
+          },
+        ),
+        'system.rtb': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.rtb',
+          data: {
+            'returned': true,
+            'message_delivered': true,
+            'pending_chat_message': summary,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router)
+        .run(req('summarize 2 FB posts and send here'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    // The final message IS the delivered summary, not the label recap.
+    expect(res.finalMessage, summary);
+    expect(res.finalMessage.toLowerCase(), isNot(contains('opened fb')));
+  });
 }

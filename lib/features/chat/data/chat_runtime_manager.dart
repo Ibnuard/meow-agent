@@ -798,6 +798,24 @@ class ChatRuntimeManager extends ChangeNotifier {
         ),
       );
       await UnreadService.instance.increment(agentId);
+      // If system.rtb delivered a message during the RESUMED loop (this turn
+      // went through an app.open confirmation, so finalize ran in
+      // executeConfirmed — not _runSend), insert that summary as its own bubble.
+      // Without this the rtb pending_chat_message is dropped on the confirm path
+      // and the user sees only the generic recap. Guarded against duplicating
+      // the reply when Edit 1 already promoted the delivered text to finalMessage.
+      var rtbInserted = false;
+      final rtbMessageContent = _extractRtbPendingMessage(response);
+      if (rtbMessageContent != null &&
+          rtbMessageContent != response.finalMessage) {
+        final rtbMsg = ChatMessage(
+          role: 'assistant',
+          content: rtbMessageContent,
+        );
+        await history.addMessage(agentId, rtbMsg);
+        await UnreadService.instance.increment(agentId);
+        rtbInserted = true;
+      }
       _maybeNotify(
         agentId: agentId,
         agentName: agentName,
@@ -806,17 +824,16 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
+      final hasLedgerMsg =
+          historicalLedger != null &&
+          historicalLedger.goalTree.subgoals.length > 1 &&
+          !isNextConfirm;
       persistedMessages
         ..clear()
         ..addAll(
           await history.loadLatest(
             agentId,
-            limit:
-                historicalLedger != null &&
-                    historicalLedger.goalTree.subgoals.length > 1 &&
-                    !isNextConfirm
-                ? 2
-                : 1,
+            limit: (hasLedgerMsg ? 2 : 1) + (rtbInserted ? 1 : 0),
           ),
         );
 
