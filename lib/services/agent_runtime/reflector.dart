@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'ecosystem_snapshot.dart';
@@ -203,10 +205,11 @@ class ReflectionOutput {
 /// Failures degrade to `directExecute` with the analyzer's seed tree, so a
 /// reflection outage never bricks the runtime.
 class Reflector {
-  Reflector({required this.client, required this.config});
+  Reflector({required this.client, required this.config, this.cancelToken});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+  final CancelToken? cancelToken;
 
   /// Maximum LLM retries before degrading to directExecute. Per user spec.
   static const int maxRetries = 2;
@@ -254,6 +257,7 @@ class Reflector {
         final response = await client.chat(
           config: config,
           phase: attempts == 0 ? 'reflect' : 'reflect.repair',
+          cancelToken: cancelToken,
           messages: [
             {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
             {

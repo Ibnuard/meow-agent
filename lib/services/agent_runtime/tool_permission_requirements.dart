@@ -52,30 +52,10 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Open Installed Apps',
     actionLabel: 'open URLs',
   ),
-  'app_agent.inspect': ToolPermissionRequirement(
-    moduleId: 'super_power',
-    settingKey: 'app_agentic',
-    settingLabel: 'App Agentic',
-    actionLabel: 'inspect the current app screen',
-  ),
-  'app_agent.click': ToolPermissionRequirement(
-    moduleId: 'super_power',
-    settingKey: 'app_agentic',
-    settingLabel: 'App Agentic',
-    actionLabel: 'click app screen controls',
-  ),
-  'app_agent.set_text': ToolPermissionRequirement(
-    moduleId: 'super_power',
-    settingKey: 'app_agentic',
-    settingLabel: 'App Agentic',
-    actionLabel: 'type into app fields',
-  ),
-  'app_agent.scroll': ToolPermissionRequirement(
-    moduleId: 'super_power',
-    settingKey: 'app_agentic',
-    settingLabel: 'App Agentic',
-    actionLabel: 'scroll app screens',
-  ),
+  // NOTE: app_agent.* tools are gated by a single PREFIX rule, not per-tool
+  // entries — see [toolPermissionPrefixRequirements] below. One `app_agentic`
+  // toggle = allow every action on the current screen. New app_agent.* tools
+  // are covered automatically and can never fail open.
   'device.battery': ToolPermissionRequirement(
     moduleId: 'device_context',
     settingKey: 'allow_battery',
@@ -214,6 +194,13 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Read Notifications',
     actionLabel: 'open the notification source app',
   ),
+  'notification.create_local': ToolPermissionRequirement(
+    moduleId: 'notification_intelligence',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Notifications',
+    actionLabel: 'push a local notification',
+    androidPermission: PermissionType.notification,
+  ),
   'notes.create': ToolPermissionRequirement(
     moduleId: 'notes',
     settingKey: 'allow_create',
@@ -261,6 +248,41 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_read',
     settingLabel: 'Allow Read Notes',
     actionLabel: 'export notes',
+    androidPermission: PermissionType.storage,
+  ),
+  'notes.append': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'append to notes',
+    androidPermission: PermissionType.storage,
+  ),
+  'notes.pin': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'pin notes',
+    androidPermission: PermissionType.storage,
+  ),
+  'notes.unpin': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'unpin notes',
+    androidPermission: PermissionType.storage,
+  ),
+  'notes.archive': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'archive notes',
+    androidPermission: PermissionType.storage,
+  ),
+  'notes.unarchive': ToolPermissionRequirement(
+    moduleId: 'notes',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Notes',
+    actionLabel: 'unarchive notes',
     androidPermission: PermissionType.storage,
   ),
   'files.create': ToolPermissionRequirement(
@@ -312,6 +334,20 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     actionLabel: 'create folders',
     androidPermission: PermissionType.storage,
   ),
+  'files.copy': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Files',
+    actionLabel: 'copy files',
+    androidPermission: PermissionType.storage,
+  ),
+  'files.append': ToolPermissionRequirement(
+    moduleId: 'files',
+    settingKey: 'allow_write',
+    settingLabel: 'Allow Write Files',
+    actionLabel: 'append to files',
+    androidPermission: PermissionType.storage,
+  ),
   'calendar.create': ToolPermissionRequirement(
     moduleId: 'calendar',
     settingKey: 'allow_create',
@@ -347,6 +383,12 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingKey: 'allow_delete',
     settingLabel: 'Allow Delete Events',
     actionLabel: 'delete calendar events',
+  ),
+  'calendar.link_note': ToolPermissionRequirement(
+    moduleId: 'calendar',
+    settingKey: 'allow_update',
+    settingLabel: 'Allow Update Events',
+    actionLabel: 'link a note to a calendar event',
   ),
   'workflow.create': ToolPermissionRequirement(
     moduleId: 'workflows',
@@ -489,5 +531,25 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
   'vm.list_servers': ToolPermissionRequirement(
     moduleId: 'vm',
     actionLabel: 'list running VM servers',
+  ),
+};
+
+/// Prefix-based requirement rules, checked by [ToolPermissionPolicy] AFTER an
+/// exact-name lookup misses. A tool whose name starts with the key is gated by
+/// the value.
+///
+/// Used for tool families where one user toggle should govern the whole group:
+/// turning the toggle ON means "allow every action in this family". This keeps
+/// the gate from ever failing open as new tools are added to the family — no
+/// per-tool map entry to forget.
+const toolPermissionPrefixRequirements = <String, ToolPermissionRequirement>{
+  // App Agentic: one toggle = allow every on-screen action (inspect, click,
+  // set_text, scroll, key, back, find/click_by_text, and any future
+  // app_agent.* tool). Driven by the `app_agentic` setting on Super Power.
+  'app_agent.': ToolPermissionRequirement(
+    moduleId: 'super_power',
+    settingKey: 'app_agentic',
+    settingLabel: 'App Agentic',
+    actionLabel: 'control apps on screen',
   ),
 };

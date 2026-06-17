@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/storage/core_storage_providers.dart';
+import '../../core/storage/secure_storage_service.dart';
 import '../../features/modules/data/module_repository.dart';
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
@@ -343,6 +345,8 @@ class AgentRuntimeEngine {
     bool autoApproveSensitive = false,
   }) async {
     _taskScope.clearCancellation(request.agentId);
+    final cancelToken = CancelToken();
+    _taskScope.registerCancelToken(request.agentId, cancelToken);
     final logger = RuntimeLogger();
     void emit(RuntimeEvent event) {
       onEvent?.call(event);
@@ -366,9 +370,18 @@ class AgentRuntimeEngine {
       client: client,
       config: llmConfig,
       languageCode: languageCode,
+      cancelToken: cancelToken,
     );
-    final executor = Executor(client: client, config: llmConfig);
-    final reflector = Reflector(client: client, config: llmConfig);
+    final executor = Executor(
+      client: client,
+      config: llmConfig,
+      cancelToken: cancelToken,
+    );
+    final reflector = Reflector(
+      client: client,
+      config: llmConfig,
+      cancelToken: cancelToken,
+    );
     final isWorkflowAutoExecute =
         request.source == RequestSource.workflow && autoApproveSensitive;
     var detectedLang = _languageDetector.detect(
@@ -1246,6 +1259,28 @@ class AgentRuntimeEngine {
       }
 
       return loopResponse;
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        // User cancelled mid-call. The chat manager already posted the
+        // cancellation message and cleared the running state — return a silent
+        // empty failure so we don't surface a duplicate error bubble.
+        logger.logStateChange(
+          AgentRuntimeState.failed,
+          'Run cancelled by user',
+        );
+        await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
+        return AgentRuntimeResponse(
+          finalMessage: '',
+          success: false,
+          state: AgentRuntimeState.failed,
+        );
+      }
+      logger.logError('Runtime exception', e);
+      await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, languageCode),
+        logger,
+      );
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -1816,6 +1851,7 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
       coreProviderRepo: ref.read(coreProviderEntryRepositoryProvider),
       coreSoulRepo: ref.read(coreAgentSoulRepositoryProvider),
       coreMemoryRepo: ref.read(coreAgentMemoryRepositoryProvider),
+      secureStorage: ref.read(secureStorageProvider),
     ),
     contextBuilder: ContextBuilder(),
     languageCode: resolveLanguageCode(languagePref),

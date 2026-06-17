@@ -17,11 +17,21 @@ class VmRootfsPreset {
     required this.url,
     required this.sha256,
     required this.version,
+    this.mirrorUrls = const [],
   });
 
   final String url;
   final String sha256;
   final String version;
+
+  /// Fallback download URLs tried in order if [url] fails (e.g. a 404 after
+  /// Canonical prunes an old point release from `releases/`). All mirrors MUST
+  /// serve the exact same bytes so [sha256] still verifies. `old-releases`
+  /// keeps pruned point releases, which is the most likely recovery path.
+  final List<String> mirrorUrls;
+
+  /// All candidate URLs in priority order: primary first, then mirrors.
+  List<String> get allUrls => [url, ...mirrorUrls];
 
   static const defaultPreset = VmRootfsPreset(
     url:
@@ -30,6 +40,13 @@ class VmRootfsPreset {
     sha256:
         '075d4abd2817a5023ab0a82f5cb314c5ec0aa64a9c0b40fd3154ca3bfdae979f',
     version: 'ubuntu-22.04.5',
+    mirrorUrls: [
+      // Pruned point releases land here once removed from releases/.
+      'https://old-releases.ubuntu.com/releases/22.04/'
+          'ubuntu-base-22.04.5-base-arm64.tar.gz',
+      'http://old-releases.ubuntu.com/releases/22.04/'
+          'ubuntu-base-22.04.5-base-arm64.tar.gz',
+    ],
   );
 }
 

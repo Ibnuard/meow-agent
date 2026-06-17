@@ -121,17 +121,37 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
     });
   }
 
-  Future<void> _install() {
+  Future<void> _install() async {
     const preset = VmRootfsPreset.defaultPreset;
-    return _runRuntime(
-      () => ref
-          .read(vmRuntimeServiceProvider)
-          .downloadRootfs(
-            url: preset.url,
-            sha256: preset.sha256,
-            version: preset.version,
-          ),
-    );
+    if (_busy) return;
+    setState(() => _busy = true);
+    _startPolling();
+
+    // Try the primary URL, then each mirror in order. A download failure
+    // surfaces as status error/notInstalled (the native side wipes the partial
+    // rootfs before each attempt), so we advance to the next URL and retry.
+    // The pinned sha256 guarantees every mirror serves identical bytes.
+    final service = ref.read(vmRuntimeServiceProvider);
+    VmRuntimeSnapshot? snapshot;
+    for (final url in preset.allUrls) {
+      snapshot = await service.downloadRootfs(
+        url: url,
+        sha256: preset.sha256,
+        version: preset.version,
+      );
+      final ok = snapshot.status != VmRuntimeStatus.error &&
+          snapshot.status != VmRuntimeStatus.notInstalled &&
+          snapshot.status != VmRuntimeStatus.unavailable;
+      if (ok) break;
+    }
+
+    _pollTimer?.cancel();
+    if (!mounted) return;
+    if (snapshot != null) {
+      await ref.read(vmRuntimeRepositoryProvider).saveSnapshot(snapshot);
+      ref.invalidate(vmRuntimeSnapshotProvider);
+    }
+    if (mounted) setState(() => _busy = false);
   }
 
   Future<void> _startService() =>

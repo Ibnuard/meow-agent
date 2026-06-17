@@ -96,7 +96,7 @@ class ToolPermissionPolicy {
   final PermissionManager _permissionManager;
 
   Future<ToolPermissionCheck> check(String toolName) async {
-    final req = _requirements[toolName];
+    final req = _requirementFor(toolName);
     if (req == null) return const ToolPermissionCheck.allowed();
 
     final modules = await _moduleRepository.getInstalled();
@@ -161,4 +161,17 @@ class ToolPermissionPolicy {
 
   static Map<String, ToolPermissionRequirement> get _requirements =>
       toolPermissionRequirements;
+
+  /// Resolve the requirement for a tool: exact entry first, then a prefix rule
+  /// (e.g. `app_agent.` gates every `app_agent.*` tool under one toggle). The
+  /// prefix rule means new tools in a gated family are covered automatically —
+  /// they can never silently fail open.
+  ToolPermissionRequirement? _requirementFor(String toolName) {
+    final exact = _requirements[toolName];
+    if (exact != null) return exact;
+    for (final entry in toolPermissionPrefixRequirements.entries) {
+      if (toolName.startsWith(entry.key)) return entry.value;
+    }
+    return null;
+  }
 }

@@ -4,6 +4,7 @@ import '../../core/storage/agent_soul_repository.dart' as core_soul;
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
 import '../../core/storage/provider_repository.dart' as core_providers;
+import '../../core/storage/secure_storage_service.dart';
 import '../permission/permission_manager.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
@@ -36,6 +37,7 @@ class ToolRouter {
     this.coreProviderRepo,
     this.coreSoulRepo,
     this.coreMemoryRepo,
+    this.secureStorage,
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
   final ModuleRepository moduleRepository;
@@ -52,6 +54,9 @@ class ToolRouter {
   final core_providers.ProviderEntryRepository? coreProviderRepo;
   final core_soul.AgentSoulRepository? coreSoulRepo;
   final core_memory.AgentMemoryRepository? coreMemoryRepo;
+
+  /// Secure storage for provider API keys (mirrors the UI provider repo).
+  final SecureStorageService? secureStorage;
 
   /// The current agent name - used by workspace-scoped tools (files module).
   String agentName;
@@ -279,6 +284,7 @@ class ToolRouter {
     coreProviderRepo: coreProviderRepo,
     coreSoulRepo: coreSoulRepo,
     coreMemoryRepo: coreMemoryRepo,
+    secureStorage: secureStorage,
   );
 
   FilesTools _filesTools() =>

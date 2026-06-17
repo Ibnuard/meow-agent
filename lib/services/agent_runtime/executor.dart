@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'goal_tree.dart';
@@ -9,12 +11,14 @@ import 'tool_schema_converter.dart';
 
 /// Executes the tool selection and review loop.
 class Executor {
-  Executor({required this.client, required this.config});
+  Executor({required this.client, required this.config, this.cancelToken});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+  final CancelToken? cancelToken;
 
-  LlmJsonCaller get _caller => LlmJsonCaller(client: client, config: config);
+  LlmJsonCaller get _caller =>
+      LlmJsonCaller(client: client, config: config, cancelToken: cancelToken);
 
   /// Select the next tool or decide final response.
   Future<Map<String, dynamic>?> selectTool({
@@ -114,6 +118,7 @@ class Executor {
         tools: openAiTools,
         toolChoice: 'required',
         phase: 'fc_select',
+        cancelToken: cancelToken,
       );
       if (result == null) {
         logger.logStateChange(

@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'json_utils.dart';
@@ -8,10 +10,17 @@ import 'runtime_logger.dart';
 /// Shared utility for Planner and Executor: calls the LLM for a structured
 /// JSON response, retrying once with a repair prompt on parse failure.
 class LlmJsonCaller {
-  const LlmJsonCaller({required this.client, required this.config});
+  const LlmJsonCaller({
+    required this.client,
+    required this.config,
+    this.cancelToken,
+  });
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+
+  /// Aborts the in-flight HTTP request when the user cancels the task.
+  final CancelToken? cancelToken;
 
   /// Sends [prompt] to the LLM under [phase], expecting a JSON object back.
   /// Returns the parsed `Map<String, dynamic>` on success, or `null` if both
@@ -24,6 +33,7 @@ class LlmJsonCaller {
     final response = await client.chat(
       config: config,
       phase: phase,
+      cancelToken: cancelToken,
       messages: [
         {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
         {'role': 'user', 'content': prompt},
@@ -42,6 +52,7 @@ class LlmJsonCaller {
     final repaired = await client.chat(
       config: config,
       phase: '$phase.repair',
+      cancelToken: cancelToken,
       messages: [
         {'role': 'user', 'content': repairPrompt},
       ],

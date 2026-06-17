@@ -47,9 +47,21 @@ class FunctionCallResult {
 /// [testConnection] method used by the Set Up screen to validate the user's
 /// credentials before saving them.
 class OpenAiCompatibleClient {
-  OpenAiCompatibleClient({Dio? dio}) : _dio = dio ?? Dio();
+  OpenAiCompatibleClient({Dio? dio}) : _dio = dio ?? _defaultDio();
 
   final Dio _dio;
+
+  /// Default Dio with explicit timeouts. Without these a stalled provider
+  /// (radio drop, captive portal, dead endpoint) hangs the agent turn forever
+  /// on mobile. Receive timeout is generous because long completions stream
+  /// slowly; connect/send are tighter since they should be near-instant.
+  static Dio _defaultDio() => Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 120),
+          sendTimeout: const Duration(seconds: 30),
+        ),
+      );
 
   static const int _maxUsageRecords = 80;
   static final List<LlmRequestUsage> _usageRecords = [];
@@ -238,6 +250,7 @@ class OpenAiCompatibleClient {
     required List<Map<String, dynamic>> tools,
     String toolChoice = 'required',
     String phase = 'fc',
+    CancelToken? cancelToken,
   }) async {
     final estimatedInputTokens = estimateMessagesTokens(
       messages.map((m) => Map<String, String>.from(
@@ -259,6 +272,7 @@ class OpenAiCompatibleClient {
           'Content-Type': 'application/json',
         },
       ),
+      cancelToken: cancelToken,
     );
 
     final data = response.data;
@@ -324,6 +338,7 @@ class OpenAiCompatibleClient {
     required String prompt,
     required String imageDataUrl,
     String phase = 'vision',
+    CancelToken? cancelToken,
   }) async {
     final response = await _dio.postUri<Map<String, dynamic>>(
       _resolve(config.baseUrl, '/chat/completions'),
@@ -348,6 +363,7 @@ class OpenAiCompatibleClient {
           'Content-Type': 'application/json',
         },
       ),
+      cancelToken: cancelToken,
     );
 
     final data = response.data;

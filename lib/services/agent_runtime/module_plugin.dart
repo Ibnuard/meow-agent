@@ -6,6 +6,7 @@ import '../../core/storage/agent_soul_repository.dart' as core_soul;
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
 import '../../core/storage/provider_repository.dart' as core_providers;
+import '../../core/storage/secure_storage_service.dart';
 import '../../features/agents/data/agent_model.dart';
 import '../../features/agents/data/agent_repository.dart';
 import '../../features/modules/data/module_repository.dart';
@@ -38,6 +39,7 @@ class ModuleToolContext {
     this.coreProviderRepo,
     this.coreSoulRepo,
     this.coreMemoryRepo,
+    this.secureStorage,
   });
 
   final String agentName;
@@ -74,6 +76,12 @@ class ModuleToolContext {
   final core_providers.ProviderEntryRepository? coreProviderRepo;
   final core_soul.AgentSoulRepository? coreSoulRepo;
   final core_memory.AgentMemoryRepository? coreMemoryRepo;
+
+  /// Secure storage for sensitive values (e.g. provider API keys). Domain
+  /// plugins that persist secrets (provider.*) write the raw key here keyed by
+  /// `meow.provider_key.<id>`, mirroring the UI [ProviderRepository] scheme, so
+  /// the SQLite `api_key_ref` column never holds a plaintext key.
+  final SecureStorageService? secureStorage;
 }
 
 /// A self-registering feature module.

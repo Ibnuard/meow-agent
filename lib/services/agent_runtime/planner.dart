@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'llm_json_caller.dart';
@@ -12,13 +14,16 @@ class Planner {
     required this.client,
     required this.config,
     required this.languageCode,
+    this.cancelToken,
   });
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
   final String languageCode;
+  final CancelToken? cancelToken;
 
-  LlmJsonCaller get _caller => LlmJsonCaller(client: client, config: config);
+  LlmJsonCaller get _caller =>
+      LlmJsonCaller(client: client, config: config, cancelToken: cancelToken);
 
   /// Analyze user intent. Returns parsed JSON or null on failure.
   Future<Map<String, dynamic>?> analyze({

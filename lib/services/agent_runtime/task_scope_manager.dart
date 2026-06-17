@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import 'confirmation_manager.dart';
 import 'goal_tree.dart';
 import 'pending_clarification.dart';
@@ -29,15 +31,36 @@ class TaskScopeManager {
 
   final Set<String> _cancelledAgents = {};
 
+  /// Active Dio cancel tokens keyed by agentId. Registered when a run begins so
+  /// [cancel] can abort the in-flight LLM HTTP call immediately instead of only
+  /// being noticed at the next loop iteration boundary.
+  final Map<String, CancelToken> _cancelTokens = {};
+
   // ---------------------------------------------------------------------------
   // Cancellation
   // ---------------------------------------------------------------------------
 
-  /// Mark an agent as cancelled so [_executeLoop] bails out cooperatively.
-  void cancel(String agentId) => _cancelledAgents.add(agentId);
+  /// Mark an agent as cancelled so [_executeLoop] bails out cooperatively, and
+  /// abort any in-flight LLM request so a hung call is interrupted at once.
+  void cancel(String agentId) {
+    _cancelledAgents.add(agentId);
+    final token = _cancelTokens[agentId];
+    if (token != null && !token.isCancelled) {
+      token.cancel('user_cancelled');
+    }
+  }
 
   /// Remove the cancellation flag for an agent (when starting a new task).
-  void clearCancellation(String agentId) => _cancelledAgents.remove(agentId);
+  void clearCancellation(String agentId) {
+    _cancelledAgents.remove(agentId);
+    _cancelTokens.remove(agentId);
+  }
+
+  /// Register the [CancelToken] for an agent's current run. The engine calls
+  /// this at the start of each [run]; [cancel] uses it to abort in-flight HTTP.
+  void registerCancelToken(String agentId, CancelToken token) {
+    _cancelTokens[agentId] = token;
+  }
 
   /// Whether the agent's current task has been cancelled.
   bool isCancelled(String agentId) => _cancelledAgents.contains(agentId);
