@@ -573,9 +573,6 @@ class AppStrings {
       : 'A prompt idea you can try with this module. Refreshes automatically every few hours.';
   String get todayPromptCopy => isId ? 'Salin' : 'Copy';
   String get todayPromptCopied => isId ? 'Prompt disalin.' : 'Prompt copied.';
-  String get todayPromptTapToCopy => isId
-      ? 'Ketuk area prompt untuk menyalin.'
-      : 'Tap the prompt area to copy.';
   String get todayPromptShuffle => isId ? 'Acak' : 'Shuffle';
 
   /// Example prompts a user can try, grouped per module. These are user-facing

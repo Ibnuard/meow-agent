@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
 import '../../../services/permission/permission_manager.dart';
+import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
 import '../data/clipboard_service_controller.dart';
@@ -971,6 +972,42 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     _setPromptBorderBoosted(false);
   }
 
+  Future<void> _sendTodayPromptToChat(String prompt) async {
+    await ref.read(agentListProvider.notifier).ready;
+    final agents = ref.read(agentListProvider);
+    if (agents.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.workflowNoAgentsYet)));
+      return;
+    }
+
+    if (!mounted) return;
+    final pickedAgentId = await MeowDropdown.showSheet<String>(
+      context,
+      title: s.workflowChooseAgentTitle,
+      searchHint: s.workflowSearchAgentsLong,
+      emptyText: s.clipboardAgentNotFound,
+      strings: s,
+      options: [
+        for (final agent in agents)
+          MeowDropdownOption<String>(
+            value: agent.id,
+            label: agent.name.trim().isEmpty
+                ? s.workflowUntitledAgent
+                : agent.name.trim(),
+            prefix: MeowAgentIcon(agent: agent),
+            searchText: '${agent.providerId} ${agent.model}',
+          ),
+      ],
+    );
+    if (pickedAgentId == null || !mounted) return;
+
+    final encoded = Uri.encodeComponent(prompt);
+    context.go('/agents/$pickedAgentId/chat?initialText=$encoded');
+  }
+
   Widget _buildTodayPromptCard({
     required ModuleModel module,
     required ColorScheme cs,
@@ -1020,22 +1057,20 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton(
+              _buildPromptHeaderAction(
+                tooltip: s.clipboardActionSendToChat,
+                icon: Icons.chat_bubble_outline_rounded,
+                cs: cs,
+                onPressed: () => _sendTodayPromptToChat(prompt),
+              ),
+              const SizedBox(width: 8),
+              _buildPromptHeaderAction(
                 tooltip: s.todayPromptShuffle,
+                icon: Icons.shuffle_rounded,
+                cs: cs,
                 onPressed: () {
                   setState(() => _promptShuffleOffset++);
                 },
-                icon: const Icon(Icons.shuffle_rounded, size: 18),
-                color: cs.primary,
-                style: IconButton.styleFrom(
-                  backgroundColor: cs.primary.withValues(alpha: 0.08),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  fixedSize: const Size(36, 36),
-                  minimumSize: const Size(36, 36),
-                  padding: EdgeInsets.zero,
-                ),
               ),
             ],
           ),
@@ -1057,17 +1092,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            s.todayPromptTapToCopy,
-            style: TextStyle(
-              fontSize: 11,
-              height: 1.25,
-              color: cs.onSurfaceVariant,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 10),
           Text(
             s.todayPromptSubtitle,
             style: TextStyle(
@@ -1077,6 +1102,27 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPromptHeaderAction({
+    required String tooltip,
+    required IconData icon,
+    required ColorScheme cs,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      color: cs.primary,
+      style: IconButton.styleFrom(
+        backgroundColor: cs.primary.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        fixedSize: const Size(36, 36),
+        minimumSize: const Size(36, 36),
+        padding: EdgeInsets.zero,
       ),
     );
   }
