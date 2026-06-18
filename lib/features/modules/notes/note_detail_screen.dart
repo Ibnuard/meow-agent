@@ -39,7 +39,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     final s = AppStrings(resolveLanguageCode(langPref));
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.noteDetailDeleteTitle,
       message: s.noteDetailDeleteMessage,
       confirmLabel: s.delete,

@@ -216,7 +216,6 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final affectedAgents = agents
         .where((a) => a.providerId == widget.providerId)
         .toList();
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
 
     final affectedWarning = affectedAgents.isNotEmpty
         ? '\n\n${s.affectedAgentsWarning(affectedAgents.length)}\n'
@@ -225,7 +224,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
+      strings: s,
       title: s.deleteProvider,
       message:
           '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
@@ -391,7 +390,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       _ModelListEditor(
                         models: _models,
                         controller: _modelInputController,
-                        isId: s.isId,
+                        strings: s,
                         onAdd: _addModel,
                         onRemove: _removeModel,
                         onTest: _testModel,
@@ -523,7 +522,7 @@ class _ModelListEditor extends FormField<List<String>> {
   _ModelListEditor({
     required List<String> models,
     required TextEditingController controller,
-    required bool isId,
+    required AppStrings strings,
     required VoidCallback onAdd,
     required ValueChanged<String> onRemove,
     required ValueChanged<String> onTest,
@@ -533,12 +532,12 @@ class _ModelListEditor extends FormField<List<String>> {
          autovalidateMode: AutovalidateMode.onUserInteraction,
          validator: (_) {
            if (models.isEmpty) {
-             return AppStrings(isId ? 'id' : 'en').modelListRequired;
+             return strings.modelListRequired;
            }
            return null;
          },
          builder: (state) {
-           final s = AppStrings(isId ? 'id' : 'en');
+           final s = strings;
            final extras = state.context.extras;
            final hasError = state.hasError;
            return Column(

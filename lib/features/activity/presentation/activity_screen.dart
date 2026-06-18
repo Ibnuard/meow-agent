@@ -88,8 +88,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     _load();
   }
 
-  Future<void> _clearAll(bool isId, List<AgentModel> agents) async {
-    final s = AppStrings(isId ? 'id' : 'en');
+  Future<void> _clearAll(AppStrings s, List<AgentModel> agents) async {
     final scopedAgent = _selectedAgentId == null
         ? null
         : agents.where((a) => a.id == _selectedAgentId).firstOrNull;
@@ -99,7 +98,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
 
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
+      strings: s,
       title: s.activityClearTitle,
       message: s.activityClearBody(scopeLabel),
       confirmLabel: s.activityClear,
@@ -124,8 +123,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     final cs = context.cs;
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = AppStrings(resolveLanguageCode(langPref));
     final agents = ref.watch(agentListProvider);
 
     return Scaffold(
@@ -137,7 +135,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             tooltip: s.activityOptions,
             enabled: _history.isNotEmpty,
             onSelected: (v) {
-              if (v == 'clear') _clearAll(isId, agents);
+              if (v == 'clear') _clearAll(s, agents);
             },
             itemBuilder: (ctx) => [
               PopupMenuItem(
@@ -213,7 +211,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                                   constraints: BoxConstraints(
                                     minHeight: constraints.maxHeight,
                                   ),
-                                  child: _buildEmpty(cs, isId),
+                                  child: _buildEmpty(cs, s),
                                 ),
                               ),
                             )
@@ -247,7 +245,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                                   cs,
                                   extras,
                                   agents,
-                                  isId,
+                                  s,
                                 );
                               },
                             ),
@@ -439,8 +437,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     );
   }
 
-  Widget _buildEmpty(ColorScheme cs, bool isId) {
-    final s = AppStrings(isId ? 'id' : 'en');
+  Widget _buildEmpty(ColorScheme cs, AppStrings s) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -474,7 +471,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     ColorScheme cs,
     MeowExtras extras,
     List<AgentModel> agents,
-    bool isId,
+    AppStrings s,
   ) {
     final agentName =
         agents
@@ -534,7 +531,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        _statusLabel(entry.status, isId),
+                        _statusLabel(entry.status, s),
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -627,8 +624,7 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
     }
   }
 
-  String _statusLabel(String status, bool isId) {
-    final s = AppStrings(isId ? 'id' : 'en');
+  String _statusLabel(String status, AppStrings s) {
     switch (status) {
       case 'success':
         return s.activitySuccess;

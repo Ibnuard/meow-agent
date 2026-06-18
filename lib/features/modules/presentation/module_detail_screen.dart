@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -32,6 +34,7 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
 
 class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     with
+        SingleTickerProviderStateMixin,
         WidgetsBindingObserver,
         DeviceContextHandlerMixin,
         CommunicationHandlerMixin,
@@ -40,6 +43,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   ModuleModel? _module;
   bool _moduleLoaded = false;
   bool _installingMissingModule = false;
+  AnimationController? _promptBorderController;
+  bool _promptBorderBoosted = false;
   // Manual offset added when the user taps "Shuffle" on the Today Prompt card.
   // The base index rotates deterministically every 6 hours; shuffle just nudges
   // it forward within the current module's prompt list.
@@ -67,6 +72,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   @override
   void initState() {
     super.initState();
+    _ensurePromptBorderController();
     WidgetsBinding.instance.addObserver(this);
     _loadModule();
   }
@@ -74,7 +80,29 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _promptBorderController?.dispose();
     super.dispose();
+  }
+
+  AnimationController _ensurePromptBorderController() {
+    return _promptBorderController ??= (AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat());
+  }
+
+  void _setPromptBorderBoosted(bool boosted) {
+    if (!mounted || _promptBorderBoosted == boosted) return;
+    final controller = _ensurePromptBorderController();
+    final value = controller.value;
+    controller
+      ..stop()
+      ..duration = boosted
+          ? const Duration(milliseconds: 3600)
+          : const Duration(seconds: 10)
+      ..value = value
+      ..repeat();
+    setState(() => _promptBorderBoosted = boosted);
   }
 
   @override
@@ -211,7 +239,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     if (!mounted) return;
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.uninstallModule,
       message: s.moduleUninstallDialog(_module?.name ?? 'modul ini'),
       confirmLabel: s.uninstall,
@@ -243,8 +271,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final module = _module!;
     final languagePref = ref.watch(appLanguageProvider);
     final langCode = resolveLanguageCode(languagePref);
-    final isId = langCode == 'id';
-    final settingLabels = _settingLabels(module.id, isId: isId);
+    final s = AppStrings(langCode);
+    final settingLabels = _settingLabels(module.id, strings: s);
     final visibleSettingEntries = module.settings.entries
         .where((entry) => _settingVisible(module, entry))
         .toList(growable: false);
@@ -305,7 +333,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                       ),
                       const SizedBox(height: 7),
                       Text(
-                        _moduleDescription(module, isId: isId),
+                        _moduleDescription(module, strings: s),
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -662,7 +690,8 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) => true;
+  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) =>
+      true;
 
   Widget _buildSettingsSection({
     required ModuleModel module,
@@ -924,6 +953,24 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     return (slot + _promptShuffleOffset) % promptCount;
   }
 
+  Future<void> _copyTodayPrompt(String prompt) async {
+    await Clipboard.setData(ClipboardData(text: prompt));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.todayPromptCopied),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _copyTodayPromptWithFeedback(String prompt) async {
+    _setPromptBorderBoosted(true);
+    await _copyTodayPrompt(prompt);
+    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    _setPromptBorderBoosted(false);
+  }
+
   Widget _buildTodayPromptCard({
     required ModuleModel module,
     required ColorScheme cs,
@@ -937,16 +984,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            cs.primary.withValues(alpha: 0.14),
-            cs.primary.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.18)),
+        color: cs.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -957,8 +997,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: cs.primary.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(10),
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.14)),
                 ),
                 child: Icon(
                   Icons.auto_awesome_rounded,
@@ -971,106 +1012,77 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 child: Text(
                   s.todayPromptTitle,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: cs.onSurface,
+                    height: 1.2,
                   ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: s.todayPromptShuffle,
+                onPressed: () {
+                  setState(() => _promptShuffleOffset++);
+                },
+                icon: const Icon(Icons.shuffle_rounded, size: 18),
+                color: cs.primary,
+                style: IconButton.styleFrom(
+                  backgroundColor: cs.primary.withValues(alpha: 0.08),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  fixedSize: const Size(36, 36),
+                  minimumSize: const Size(36, 36),
+                  padding: EdgeInsets.zero,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: extras.subtleBorder),
-            ),
+          const SizedBox(height: 14),
+          _AnimatedPromptBox(
+            animation: _ensurePromptBorderController(),
+            extras: extras,
+            boosted: _promptBorderBoosted,
+            onTap: () => _copyTodayPromptWithFeedback(prompt),
+            onTapDown: () => _setPromptBorderBoosted(true),
+            onTapCancel: () => _setPromptBorderBoosted(false),
             child: Text(
               prompt,
               style: TextStyle(
                 fontSize: 14,
-                height: 1.4,
+                height: 1.45,
                 color: cs.onSurface,
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
+          Text(
+            s.todayPromptTapToCopy,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.25,
+              color: cs.onSurfaceVariant,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
           Text(
             s.todayPromptSubtitle,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 12,
               height: 1.35,
               color: cs.onSurfaceVariant,
             ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: prompt));
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(s.todayPromptCopied),
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.copy_rounded, size: 16),
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(s.todayPromptCopy, maxLines: 1, softWrap: false),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: cs.primary,
-                    side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    setState(() => _promptShuffleOffset++);
-                  },
-                  icon: const Icon(Icons.shuffle_rounded, size: 16),
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      s.todayPromptShuffle,
-                      maxLines: 1,
-                      softWrap: false,
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: cs.onSurfaceVariant,
-                    side: BorderSide(
-                      color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
     );
   }
 
-  String _moduleDescription(ModuleModel module, {required bool isId}) {
-    final s = AppStrings(isId ? 'id' : 'en');
+  String _moduleDescription(ModuleModel module, {required AppStrings strings}) {
+    final s = strings;
     switch (module.id) {
       case 'device_context':
         return s.moduleDescDeviceContext;
@@ -1095,14 +1107,112 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Map<String, (String, String)> _settingLabels(
     String moduleId, {
-    required bool isId,
+    required AppStrings strings,
   }) {
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = strings;
     final labels = <String, (String, String)>{};
     for (final entry in _module!.settings.entries) {
       labels[entry.key] = s.moduleSetting(moduleId, entry.key);
     }
     return labels;
+  }
+}
+
+class _AnimatedPromptBox extends StatelessWidget {
+  const _AnimatedPromptBox({
+    required this.animation,
+    required this.extras,
+    required this.boosted,
+    required this.onTap,
+    required this.onTapDown,
+    required this.onTapCancel,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final MeowExtras extras;
+  final bool boosted;
+  final VoidCallback onTap;
+  final VoidCallback onTapDown;
+  final VoidCallback onTapCancel;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final alpha = boosted ? 0.95 : 0.68;
+        final saturationBoost = boosted ? 0.16 : 0.0;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(boosted ? 2.0 : 1.4),
+          decoration: BoxDecoration(
+            gradient: SweepGradient(
+              colors: [
+                HSVColor.fromAHSV(
+                  alpha,
+                  214,
+                  0.70 + saturationBoost,
+                  0.95,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  285,
+                  0.56 + saturationBoost,
+                  0.96,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  330,
+                  0.58 + saturationBoost,
+                  0.98,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  42,
+                  0.68 + saturationBoost,
+                  0.98,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  155,
+                  0.64 + saturationBoost,
+                  0.86,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  214,
+                  0.70 + saturationBoost,
+                  0.95,
+                ).toColor(),
+              ],
+              transform: GradientRotation(animation.value * math.pi * 2),
+            ),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Material(
+            color: extras.inputFill,
+            borderRadius: BorderRadius.circular(17),
+            child: InkWell(
+              onTap: onTap,
+              onTapDown: (_) => onTapDown(),
+              onTapCancel: onTapCancel,
+              borderRadius: BorderRadius.circular(17),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+      child: child,
+    );
   }
 }
 

@@ -300,7 +300,7 @@ class _AgentMemoryEditorScreenState
   Future<void> _deleteEntry(AgentMemoryEntry entry) async {
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.delete,
       message: s.memoryDeleteConfirm,
       confirmLabel: s.delete,

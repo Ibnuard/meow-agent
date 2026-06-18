@@ -294,7 +294,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     final wf = widget.workflow!;
     final confirm = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.workflowDeleteTitle,
       message: s.workflowDeleteMessage(wf.title),
       confirmLabel: s.workflowDelete,

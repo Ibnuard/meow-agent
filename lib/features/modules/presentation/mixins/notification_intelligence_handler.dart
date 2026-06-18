@@ -54,13 +54,7 @@ mixin NotificationIntelligenceHandlerMixin<T extends ConsumerStatefulWidget>
           builder: (ctx) => AlertDialog(
             title: Text(s.permissionRequired),
             content: Text(
-              s.isId
-                  ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
-                        'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
-                        'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
-                  : 'Reading notifications requires "Notification access" permission.\n\n'
-                        'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
-                        'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
+              s.notificationAccessPermissionBody(s.openSettings),
             ),
             actions: [
               TextButton(

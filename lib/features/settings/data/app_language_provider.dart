@@ -338,7 +338,7 @@ class AppStrings {
   String get requestPermission => 'Request Permission';
   String get setupGuide => 'Setup Guide';
 
-  // Battery optimization (Super Power module)
+  // Battery optimization
   String get batteryOptTitle =>
       isId ? 'Optimisasi Baterai' : 'Battery Optimization';
   String get batteryOptDesc => isId
@@ -573,7 +573,10 @@ class AppStrings {
       : 'A prompt idea you can try with this module. Refreshes automatically every few hours.';
   String get todayPromptCopy => isId ? 'Salin' : 'Copy';
   String get todayPromptCopied => isId ? 'Prompt disalin.' : 'Prompt copied.';
-  String get todayPromptShuffle => isId ? 'Ganti' : 'Shuffle';
+  String get todayPromptTapToCopy => isId
+      ? 'Ketuk area prompt untuk menyalin.'
+      : 'Tap the prompt area to copy.';
+  String get todayPromptShuffle => isId ? 'Acak' : 'Shuffle';
 
   /// Example prompts a user can try, grouped per module. These are user-facing
   /// suggestions shown in the "Today's Prompt" card, not LLM engine prompts.
@@ -713,6 +716,7 @@ class AppStrings {
             : const ['What can this module do?'];
     }
   }
+
   String get welcomeTitle =>
       isId ? 'Selamat datang di Meow Agent' : 'Welcome to Meow Agent';
   String get welcomeBody => isId
@@ -725,6 +729,43 @@ class AppStrings {
   String get permissionRequired =>
       isId ? 'Izin Diperlukan' : 'Permission Required';
   String get openSettings => isId ? 'Buka Pengaturan' : 'Open Settings';
+
+  // ── Module permission rationale (module detail handlers) ─────────────────
+  String get commCallPermissionRequired => isId
+      ? 'Izin telepon diperlukan untuk fitur ini'
+      : 'Phone call permission required for this feature';
+  String get commSmsPermissionRequired => isId
+      ? 'Izin SMS diperlukan untuk fitur ini'
+      : 'SMS permission required for this feature';
+  String get commContactsPermissionRequired => isId
+      ? 'Izin kontak diperlukan untuk fitur ini'
+      : 'Contacts permission required for this feature';
+  String foregroundAppPermissionBody(String openSettingsLabel) => isId
+      ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
+            'Tap "$openSettingsLabel" untuk memberikan izin, lalu kembali.'
+      : 'Foreground app detection requires the "Usage Access" '
+            'permission.\n\n'
+            'Tap "$openSettingsLabel" to grant it, then come back.';
+  String dndPermissionBody(String openSettingsLabel) => isId
+      ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
+            'Tap "$openSettingsLabel" untuk memberikan izin, lalu kembali.'
+      : 'Reading Do Not Disturb status requires '
+            '"Do Not Disturb access" permission.\n\n'
+            'Tap "$openSettingsLabel" to grant it, then come back.';
+  String overlayLaunchPermissionBody(String openSettingsLabel) => isId
+      ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
+            'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
+            'Tap "$openSettingsLabel" untuk mengaktifkan, lalu kembali.'
+      : 'To open apps while Meow Agent is in the background, '
+            'Android requires the "Display over other apps" permission.\n\n'
+            'Tap "$openSettingsLabel" to enable it, then come back.';
+  String notificationAccessPermissionBody(String openSettingsLabel) => isId
+      ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
+            'Tap "$openSettingsLabel", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
+            'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
+      : 'Reading notifications requires "Notification access" permission.\n\n'
+            'Tap "$openSettingsLabel", find "Meow Agent" in the list, and enable access.\n\n'
+            'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.';
 
   /// Snackbar shown when the user denies a permission via the OS dialog.
   String permissionDeniedMessage(String permissionLabel) => isId
@@ -762,6 +803,7 @@ class AppStrings {
         return permissionKey;
     }
   }
+
   String get skip => isId ? 'Lewati' : 'Skip';
   String get uninstallModule => isId ? 'Hapus Modul' : 'Uninstall Module';
   String get uninstall => isId ? 'Hapus' : 'Uninstall';
@@ -1023,6 +1065,38 @@ class AppStrings {
   // --- Date separator ---
   String get today => isId ? 'Hari ini' : 'Today';
   String get yesterday => isId ? 'Kemarin' : 'Yesterday';
+
+  /// Short month names (Jan…Dec) localized for the active language. Used by
+  /// chat date separators / sticky date pills.
+  List<String> get monthsShort => isId
+      ? const [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'Mei',
+          'Jun',
+          'Jul',
+          'Agu',
+          'Sep',
+          'Okt',
+          'Nov',
+          'Des',
+        ]
+      : const [
+          'Jan',
+          'Feb',
+          'Mar',
+          'Apr',
+          'May',
+          'Jun',
+          'Jul',
+          'Aug',
+          'Sep',
+          'Oct',
+          'Nov',
+          'Dec',
+        ];
 
   // --- Reply quote ---
   String get you => isId ? 'Kamu' : 'You';
@@ -1296,6 +1370,11 @@ class AppStrings {
   String get calendarNewEvent => isId ? 'Buat Event' : 'New Event';
 
   // --- Calendar event editor ---
+  String get calendarEventDeleteTitle =>
+      isId ? 'Hapus Event?' : 'Delete event?';
+  String get calendarEventDeleteBody => isId
+      ? 'Event ini akan dihapus permanen. Lanjutkan?'
+      : 'This event will be permanently deleted. Continue?';
   String get calendarEventTitleRequired =>
       isId ? 'Judul tidak boleh kosong' : 'Title cannot be empty';
 
@@ -1335,8 +1414,7 @@ class AppStrings {
   String get profileImportMergeDesc => isId
       ? 'Tambahkan agen dan provider baru. Yang sudah ada tidak diubah.'
       : 'Add new agents and providers. Existing ones are kept.';
-  String get profileImportReplace =>
-      isId ? 'Ganti Semua' : 'Replace All';
+  String get profileImportReplace => isId ? 'Ganti Semua' : 'Replace All';
   String get profileImportReplaceDesc => isId
       ? 'Hapus semua agen dan provider yang ada, lalu impor dari file.'
       : 'Delete all existing agents and providers, then import from the file.';
@@ -1353,9 +1431,8 @@ class AppStrings {
   String profileImportPreviewSummary(int agents, int providers) => isId
       ? 'File ini berisi $agents agen dan $providers provider.'
       : 'This file contains $agents agents and $providers providers.';
-  String profileImportSkipped(String name, String reason) => isId
-      ? '"$name" dilewati: $reason'
-      : '"$name" skipped: $reason';
+  String profileImportSkipped(String name, String reason) =>
+      isId ? '"$name" dilewati: $reason' : '"$name" skipped: $reason';
   String get profileImportReasonOrphanProvider =>
       isId ? 'provider tidak ditemukan' : 'provider not found';
   String get profileImportReasonDuplicate =>

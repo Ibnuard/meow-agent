@@ -163,10 +163,12 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
   Future<void> _delete() async {
     if (!_isEditing) return;
+    final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
     final confirm = await showMeowConfirmDialog(
       context,
-      title: 'Hapus Event?',
-      message: 'Event ini akan dihapus permanen. Lanjutkan?',
+      strings: s,
+      title: s.calendarEventDeleteTitle,
+      message: s.calendarEventDeleteBody,
     );
     if (!confirm) return;
 

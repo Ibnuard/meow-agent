@@ -56,6 +56,8 @@ class MeowDropdown<T> extends StatelessWidget {
     this.enabled = true,
     this.searchable = true,
     this.dense = false,
+    this.strings,
+    @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
     this.isId = true,
   });
 
@@ -76,6 +78,11 @@ class MeowDropdown<T> extends StatelessWidget {
   final bool enabled;
   final bool searchable;
   final bool dense;
+  /// Caller's resolved strings for default sheet copy (search hint / no
+  /// results). Per AGENTS.md, the screen owns AppStrings resolution and passes
+  /// the instance down. Falls back to English when null.
+  final AppStrings? strings;
+  @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
   final bool isId;
 
   MeowDropdownOption<T>? _selectedOption() {
@@ -95,9 +102,12 @@ class MeowDropdown<T> extends StatelessWidget {
     String? emptyText,
     bool searchable = true,
     bool useRootNavigator = false,
+    AppStrings? strings,
+    @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
     bool isId = true,
   }) async {
-    final s = AppStrings(isId ? 'id' : 'en');
+    // ignore: deprecated_member_use_from_same_package
+    final s = strings ?? AppStrings(isId ? 'id' : 'en');
     final selection = await _showSheetSelection<T>(
       context,
       title: title,
@@ -156,7 +166,8 @@ class MeowDropdown<T> extends StatelessWidget {
 
   Future<void> _showSheetPicker(BuildContext context) async {
     final selected = _selectedOption();
-    final s = AppStrings(isId ? 'id' : 'en');
+    // ignore: deprecated_member_use_from_same_package
+    final s = strings ?? AppStrings(isId ? 'id' : 'en');
 
     final picked = await MeowDropdown._showSheetSelection<T>(
       context,

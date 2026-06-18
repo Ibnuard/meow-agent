@@ -528,6 +528,18 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     moduleId: 'vm',
     actionLabel: 'list running VM servers',
   ),
+  'vm.write_file': ToolPermissionRequirement(
+    moduleId: 'vm',
+    settingKey: 'allow_run_command',
+    settingLabel: 'Run Command',
+    actionLabel: 'write files into the VM workspace',
+  ),
+  'vm.export': ToolPermissionRequirement(
+    moduleId: 'vm',
+    settingKey: 'allow_run_command',
+    settingLabel: 'Run Command',
+    actionLabel: 'export the VM workspace to shared storage',
+  ),
 };
 
 /// Prefix-based requirement rules, checked by [ToolPermissionPolicy] AFTER an

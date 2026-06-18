@@ -150,7 +150,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     final count = _selectedIds.length;
     final confirm = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.wfListDeleteTitle,
       message: s.wfListDeleteMessage(count),
       confirmLabel: s.delete,

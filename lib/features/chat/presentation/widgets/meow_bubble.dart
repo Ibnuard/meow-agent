@@ -19,14 +19,14 @@ class MeowBubble extends StatelessWidget {
   const MeowBubble({
     super.key,
     required this.msg,
-    this.isId = false,
+    required this.strings,
     this.onConfirmAction,
     this.onActionTap,
     this.onLongPress,
   });
 
   final ChatMessage msg;
-  final bool isId;
+  final AppStrings strings;
   final void Function(String action)? onConfirmAction;
   final void Function(ResultAction action, ChatMessage sourceMessage)?
   onActionTap;
@@ -92,7 +92,7 @@ class MeowBubble extends StatelessWidget {
         quoteText: quoteText,
         isUser: isUser,
         isConfirmation: isConfirmation,
-        isId: isId,
+        strings: strings,
         msg: msg,
         hasMarkdown: hasMarkdown,
         isLong: isLong,
@@ -156,7 +156,7 @@ class _PlainLayout extends StatelessWidget {
     required this.quoteText,
     required this.isUser,
     required this.isConfirmation,
-    required this.isId,
+    required this.strings,
     required this.msg,
     required this.hasMarkdown,
     required this.isLong,
@@ -170,7 +170,7 @@ class _PlainLayout extends StatelessWidget {
   final String? quoteText;
   final bool isUser;
   final bool isConfirmation;
-  final bool isId;
+  final AppStrings strings;
   final ChatMessage msg;
   final bool hasMarkdown;
   final bool isLong;
@@ -182,7 +182,7 @@ class _PlainLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = strings;
     final textStyle = TextStyle(
       color: isUser ? cs.onPrimary : cs.onSurface,
       fontSize: 14,

@@ -170,7 +170,7 @@ class _VmRuntimeScreenState extends ConsumerState<VmRuntimeScreen> {
     final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.vmPluginConfirmTitle(plugin.name),
       message: s.vmPluginConfirmBody(plugin.name, plugin.estimatedSizeMb),
       confirmLabel: s.vmPluginInstall,

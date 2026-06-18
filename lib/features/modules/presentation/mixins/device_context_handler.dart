@@ -20,12 +20,7 @@ mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
           builder: (ctx) => AlertDialog(
             title: Text(s.permissionRequired),
             content: Text(
-              s.isId
-                  ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
-                      'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Foreground app detection requires the "Usage Access" '
-                      'permission.\n\n'
-                      'Tap "Open Settings" to grant it, then come back.',
+              s.foregroundAppPermissionBody(s.openSettings),
             ),
             actions: [
               TextButton(
@@ -55,12 +50,7 @@ mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
           builder: (ctx) => AlertDialog(
             title: Text(s.permissionRequired),
             content: Text(
-              s.isId
-                  ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
-                      'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Reading Do Not Disturb status requires '
-                      '"Do Not Disturb access" permission.\n\n'
-                      'Tap "Open Settings" to grant it, then come back.',
+              s.dndPermissionBody(s.openSettings),
             ),
             actions: [
               TextButton(
@@ -105,13 +95,7 @@ mixin DeviceContextHandlerMixin<T extends StatefulWidget> on State<T> {
           builder: (ctx) => AlertDialog(
             title: Text(s.permissionRequired),
             content: Text(
-              s.isId
-                  ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
-                        'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
-                        'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
-                  : 'To open apps while Meow Agent is in the background, '
-                        'Android requires the "Display over other apps" permission.\n\n'
-                        'Tap "Open Settings" to enable it, then come back.',
+              s.overlayLaunchPermissionBody(s.openSettings),
             ),
             actions: [
               TextButton(

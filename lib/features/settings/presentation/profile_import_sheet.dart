@@ -275,7 +275,7 @@ class _ProfileImportSheetState extends State<ProfileImportSheet> {
     if (_mode == ProfileImportMode.replace) {
       final confirmed = await showMeowConfirmDialog(
         context,
-        isId: s.isId,
+        strings: s,
         title: s.profileImportReplaceConfirmTitle,
         message: s.profileImportReplaceConfirmBody,
         confirmLabel: s.profileImportReplace,

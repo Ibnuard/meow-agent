@@ -419,7 +419,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   /// Build a single item for the reversed ListView.
   /// Index 0 = bottom (newest/tail), highest index = top (loading/oldest).
-  Widget _buildReversedItem(int i, bool isId) {
+  Widget _buildReversedItem(int i, AppStrings s) {
     final session = _manager?.sessionFor(_activeAgentId);
     final liveLedger = session?.activeTaskLedger;
     final hasLedger = _sending && liveLedger != null;
@@ -471,7 +471,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             ? TaskLedgerBubble(ledger: ledger, timestamp: current.timestamp)
             : MeowBubble(
                 msg: current,
-                isId: isId,
+                strings: s,
                 onConfirmAction: (action) =>
                     handleConfirmation(action, msgIndex),
                 onActionTap: handleResultAction,
@@ -485,7 +485,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _DateSeparator(date: current.timestamp.toLocal(), isId: isId),
+          _DateSeparator(date: current.timestamp.toLocal(), strings: s),
           bubble,
         ],
       );
@@ -835,7 +835,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final agents = ref.watch(agentListProvider);
     final providers = ref.watch(providerListProvider).value ?? [];
     final debugMode = ref.watch(llmDebugModeProvider);
-    final isId = resolveLanguageCode(ref.watch(appLanguageProvider)) == 'id';
+    final s = AppStrings(resolveLanguageCode(ref.watch(appLanguageProvider)));
 
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -1001,7 +1001,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   ),
                                   itemCount: _itemCount,
                                   itemBuilder: (context, i) =>
-                                      _buildReversedItem(i, isId),
+                                      _buildReversedItem(i, s),
                                 ),
                                 ValueListenableBuilder<bool>(
                                   valueListenable: _showScrollToBottom,
@@ -1044,7 +1044,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                       right: 0,
                                       child: _StickyDatePill(
                                         date: date,
-                                        isId: isId,
+                                        strings: s,
                                       ),
                                     );
                                   },
@@ -1078,10 +1078,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 }
 
 class _DateSeparator extends StatelessWidget {
-  const _DateSeparator({required this.date, required this.isId});
+  const _DateSeparator({required this.date, required this.strings});
 
   final DateTime date;
-  final bool isId;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
@@ -1110,7 +1110,7 @@ class _DateSeparator extends StatelessWidget {
   }
 
   String _label() {
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = strings;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(date.year, date.month, date.day);
@@ -1118,36 +1118,7 @@ class _DateSeparator extends StatelessWidget {
     if (diff == 0) return s.today;
     if (diff == 1) return s.yesterday;
 
-    const monthsId = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    const monthsEn = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final months = isId ? monthsId : monthsEn;
-    final mon = months[date.month - 1];
+    final mon = s.monthsShort[date.month - 1];
     if (date.year == now.year) return '${date.day} $mon';
     return '${date.day} $mon ${date.year}';
   }
@@ -1156,10 +1127,10 @@ class _DateSeparator extends StatelessWidget {
 /// WhatsApp/Telegram-style sticky date pill — appears at the top of the
 /// chat when the date separator scrolls off-screen.
 class _StickyDatePill extends StatelessWidget {
-  const _StickyDatePill({required this.date, required this.isId});
+  const _StickyDatePill({required this.date, required this.strings});
 
   final DateTime date;
-  final bool isId;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
@@ -1195,7 +1166,7 @@ class _StickyDatePill extends StatelessWidget {
   }
 
   String _label() {
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = strings;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(date.year, date.month, date.day);
@@ -1203,36 +1174,7 @@ class _StickyDatePill extends StatelessWidget {
     if (diff == 0) return s.today;
     if (diff == 1) return s.yesterday;
 
-    const monthsId = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    const monthsEn = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final months = isId ? monthsId : monthsEn;
-    final mon = months[date.month - 1];
+    final mon = s.monthsShort[date.month - 1];
     if (date.year == now.year) return '${date.day} $mon';
     return '${date.day} $mon ${date.year}';
   }

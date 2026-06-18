@@ -7,9 +7,12 @@ import '../theme.dart';
 ///
 /// Returns `true` if the user confirmed, `false` or `null` otherwise.
 ///
-/// All copy is parameterized so callers can keep their own tone, but defaults
-/// are provided that work for 90% of delete flows. Pass `isId` to switch the
-/// default labels between Indonesian and English.
+/// All copy is parameterized so callers can keep their own tone. Pass the
+/// caller's [AppStrings] via `strings:` so default labels (title/body/confirm/
+/// cancel) come from the right locale. Per AGENTS.md, the screen resolves
+/// `AppStrings` once at the top of `build()` and passes it down — `isId` must
+/// not leak into presentation. The legacy `isId` flag is kept as a deprecated
+/// shim during the migration; new callers MUST use `strings:`.
 Future<bool> showMeowConfirmDialog(
   BuildContext context, {
   String? title,
@@ -17,12 +20,14 @@ Future<bool> showMeowConfirmDialog(
   String? confirmLabel,
   String? cancelLabel,
   IconData icon = Icons.delete_outline_rounded,
+  AppStrings? strings,
+  @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
   bool isId = true,
   bool destructive = true,
 }) async {
   final cs = Theme.of(context).colorScheme;
   final extras = Theme.of(context).extension<MeowExtras>()!;
-  final s = AppStrings(isId ? 'id' : 'en');
+  final s = strings ?? AppStrings(isId ? 'id' : 'en');
 
   final accent = destructive ? cs.error : cs.primary;
   final resolvedTitle = title ??

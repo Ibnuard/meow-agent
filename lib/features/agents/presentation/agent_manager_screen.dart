@@ -167,10 +167,9 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
+      strings: s,
       title: s.deleteAgent,
       message: s.deleteAgentBody,
       confirmLabel: s.delete,
@@ -321,7 +320,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                 agentName: _nameController.text.isNotEmpty
                     ? _nameController.text
                     : 'Agent',
-                isId: s.isId,
+                strings: s,
               ),
               const SizedBox(height: 24),
             ],
@@ -346,7 +345,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             _AppearanceSection(
               iconKey: _iconKey,
               colorKey: _colorKey,
-              isId: s.isId,
+              strings: s,
               onIconChanged: (k) => setState(() => _iconKey = k),
               onColorChanged: (k) => setState(() => _colorKey = k),
             ),
@@ -442,7 +441,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             _AdvancedAgentSettings(
               contextLengthController: _contextLengthController,
               autoCompact: _autoCompact,
-              isId: s.isId,
+              strings: s,
               onAutoCompactChanged: (v) => setState(() => _autoCompact = v),
             ),
             const SizedBox(height: 20),
@@ -601,13 +600,13 @@ class _AdvancedAgentSettings extends StatefulWidget {
   const _AdvancedAgentSettings({
     required this.contextLengthController,
     required this.autoCompact,
-    required this.isId,
+    required this.strings,
     required this.onAutoCompactChanged,
   });
 
   final TextEditingController contextLengthController;
   final bool autoCompact;
-  final bool isId;
+  final AppStrings strings;
   final ValueChanged<bool> onAutoCompactChanged;
 
   @override
@@ -619,7 +618,7 @@ class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final s = widget.strings;
     final cs = context.cs;
     final extras = context.extras;
     final title = s.advanced;
@@ -831,14 +830,14 @@ class _AppearanceSection extends StatefulWidget {
   const _AppearanceSection({
     required this.iconKey,
     required this.colorKey,
-    required this.isId,
+    required this.strings,
     required this.onIconChanged,
     required this.onColorChanged,
   });
 
   final String iconKey;
   final String colorKey;
-  final bool isId;
+  final AppStrings strings;
   final ValueChanged<String> onIconChanged;
   final ValueChanged<String> onColorChanged;
 
@@ -851,7 +850,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final s = widget.strings;
     final cs = context.cs;
     final extras = context.extras;
     final selectedColor = resolveAgentColor(widget.colorKey);
@@ -1085,12 +1084,12 @@ class _AgentProfileSection extends ConsumerStatefulWidget {
   const _AgentProfileSection({
     required this.agentId,
     required this.agentName,
-    required this.isId,
+    required this.strings,
   });
 
   final String agentId;
   final String agentName;
-  final bool isId;
+  final AppStrings strings;
 
   @override
   ConsumerState<_AgentProfileSection> createState() =>
@@ -1102,7 +1101,7 @@ class _AgentProfileSectionState extends ConsumerState<_AgentProfileSection> {
 
   @override
   Widget build(BuildContext context) {
-    final s = AppStrings(widget.isId ? 'id' : 'en');
+    final s = widget.strings;
     final cs = context.cs;
     final extras = context.extras;
 

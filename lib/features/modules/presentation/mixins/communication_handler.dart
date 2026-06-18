@@ -20,9 +20,7 @@ mixin CommunicationHandlerMixin<T extends StatefulWidget> on State<T> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                s.isId
-                    ? 'Izin telepon diperlukan untuk fitur ini'
-                    : 'Phone call permission required for this feature',
+                s.commCallPermissionRequired,
               ),
               duration: const Duration(seconds: 2),
             ),
@@ -39,9 +37,7 @@ mixin CommunicationHandlerMixin<T extends StatefulWidget> on State<T> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                s.isId
-                    ? 'Izin SMS diperlukan untuk fitur ini'
-                    : 'SMS permission required for this feature',
+                s.commSmsPermissionRequired,
               ),
               duration: const Duration(seconds: 2),
             ),
@@ -58,9 +54,7 @@ mixin CommunicationHandlerMixin<T extends StatefulWidget> on State<T> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                s.isId
-                    ? 'Izin kontak diperlukan untuk fitur ini'
-                    : 'Contacts permission required for this feature',
+                s.commContactsPermissionRequired,
               ),
               duration: const Duration(seconds: 2),
             ),

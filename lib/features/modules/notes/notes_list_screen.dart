@@ -144,7 +144,7 @@ class _NotesListScreenState extends ConsumerState<NotesListScreen> {
 
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.notesDeleteTitle,
       message: s.notesDeleteMessage(_selectedIds.length),
     );
