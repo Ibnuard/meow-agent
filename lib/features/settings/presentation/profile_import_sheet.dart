@@ -61,117 +61,143 @@ class _ProfileImportSheetState extends State<ProfileImportSheet> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(20, 12, 20, 24 + bottomInset),
+        padding: EdgeInsets.fromLTRB(18, 8, 18, 24 + bottomInset),
         child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle bar.
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle bar — matches MeowDropdown sheet (38×4, alpha .24, pill).
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                margin: const EdgeInsets.only(top: 8),
+                decoration: BoxDecoration(
+                  color: cs.onSurfaceVariant.withValues(alpha: 0.24),
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 18),
 
-          // Title.
-          Text(
-            s.profileImportPreviewTitle,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface,
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // Summary.
-          Text(
-            s.profileImportPreviewSummary(preview.agents, preview.providers),
-            style: TextStyle(
-              fontSize: 13,
-              color: cs.onSurfaceVariant,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-
-          // API key note.
-          Text(
-            s.profileImportNoApiKey,
-            style: TextStyle(
-              fontSize: 12,
-              color: cs.onSurfaceVariant.withValues(alpha: 0.7),
-              fontStyle: FontStyle.italic,
-              height: 1.4,
-            ),
-          ),
-
-          // Warnings.
-          if (preview.warnings.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: cs.error.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: cs.error.withValues(alpha: 0.2)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: preview.warnings
-                    .map(
-                      (w) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          s.profileImportSkipped(
-                            w,
-                            s.profileImportReasonOrphanProvider,
+            // Header row: title + subtitle on the left, close button on the
+            // right — mirrors the language/notification picker sheet header.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 12, 0, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          s.profileImportPreviewTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: cs.onSurface,
                           ),
-                          style: TextStyle(fontSize: 12, color: cs.error),
                         ),
-                      ),
-                    )
-                    .toList(),
+                        const SizedBox(height: 5),
+                        Text(
+                          s.profileImportPreviewSummary(
+                            preview.agents,
+                            preview.providers,
+                          ),
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(
+                      Icons.close_rounded,
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // API key note.
+            Text(
+              s.profileImportNoApiKey,
+              style: TextStyle(
+                fontSize: 12,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.7),
+                fontStyle: FontStyle.italic,
+                height: 1.4,
+              ),
+            ),
+
+            // Warnings.
+            if (preview.warnings.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.error.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: preview.warnings
+                      .map(
+                        (w) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            s.profileImportSkipped(
+                              w,
+                              s.profileImportReasonOrphanProvider,
+                            ),
+                            style: TextStyle(fontSize: 12, color: cs.error),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
+
+            // Mode selector — same row styling as the picker-sheet option tile.
+            _buildModeOption(
+              cs: cs,
+              mode: ProfileImportMode.merge,
+              icon: Icons.merge_rounded,
+              label: s.profileImportMerge,
+              description: s.profileImportMergeDesc,
+            ),
+            const SizedBox(height: 6),
+            _buildModeOption(
+              cs: cs,
+              mode: ProfileImportMode.replace,
+              icon: Icons.swap_horiz_rounded,
+              label: s.profileImportReplace,
+              description: s.profileImportReplaceDesc,
+            ),
+
+            const SizedBox(height: 20),
+
+            // Confirm button.
+            SizedBox(
+              width: double.infinity,
+              child: MeowPrimaryButton(
+                label: s.profileImportButtonImport,
+                onPressed: _onConfirm,
               ),
             ),
           ],
-
-          const SizedBox(height: 18),
-
-          // Mode selector.
-          _buildModeOption(
-            cs: cs,
-            mode: ProfileImportMode.merge,
-            label: s.profileImportMerge,
-            description: s.profileImportMergeDesc,
-          ),
-          const SizedBox(height: 8),
-          _buildModeOption(
-            cs: cs,
-            mode: ProfileImportMode.replace,
-            label: s.profileImportReplace,
-            description: s.profileImportReplaceDesc,
-          ),
-
-          const SizedBox(height: 20),
-
-          // Confirm button.
-          SizedBox(
-            width: double.infinity,
-            child: MeowPrimaryButton(
-              label: s.profileImportButtonImport,
-              onPressed: _onConfirm,
-            ),
-          ),
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -179,61 +205,67 @@ class _ProfileImportSheetState extends State<ProfileImportSheet> {
   Widget _buildModeOption({
     required ColorScheme cs,
     required ProfileImportMode mode,
+    required IconData icon,
     required String label,
     required String description,
   }) {
     final selected = _mode == mode;
-    return GestureDetector(
-      onTap: () => setState(() => _mode = mode),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: selected
-              ? cs.primary.withValues(alpha: 0.08)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? cs.primary.withValues(alpha: 0.5)
-                : cs.onSurfaceVariant.withValues(alpha: 0.2),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_off_rounded,
-              size: 20,
-              color: selected ? cs.primary : cs.onSurfaceVariant,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: cs.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    description,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+    return Material(
+      color: selected ? cs.primary.withValues(alpha: 0.10) : Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: () => setState(() => _mode = mode),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              // Icon chip — matches _LanguageOptionIcon (30×30, radius 11,
+              // primary tint).
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(icon, size: 16, color: cs.primary),
               ),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: selected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
+                        color: selected ? cs.primary : cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 10),
+                Icon(Icons.check_rounded, size: 18, color: cs.primary),
+              ],
+            ],
+          ),
         ),
       ),
     );
