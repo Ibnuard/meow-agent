@@ -1638,48 +1638,109 @@ class AgentRuntimeEngine {
           actions: result.actions,
         );
       }
-      state = AgentRuntimeState.reviewing;
-      logger.logStateChange(state, 'Reviewing tool result');
-      emit(logger.events.last);
-      final review = await executor.review(
-        result: result,
-        plan: {
-          'steps': [
-            {
-              'id': 1,
-              'description': 'Execute confirmed tool',
-              'tool': pending.toolName,
-            },
-          ],
-        },
-        currentStep: 1,
-        userMessage: request.userMessage,
-        logger: logger,
-        language: detectedLang.label,
-      );
-      emit(logger.events.last);
-      if (review != null) {
-        final reviewNarrative = (review['narrative'] ?? '').toString();
-        if (reviewNarrative.isNotEmpty) {
-          logger.logNarrative('review', reviewNarrative);
-          emit(logger.events.last);
+      // Tool FAILED. For a multi-step task (resume context present) a failure
+      // is NOT terminal — it is exactly the signal the execute loop's review +
+      // self-heal flow is built to handle (missing precondition, missing
+      // toolchain, transient blip). Re-enter the loop with the failed result
+      // in previousResults so the selector picks the corrective next step and
+      // re-attempts, instead of dead-ending the whole task here. Only when
+      // there is no resume context (a one-off confirmed action with no
+      // surrounding plan) do we synthesize a final failure message.
+      final failureResume = pending.resumeContext;
+      if (failureResume != null) {
+        final treeJson = failureResume['goal_tree'] as Map<String, dynamic>?;
+        final goalTree = treeJson != null
+            ? GoalTree.fromJson(treeJson)
+            : GoalTree.singleSubgoal(
+                mainGoal: pending.toolName,
+                subgoalLabel: pending.toolName,
+              );
+        // Keep the active subgoal open — the action did not complete. The
+        // selector/reviewer will drive the corrective step and retry.
+        final active = goalTree.nextActionable;
+        if (active != null) {
+          active.status = SubgoalStatus.inProgress;
+          active.notes = 'confirmed tool failed; recovering';
         }
-      }
-      final reviewMessage = review?['final_response'] as String?;
-      if (reviewMessage != null && reviewMessage.isNotEmpty) {
-        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-        logger.logFinalResponse(reviewMessage);
-        return AgentRuntimeResponse(
-          finalMessage: reviewMessage,
-          success: false,
-          state: AgentRuntimeState.done,
-          events: logger.events,
+        _memory.record(
+          agentId: request.agentId,
+          toolName: pending.toolName,
+          args: pending.toolArgs,
+          data: result.data,
+          success: result.success,
+          error: result.error,
+        );
+        final plan =
+            (failureResume['plan'] as Map?)?.cast<String, dynamic>() ??
+            {'steps': []};
+        final previousResults =
+            (failureResume['previous_results'] as List?)
+                ?.whereType<Map>()
+                .map((m) => m.cast<String, dynamic>())
+                .toList() ??
+            <Map<String, dynamic>>[];
+        // Record the FAILED result (including stderr/error) so the selector
+        // sees the cause and the self-heal rules fire on the next step.
+        previousResults.add({
+          'step': failureResume['current_step'] ?? 1,
+          'tool': pending.toolName,
+          'result': result.data,
+          'confirmed': true,
+        });
+        final availableTools =
+            (failureResume['available_tools'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[];
+        final memorySnapshot =
+            (failureResume['memory_snapshot'] as String?) ?? '';
+        final autoApproveSensitive =
+            failureResume['auto_approve_sensitive'] as bool? ?? false;
+        final isWorkflowAutoExecute =
+            failureResume['is_workflow_auto_execute'] as bool? ?? false;
+        final currentStep = (failureResume['current_step'] as int? ?? 1) + 1;
+        final userMessage =
+            (failureResume['user_message'] as String?) ?? request.userMessage;
+        final resumedRequest = AgentRuntimeRequest(
+          agentId: request.agentId,
+          agentName: request.agentName,
+          userMessage: userMessage,
+          recentMessages: request.recentMessages,
+          source: request.source,
+        );
+        logger.logStateChange(
+          AgentRuntimeState.selectingTool,
+          'Resuming execute loop after confirmed-tool FAILURE for self-heal '
+          '(subgoals remaining: ${goalTree.subgoals.where((s) => !s.isTerminal).length})',
+        );
+        emit(logger.events.last);
+        return _loopRunner.run(
+          request: resumedRequest,
+          plan: plan,
+          goalTree: goalTree,
+          executor: executor,
+          verbalizer: verbalizer,
+          detectedLang: detectedLang,
+          availableTools: availableTools,
+          logger: logger,
+          emit: emit,
+          memorySnapshot: memorySnapshot,
+          autoApproveSensitive: autoApproveSensitive,
+          isWorkflowAutoExecute: isWorkflowAutoExecute,
+          initialPreviousResults: previousResults,
+          initialStep: currentStep,
         );
       }
-      final fallbackMsg = await verbalizer.abort(
-        reason: result.error ?? 'tool failed',
-        language: detectedLang,
-      );
+
+      // No resume context: a one-off confirmed action that failed. Surface the
+      // specific cause to the user rather than a generic abort.
+      final rawCause = ExecuteLoopRunner.extractFailureCause(result);
+      final fallbackMsg = rawCause.isNotEmpty
+          ? rawCause
+          : await verbalizer.abort(
+              reason: result.error ?? 'tool failed',
+              language: detectedLang,
+            );
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
       logger.logFinalResponse(fallbackMsg);
       return AgentRuntimeResponse(

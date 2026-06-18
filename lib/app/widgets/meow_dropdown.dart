@@ -1,9 +1,8 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../features/settings/data/app_language_provider.dart';
 import '../theme.dart';
+import 'meow_sheet.dart';
 
 enum MeowDropdownPresentation { sheet, menu }
 
@@ -78,6 +77,7 @@ class MeowDropdown<T> extends StatelessWidget {
   final bool enabled;
   final bool searchable;
   final bool dense;
+
   /// Caller's resolved strings for default sheet copy (search hint / no
   /// results). Per AGENTS.md, the screen owns AppStrings resolution and passes
   /// the instance down. Falls back to English when null.
@@ -461,195 +461,83 @@ class _MeowDropdownSheetState<T> extends State<_MeowDropdownSheet<T>> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
-    final media = MediaQuery.of(context);
-    final keyboardInset = media.viewInsets.bottom;
-    final bottomPadding = keyboardInset > 0
-        ? 12.0
-        : media.viewPadding.bottom + 12;
-    final sheetMargin = EdgeInsets.only(
-      left: 10,
-      right: 10,
-      bottom: keyboardInset > 0 ? 8 : 0,
-    );
-    final sheetRadius = BorderRadius.vertical(
-      top: const Radius.circular(24),
-      bottom: keyboardInset > 0 ? const Radius.circular(24) : Radius.zero,
-    );
-    final availableHeight = math.max(
-      180.0,
-      media.size.height - media.padding.top - keyboardInset - 8,
-    );
-    final maxSheetHeight = math.min(media.size.height * 0.72, availableHeight);
     final filtered = _query.isEmpty
         ? widget.options
         : widget.options
               .where((option) => option.searchableText.contains(_query))
               .toList();
 
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 180),
-      curve: Curves.easeOutCubic,
-      padding: EdgeInsets.only(bottom: keyboardInset),
-      child: Align(
-        alignment: Alignment.bottomCenter,
-        child: Container(
-          margin: sheetMargin,
-          width: double.infinity,
-          constraints: BoxConstraints(maxHeight: maxSheetHeight),
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: sheetRadius,
-            border: Border(top: BorderSide(color: extras.inputBorder)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 30,
-                spreadRadius: -14,
-                offset: const Offset(0, -10),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: sheetRadius,
-            child: Padding(
-              padding: EdgeInsets.only(bottom: bottomPadding),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Container(
-                      width: 38,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.24),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                widget.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                  color: cs.onSurface,
-                                ),
-                              ),
-                              if (widget.subtitle != null) ...[
-                                const SizedBox(height: 5),
-                                Text(
-                                  widget.subtitle!,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    height: 1.35,
-                                    color: cs.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: _dismiss,
-                          icon: Icon(
-                            Icons.close_rounded,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (widget.searchable) ...[
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-                      child: TextField(
-                        controller: _searchCtrl,
-                        focusNode: _searchFocus,
-                        autofocus: widget.options.length > 6,
-                        onChanged: (value) {
-                          if (!mounted) return;
-                          setState(() => _query = value.trim().toLowerCase());
-                        },
-                        style: TextStyle(fontSize: 14, color: cs.onSurface),
-                        decoration: InputDecoration(
-                          hintText: widget.searchHint,
-                          prefixIcon: Icon(
-                            Icons.search_rounded,
-                            color: cs.onSurfaceVariant,
-                          ),
-                          filled: true,
-                          fillColor: extras.inputFill,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 12,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: extras.inputBorder),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(
-                              color: extras.inputFocusBorder,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  Flexible(
-                    child: filtered.isEmpty
-                        ? Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
-                            child: Text(
-                              widget.emptyText,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: cs.onSurfaceVariant,
-                              ),
-                            ),
-                          )
-                        : ListView.separated(
-                            shrinkWrap: true,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-                            itemCount: filtered.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 4),
-                            itemBuilder: (context, index) {
-                              final option = filtered[index];
-                              final isSelected =
-                                  widget.selectedValue == option.value;
-                              return _MeowDropdownOptionTile<T>(
-                                option: option,
-                                selected: isSelected,
-                                onTap: option.enabled
-                                    ? () => _close(option.value)
-                                    : null,
-                              );
-                            },
-                          ),
-                  ),
-                ],
+    return MeowSheet(
+      title: widget.title,
+      subtitle: widget.subtitle,
+      onClose: _dismiss,
+      contentPadding: EdgeInsets.zero,
+      children: [
+        if (widget.searchable) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+            child: TextField(
+              controller: _searchCtrl,
+              focusNode: _searchFocus,
+              autofocus: widget.options.length > 6,
+              onChanged: (value) {
+                if (!mounted) return;
+                setState(() => _query = value.trim().toLowerCase());
+              },
+              style: TextStyle(fontSize: 14, color: cs.onSurface),
+              decoration: InputDecoration(
+                hintText: widget.searchHint,
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  color: cs.onSurfaceVariant,
+                ),
+                filled: true,
+                fillColor: extras.inputFill,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: extras.inputBorder),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: extras.inputFocusBorder),
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        ],
+        if (filtered.isEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+            child: Center(
+              child: Text(
+                widget.emptyText,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
+              ),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+            itemCount: filtered.length,
+            separatorBuilder: (context, index) => const SizedBox(height: 4),
+            itemBuilder: (context, index) {
+              final option = filtered[index];
+              final isSelected = widget.selectedValue == option.value;
+              return _MeowDropdownOptionTile<T>(
+                option: option,
+                selected: isSelected,
+                onTap: option.enabled ? () => _close(option.value) : null,
+              );
+            },
+          ),
+      ],
     );
   }
 }

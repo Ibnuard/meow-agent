@@ -553,12 +553,19 @@ class ExecuteLoopRunner {
               initialStep: currentStep,
             );
           }
+          // Surface the most recent concrete failure if `previousResults` has
+          // one — a real stderr/error line beats the canned "I hit a technical
+          // issue" abort message. Falls through to the generic verbalizer when
+          // there is nothing concrete to surface.
+          final lastFailureCause = _lastFailureCauseFrom(previousResults);
           final abortMsg =
-              recovery?.giveUpMessage(_settingsLanguage()) ??
-              await verbalizer.abort(
-                reason: 'agent looped on ${toolRequest.name} after retry',
-                language: detectedLang,
-              );
+              lastFailureCause.isNotEmpty
+              ? lastFailureCause
+              : recovery?.giveUpMessage(_settingsLanguage()) ??
+                    await verbalizer.abort(
+                      reason: 'agent looped on ${toolRequest.name} after retry',
+                      language: detectedLang,
+                    );
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           logger.logFinalResponse(abortMsg);
           return AgentRuntimeResponse(
@@ -1121,8 +1128,19 @@ class ExecuteLoopRunner {
         emit(logger.events.last);
 
         var reviewStatus = review?['status'] as String? ?? '';
-        if (!result.success &&
-            (reviewStatus == 'done' || reviewStatus == 'continue')) {
+        // A failed tool can never finalize as "done" — the action did not
+        // happen. Force the reviewer's hand: ask the user only when there is
+        // genuine ambiguity the loop can't resolve.
+        //
+        // status="continue" after a failure is intentionally allowed through:
+        // it is the self-heal signal the reviewer emits when it sees a
+        // recoverable cause (missing precondition, missing toolchain, transient
+        // blip) and has a corrective next step in mind. Forcing it to
+        // ask_user/failed here destroys that decision and turns a recoverable
+        // failure into an aborted task. Existing safety nets (StuckDetector,
+        // RecoveryCoordinator.maxAttempts, adaptiveLimit) already bound any
+        // false-positive continue loop.
+        if (!result.success && reviewStatus == 'done') {
           reviewStatus = 'ask_user';
         }
 
@@ -1238,6 +1256,52 @@ class ExecuteLoopRunner {
         }
 
         if (reviewStatus == 'done') {
+          // Setup-only guard: a corrective/precondition tool succeeding is
+          // never the user's goal. If the just-succeeded tool is pure setup
+          // (`mkdir`, bare `cd`, install, etc.) AND the original request
+          // implies productive follow-up work that has not visibly run yet,
+          // downgrade to continue so the next step re-attempts the real
+          // action. This sits BEFORE the goalTree.isComplete guard because
+          // a single coarse `sg_main` subgoal can be marked done by the
+          // setup tool itself, which would otherwise let `done` slip past.
+          if (result.success &&
+              isSetupOnlyToolCall(toolRequest) &&
+              userGoalImpliesProductiveWork(goalTree.mainGoal)) {
+            logger.logDivergence('setup_only_done_overridden', {
+              'tool': toolRequest.name,
+              'command': (toolRequest.args['command'] ?? '').toString(),
+              'step': currentStep,
+            });
+            logger.logError(
+              'Reviewer returned done after a setup-only action '
+              '(${toolRequest.name}). The corrective step is the means, not '
+              'the goal — continuing so the original request runs.',
+            );
+            // Re-open the active subgoal so the next selectTool sees pending
+            // work and the loop does not exit on the next iteration's review.
+            final active = goalTree.nextActionable;
+            if (active != null) {
+              active.status = SubgoalStatus.inProgress;
+            } else {
+              for (final s in goalTree.subgoals) {
+                if (s.status == SubgoalStatus.done) {
+                  s.status = SubgoalStatus.inProgress;
+                  break;
+                }
+              }
+            }
+            previousResults.add({
+              'step': currentStep,
+              'tool': toolRequest.name,
+              'result': _shrinkResult(result.data),
+              'note':
+                  'Setup-only tool succeeded; original action still pending.',
+            });
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
           if (goalTree.isNotEmpty && !goalTree.isComplete) {
             logger.logDivergence('premature_done_overridden', {
               'source': 'reviewer',
@@ -1449,10 +1513,20 @@ class ExecuteLoopRunner {
             );
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          final giveUp =
-              recovery?.giveUpMessage(_settingsLanguage()) ??
-              (review['error'] as String? ??
-                  _runtimePhrase('runtime_unrecoverable_error'));
+          // Prefer the reviewer's specific, user-language explanation (it is
+          // instructed to quote the exact stderr/cause and suggest a next
+          // step). If the reviewer gave nothing concrete, fall back to the raw
+          // cause pulled straight from the tool result before resorting to the
+          // generic recovery phrase — a real stderr line is more useful to the
+          // user than "I hit a technical issue".
+          final reviewerDetail = (review['error'] as String?)?.trim() ?? '';
+          final rawCause = extractFailureCause(result);
+          final giveUp = reviewerDetail.isNotEmpty
+              ? reviewerDetail
+              : rawCause.isNotEmpty
+              ? rawCause
+              : (recovery?.giveUpMessage(_settingsLanguage()) ??
+                    _runtimePhrase('runtime_unrecoverable_error'));
           return fail(giveUp, logger);
         }
 
@@ -2053,6 +2127,153 @@ class ExecuteLoopRunner {
       default:
         return null;
     }
+  }
+
+  /// Pull the one-line cause out of a failed tool result so the user sees
+  /// what actually went wrong instead of a polite generic abort. Returns the
+  /// shortest non-empty signal among (in order): the result's first line of
+  /// `error`, the first non-empty line of `data.stderr`, or `data.message`.
+  ///
+  /// Empty when the result is null/successful or has no extractable signal —
+  /// callers fall back to their existing generic message in that case.
+  ///
+  /// Generic across modules: it does not look at tool name and never invents
+  /// content; it only surfaces what the underlying handler already produced.
+  static String extractFailureCause(ToolExecutionResult? result) {
+    if (result == null || result.success) return '';
+    final err = _firstLine(result.error ?? '');
+    if (err.isNotEmpty) return err;
+    return _causeFromDataMap(result.data);
+  }
+
+  /// Same extraction as [extractFailureCause] but over a shrunk `result.data`
+  /// map stored in `previousResults` (which keeps `success`/`stderr`/`message`
+  /// but drops the top-level `error`). Scans the history backward and returns
+  /// the cause of the most recent failed entry; empty when none is found.
+  static String _lastFailureCauseFrom(List<Map<String, dynamic>> history) {
+    for (var i = history.length - 1; i >= 0; i--) {
+      final data = history[i]['result'];
+      if (data is! Map) continue;
+      if (data['success'] == false) {
+        final cause = _causeFromDataMap(data.cast<String, dynamic>());
+        if (cause.isNotEmpty) return cause;
+      }
+    }
+    return '';
+  }
+
+  /// Shared cause extraction over a tool-result `data` map.
+  static String _causeFromDataMap(Map<String, dynamic>? data) {
+    if (data == null) return '';
+    final stderr = _firstLine((data['stderr'] ?? '').toString());
+    if (stderr.isNotEmpty) return stderr;
+    return _firstLine((data['message'] ?? '').toString());
+  }
+
+  /// First non-empty trimmed line of [raw]; empty string when blank.
+  static String _firstLine(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final nl = trimmed.indexOf('\n');
+    final line = nl == -1 ? trimmed : trimmed.substring(0, nl);
+    return line.trim();
+  }
+
+  /// True when the tool call is a pure setup / precondition-fixing action —
+  /// one whose success establishes a prerequisite for the real work but is
+  /// NEVER itself the user's goal. A shell command that only creates a
+  /// directory, installs/updates a package, or checks status falls here.
+  ///
+  /// Used to stop a corrective step (e.g. `mkdir -p <dir>` issued to recover
+  /// from a "No such file or directory" failure) from being mistaken for task
+  /// completion. The fix is the means, not the end — the original action that
+  /// triggered it still has to run.
+  static bool isSetupOnlyToolCall(ToolCallRequest tool) {
+    // Status/lookup tools are setup-ish but handled elsewhere; focus on the
+    // shell path where a corrective command can masquerade as the goal.
+    if (tool.name != 'vm.run_command') return false;
+    final command = (tool.args['command'] ?? '').toString().trim();
+    if (command.isEmpty) return false;
+
+    // A compound command that chains a corrective prefix into the real action
+    // (`mkdir -p x && npm create ...`) is NOT setup-only — the productive part
+    // runs in the same call. Only a bare corrective command counts.
+    final segments = command
+        .split(RegExp(r'&&|\|\||;'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (segments.isEmpty) return false;
+
+    return segments.every(_isCorrectiveSegment);
+  }
+
+  /// True when a single shell segment only prepares the environment.
+  static bool _isCorrectiveSegment(String segment) {
+    // Leading first token (the program), lowercased.
+    final head = segment.split(RegExp(r'\s+')).first.toLowerCase();
+    const correctiveHeads = {
+      'mkdir',
+      'cd',
+      'touch',
+      'chmod',
+      'chown',
+      'export',
+      'mount',
+      'ln',
+    };
+    if (correctiveHeads.contains(head)) return true;
+    // Package-manager install/update prep, e.g. `apt-get install`, `npm i`.
+    final installer = RegExp(
+      r'^(apt|apt-get|pkg|pip|pip3|npm|pnpm|yarn|bun)\b.*\b(install|add|update|upgrade|i)\b',
+    );
+    return installer.hasMatch(segment.toLowerCase());
+  }
+
+  /// True when the user's request implies productive work beyond mere setup —
+  /// i.e. the goal is NOT satisfied by creating a directory or installing a
+  /// prerequisite alone. Gates the setup-only done guard so a genuine
+  /// "just make a folder for me" request still finalizes normally.
+  ///
+  /// Operates on [mainGoal] only (the analyzer normalizes user intent into
+  /// English on the way in — see PromptAnalyze) so the keyword list stays
+  /// language-agnostic. Conservative by design: returns true only when a
+  /// productive verb/noun is present in the normalized goal. When unsure,
+  /// returns false (trust the reviewer's `done`).
+  static bool userGoalImpliesProductiveWork(String mainGoal) {
+    final haystack = mainGoal.toLowerCase().trim();
+    if (haystack.isEmpty) return false;
+
+    // Productive intent markers — verbs/nouns that bare mkdir/install can
+    // never satisfy. English only; the analyzer normalizes goal text upstream.
+    const productiveMarkers = [
+      'serve',
+      'server',
+      'run ',
+      'start',
+      'build',
+      'scaffold',
+      'create app',
+      'create project',
+      'landing page',
+      'website',
+      'web app',
+      'deploy',
+      'compile',
+      'write ',
+      'generate',
+      'render',
+      'dev server',
+    ];
+    final hasProductive = productiveMarkers.any(haystack.contains);
+    if (!hasProductive) return false;
+
+    // If the ENTIRE goal is literally just "make a directory/folder", do not
+    // override even if a stray marker matched.
+    final onlyFolder = RegExp(
+      r'^\s*(create|make)\s+(a\s+)?(folder|directory|dir)\b',
+    ).hasMatch(haystack);
+    return !onlyFolder;
   }
 
   /// User-facing message when no tool exists for the requested action.
