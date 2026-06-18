@@ -3,7 +3,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Required for app to appear in Usage Access settings (foreground app detection). -->
@@ -77,18 +76,6 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
-        <!-- Floating Bubble Service (overlay) -->
-        <service
-            android:name=".FloatingBubbleService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse" />
-
-        <!-- App Agent Overlay Service: full-screen border + narrator bar
-             rendered while the App Agent runtime is in flight. -->
-        <service
-            android:name=".AppAgentOverlayService"
-            android:exported="false" />
-
         <!-- VM Runtime Service: hosts the proot Linux session for the VM
              module. Runs as a foreground service so the kernel doesn't kill
              long-running plugin installs. -->
@@ -113,21 +100,6 @@
             </intent-filter>
         </service>
 
-        <!-- Meow Agent Accessibility Service (cross-app automation).
-             User must enable in Settings → Accessibility. -->
-        <service
-            android:name=".MeowAccessibilityService"
-            android:label="Meow Agent Automation"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
         <!-- AlarmManager service and receivers for workflow scheduling. -->
         <service
             android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmService"
@@ -144,15 +116,6 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-
-        <!-- Shizuku provider for ADB-level shell access (wake/unlock/input). -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <meta-data
             android:name="flutterEmbedding"

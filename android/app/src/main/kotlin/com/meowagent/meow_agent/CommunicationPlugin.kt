@@ -18,8 +18,7 @@ import io.flutter.plugin.common.MethodChannel
 /**
  * Native communication handler for Meow Agent.
  *
- * Handles: contact resolution, phone calls, SMS, and WhatsApp automation
- * via Accessibility Service.
+ * Handles: contact resolution, phone calls, and SMS.
  *
  * All permission checks are done here — returns clear error if missing.
  */
@@ -35,21 +34,8 @@ class CommunicationPlugin(private val activity: FlutterActivity) : MethodChannel
             when (call.method) {
                 "resolveContact" -> resolveContact(call, result)
                 "listContacts" -> listContacts(call, result)
-                "sendWhatsApp" -> sendWhatsApp(call, result)
-                "sendWhatsAppGroup" -> sendWhatsAppGroup(call, result)
-                "waVoiceCall" -> waVoiceCall(call, result)
-                "waVideoCall" -> waVideoCall(call, result)
                 "makeCall" -> makeCall(call, result)
                 "sendSms" -> sendSms(call, result)
-                "isAccessibilityEnabled" -> {
-                    result.success(MeowAccessibilityService.isEnabled(activity))
-                }
-                "openAccessibilitySettings" -> {
-                    val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    activity.startActivity(intent)
-                    result.success(true)
-                }
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
@@ -137,103 +123,6 @@ class CommunicationPlugin(private val activity: FlutterActivity) : MethodChannel
         return results
     }
 
-    // ─── WhatsApp Messaging ──────────────────────────────────────────
-
-    private fun sendWhatsApp(call: MethodCall, result: MethodChannel.Result) {
-        if (!ensureAccessibility(result)) return
-
-        val phone = call.argument<String>("phone") ?: ""
-        val message = call.argument<String>("message") ?: ""
-
-        // Queue the action in the accessibility service.
-        MeowAccessibilityService.queueAction(
-            MeowAccessibilityAction.SendWhatsApp(phone = phone, message = message)
-        )
-
-        // Launch WhatsApp chat via deep link.
-        val cleanPhone = phone.replace("+", "").replace(" ", "")
-        val uri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encode(message)}")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-
-        try {
-            activity.startActivity(intent)
-            result.success(mapOf("success" to true, "phone" to phone, "message" to message))
-        } catch (e: Exception) {
-            result.success(mapOf("success" to false, "error" to "Failed to open WhatsApp: ${e.message}"))
-        }
-    }
-
-    private fun sendWhatsAppGroup(call: MethodCall, result: MethodChannel.Result) {
-        if (!ensureAccessibility(result)) return
-
-        val groupName = call.argument<String>("group_name") ?: ""
-        val message = call.argument<String>("message") ?: ""
-
-        // Queue group message action.
-        MeowAccessibilityService.queueAction(
-            MeowAccessibilityAction.SendWhatsAppGroup(groupName = groupName, message = message)
-        )
-
-        // Open WhatsApp main screen — accessibility service will find the group.
-        val intent = activity.packageManager.getLaunchIntentForPackage("com.whatsapp")
-        if (intent != null) {
-            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            activity.startActivity(intent)
-            result.success(mapOf("success" to true, "group" to groupName, "message" to message))
-        } else {
-            result.success(mapOf("success" to false, "error" to "WhatsApp is not installed."))
-        }
-    }
-
-    // ─── WhatsApp Calling ────────────────────────────────────────────
-
-    private fun waVoiceCall(call: MethodCall, result: MethodChannel.Result) {
-        if (!ensureAccessibility(result)) return
-
-        val phone = call.argument<String>("phone") ?: ""
-        MeowAccessibilityService.queueAction(
-            MeowAccessibilityAction.WaCall(phone = phone, video = false)
-        )
-
-        // Open WA chat — accessibility will tap call button.
-        val cleanPhone = phone.replace("+", "").replace(" ", "")
-        val uri = Uri.parse("https://wa.me/$cleanPhone")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-
-        try {
-            activity.startActivity(intent)
-            result.success(mapOf("success" to true, "phone" to phone, "type" to "voice"))
-        } catch (e: Exception) {
-            result.success(mapOf("success" to false, "error" to "Failed to open WhatsApp: ${e.message}"))
-        }
-    }
-
-    private fun waVideoCall(call: MethodCall, result: MethodChannel.Result) {
-        if (!ensureAccessibility(result)) return
-
-        val phone = call.argument<String>("phone") ?: ""
-        MeowAccessibilityService.queueAction(
-            MeowAccessibilityAction.WaCall(phone = phone, video = true)
-        )
-
-        val cleanPhone = phone.replace("+", "").replace(" ", "")
-        val uri = Uri.parse("https://wa.me/$cleanPhone")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-
-        try {
-            activity.startActivity(intent)
-            result.success(mapOf("success" to true, "phone" to phone, "type" to "video"))
-        } catch (e: Exception) {
-            result.success(mapOf("success" to false, "error" to "Failed to open WhatsApp: ${e.message}"))
-        }
-    }
-
     // ─── Phone Call ──────────────────────────────────────────────────
 
     private fun makeCall(call: MethodCall, result: MethodChannel.Result) {
@@ -281,18 +170,5 @@ class CommunicationPlugin(private val activity: FlutterActivity) : MethodChannel
     private fun hasPermission(permission: String): Boolean {
         return ContextCompat.checkSelfPermission(activity, permission) ==
                 PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun ensureAccessibility(result: MethodChannel.Result): Boolean {
-        if (!MeowAccessibilityService.isEnabled(activity)) {
-            result.error(
-                "ACCESSIBILITY_DISABLED",
-                "Meow Agent Accessibility Service is not enabled. " +
-                        "Please enable it in Settings → Accessibility.",
-                null
-            )
-            return false
-        }
-        return true
     }
 }

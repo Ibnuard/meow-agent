@@ -334,103 +334,6 @@ class AppStrings {
   String get moduleEnabledDesc => isId
       ? 'Nyalakan untuk mengaktifkan modul ini.'
       : 'Turn on to activate this module.';
-  String get shizukuSectionTitle => 'App Agentic - Shizuku';
-  String get shizukuSectionDesc => isId
-      ? 'Shizuku memberikan akses shell-level untuk otomatisasi perangkat (wake, unlock, input gesture). Pastikan Shizuku aktif sebelum mengaktifkan toggle.'
-      : 'Shizuku provides shell-level access for device automation (wake, unlock, input gestures). Make sure Shizuku is running before enabling the toggle.';
-  String get shizukuStatusReady => isId
-      ? 'Shizuku aktif dan permission sudah diberikan.'
-      : 'Shizuku is running and permission is granted.';
-  String get shizukuStatusPermissionNeeded => isId
-      ? 'Shizuku aktif, tapi permission Meow Agent belum diberikan.'
-      : 'Shizuku is running, but Meow Agent permission is not granted yet.';
-  String get shizukuStatusUnavailable => isId
-      ? 'Shizuku belum tersedia. Jalankan Shizuku dulu, lalu cek ulang.'
-      : 'Shizuku is not available yet. Start Shizuku, then check again.';
-  String get shizukuStatusChecking =>
-      isId ? 'Mengecek status Shizuku...' : 'Checking Shizuku status...';
-  String get shizukuStatusUnknown => isId
-      ? 'Status Shizuku belum dicek.'
-      : 'Shizuku status has not been checked yet.';
-  String get shizukuStatusRequestPending => isId
-      ? 'Request permission dikirim. Jika dialog Shizuku muncul, izinkan lalu kembali ke Meow Agent.'
-      : 'Permission request sent. If Shizuku shows a dialog, allow it and return to Meow Agent.';
-  String shizukuStatusError(String message) => isId
-      ? 'Gagal mengecek Shizuku: $message'
-      : 'Could not check Shizuku: $message';
-  String get accessibilityRequired => isId
-      ? 'Aktifkan Meow Agent Accessibility Service, lalu kembali ke Meow Agent.'
-      : 'Enable Meow Agent Accessibility Service, then return to Meow Agent.';
-  String get accessibilityPermTitle => isId
-      ? 'Izin Accessibility Diperlukan'
-      : 'Accessibility Permission Required';
-  String get accessibilityPermBody => isId
-      ? 'App Agentic memerlukan Accessibility Service untuk membaca dan mengontrol layar aplikasi lain. '
-            'Buka Settings dan aktifkan "Meow Agent Automation".'
-      : 'App Agentic requires Accessibility Service to read and control other app screens. '
-            'Open Settings and enable "Meow Agent Automation".';
-  String get overlayPermTitle => isId
-      ? 'Izin Tampil di Atas Aplikasi Lain'
-      : 'Display Over Other Apps Permission';
-  String get overlayPermBodyAgentic => isId
-      ? 'App Agentic juga butuh izin "Tampil di atas aplikasi lain" untuk menampilkan border progres saat agen sedang mengontrol layar. '
-            'Buka Settings dan aktifkan izin tersebut untuk Meow Agent.'
-      : 'App Agentic also needs the "Display over other apps" permission to render the progress border while the agent is controlling the screen. '
-            'Open Settings and enable it for Meow Agent.';
-  String get appAgenticPrereqsTitle => isId
-      ? 'Syarat App Agentic'
-      : 'App Agentic Requirements';
-  String get appAgenticPrereqsDesc => isId
-      ? 'Toggle App Agentic baru bisa diaktifkan setelah kedua izin Android di bawah ini diberikan.'
-      : 'The App Agentic toggle can only be enabled after both Android permissions below are granted.';
-  String get appAgenticPrereqAccessibility => isId
-      ? 'Layanan Aksesibilitas (Meow Agent Automation)'
-      : 'Accessibility Service (Meow Agent Automation)';
-  String get appAgenticPrereqOverlay => isId
-      ? 'Tampil di atas aplikasi lain'
-      : 'Display over other apps';
-  String get appAgenticPrereqsAllMet => isId
-      ? 'Semua izin sudah aktif. Toggle App Agentic siap dinyalakan.'
-      : 'All permissions granted. App Agentic toggle is ready.';
-  String get appAgenticPrereqsNotMet => isId
-      ? 'Aktifkan dulu izin yang ditandai untuk bisa menyalakan App Agentic.'
-      : 'Grant the missing permissions before enabling App Agentic.';
-  String get appAgenticBtnAccessibility => isId
-      ? 'Aktifkan Aksesibilitas'
-      : 'Enable Accessibility';
-  String get appAgenticBtnOverlay => isId
-      ? 'Izinkan Overlay'
-      : 'Allow Overlay';
-  String get shizukuSupportRequired => isId
-      ? 'Aktifkan dukungan Shizuku terlebih dahulu.'
-      : 'Enable Shizuku support first.';
-  String get devicePinTitle => isId ? 'PIN Perangkat' : 'Device PIN';
-  String get devicePinDescription => isId
-      ? 'PIN ini akan digunakan untuk membuka kunci perangkat secara otomatis. '
-            'PIN harus sesuai dengan yang Anda gunakan untuk membuka device. '
-            'PIN akan disimpan dengan enkripsi aman.'
-      : 'This PIN will be used to automatically unlock the device. '
-            'PIN must match the one you use to unlock your device. '
-            'PIN will be stored with secure encryption.';
-  String get devicePinInputHint =>
-      isId ? 'Masukkan PIN perangkat Anda' : 'Enter your device PIN';
-  String get devicePinNewTitle => isId ? 'PIN Baru' : 'New PIN';
-  String get devicePinSave => isId ? 'Simpan' : 'Save';
-  String get devicePinCancel => isId ? 'Batal' : 'Cancel';
-  String get devicePinEmpty =>
-      isId ? 'PIN tidak boleh kosong' : 'PIN cannot be empty';
-  String get devicePinMinLength =>
-      isId ? 'PIN minimal 4 digit' : 'PIN must be at least 4 digits';
-  String get devicePinVerifyTitle => isId ? 'Verifikasi PIN' : 'Verify PIN';
-  String get devicePinVerifyHint =>
-      isId ? 'Masukkan PIN yang sudah tersimpan' : 'Enter the stored PIN';
-  String get devicePinVerifyButton => isId ? 'Verifikasi' : 'Verify';
-  String get devicePinEdit => isId ? 'Edit' : 'Edit';
-  String get devicePinMismatch =>
-      isId ? 'PIN tidak sesuai' : 'PIN does not match';
-  String get devicePinVerifyRequired =>
-      isId ? 'Masukkan PIN yang sudah tersimpan' : 'Enter the stored PIN';
-  String get devicePinEncrypted => '[Encrypted PIN]';
   String get checkStatus => isId ? 'Cek Status' : 'Check Status';
   String get requestPermission => 'Request Permission';
   String get setupGuide => 'Setup Guide';
@@ -663,10 +566,6 @@ class AppStrings {
   String get moduleDescVm => isId
       ? 'Install dan kontrol runtime Linux lokal berbasis proot untuk sesi terminal, server web dev, dan preview localhost di dalam aplikasi.'
       : 'Install and control a local proot Linux runtime for terminal sessions, web dev servers, and in-app localhost previews.';
-  String get moduleDescSuperPower => isId
-      ? 'Fitur lanjutan: bubble AI mengambang dan kontrol perangkat via Shizuku untuk otomatisasi tingkat lanjut.'
-      : 'Advanced features: floating AI bubble overlay and Shizuku-powered device control for next-level automation.';
-
   // --- Today Prompt (module detail) ---
   String get todayPromptTitle => isId ? 'Prompt Hari Ini' : 'Today\'s Prompt';
   String get todayPromptSubtitle => isId
@@ -807,20 +706,6 @@ class AppStrings {
                 'Send an SMS to Mom: "I\'ll be home late."',
                 'Look up the contact "Andi".',
                 'Call the last number I dialed.',
-              ];
-      case 'super_power':
-        return isId
-            ? const [
-                'Buka WhatsApp dan kirim pesan ke grup keluarga.',
-                'Bantu aku isi form di aplikasi ini.',
-                'Tap tombol kirim di layar.',
-                'Scroll ke bawah dan baca isi halaman.',
-              ]
-            : const [
-                'Open WhatsApp and send a message to the family group.',
-                'Help me fill out the form in this app.',
-                'Tap the send button on screen.',
-                'Scroll down and read the page content.',
               ];
       default:
         return isId
@@ -1955,29 +1840,6 @@ class AppStrings {
         isId
             ? 'Izinkan agen membaca buku kontak untuk resolve nama.'
             : 'Allow agent to read contacts to resolve names to numbers.',
-      ),
-      _ => (key, ''),
-    },
-    'super_power' => switch (key) {
-      'overlay_bubble' => (
-        isId ? 'Bubble Mengambang' : 'Floating Bubble',
-        isId
-            ? 'Tampilkan bubble AI mengambang di atas semua aplikasi untuk akses cepat.'
-            : 'Show a floating AI bubble on top of all apps for quick access.',
-      ),
-      'app_agentic' => (
-        'App Agentic',
-        isId
-            ? 'Izinkan agen membaca dan mengontrol layar aplikasi lain via Accessibility.'
-            : 'Allow the agent to read and control other app screens via Accessibility.',
-      ),
-      'run_locked_device' => (
-        isId
-            ? 'Jalankan Saat Perangkat Terkunci'
-            : 'Run While Device Is Locked',
-        isId
-            ? 'Gunakan Shizuku untuk membangunkan, membuka kunci, menjalankan automation, lalu mengunci lagi.'
-            : 'Use Shizuku to wake, unlock, run automation, then lock the device again.',
       ),
       _ => (key, ''),
     },

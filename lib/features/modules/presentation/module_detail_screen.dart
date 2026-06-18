@@ -5,20 +5,16 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
-import '../../../services/battery/battery_optimization_service.dart';
 import '../../../services/permission/permission_manager.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
-import '../data/app_control_service.dart';
 import '../data/clipboard_service_controller.dart';
-import '../data/shizuku_status.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
 import '../vm/vm_runtime_screen.dart';
 import '../web/presentation/api_store_screen.dart';
 import '../workflows/workflow_list_screen.dart';
 import 'module_visuals.dart';
-import 'mixins/super_power_handler.dart';
 import 'mixins/device_context_handler.dart';
 import 'mixins/communication_handler.dart';
 import 'mixins/notification_intelligence_handler.dart';
@@ -37,25 +33,13 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
 class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     with
         WidgetsBindingObserver,
-        SuperPowerHandlerMixin,
         DeviceContextHandlerMixin,
         CommunicationHandlerMixin,
         NotificationIntelligenceHandlerMixin,
         PermissionGatedToggleHandlerMixin {
   ModuleModel? _module;
-  ShizukuStatus? _shizukuStatus;
-  bool _checkingShizuku = false;
-  bool _requestingShizukuPermission = false;
-  bool _pendingAppAgenticEnable = false;
   bool _moduleLoaded = false;
   bool _installingMissingModule = false;
-  // App Agentic prerequisites status. Refreshed on screen entry, lifecycle
-  // resume, and after each Cek Status / Request Permission tap. Drives the
-  // App Agentic Requirements panel and the toggle gate.
-  bool _accessibilityEnabled = false;
-  bool _overlayPermissionGranted = false;
-  bool _checkingAppAgenticPrereqs = false;
-  Future<Widget?>? _pinStatusFuture;
   // Manual offset added when the user taps "Shuffle" on the Today Prompt card.
   // The base index rotates deterministically every 6 hours; shuffle just nudges
   // it forward within the current module's prompt list.
@@ -74,62 +58,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   PermissionManager get permissionManager =>
       ref.read(permissionManagerProvider);
 
-  @override
-  ShizukuStatus? get shizukuStatus => _shizukuStatus;
-  @override
-  set shizukuStatus(ShizukuStatus? value) {
-    if (mounted) {
-      setState(() => _shizukuStatus = value);
-    }
-  }
-
-  @override
-  bool get checkingShizuku => _checkingShizuku;
-  @override
-  set checkingShizuku(bool value) {
-    if (mounted) {
-      setState(() => _checkingShizuku = value);
-    }
-  }
-
-  @override
-  bool get requestingShizukuPermission => _requestingShizukuPermission;
-  @override
-  set requestingShizukuPermission(bool value) {
-    if (mounted) {
-      setState(() => _requestingShizukuPermission = value);
-    }
-  }
-
-  @override
-  bool get pendingAppAgenticEnable => _pendingAppAgenticEnable;
-  @override
-  set pendingAppAgenticEnable(bool value) {
-    if (mounted) {
-      setState(() => _pendingAppAgenticEnable = value);
-    }
-  }
-
-  @override
   void onModuleUpdated(ModuleModel updated) {
     if (mounted) {
       setState(() => _module = updated);
-      _refreshPinStatus();
-    }
-  }
-
-  void _refreshPinStatus() {
-    if (_module?.id == 'super_power') {
-      _pinStatusFuture = buildDevicePinStatusPanel(
-        cs: Theme.of(context).colorScheme,
-      );
-    }
-  }
-
-  @override
-  void refreshDevicePinPanel() {
-    if (mounted) {
-      setState(() => _refreshPinStatus());
     }
   }
 
@@ -169,28 +100,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Future<void> _syncLoadedModuleState() async {
     _syncCommunicationState();
-    await _syncSuperPowerBubble();
-    await syncSuperPowerPermissions();
-    await _refreshAppAgenticPrereqs();
-    await refreshShizukuStatus();
-    _refreshPinStatus();
-  }
-
-  /// Refresh the live status of App Agentic's two Android prerequisites:
-  /// Accessibility Service and SYSTEM_ALERT_WINDOW ("Display over other apps").
-  Future<void> _refreshAppAgenticPrereqs() async {
-    if (_module?.id != 'super_power') return;
-    if (mounted) setState(() => _checkingAppAgenticPrereqs = true);
-    final accessibility = await isAccessibilityEnabled();
-    final overlay = await permissionManager.isGranted(
-      PermissionType.systemAlertWindow,
-    );
-    if (!mounted) return;
-    setState(() {
-      _accessibilityEnabled = accessibility;
-      _overlayPermissionGranted = overlay;
-      _checkingAppAgenticPrereqs = false;
-    });
   }
 
   ModuleModel? _availableModuleSpec() {
@@ -235,26 +144,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
 
-    // Hard gate for App Agentic: refuse to flip the toggle ON unless BOTH
-    // Android prerequisites (Accessibility + Display over other apps) are
-    // currently granted. The prereqs panel above the toggle is the single
-    // place where users grant them; this gate just enforces the contract.
-    if (key == 'app_agentic' && value) {
-      await _refreshAppAgenticPrereqs();
-      if (!_accessibilityEnabled || !_overlayPermissionGranted) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(s.appAgenticPrereqsNotMet),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-        return;
-      }
-    }
-
-    // Gate Android permissions FIRST — if denied, abort before any handler.
     final permitted = await handlePermissionGatedToggle(key, value);
     if (!permitted) return;
 
@@ -263,16 +152,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final shouldContinueNotification =
         await handleNotificationIntelligenceToggle(key, value);
     if (!shouldContinueNotification) return;
-    await handleSuperPowerToggle(key, value);
 
-    var nextSettings = {..._module!.settings, key: value};
-    if (_module!.id == 'super_power') {
-      if (key == 'app_agentic' && !value) {
-        nextSettings = {...nextSettings, 'run_locked_device': false};
-      }
-    }
-
-    final updated = _module!.copyWith(settings: nextSettings);
+    final updated = _module!.copyWith(
+      settings: {..._module!.settings, key: value},
+    );
     await ref.read(moduleRepositoryProvider).update(updated);
     ref.invalidate(installedModulesProvider);
     setState(() => _module = updated);
@@ -318,32 +201,11 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     await permissionManager.openAlarmSettings();
   }
 
-  /// Sync bubble state on resume (for Super Power module).
-  Future<void> _syncSuperPowerBubble() async {
-    if (_module == null || _module!.id != 'super_power') return;
-    final wantsBubble = _module!.settings['overlay_bubble'] ?? false;
-    if (!wantsBubble) return;
-
-    final canDraw = await permissionManager.isGranted(
-      PermissionType.systemAlertWindow,
-    );
-    final running = await ref
-        .read(clipboardServiceControllerProvider)
-        .isBubbleServiceRunning();
-    if (canDraw && !running) {
-      await ref.read(clipboardServiceControllerProvider).startBubbleService();
-    }
-  }
-
   Future<void> _uninstall() async {
     if (_module?.id == 'notification_intelligence') {
       await ref
           .read(clipboardServiceControllerProvider)
           .stopNotificationService();
-    }
-    if (_module?.id == 'super_power') {
-      final controller = ref.read(clipboardServiceControllerProvider);
-      await controller.stopBubbleService();
     }
 
     if (!mounted) return;
@@ -688,41 +550,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
-          if (module.id == 'super_power' && module.enabled) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: extras.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: extras.subtleBorder),
-              ),
-              child: _buildAppAgenticPrereqsPanel(cs: cs, s: s),
-            ),
-            const SizedBox(height: 20),
-          ],
-
-          if (module.id == 'super_power' &&
-              module.enabled &&
-              module.settings['app_agentic'] == true) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: extras.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: extras.subtleBorder),
-              ),
-              child: _buildShizukuSupportPanel(cs: cs, s: s),
-            ),
-            const SizedBox(height: 20),
-          ],
-
-          if (module.id == 'super_power' && module.enabled) ...[
-            _buildBatteryOptimizationPanel(cs: cs, extras: extras, s: s),
-            const SizedBox(height: 20),
-          ],
-
           if (module.enabled && visibleSettingEntries.isNotEmpty) ...[
             _buildSettingsSection(
               module: module,
@@ -835,13 +662,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) {
-    if (module.id != 'super_power') return true;
-    if (entry.key == 'run_locked_device') {
-      return module.settings['app_agentic'] == true;
-    }
-    return true;
-  }
+  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) => true;
 
   Widget _buildSettingsSection({
     required ModuleModel module,
@@ -899,18 +720,12 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
       ),
       child: Column(
         children: [
-          for (final entry in entries) ...[
+          for (final entry in entries)
             _buildSettingSwitch(
               entry: entry,
               label: settingLabels[entry.key],
               cs: cs,
             ),
-            if (module.id == 'super_power' && entry.key == 'run_locked_device')
-              FutureBuilder<Widget?>(
-                future: _pinStatusFuture,
-                builder: (ctx, snap) => snap.data ?? const SizedBox.shrink(),
-              ),
-          ],
         ],
       ),
     );
@@ -1098,428 +913,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  Widget _buildShizukuSupportPanel({
-    required ColorScheme cs,
-    required AppStrings s,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          s.shizukuSectionTitle,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: cs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          s.shizukuSectionDesc,
-          style: TextStyle(
-            fontSize: 12,
-            color: cs.onSurfaceVariant,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 12),
-        buildShizukuStatusPanel(cs: cs),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await refreshShizukuStatus();
-                },
-                icon: const Icon(Icons.check_circle_outline, size: 16),
-                label: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(s.checkStatus, maxLines: 1, softWrap: false),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () async {
-                  await requestShizukuPermission();
-                },
-                icon: const Icon(Icons.verified_user_outlined, size: 16),
-                label: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    s.requestPermission,
-                    maxLines: 1,
-                    softWrap: false,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: cs.primary,
-                  side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: () async {
-              await AppControlService().openUrl(
-                'https://shizuku.rikka.app/guide/setup/',
-              );
-            },
-            icon: const Icon(Icons.open_in_new_rounded, size: 16),
-            label: Text(s.setupGuide),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: cs.onSurfaceVariant,
-              side: BorderSide(
-                color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAppAgenticPrereqsPanel({
-    required ColorScheme cs,
-    required AppStrings s,
-  }) {
-    final allMet = _accessibilityEnabled && _overlayPermissionGranted;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          s.appAgenticPrereqsTitle,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: cs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          s.appAgenticPrereqsDesc,
-          style: TextStyle(
-            fontSize: 12,
-            color: cs.onSurfaceVariant,
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Accessibility status row.
-        _buildPrereqRow(
-          cs: cs,
-          label: s.appAgenticPrereqAccessibility,
-          granted: _accessibilityEnabled,
-        ),
-        const SizedBox(height: 8),
-        // Overlay permission status row.
-        _buildPrereqRow(
-          cs: cs,
-          label: s.appAgenticPrereqOverlay,
-          granted: _overlayPermissionGranted,
-        ),
-        const SizedBox(height: 12),
-        // Status indicator.
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: (allMet ? Colors.green : cs.error).withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color:
-                  (allMet ? Colors.green : cs.error).withValues(alpha: 0.24),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                allMet
-                    ? Icons.check_circle_rounded
-                    : Icons.info_outline_rounded,
-                size: 18,
-                color: allMet ? Colors.green : cs.error,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  allMet
-                      ? s.appAgenticPrereqsAllMet
-                      : s.appAgenticPrereqsNotMet,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (!allMet) ...[
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              if (!_accessibilityEnabled)
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await permissionManager.openAccessibilitySettings();
-                    },
-                    icon: const Icon(Icons.accessibility_new_rounded, size: 16),
-                    label: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        s.appAgenticBtnAccessibility,
-                        maxLines: 1,
-                        softWrap: false,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: cs.primary,
-                      side: BorderSide(
-                        color: cs.primary.withValues(alpha: 0.4),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              if (!_accessibilityEnabled && !_overlayPermissionGranted)
-                const SizedBox(width: 10),
-              if (!_overlayPermissionGranted)
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await permissionManager.request(
-                        PermissionType.systemAlertWindow,
-                      );
-                      await _refreshAppAgenticPrereqs();
-                    },
-                    icon: const Icon(Icons.layers_rounded, size: 16),
-                    label: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        s.appAgenticBtnOverlay,
-                        maxLines: 1,
-                        softWrap: false,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: cs.primary,
-                      side: BorderSide(
-                        color: cs.primary.withValues(alpha: 0.4),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-        if (!_checkingAppAgenticPrereqs && !allMet) ...[
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () async {
-                await _refreshAppAgenticPrereqs();
-              },
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: Text(s.checkStatus),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: cs.onSurfaceVariant,
-                side: BorderSide(
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildPrereqRow({
-    required ColorScheme cs,
-    required String label,
-    required bool granted,
-  }) {
-    return Row(
-      children: [
-        Icon(
-          granted
-              ? Icons.check_circle_rounded
-              : Icons.cancel_rounded,
-          size: 16,
-          color: granted ? Colors.green : cs.error,
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: cs.onSurface,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBatteryOptimizationPanel({
-    required ColorScheme cs,
-    required MeowExtras extras,
-    required AppStrings s,
-  }) {
-    return FutureBuilder<bool>(
-      future: BatteryOptimizationService.isIgnoringBatteryOptimizations(),
-      builder: (context, snapshot) {
-        final isIgnoring = snapshot.data ?? false;
-        final icon = isIgnoring
-            ? Icons.check_circle_rounded
-            : Icons.battery_alert_rounded;
-        final color = isIgnoring ? Colors.green : Colors.amber;
-        final message = isIgnoring
-            ? s.batteryOptExcluded
-            : s.batteryOptNotExcluded;
-
-        return Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: extras.card,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: extras.subtleBorder),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                s.batteryOptTitle,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: cs.onSurface,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                s.batteryOptDesc,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurfaceVariant,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color.withValues(alpha: 0.24)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(icon, size: 18, color: color),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        message,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: cs.onSurface,
-                          height: 1.35,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (!isIgnoring) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await BatteryOptimizationService.requestIgnoreBatteryOptimizations();
-                      // Refresh panel after returning from system dialog.
-                      if (mounted) setState(() {});
-                    },
-                    icon: const Icon(Icons.battery_saver_rounded, size: 16),
-                    label: Text(s.batteryOptRequest),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: cs.primary,
-                      side: BorderSide(
-                        color: cs.primary.withValues(alpha: 0.4),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-              if (isIgnoring) ...[
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      await BatteryOptimizationService.openBatterySettings();
-                      // Refresh panel after returning from system settings.
-                      if (mounted) setState(() {});
-                    },
-                    icon: const Icon(Icons.settings_rounded, size: 16),
-                    label: Text(s.batteryOptManage),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: cs.onSurfaceVariant,
-                      side: BorderSide(
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   /// Picks the index of today's prompt. Rotates deterministically every 6
   /// hours based on the wall clock, so all entry points agree without storage.
   /// The shuffle offset nudges it forward within the module's prompt list.
@@ -1695,8 +1088,6 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         return s.moduleDescWeb;
       case 'vm':
         return s.moduleDescVm;
-      case 'super_power':
-        return s.moduleDescSuperPower;
       default:
         return module.description;
     }

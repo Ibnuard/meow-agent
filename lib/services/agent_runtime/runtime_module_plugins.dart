@@ -1,5 +1,4 @@
 import '../../features/modules/agent/agent_domain_module.dart';
-import '../../features/modules/app_agent/app_agent_module.dart';
 import '../../features/modules/attachments/attachment_module.dart';
 import '../../features/modules/calendar/calendar_module.dart';
 import '../../features/modules/chat/chat_module.dart';
@@ -18,7 +17,6 @@ import 'module_plugin.dart';
 import 'module_registry.dart';
 
 const List<ModulePlugin> runtimeModulePlugins = [
-  AppAgentModulePlugin(),
   DeviceModulePlugin(),
   NotificationModulePlugin(),
   NotesModulePlugin(),

@@ -17,7 +17,6 @@ import '../features/modules/notes/notes_list_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
-import '../features/shizuku_test/shizuku_test_screen.dart';
 import 'shell.dart';
 
 /// Global navigator key for pushing routes from outside the widget tree
@@ -47,8 +46,6 @@ class AppRoutes {
   static const noteNew = '/notes/new';
   static const noteEdit = '/notes/:id/edit';
   static const apiStore = '/modules/api-store';
-  // Dev/Test.
-  static const shizukuTest = '/dev/shizuku-test';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -156,13 +153,6 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           final id = state.pathParameters['id']!;
           return NoteEditorScreen(noteId: id);
         },
-      ),
-
-      // Dev/Test routes.
-      GoRoute(
-        path: AppRoutes.shizukuTest,
-        name: 'shizukuTest',
-        builder: (context, state) => const ShizukuTestScreen(),
       ),
 
       // Main app shell with bottom navigation.

@@ -27,7 +27,6 @@ import 'features/modules/workflows/workflow_runner.dart';
 import 'features/modules/workflows/workflow_scheduler.dart';
 import 'features/settings/data/app_language_provider.dart';
 import 'services/bubble/bubble_chat_service.dart';
-import 'services/app_agent/app_agent_overlay_service.dart';
 import 'features/chat/data/chat_notification_service.dart';
 import 'features/chat/data/chat_runtime_manager.dart';
 import 'services/permission/permission_observer.dart';
@@ -125,7 +124,6 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
       _initWorkflowServices();
       _prewarmChatDatabase();
       _initBubbleChat();
-      _initAppAgentOverlay();
     });
   }
 
@@ -182,19 +180,6 @@ class _MeowAgentAppState extends ConsumerState<MeowAgentApp>
   /// Initialize bubble chat bridge (overlay → LLM → overlay response).
   void _initBubbleChat() {
     BubbleChatService(ref).init();
-  }
-
-  /// Initialize the App Agent overlay stop-button listener.
-  void _initAppAgentOverlay() {
-    AppAgentOverlayService.initialize();
-    AppAgentOverlayService.onStopPressed = () {
-      // Cancel whichever agent is currently running.
-      final manager = ref.read(chatRuntimeManagerProvider);
-      final running = manager.runningAgentId;
-      if (running != null) {
-        manager.cancelActive(running);
-      }
-    };
   }
 
   /// Handle notification tap — navigate to workflow log detail or chat,

@@ -28,12 +28,6 @@ const Map<({String moduleId, String settingKey}), PermissionType>
   (moduleId: 'device_context', settingKey: 'allow_bluetooth'):
       PermissionType.bluetoothConnect,
 
-  // ─── Super Power — overlay for agentic border ───────────────────────────
-  (moduleId: 'super_power', settingKey: 'app_agentic'):
-      PermissionType.systemAlertWindow,
-  (moduleId: 'super_power', settingKey: 'overlay_bubble'):
-      PermissionType.systemAlertWindow,
-
   // ─── Communication — call / sms / contacts ───────────────────────────────
   (moduleId: 'communication', settingKey: 'call_enabled'):
       PermissionType.callPhone,

@@ -128,7 +128,6 @@ $_sharedSystemRules
   static const reviewIntro = promptReviewIntro;
   static String reviewRulesFor(String language) =>
       promptReviewRulesFor(language);
-  static const appAgenticReviewRules = promptAppAgenticReviewRules;
   static const reviewResponseFormat = promptReviewResponseFormat;
 
   // ─── Context / misc (delegated to prompt_context.dart) ─────────────────────

@@ -199,20 +199,6 @@ class ModuleRegistry {
     },
   );
 
-  static const superPower = ModuleModel(
-    id: 'super_power',
-    name: 'Super Power',
-    description:
-        'Advanced overlay and device automation. '
-        'Enable floating bubble and Shizuku-powered app agentic control.',
-    icon: '⚡',
-    settings: {
-      'overlay_bubble': false,
-      'app_agentic': false,
-      'run_locked_device': false,
-    },
-  );
-
   static const List<ModuleModel> available = [
     deviceContext,
     notificationIntelligence,
@@ -223,6 +209,5 @@ class ModuleRegistry {
     web,
     vm,
     communication,
-    superPower,
   ];
 }

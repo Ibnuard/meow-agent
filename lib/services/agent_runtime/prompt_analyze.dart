@@ -53,7 +53,7 @@ TONE vs INTENT (CRITICAL — read first before analyzing any message):
 - If the CURRENT message contains a clear ACTION VERB + a clear TARGET (in any language): set requires_tools=true. This is true EVEN IF the preceding messages were casual greetings, friendly chat, or small talk.
 - Example: recent conversation is "Hello!" / "Hello, how can I help?" — then user says "delete all agents without a provider". The greeting does NOT make the delete request a chat — it is a destructive multi-target action → requires_tools=true.
 - Example: recent conversation is friendly banter — then user says "open the calendar". The banter does NOT make "open the calendar" a chat → requires_tools=true.
-- Example: recent conversation is about food storage — then user says "open app X and summarize tweets". The food topic is IRRELEVANT — analyze the current message on its own merit → requires_tools=true, tool_groups=["app","app_agent"].
+- Example: recent conversation is about food storage — then user says "open app X". The food topic is IRRELEVANT — analyze the current message on its own merit → requires_tools=true, tool_groups=["app"].
 - The presence of a greeting, name-calling, or casual phrasing in the current or preceding messages NEVER downgrades a clear action request to chat/requires_tools=false.
 - Only set requires_tools=false if the CURRENT message itself is genuinely ambiguous, purely conversational, or missing required details AFTER applying this rule.
 
@@ -101,33 +101,17 @@ Bulk-selector rule (applies to ANY entity type — agents, workflows, providers,
 const promptAnalyzeCrossDomainAmbiguityRule =
     '''Cross-domain routing ambiguity rule (FIRST_ASK_USER — but do NOT be chatty):
 - DEFAULT IS TO ACT ON THE MOST LITERAL USER-SCOPED TARGET. Only pause when there are genuinely 2+ plausible interpretations that lead to DIFFERENT results. If one interpretation clearly dominates, execute it directly and do NOT ask.
-- Trigger ALL of these together:
-  1. The request vocabulary semantically matches a BUILT-IN tool domain (e.g. notifications, clipboard, calendar, files), AND
-  2. The CURRENT message OR recent conversation shows the user just opened, named, or is operating INSIDE an external app (same-turn "open app X then ..." counts, as do recent app.open/app_agent steps), AND
-  3. The same words could ALSO mean "do this against the screen currently open in that app" (app_agent), producing a DIFFERENT result than the built-in tool.
-- When all three hold: set requires_tools=false and put ONE short clarification question in missing_info (in the user's language), naming both interpretations.
-- If the CURRENT message explicitly scopes the domain word to the external app surface (for example: open an app, navigate to that app's notifications/messages/page/tab, then summarize/read it), do NOT route to the built-in domain tool. Use app + app_agent because the user named an in-app surface.
-- If the CURRENT message explicitly scopes the domain word to Android/system/device data, use the built-in domain tool and do NOT ask.
-- MUST trigger:
-  * Opened a social/communication app, then "show my notifications" → Android system notifications vs that app's in-app notifications tab → ask which one.
-  * Opened a chat app, then "summarize the messages" → system notification summary vs reading the on-screen messages via app control → ask which one.
-- MUST NOT trigger (one interpretation dominates — just act):
-  * "open <app>, go to the notifications page, and summarize it" → clearly in-app notifications via app_agent. No notification.summarize.
-  * "open <app> then search <query>" → clearly open + app_agent search. No question.
-  * "summarize my notifications" with NO app context → clearly the notification tool. No question.
+- If the CURRENT message explicitly scopes the domain word to Android/system/device data (e.g. "Android notifications", "my clipboard"), use the built-in domain tool and do NOT ask.
+- MUST NOT trigger when one interpretation dominates — just act:
+  * "summarize my notifications" → clearly the notification tool. No question.
   * "summarize my Android notifications" → clearly the notification tool. No question.
   * "read my clipboard" → clearly the clipboard tool. No question.
-- If you are truly unsure between built-in data and in-app screen data after applying the user-scoped target rule, FIRST_ASK_USER with one short question. Asking is correct for real ambiguity; asking is wrong when the user already scoped the target clearly.''';
+- If you are truly unsure between two built-in tool routes after applying the user-scoped target rule, FIRST_ASK_USER with one short question. Asking is correct for real ambiguity; asking is wrong when the user already scoped the target clearly.''';
 
 const promptAnalyzeExamples =
     '''Examples that require tools (intent shown in English; user phrasing may be in any language; <app>, <query>, <name>, <X>, <Y> are placeholders):
 - "open <app>" → app.resolve(<app>) then app.open(packageName) → tool_groups: ["app"] (DONE after open)
 - "open <url>" → intent.open_url → tool_groups: ["app"]
-- "send a message to <contact> in <app>" → app.resolve + app.open FIRST, then app_agent screen control → tool_groups: ["app", "app_agent"]
-- "search for <query> in <app>" → app.resolve + app.open FIRST, then app_agent → tool_groups: ["app", "app_agent"]
-- "open <app>, go to the notifications page, and summarize it" → app.resolve + app.open FIRST, then app_agent screen control/read visible in-app content → tool_groups: ["app", "app_agent"]
-- "tap the <label> button in the current app" → app_agent.inspect then app_agent.click → tool_groups: ["app_agent"]
-- "type <text> into this app's message field" → app_agent.inspect then app_agent.set_text → tool_groups: ["app_agent"]
 - "read clipboard" → clipboard.read
 - "write to clipboard" → clipboard.write
 - "open wifi settings" → settings.open
@@ -155,9 +139,7 @@ Multi-target examples (subgoal_seeds MUST list each target):
 - "delete agent <X> and <Y>" → subgoal_seeds: ["delete agent <X>", "delete agent <Y>"]
 
 CRITICAL ROUTING RULES:
-- For opening/launching apps ONLY (no further interaction): tool_groups MUST be ["app"], NOT ["app_agent"]. The task is COMPLETE once the app is open.
-- For opening an app AND THEN interacting with its UI (sending messages, searching, tapping buttons, navigating): tool_groups MUST include BOTH ["app", "app_agent"]. app is needed to resolve+open, app_agent is needed for screen control.
-- app_agent ALONE is only for interacting with the ALREADY VISIBLE foreground app (no need to open anything new).
+- For opening/launching apps: tool_groups MUST be ["app"]. The task is COMPLETE once the app is open.
 - ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.
 - For running shell commands, scripts, installing packages, starting servers, or executing code in the Linux VM: tool_groups MUST be ["vm"]. If the task also needs writing files to the VM workspace, use ["files", "vm"].
 
@@ -193,7 +175,6 @@ Rules:
 - detected_language: the ISO 639-1 code of the language the USER wrote in (e.g. "en", "id", "es", "fr", "ja", "ar"). Judge from the user's actual message text, not the app setting. This drives every user-facing reply, so be accurate. If the message is too short or ambiguous to tell, repeat the language of the recent conversation, else default to "en".
 - tool_groups: when requires_tools is true, list the tool CATEGORY/CATEGORIES most relevant to the request, chosen ONLY from this fixed English enum:
     app          \\u2014 open apps/URLs, list installed apps, open settings
-    app_agent    \\u2014 inspect and control the currently visible Android app screen via Accessibility
     clipboard    \\u2014 read/write the clipboard
     device       \\u2014 battery, network/wifi/cellular, storage, time, locale, bluetooth, do-not-disturb, foreground app, usage
     notification \\u2014 read/summarize/classify/reply notifications, post a local notification

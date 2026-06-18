@@ -51,17 +51,6 @@ class MainActivity : FlutterActivity() {
                     "isNotificationServiceRunning" -> {
                         result.success(isServiceRunning(ClipboardForegroundService::class.java))
                     }
-                    "startBubbleService" -> {
-                        startBubbleService()
-                        result.success(true)
-                    }
-                    "stopBubbleService" -> {
-                        stopBubbleService()
-                        result.success(true)
-                    }
-                    "isBubbleServiceRunning" -> {
-                        result.success(isServiceRunning(FloatingBubbleService::class.java))
-                    }
                     else -> result.notImplemented()
                 }
             }
@@ -74,55 +63,6 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CommunicationPlugin.CHANNEL)
             .setMethodCallHandler(CommunicationPlugin(this))
-
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_agent")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "isAccessibilityEnabled" -> {
-                        result.success(MeowAccessibilityService.isEnabled(this))
-                    }
-                    "captureScreen" -> {
-                        result.success(
-                            MeowAccessibilityService.captureDefaultTree()
-                                ?: mapOf(
-                                    "success" to false,
-                                    "error" to "accessibility_service_not_connected"
-                                )
-                        )
-                    }
-                    "performAction" -> {
-                        val nodeId = call.argument<Int>("node_id") ?: -1
-                        val action = call.argument<String>("action") ?: ""
-                        val text = call.argument<String>("text")
-                        val direction = call.argument<String>("direction")
-                        result.success(
-                            MeowAccessibilityService.performNodeAction(
-                                nodeId,
-                                action,
-                                text,
-                                direction
-                            )
-                        )
-                    }
-                    "globalBack" -> {
-                        result.success(MeowAccessibilityService.performGlobalBack())
-                    }
-                    "findByText" -> {
-                        val query = call.argument<String>("query") ?: ""
-                        val mode = call.argument<String>("mode") ?: "contains"
-                        result.success(MeowAccessibilityService.findByText(query, mode))
-                    }
-                    "clickByText" -> {
-                        val query = call.argument<String>("query") ?: ""
-                        val mode = call.argument<String>("mode") ?: "contains"
-                        result.success(MeowAccessibilityService.clickByText(query, mode))
-                    }
-                    "imeEnter" -> {
-                        result.success(MeowAccessibilityService.performImeEnter())
-                    }
-                    else -> result.notImplemented()
-                }
-            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_control")
             .setMethodCallHandler { call, result ->
@@ -155,148 +95,6 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
-
-        // Shizuku Shell Automation channel
-        val shizukuManager = ShizukuManager(applicationContext)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/shizuku")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "getStatus" -> {
-                        result.success(shizukuManager.getStatus())
-                    }
-                    "requestPermission" -> {
-                        shizukuManager.requestPermission()
-                        result.success(true)
-                    }
-                    "exec" -> {
-                        val command = call.argument<String>("command") ?: ""
-                        val shellResult = shizukuManager.exec(command)
-                        result.success(shellResult.toMap())
-                    }
-                    "wakeScreen" -> {
-                        result.success(shizukuManager.wakeScreen().toMap())
-                    }
-                    "isScreenOn" -> {
-                        result.success(shizukuManager.isScreenOn())
-                    }
-                    "isDeviceLocked" -> {
-                        result.success(shizukuManager.isDeviceLocked())
-                    }
-                    "swipeUp" -> {
-                        result.success(shizukuManager.swipeUp().toMap())
-                    }
-                    "inputText" -> {
-                        val text = call.argument<String>("text") ?: ""
-                        result.success(shizukuManager.inputText(text).toMap())
-                    }
-                    "pressKey" -> {
-                        val keycode = call.argument<Int>("keycode") ?: 0
-                        result.success(shizukuManager.pressKey(keycode).toMap())
-                    }
-                    "tap" -> {
-                        val x = call.argument<Int>("x") ?: 0
-                        val y = call.argument<Int>("y") ?: 0
-                        result.success(shizukuManager.tap(x, y).toMap())
-                    }
-                    "lockDevice" -> {
-                        result.success(shizukuManager.lockDevice().toMap())
-                    }
-                    "wakeAndUnlock" -> {
-                        val pin = call.argument<String>("pin") ?: ""
-                        val unlockResult = shizukuManager.wakeAndUnlock(pin)
-                        result.success(unlockResult)
-                    }
-                    "isAccessibilityEnabled" -> {
-                        result.success(MeowAccessibilityService.isEnabled(this))
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
-        // Bubble Chat bridge — connects FloatingBubbleService ↔ Flutter
-        val bubbleChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/bubble")
-        bubbleChannel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "sendResponse" -> {
-                    // Flutter → Bubble: deliver agent response to overlay
-                    val response = call.argument<String>("response") ?: ""
-                    val header = call.argument<String>("header")
-                    FloatingBubbleService.deliverResponse(response, header)
-                    result.success(true)
-                }
-                "updateChatInfo" -> {
-                    // Flutter → Bubble: update header subtitle with agent/model info
-                    val info = call.argument<String>("info") ?: ""
-                    FloatingBubbleService.updateChatInfo(info)
-                    result.success(true)
-                }
-                else -> result.notImplemented()
-            }
-        }
-
-        // App Agent overlay bridge — full-screen border + bottom narrator bar
-        // rendered while the App Agent runtime is in flight.
-        val appAgentOverlayChannel = MethodChannel(
-            flutterEngine.dartExecutor.binaryMessenger,
-            "com.meowagent/app_agent_overlay"
-        )
-        appAgentOverlayChannel.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "show" -> {
-                    val operation = call.argument<String>("operation")
-                    val narrative = call.argument<String>("narrative") ?: ""
-                    AppAgentOverlayService.show(this, operation, narrative)
-                    result.success(true)
-                }
-                "hide" -> {
-                    AppAgentOverlayService.hide(this)
-                    result.success(true)
-                }
-                else -> result.notImplemented()
-            }
-        }
-
-        // Listen for stop button press from the App Agent overlay.
-        val cancelFilter = android.content.IntentFilter("com.meowagent.APP_AGENT_CANCEL")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(object : android.content.BroadcastReceiver() {
-                override fun onReceive(ctx: android.content.Context, i: android.content.Intent) {
-                    Handler(Looper.getMainLooper()).post {
-                        appAgentOverlayChannel.invokeMethod("onStopPressed", null)
-                    }
-                }
-            }, cancelFilter, android.content.Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(object : android.content.BroadcastReceiver() {
-                override fun onReceive(ctx: android.content.Context, i: android.content.Intent) {
-                    Handler(Looper.getMainLooper()).post {
-                        appAgentOverlayChannel.invokeMethod("onStopPressed", null)
-                    }
-                }
-            }, cancelFilter)
-        }
-
-        // Wire up Bubble → Flutter: when user sends message from bubble
-        FloatingBubbleService.onSendMessage = { message ->
-            Handler(Looper.getMainLooper()).post {
-                bubbleChannel.invokeMethod("onBubbleChat", mapOf("message" to message))
-            }
-        }
-
-        // Wire up Bubble → Flutter: request agent/model info when chat opens
-        FloatingBubbleService.onRequestInfo = {
-            Handler(Looper.getMainLooper()).post {
-                bubbleChannel.invokeMethod("onRequestInfo", null)
-            }
-        }
-
-        // Wire up Bubble → Flutter: cancel active task
-        FloatingBubbleService.onCancelMessage = {
-            Handler(Looper.getMainLooper()).post {
-                bubbleChannel.invokeMethod("onCancelBubbleChat", null)
-            }
-        }
 
         val notificationsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/notifications")
         notificationsChannel.setMethodCallHandler { call, result ->
@@ -503,19 +301,6 @@ class MainActivity : FlutterActivity() {
 
     private fun stopClipboardService() {
         stopService(Intent(this, ClipboardForegroundService::class.java))
-    }
-
-    private fun startBubbleService() {
-        val serviceIntent = Intent(this, FloatingBubbleService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-    }
-
-    private fun stopBubbleService() {
-        stopService(Intent(this, FloatingBubbleService::class.java))
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {

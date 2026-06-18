@@ -15,7 +15,6 @@ import '../../features/providers/data/provider_repository.dart';
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import '../llm/llm_error_mapper.dart';
-import '../app_agent/app_agent_overlay_service.dart';
 import 'context_builder.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
@@ -348,23 +347,15 @@ class AgentRuntimeEngine {
   /// Whether a confirmed "lanjut"/"continue" on a parked ledger should RESTART
   /// the task from its original goal rather than replay the single parked tool.
   ///
-  /// App-automation tasks operate on LIVE device state (the foreground app, the
-  /// on-screen accessibility tree). When a task parks for a permission, the user
-  /// physically leaves the target app to flip the toggle, so any captured
-  /// screen/foreground state and the parked tool's args are now stale. Replaying
-  /// the parked tool (e.g. `device.foreground_app` returning "Meow Agent", or a
-  /// stale `app_agent.inspect`) makes the agent act on the wrong screen and give
-  /// up. Restarting from `ledger.originalUserMessage` re-issues `app.open`
-  /// deterministically and drives the real goal again.
-  ///
-  /// Language-agnostic: uses the structural [planRequiresAppAgent] signal plus a
-  /// tool-identifier family (not localized text). Non-app tasks (file ops gated
-  /// on a module toggle, etc.) return false and keep the safe mid-flight replay.
+  /// App-launch tasks operate on LIVE device state (the foreground app). When a
+  /// task parks for a permission, the user physically leaves the target app to
+  /// flip the toggle, so any captured foreground state and the parked tool's
+  /// args are now stale. Restarting from `ledger.originalUserMessage` re-issues
+  /// `app.open` deterministically and drives the real goal again.
   bool _resumeRequiresRestart(TaskLedger ledger) {
-    if (_loopRunner.planRequiresAppAgent(ledger.goalTree)) return true;
     const liveStateTools = {'app.open', 'app.resolve', 'device.foreground_app'};
     final parked = ledger.pendingToolName ?? '';
-    return parked.startsWith('app_agent.') || liveStateTools.contains(parked);
+    return liveStateTools.contains(parked);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1306,79 +1297,6 @@ class AgentRuntimeEngine {
         }
       }
 
-      // FORESIGHT preflight: if the plan will need App Agentic (the analyzer
-      // routed to the app_agent catalog group) but that permission is OFF,
-      // fail BEFORE the loop opens any app. Otherwise the loop would run
-      // app.open (allowed) and only hit the wall at app_agent.inspect — leaving
-      // the user stranded in the external app behind a dead overlay. The in-loop
-      // gate stays as the safety net; this is the early, no-side-effect exit.
-      // Skipped for unattended workflow runs (no user to grant a toggle).
-      final preflightGroups = (analysis['tool_groups'] as List?)
-              ?.map((e) => e.toString())
-              .toList() ??
-          const <String>[];
-      if (request.source != RequestSource.workflow &&
-          preflightGroups.contains('app_agent')) {
-        // 'app_agent.inspect' is a representative real tool; the 'app_agent.'
-        // prefix rule resolves it to the super_power module / app_agentic toggle.
-        final denied = await toolRouter.permissionDeniedResult(
-          'app_agent.inspect',
-        );
-        if (denied != null) {
-          final preMessage =
-              _loopRunner.permissionDeniedResponseFor(denied) ??
-              (denied.error ?? 'App Agentic is required for this task.');
-          final preActions = _loopRunner.permissionDeniedActionsFor(denied);
-          // PARK (don't delete): App Agentic is a toggle the user can flip on,
-          // so the task is recoverable. Persist a resumable ledger carrying the
-          // ORIGINAL goal + a synthetic app_agent.inspect pending marker. After
-          // the user enables the toggle and says "lanjut", _resumeRequiresRestart
-          // sees the app_agent pending tool and restarts the task from the
-          // original message (re-opening the app), instead of leaving nothing to
-          // resume (the old finishScopeForRequest(failed) hard-deleted it).
-          if (goalTree.isNotEmpty && !goalTree.isComplete) {
-            final ledger = await _taskScope.persistLedgerAtGate(
-              request: request,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: const <Map<String, dynamic>>[],
-              currentStep: 0,
-              availableTools: availableTools,
-              memorySnapshot: _memory.formatForPrompt(request.agentId),
-              detectedLangCode: detectedLang.code,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              pendingTool: const ToolCallRequest(
-                name: 'app_agent.inspect',
-                args: {},
-                risk: 'safe',
-                requiresConfirmation: false,
-              ),
-            );
-            _pendingActions[request.agentId] = PendingAction(
-              toolName: 'app_agent.inspect',
-              toolArgs: const {},
-              userFacingSummary: preMessage,
-              languageCode: detectedLang.code,
-              resumeContext: {'ledger_id': ledger.id},
-            );
-          } else {
-            await _taskScope.finishScopeForRequest(
-              request,
-              LedgerStatus.failed,
-            );
-          }
-          logger.logFinalResponse(preMessage);
-          return AgentRuntimeResponse(
-            finalMessage: preMessage,
-            success: false,
-            state: AgentRuntimeState.failed,
-            events: logger.events,
-            actions: preActions,
-          );
-        }
-      }
-
       final loopResponse = await _loopRunner.run(
         request: loopRequest,
         plan: plan,
@@ -1447,8 +1365,6 @@ class AgentRuntimeEngine {
           'Run cancelled by user',
         );
         await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
-        // Return to Meow Agent if cancelled while driving an external app.
-        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,
@@ -1536,9 +1452,6 @@ class AgentRuntimeEngine {
         final actions = _loopRunner.permissionDeniedActionsFor(result);
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         logger.logFinalResponse(permissionFinal);
-        // Safety net: a permission denial on a confirmed/resumed tool must tear
-        // down the agentic overlay + return to Meow Agent (self-guarding).
-        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: permissionFinal,
           success: false,
@@ -1682,16 +1595,6 @@ class AgentRuntimeEngine {
             'Resuming execute loop after confirmation (subgoals remaining: ${goalTree.subgoals.where((s) => !s.isTerminal).length})',
           );
           emit(logger.events.last);
-          // Show the agentic overlay immediately after a confirmed app.open
-          // when the plan has subsequent app_agent.* work. Without this, the
-          // user sees LinkedIn open with no overlay — the overlay would only
-          // appear once the next app_agent.* tool fires, causing a jarring
-          // gap where it looks like "agentic mode didn't start".
-          if ((pending.toolName == 'app.open' ||
-                  pending.toolName == 'app.resolve') &&
-              _loopRunner.planRequiresAppAgent(goalTree)) {
-            AppAgentOverlayService.show(operation: 'open', narrative: '');
-          }
           return _loopRunner.run(
             request: resumedRequest,
             plan: plan,

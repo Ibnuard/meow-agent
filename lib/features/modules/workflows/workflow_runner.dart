@@ -19,8 +19,6 @@ import 'workflow_run_ledger.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_repository.dart';
 import '../../settings/data/notification_sound_provider.dart';
-import '../../modules/data/module_repository.dart';
-import '../../../services/shizuku/shizuku_device_service.dart';
 import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../settings/data/app_language_provider.dart';
 
@@ -152,21 +150,6 @@ class WorkflowRunner {
     if (_processingQueue) return;
     _processingQueue = true;
 
-    // Check whether the Super Power module has "run while locked" enabled.
-    bool lockedDeviceUnlocked = false;
-    try {
-      final repo = _ref.read(moduleRepositoryProvider);
-      final modules = await repo.getInstalled();
-      final sp = modules.where((m) => m.id == 'super_power' && m.enabled).firstOrNull;
-      if (sp != null &&
-          sp.settings['run_locked_device'] == true) {
-        final svc = ShizukuDeviceService();
-        lockedDeviceUnlocked = await svc.wakeAndUnlock();
-      }
-    } catch (_) {
-      // Absorb — device lifecycle is best-effort, not critical.
-    }
-
     try {
       while (_executionQueue.isNotEmpty) {
         final item = _executionQueue.removeFirst();
@@ -183,12 +166,6 @@ class WorkflowRunner {
         }
       }
     } finally {
-      // Re-lock the device if we unlocked it earlier.
-      if (lockedDeviceUnlocked) {
-        try {
-          await ShizukuDeviceService().lockDevice();
-        } catch (_) {}
-      }
       _processingQueue = false;
     }
   }

@@ -16,7 +16,6 @@ class ModuleVisuals {
       'web' => Icons.cloud_rounded,
       'vm' => Icons.terminal_rounded,
       'communication' => Icons.send_rounded,
-      'super_power' => Icons.auto_awesome_rounded,
       _ => Icons.extension_rounded,
     };
   }
@@ -32,7 +31,6 @@ class ModuleVisuals {
       'web' => const Color(0xFF06B6D4),
       'vm' => const Color(0xFF10B981),
       'communication' => const Color(0xFF22C55E),
-      'super_power' => const Color(0xFFA855F7),
       _ => const Color(0xFF64748B),
     };
   }

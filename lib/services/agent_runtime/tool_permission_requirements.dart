@@ -52,10 +52,6 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Open Installed Apps',
     actionLabel: 'open URLs',
   ),
-  // NOTE: app_agent.* tools are gated by a single PREFIX rule, not per-tool
-  // entries — see [toolPermissionPrefixRequirements] below. One `app_agentic`
-  // toggle = allow every action on the current screen. New app_agent.* tools
-  // are covered automatically and can never fail open.
   'device.battery': ToolPermissionRequirement(
     moduleId: 'device_context',
     settingKey: 'allow_battery',
@@ -537,19 +533,4 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
 /// Prefix-based requirement rules, checked by [ToolPermissionPolicy] AFTER an
 /// exact-name lookup misses. A tool whose name starts with the key is gated by
 /// the value.
-///
-/// Used for tool families where one user toggle should govern the whole group:
-/// turning the toggle ON means "allow every action in this family". This keeps
-/// the gate from ever failing open as new tools are added to the family — no
-/// per-tool map entry to forget.
-const toolPermissionPrefixRequirements = <String, ToolPermissionRequirement>{
-  // App Agentic: one toggle = allow every on-screen action (inspect, click,
-  // set_text, scroll, key, back, find/click_by_text, and any future
-  // app_agent.* tool). Driven by the `app_agentic` setting on Super Power.
-  'app_agent.': ToolPermissionRequirement(
-    moduleId: 'super_power',
-    settingKey: 'app_agentic',
-    settingLabel: 'App Agentic',
-    actionLabel: 'control apps on screen',
-  ),
-};
+const toolPermissionPrefixRequirements = <String, ToolPermissionRequirement>{};

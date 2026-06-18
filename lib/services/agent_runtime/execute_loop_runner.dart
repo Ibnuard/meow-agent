@@ -1,4 +1,3 @@
-import '../app_agent/app_agent_overlay_service.dart';
 import '../llm/llm_error_mapper.dart';
 import 'action_map.dart';
 import 'completion_verifier.dart';
@@ -120,8 +119,6 @@ class ExecuteLoopRunner {
       // Cooperative cancellation check.
       if (_taskScope.isCancelled(request.agentId)) {
         _taskScope.clearCancellation(request.agentId);
-        // Return the user to Meow Agent if a cancel landed mid-automation.
-        AppAgentOverlayService.hideAndReturnToBase();
         return AgentRuntimeResponse(
           finalMessage: '',
           success: false,
@@ -251,17 +248,7 @@ class ExecuteLoopRunner {
         });
       }
       // 'select_tool' is NOT a chat-bubble phase (per-step tool chatter caused
-      // the stacked duplicate narratives). We still drive the app-agent overlay
-      // narration here — that's a separate surface from the chat bubble.
-      if (selectNarrative.isNotEmpty) {
-        final overlayOp = _selectionOperationTag(selection);
-        if (overlayOp != null) {
-          AppAgentOverlayService.show(
-            operation: overlayOp,
-            narrative: selectNarrative,
-          );
-        }
-      }
+      // the stacked duplicate narratives).
 
       if (status == 'done') {
         final finalResponse =
@@ -384,7 +371,6 @@ class ExecuteLoopRunner {
           _emitTaskLedger(emit, request, goalTree);
         }
         logger.logFinalResponse(finalResponse);
-        AppAgentOverlayService.hide();
         return AgentRuntimeResponse(
           finalMessage: finalResponse,
           success: true,
@@ -661,10 +647,6 @@ class ExecuteLoopRunner {
             );
           }
           logger.logFinalResponse(finalResponse);
-          // Safety net: a permission denial mid-flow must never leave the
-          // agentic overlay stranded on an external app. Self-guarding — no-op
-          // RTB when the overlay was never shown (chat-only denials).
-          AppAgentOverlayService.hideAndReturnToBase();
           return AgentRuntimeResponse(
             finalMessage: finalResponse,
             success: false,
@@ -841,7 +823,6 @@ class ExecuteLoopRunner {
               request,
               LedgerStatus.completed,
             );
-            AppAgentOverlayService.hide();
             return AgentRuntimeResponse(
               finalMessage: finalMsg,
               success: true,
@@ -865,14 +846,12 @@ class ExecuteLoopRunner {
         logger.logStateChange(state, 'Executing ${toolRequest.name}');
         emit(logger.events.last);
         logger.logToolCall(toolRequest);
-        await _sendAppAgenticNarrativeBefore(toolRequest);
 
         final result = autoApproveSensitive
             ? await _toolRouter.forceExecute(toolRequest)
             : await _toolRouter.execute(toolRequest);
         logger.logToolResult(result);
         emit(logger.events.last);
-        await _sendAppAgenticNarrativeAfter(toolRequest, result);
 
         final permissionFinal = permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
@@ -927,47 +906,8 @@ class ExecuteLoopRunner {
             );
           }
           logger.logFinalResponse(permissionFinal);
-          // Safety net: tear down the agentic overlay + return to Meow Agent on
-          // a post-execute permission denial (self-guarding, see B1).
-          AppAgentOverlayService.hideAndReturnToBase();
           return AgentRuntimeResponse(
             finalMessage: permissionFinal,
-            success: false,
-            state: AgentRuntimeState.failed,
-            events: logger.events,
-            actions: actions,
-          );
-        }
-
-        // Accessibility service not connected — the user needs to enable it
-        // at the Android level before app_agent tools can function. Surface a
-        // friendly localized message with an action button that opens the
-        // accessibility settings page directly.
-        if (!result.success &&
-            _isAccessibilityServiceFailure(result)) {
-          final code = _languageCode;
-          final message = LanguageRegistry.phrase(
-            'accessibility_not_connected',
-            code,
-          );
-          final actions = [
-            ResultAction(
-              label: LanguageRegistry.phrase(
-                'action_open_accessibility',
-                code,
-              ),
-              icon: 'accessibility_new_rounded',
-              type: 'open_accessibility_settings',
-              target: 'accessibility',
-            ),
-          ];
-          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          logger.logFinalResponse(message);
-          // Accessibility off mid-flow is the same stuck-overlay class — tear
-          // down and return to Meow Agent (self-guarding).
-          AppAgentOverlayService.hideAndReturnToBase();
-          return AgentRuntimeResponse(
-            finalMessage: message,
             success: false,
             state: AgentRuntimeState.failed,
             events: logger.events,
@@ -1150,7 +1090,6 @@ class ExecuteLoopRunner {
             request,
             LedgerStatus.completed,
           );
-          AppAgentOverlayService.hide();
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -1185,40 +1124,6 @@ class ExecuteLoopRunner {
         if (!result.success &&
             (reviewStatus == 'done' || reviewStatus == 'continue')) {
           reviewStatus = 'ask_user';
-        }
-
-        // Expand-click degrade guard. A failed app_agent.click on the SAME node,
-        // repeated, must NOT keep burning the scarce (2-attempt) recovery budget
-        // and abort the whole task — a failed "see more"/expand is non-fatal for
-        // a read/summarize goal. After a prior identical failed click, force the
-        // status back to `continue` so the selector (governed by the DEGRADE
-        // GRACEFULLY prompt rule) summarizes from the visible text instead of
-        // recovering/aborting. Keyed on node_id (from the native result map),
-        // generic — no app specifics.
-        if (!result.success && toolRequest.name == 'app_agent.click') {
-          final nodeId = (result.data?['node_id'] ??
-                  toolRequest.args['node_id'] ??
-                  toolRequest.args['nodeId'])
-              ?.toString();
-          if (nodeId != null && nodeId.isNotEmpty) {
-            final priorClickFails = previousResults.where((p) {
-              if (p['tool'] != 'app_agent.click') return false;
-              final res = p['result'];
-              if (res is! Map<String, dynamic>) return false;
-              return res['success'] == false &&
-                  (res['node_id']?.toString() == nodeId);
-            }).length;
-            if (priorClickFails >= 1) {
-              logger.logStateChange(
-                state,
-                'Expand-click degrade guard: ${priorClickFails + 1} failed '
-                'clicks on node $nodeId — continuing with readable text instead '
-                'of recovery/abort',
-              );
-              reviewStatus = 'continue';
-              review?['status'] = 'continue';
-            }
-          }
         }
 
         // Empty-result loop guard.
@@ -1257,33 +1162,7 @@ class ExecuteLoopRunner {
               'decision': reviewStatus,
             });
           }
-          // 'review' is NOT a chat-bubble phase. Keep the app-agent overlay
-          // narration (separate surface) but don't add a per-step chat bubble.
-          if (reviewNarrative.isNotEmpty) {
-            // Surface review narrative on the overlay only if the just-
-            // executed tool was an app agent operation, so we don't
-            // overlay borders during normal chat-only tool flows.
-            // For app.open/app.resolve, only show overlay when the plan
-            // includes subsequent app_agent.* steps (screen automation).
-            // Pure "open app" tasks (no further interaction) should NOT
-            // trigger the overlay — the user would be stranded with a
-            // stuck overlay on the external app.
-            // Keep the ACTION color (don't reset to 'review'/silver) so
-            // users see distinct border colors per operation phase.
-            if (toolRequest.name.startsWith('app_agent.')) {
-              AppAgentOverlayService.show(
-                operation: _appAgentOperationTag(toolRequest.name),
-                narrative: reviewNarrative,
-              );
-            } else if ((toolRequest.name == 'app.open' ||
-                    toolRequest.name == 'app.resolve') &&
-                planRequiresAppAgent(goalTree)) {
-              AppAgentOverlayService.show(
-                operation: _appAgentOperationTag(toolRequest.name),
-                narrative: reviewNarrative,
-              );
-            }
-          }
+          // 'review' is NOT a chat-bubble phase.
         }
 
         if (review != null) {
@@ -1490,7 +1369,6 @@ class ExecuteLoopRunner {
             request,
             LedgerStatus.completed,
           );
-          AppAgentOverlayService.hide();
           return AgentRuntimeResponse(
             finalMessage: completedFinal,
             success: true,
@@ -1701,11 +1579,6 @@ class ExecuteLoopRunner {
   /// Build a failure response.
   AgentRuntimeResponse fail(String message, RuntimeLogger logger) {
     logger.logError(message);
-    // If the failure happened mid-agentic-flow (overlay active, user stranded
-    // in an external app — e.g. a provider/LLM error during automation), hide
-    // the border AND return to Meow Agent. Falls back to a plain hide when the
-    // overlay wasn't active (normal chat failures stay put).
-    AppAgentOverlayService.hideAndReturnToBase();
     return AgentRuntimeResponse(
       finalMessage: message,
       success: false,
@@ -1972,7 +1845,6 @@ class ExecuteLoopRunner {
           );
     logger.logFinalResponse(finalMsg);
     await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
-    AppAgentOverlayService.hide();
     return AgentRuntimeResponse(
       finalMessage: finalMsg,
       success: terminalSubgoals.isNotEmpty,
@@ -2359,19 +2231,6 @@ class ExecuteLoopRunner {
     return error.contains('required') || error.contains('missing');
   }
 
-  /// True when the tool failed because the Android Accessibility Service is
-  /// not connected. Only matches app_agent.* tools — other tool failures with
-  /// generic "not connected" errors should not trigger the accessibility
-  /// settings shortcut.
-  bool _isAccessibilityServiceFailure(ToolExecutionResult result) {
-    if (!result.toolName.startsWith('app_agent.')) return false;
-    final error = (result.error ?? '').toLowerCase();
-    final dataError = (result.data?['error']?.toString() ?? '').toLowerCase();
-    return error.contains('accessibility_service_not_connected') ||
-        dataError.contains('accessibility_service_not_connected') ||
-        error.contains('no_active_window');
-  }
-
   bool _isCapabilityBoundaryFailure(ToolExecutionResult result) {
     final failureKind = result.data?['failureKind']?.toString().toLowerCase();
     if (failureKind == 'capability_boundary') {
@@ -2386,70 +2245,6 @@ class ExecuteLoopRunner {
         text.contains('capability') ||
         text.contains('unavailable') ||
         text.contains('unsupported');
-  }
-
-  String? _selectionOperationTag(Map<String, dynamic> selection) {
-    final tool = selection['tool'];
-    if (tool is Map) {
-      final name = (tool['name'] ?? '').toString();
-      if (name.startsWith('app_agent.')) {
-        return name.substring('app_agent.'.length);
-      }
-    }
-    return null;
-  }
-
-  /// Returns true when the goal tree has more pending work after the current
-  /// app.open/app.resolve step — meaning the task is not just "open this app"
-  /// but a multi-step automation. Pure single-open tasks should NOT trigger
-  /// the agentic overlay because it would leave the user stranded with a
-  /// stuck overlay on the external app.
-  ///
-  /// Language-agnostic: relies on subgoal structure, not label keywords.
-  bool planRequiresAppAgent(GoalTree goalTree) {
-    if (goalTree.isEmpty) return false;
-    // Count pending (non-terminal) subgoals. If more than one remains, the
-    // task has work beyond the current open/resolve step — likely screen
-    // automation that justifies the overlay.
-    final pending = goalTree.subgoals.where((sg) => !sg.isTerminal).length;
-    return pending > 1;
-  }
-
-  String _appAgentOperationTag(String toolName) {
-    if (toolName.startsWith('app_agent.')) {
-      return toolName.substring('app_agent.'.length);
-    }
-    return toolName;
-  }
-
-  Future<void> _sendAppAgenticNarrativeBefore(ToolCallRequest tool) async {
-    if (!tool.name.startsWith('app_agent.')) return;
-    final fallback = switch (tool.name) {
-      'app_agent.inspect' => _runtimePhrase('app_agent_reading_screen'),
-      'app_agent.click' => _runtimePhrase('app_agent_tapping'),
-      'app_agent.set_text' => _runtimePhrase('app_agent_typing'),
-      'app_agent.scroll' => _runtimePhrase('app_agent_scrolling'),
-      _ => '',
-    };
-    AppAgentOverlayService.show(
-      operation: _appAgentOperationTag(tool.name),
-      narrative: fallback,
-    );
-  }
-
-  Future<void> _sendAppAgenticNarrativeAfter(
-    ToolCallRequest tool,
-    ToolExecutionResult result,
-  ) async {
-    if (!tool.name.startsWith('app_agent.')) return;
-    final phraseKey = result.success
-        ? 'app_agent_checking_result'
-        : 'app_agent_action_failed';
-    // Keep the current action's color alive (don't reset to 'review'/silver).
-    AppAgentOverlayService.show(
-      operation: _appAgentOperationTag(tool.name),
-      narrative: _runtimePhrase(phraseKey),
-    );
   }
 
   // ---------------------------------------------------------------------------

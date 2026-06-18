@@ -212,42 +212,17 @@ const List<CanonicalAction> canonicalActionMap = [
     domain: 'app',
     intentKeywords: ['open', 'app'],
     canonicalTools: ['app.resolve', 'app.open'],
-    notTools: ['app_agent.inspect', 'app_agent.click'],
-    note: 'resolve → open. Done after open unless further UI interaction.',
+    note: 'resolve → open.',
   ),
   CanonicalAction(
     domain: 'app',
     intentKeywords: ['launch'],
     canonicalTools: ['app.resolve', 'app.open'],
-    notTools: ['app_agent.inspect'],
   ),
   CanonicalAction(
     domain: 'app',
     intentKeywords: ['open', 'url'],
     canonicalTools: ['intent.open_url'],
-  ),
-
-  // ─── App Agent / Screen Automation ─────────────────────────────────────────
-
-  CanonicalAction(
-    domain: 'app_agent',
-    intentKeywords: ['find', 'screen'],
-    canonicalTools: ['app_agent.find_by_text'],
-    notTools: ['app_agent.inspect'],
-    note: 'find_by_text is faster and more reliable than inspect+scan.',
-  ),
-  CanonicalAction(
-    domain: 'app_agent',
-    intentKeywords: ['return', 'meow'],
-    canonicalTools: ['system.rtb'],
-    notTools: ['app.open'],
-    note: 'Dedicated return-to-base tool. Never use app.open for this.',
-  ),
-  CanonicalAction(
-    domain: 'app_agent',
-    intentKeywords: ['return', 'base'],
-    canonicalTools: ['system.rtb'],
-    notTools: ['app.open'],
   ),
 
   // ─── Notes ─────────────────────────────────────────────────────────────────
