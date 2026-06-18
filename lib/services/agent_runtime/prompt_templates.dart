@@ -108,8 +108,16 @@ ${PromptConstants.analyzeResponseFormat}''';
               '${resolvedTargetLabels.map((l) => '- $l').join('\n')}\n'
               'Emit ONE subgoal per resolved target above. Use these labels '
               'verbatim. Do NOT invent additional targets.\n';
+    // VM workflow rules (ext4 vs FUSE, scaffolder cwd) — the planner builds the
+    // goal tree and must know that scaffold/install/serve steps belong inside
+    // agent_workspace_dir, not /root or files.create. Without this the plan can
+    // route a "build a Vite project" task through the wrong filesystem and the
+    // executor can't recover.
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
     return '''${PromptConstants.planIntro}
-
+$vmBlock
 Analysis result:
 ${_jsonString(analysis)}
 $resolvedBlock
