@@ -433,6 +433,11 @@ class VmRuntimeManager(private val context: Context) {
                 "TEMP" to "/tmp",
                 "DEBIAN_FRONTEND" to "noninteractive",
                 "DEBCONF_NONINTERACTIVE_SEEN" to "true",
+                // Keep bun/npm package caches on the SAME filesystem as the
+                // project's node_modules (the workspace bind) so installs
+                // hardlink instead of failing across a bind boundary.
+                "BUN_INSTALL_CACHE_DIR" to "$GUEST_WORKSPACE_DIR/.bun-cache",
+                "npm_config_cache" to "$GUEST_WORKSPACE_DIR/.npm-cache",
                 "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
                 "PROOT_LOADER" to stagedLoader.absolutePath,
                 "PROOT_TMP_DIR" to context.cacheDir.absolutePath
@@ -587,6 +592,13 @@ class VmRuntimeManager(private val context: Context) {
             // Workspace mount point inside the chroot. Actual storage lives
             // outside the rootfs at workspaceDir; runCommand binds it.
             File(rootfsDir, "root/workspace").mkdirs()
+            // Package-manager cache dirs live INSIDE the workspace bind so that
+            // bun/npm hardlink from cache into <project>/node_modules WITHOUT
+            // crossing a filesystem/bind boundary (cross-bind hardlink fails →
+            // "ENOENT: could not open the node_modules directory"). Same ext4
+            // mount as the projects, so links resolve.
+            File(workspaceDir, ".bun-cache").mkdirs()
+            File(workspaceDir, ".npm-cache").mkdirs()
             repairMergedUsrLinks()
             repairShellLinks()
         } catch (e: Exception) {
@@ -754,6 +766,9 @@ class VmRuntimeManager(private val context: Context) {
                     "TEMP" to "/tmp",
                     "DEBIAN_FRONTEND" to "noninteractive",
                     "DEBCONF_NONINTERACTIVE_SEEN" to "true",
+                    // Package caches on the workspace bind — see startSession.
+                    "BUN_INSTALL_CACHE_DIR" to "$GUEST_WORKSPACE_DIR/.bun-cache",
+                    "npm_config_cache" to "$GUEST_WORKSPACE_DIR/.npm-cache",
                     "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
                     "PROOT_LOADER" to stagedLoader.absolutePath,
                     "PROOT_TMP_DIR" to context.cacheDir.absolutePath
@@ -1042,6 +1057,9 @@ class VmRuntimeManager(private val context: Context) {
         "TEMP" to "/tmp",
         "DEBIAN_FRONTEND" to "noninteractive",
         "DEBCONF_NONINTERACTIVE_SEEN" to "true",
+        // Package caches on the workspace bind — see startSession.
+        "BUN_INSTALL_CACHE_DIR" to "$GUEST_WORKSPACE_DIR/.bun-cache",
+        "npm_config_cache" to "$GUEST_WORKSPACE_DIR/.npm-cache",
         "LD_LIBRARY_PATH" to "${libSymlinkDir.absolutePath}:${binDir.absolutePath}",
         "PROOT_LOADER" to stagedLoader.absolutePath,
         "PROOT_TMP_DIR" to context.cacheDir.absolutePath,
