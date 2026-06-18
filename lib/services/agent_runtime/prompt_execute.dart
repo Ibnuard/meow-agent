@@ -58,6 +58,7 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Use text reading for text files and image description for image files. Do not infer file contents from filenames or prior narrative.
 - LAUNCHING AN APP: To launch/open ANY app, use app.resolve(friendly_name) then app.open(package). If the user's ONLY goal is to open the app (no further interaction), return status="done" immediately after app.open succeeds.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
+- If a tool failed only because a precondition is missing that another available tool can establish (a required target location or resource does not yet exist, or an OS-level prerequisite is absent), do NOT give up. Select the tool that establishes that precondition, then re-attempt the original action on the next step. Escalate to ask_user or done only after a self-repair attempt has itself failed.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
 
@@ -86,7 +87,8 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - Do NOT loop searching with slightly different keywords or args hoping for a different result. The user can refine the query themselves if they want.
 - Do NOT switch to another tool unless a DIFFERENT tool is genuinely more likely to find what was missed (e.g. switching from notes.search to files.search when the user mentioned a file path). When in doubt, return done with the empty result.
 - Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
-- Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.''';
+- Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.
+- Before returning status="failed" for a precondition the agent itself can fix (a target location/resource that an available tool can create, or a prerequisite that an available tool can satisfy), prefer status="continue" so the next step runs the corrective action and then re-attempts the original. Reserve status="failed" for failures no available tool can repair: a disabled module/permission/toggle, an unavailable capability, or a genuinely unrecoverable error.''';
 
 const promptReviewResponseFormat =
     '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
