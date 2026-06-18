@@ -77,6 +77,16 @@ $_sharedSystemRules
 
   static const jsonOnlySystem = promptJsonOnlySystem;
   static const introductionGateRule = promptIntroductionGateRule;
+  static const vmWorkflowRules = promptVmWorkflowRules;
+
+  /// True when the available-tools list includes any VM module tool, so the
+  /// VM workflow rules are worth injecting (they cost ~400 tokens).
+  static bool toolsIncludeVm(List<String> availableTools) {
+    for (final def in availableTools) {
+      if (def.contains('vm.')) return true;
+    }
+    return false;
+  }
 
   // ─── Policy blocks (delegated to prompt_policy.dart) ───────────────────────
 

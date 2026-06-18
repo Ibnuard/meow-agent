@@ -147,6 +147,27 @@ class VmRuntimePlugin(private val context: Context) :
                     withContext(Dispatchers.Main) { result.success(payload) }
                 }
             }
+            "writeWorkspaceFile" -> {
+                val agentName = call.argument<String>("agent_name") ?: ""
+                val relativePath = call.argument<String>("relative_path") ?: ""
+                val content = call.argument<String>("content") ?: ""
+                scope.launch {
+                    val payload = withContext(Dispatchers.IO) {
+                        manager.writeWorkspaceFile(agentName, relativePath, content)
+                    }
+                    withContext(Dispatchers.Main) { result.success(payload) }
+                }
+            }
+            "exportProject" -> {
+                val agentName = call.argument<String>("agent_name") ?: ""
+                val projectDir = call.argument<String>("project_dir") ?: ""
+                scope.launch {
+                    val payload = withContext(Dispatchers.IO) {
+                        manager.exportProject(agentName, projectDir)
+                    }
+                    withContext(Dispatchers.Main) { result.success(payload) }
+                }
+            }
             else -> result.notImplemented()
         }
     }

@@ -327,13 +327,24 @@ class TaskLedgerDatabase {
     );
     if (rows.isEmpty) return null;
     final ledger = _fromRow(rows.first);
+    // Goal tree already complete → the task actually finished but the success
+    // path missed archiving (e.g. interrupted right after a confirmation gate).
+    // Auto-archive so it can never resurface as a ghost active task.
+    if (ledger.goalTree.isNotEmpty && ledger.goalTree.isComplete) {
+      ledger.status = LedgerStatus.completed;
+      ledger.completedAt = DateTime.now();
+      ledger.pendingToolName = null;
+      ledger.pendingToolArgs = null;
+      await upsert(ledger);
+      return null;
+    }
     if (maxAge != null) {
       final age = DateTime.now().difference(ledger.updatedAt);
       if (age > maxAge) {
-        // Soft-archive the stale ledger so it stops resurfacing, then report
-        // no active task. The new turn starts clean.
         ledger.status = LedgerStatus.aborted;
         ledger.completedAt = DateTime.now();
+        ledger.pendingToolName = null;
+        ledger.pendingToolArgs = null;
         await upsert(ledger);
         return null;
       }
@@ -362,6 +373,10 @@ class TaskLedgerDatabase {
     if (ledger == null) return;
     ledger.status = terminal;
     ledger.completedAt = DateTime.now();
+    // Drop any parked confirmation so a terminal ledger can never rehydrate a
+    // PendingAction on a future turn.
+    ledger.pendingToolName = null;
+    ledger.pendingToolArgs = null;
     await upsert(ledger);
   }
 

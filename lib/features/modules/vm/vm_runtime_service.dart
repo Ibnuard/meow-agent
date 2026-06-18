@@ -103,6 +103,60 @@ class VmRuntimeService {
     });
   }
 
+  Future<Map<String, dynamic>> writeWorkspaceFile({
+    required String agentName,
+    required String relativePath,
+    required String content,
+  }) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, dynamic>(
+        'writeWorkspaceFile',
+        {
+          'agent_name': agentName,
+          'relative_path': relativePath,
+          'content': content,
+        },
+      );
+      return raw ?? const {'success': false, 'message': 'No response.'};
+    } on MissingPluginException {
+      return const {
+        'success': false,
+        'message': 'Native VM runtime is not connected yet.',
+      };
+    } on PlatformException catch (e) {
+      return {
+        'success': false,
+        'message': e.message ?? 'VM runtime request failed.',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> exportProject({
+    required String agentName,
+    String projectDir = '',
+  }) async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, dynamic>(
+        'exportProject',
+        {
+          'agent_name': agentName,
+          'project_dir': projectDir,
+        },
+      );
+      return raw ?? const {'success': false, 'message': 'No response.'};
+    } on MissingPluginException {
+      return const {
+        'success': false,
+        'message': 'Native VM runtime is not connected yet.',
+      };
+    } on PlatformException catch (e) {
+      return {
+        'success': false,
+        'message': e.message ?? 'VM runtime request failed.',
+      };
+    }
+  }
+
   Future<VmRuntimeSnapshot> _invokeSnapshot(
     String method, [
     Map<String, dynamic> args = const {},

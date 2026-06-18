@@ -63,12 +63,16 @@ class PromptTemplates {
         ? ''
         : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
 
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
+
     return '''${PromptConstants.analyzeIntro}
 
 ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
 ${PromptConstants.systemMarkdownMap}
-$selfIdentityBlock
+$selfIdentityBlock$vmBlock
 Identity context (user profile stored in database):
 ${workspace.soul}
 
@@ -178,10 +182,13 @@ ${PromptConstants.planResponseFormat}''';
               'the user just asked; prefer the entities, target, and intent '
               'named HERE over anything in the plan, history, or memory below '
               'when they conflict):\n"$userMessage"\n';
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
     return '''${PromptConstants.selectToolIntro}
 ${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 ${PromptConstants.policyMinimal}
-$literalInstructionBlock
+$literalInstructionBlock$vmBlock
 ${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}

@@ -923,6 +923,101 @@ class VmRuntimeManager(private val context: Context) {
         return runCommand(installCommand, timeoutMs)
     }
 
+    /**
+     * Write a file directly to the per-agent workspace on ext4 storage.
+     * The file appears inside the VM at /root/workspace/<agent>/<relativePath>.
+     */
+    fun writeWorkspaceFile(
+        agentName: String,
+        relativePath: String,
+        content: String
+    ): Map<String, Any?> {
+        if (agentName.isBlank()) return mapOf("success" to false, "message" to "agentName is required.")
+        if (relativePath.isBlank()) return mapOf("success" to false, "message" to "relativePath is required.")
+        if (relativePath.contains("..")) return mapOf("success" to false, "message" to "Path traversal not allowed.")
+
+        val safeName = sanitizeAgentName(agentName)
+        val agentDir = File(workspaceDir, safeName)
+        val target = File(agentDir, relativePath)
+
+        if (!target.canonicalPath.startsWith(agentDir.canonicalPath)) {
+            return mapOf("success" to false, "message" to "Path escapes agent workspace.")
+        }
+
+        return try {
+            target.parentFile?.mkdirs()
+            target.writeText(content)
+            mapOf(
+                "success" to true,
+                "guest_path" to "$GUEST_WORKSPACE_DIR/$safeName/$relativePath",
+                "message" to ""
+            )
+        } catch (e: Exception) {
+            mapOf("success" to false, "message" to "Write failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Export a project from the per-agent VM workspace to the shared MeowAgent
+     * directory (visible in the device file manager). Skips node_modules, .git,
+     * dist, build, .next, .cache, and symlinks.
+     */
+    fun exportProject(
+        agentName: String,
+        projectDir: String
+    ): Map<String, Any?> {
+        if (agentName.isBlank()) return mapOf("success" to false, "message" to "agentName is required.")
+
+        val safeName = sanitizeAgentName(agentName)
+        val sourceBase = File(workspaceDir, safeName)
+        val source = if (projectDir.isBlank()) sourceBase else File(sourceBase, projectDir)
+
+        if (!source.exists() || !source.isDirectory) {
+            return mapOf("success" to false, "message" to "Source directory not found: ${source.absolutePath}")
+        }
+        if (!source.canonicalPath.startsWith(sourceBase.canonicalPath)) {
+            return mapOf("success" to false, "message" to "Path escapes agent workspace.")
+        }
+
+        val exportBase = File(meowSharedDir, "Agents/$safeName")
+        val dest = if (projectDir.isBlank()) exportBase else File(exportBase, projectDir)
+
+        val skipDirs = setOf("node_modules", ".git", "dist", "build", ".next", ".cache", ".bun", "__pycache__", ".venv")
+
+        return try {
+            dest.mkdirs()
+            var copied = 0
+            source.walkTopDown()
+                .onEnter { dir -> dir.name !in skipDirs && !java.nio.file.Files.isSymbolicLink(dir.toPath()) }
+                .filter { it.isFile && !java.nio.file.Files.isSymbolicLink(it.toPath()) }
+                .forEach { file ->
+                    val rel = file.relativeTo(source).path
+                    val out = File(dest, rel)
+                    out.parentFile?.mkdirs()
+                    file.copyTo(out, overwrite = true)
+                    copied++
+                }
+            mapOf(
+                "success" to true,
+                "exported_files" to copied,
+                "source" to source.absolutePath,
+                "destination" to dest.absolutePath,
+                "guest_source" to "$GUEST_WORKSPACE_DIR/$safeName${if (projectDir.isBlank()) "" else "/$projectDir"}",
+                "shared_path" to "Documents/MeowAgent/Agents/$safeName${if (projectDir.isBlank()) "" else "/$projectDir"}",
+                "message" to "Exported $copied files."
+            )
+        } catch (e: Exception) {
+            mapOf("success" to false, "message" to "Export failed: ${e.message}")
+        }
+    }
+
+    private fun sanitizeAgentName(name: String): String {
+        return name
+            .replace(Regex("[<>:\"/\\\\|?*]"), "_")
+            .replace(Regex("\\s+"), "_")
+            .trim()
+    }
+
     private fun fail(message: String): Map<String, Any?> {
         status = STATUS_ERROR
         lastMessage = message

@@ -52,11 +52,11 @@ class VmModulePlugin extends ModulePlugin {
           'to confirm the runtime is installed and running. If status is not '
           '"running", tell the user to open the VM Runtime screen and start it. '
           'The result includes IN-GUEST paths you MUST use for shell commands: '
-          '"vm_working_dir" (internal, for builds/installs/git) and '
-          '"agent_files_dir" (where files created via the files module live, '
-          'e.g. landing pages — read/serve from here). NEVER cd into '
-          '"workspace_path" or "rootfs_path": those are HOST paths and do not '
-          'exist inside the VM.',
+          '"agent_workspace_dir" (per-agent ext4 dir — ALL source code, builds, '
+          'npm/bun install, git, and dev servers go here), '
+          '"agent_export_dir" (shared storage target for vm.export). '
+          'NEVER cd into "workspace_path" or "rootfs_path": those are HOST '
+          'paths and do not exist inside the VM.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {},
@@ -97,12 +97,13 @@ class VmModulePlugin extends ModulePlugin {
           'Start a long-running server process inside the VM and verify HTTP '
           'readiness before reporting success. Generic: works for bun, node, '
           'python, php, vite, etc. Spawned natively outside the interactive shell, '
-          'so it survives across VM commands. Use vm.status first for paths: serve '
-          'files from agent_files_dir, build/install in vm_working_dir. Set '
-          'ready_path to the exact page/file path and expected_text to brand/title '
-          'text when serving static HTML, so a directory listing does not count as '
-          'success. Failure includes log_tail/readiness details. Use this instead '
-          'of vm.run_command for any dev/web server.',
+          'so it survives across VM commands. Use vm.status first for paths: '
+          'cwd MUST be under agent_workspace_dir (the per-agent ext4 dir where '
+          'source, node_modules, and build output live). Set ready_path to the '
+          'exact page/file path and expected_text to brand/title text when '
+          'serving static HTML, so a directory listing does not count as '
+          'success. Failure includes log_tail/readiness details. Use this '
+          'instead of vm.run_command for any dev/web server.',
       risk: 'sensitive',
       requiresConfirmation: true,
       inputSchema: {
@@ -140,6 +141,45 @@ class VmModulePlugin extends ModulePlugin {
       inputSchema: {},
       isRetrieval: true,
     ),
+    ToolDefinition(
+      name: 'vm.write_file',
+      description:
+          'Write a source file directly into the per-agent VM workspace '
+          '(ext4 — supports symlinks, so npm/bun install and git work). This '
+          'is the CORRECT way to create project source code for any task that '
+          'builds or serves code in the VM. The file lands at '
+          'agent_workspace_dir/<relative_path>. Prefer this over files.create '
+          'for code projects: files.create writes to shared storage (FUSE) '
+          'where npm/bun install and git FAIL. relative_path is relative to '
+          'the per-agent workspace, e.g. "my-app/src/index.js".',
+      risk: 'safe',
+      requiresConfirmation: false,
+      inputSchema: {
+        'relative_path':
+            'string (REQUIRED - path within the agent workspace, e.g. "my-app/index.html")',
+        'content': 'string (REQUIRED - full file contents)',
+      },
+      isRetrieval: false,
+    ),
+    ToolDefinition(
+      name: 'vm.export',
+      description:
+          'Copy a finished/revised project from the per-agent VM workspace to '
+          'the shared MeowAgent folder so the user can see it in the device '
+          'file manager. Skips node_modules, .git, dist, build, .next, .cache '
+          'and symlinks. The VM workspace remains the single source of truth — '
+          'export produces a static snapshot for the user to browse. Ask the '
+          'user before exporting (the runtime renders an approve/cancel card). '
+          'After the first export, offer to re-export whenever you revise the '
+          'project so the shared copy stays current.',
+      risk: 'sensitive',
+      requiresConfirmation: true,
+      inputSchema: {
+        'project_dir':
+            'string (optional - project subfolder within the agent workspace, e.g. "my-app"; omit to export the whole workspace)',
+      },
+      isRetrieval: false,
+    ),
   ];
 
   @override
@@ -151,7 +191,7 @@ class VmModulePlugin extends ModulePlugin {
     switch (request.name) {
       case 'vm.status':
         final snapshot = await service.status();
-        return _snapshotResult(request.name, snapshot);
+        return _snapshotResultWithAgent(request.name, snapshot, ctx.agentName);
 
       case 'vm.list_plugins':
         return _listPluginsResult(request.name);
@@ -220,6 +260,44 @@ class VmModulePlugin extends ModulePlugin {
           data: result,
         );
 
+      case 'vm.write_file':
+        final relativePath =
+            (request.args['relative_path'] ?? '').toString().trim();
+        final content = (request.args['content'] ?? '').toString();
+        if (relativePath.isEmpty) {
+          return _error(request.name, 'Missing required parameter: relative_path');
+        }
+        if (ctx.agentName.trim().isEmpty) {
+          return _error(request.name, 'Agent identity is unavailable.');
+        }
+        final result = await service.writeWorkspaceFile(
+          agentName: ctx.agentName,
+          relativePath: relativePath,
+          content: content,
+        );
+        return ToolExecutionResult(
+          toolName: request.name,
+          success: result['success'] == true,
+          error: result['success'] == true ? null : result['message']?.toString(),
+          data: result,
+        );
+
+      case 'vm.export':
+        final projectDir = (request.args['project_dir'] ?? '').toString().trim();
+        if (ctx.agentName.trim().isEmpty) {
+          return _error(request.name, 'Agent identity is unavailable.');
+        }
+        final result = await service.exportProject(
+          agentName: ctx.agentName,
+          projectDir: projectDir,
+        );
+        return ToolExecutionResult(
+          toolName: request.name,
+          success: result['success'] == true,
+          error: result['success'] == true ? null : result['message']?.toString(),
+          data: result,
+        );
+
       default:
         return _error(request.name, 'Unknown tool: ${request.name}');
     }
@@ -279,11 +357,20 @@ class VmModulePlugin extends ModulePlugin {
     );
   }
 
-  ToolExecutionResult _snapshotResult(
+  ToolExecutionResult _snapshotResultWithAgent(
     String toolName,
     VmRuntimeSnapshot snapshot,
+    String agentName,
   ) {
-    final data = snapshot.toJson();
+    final data = Map<String, dynamic>.from(snapshot.toJson());
+    final safeName = agentName
+        .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+        .replaceAll(RegExp(r'\s+'), '_')
+        .trim();
+    if (safeName.isNotEmpty) {
+      data['agent_workspace_dir'] = '/root/workspace/$safeName';
+      data['agent_export_dir'] = '/root/meow/Agents/$safeName';
+    }
     final nativeAvailable = data['native_runtime_available'] == true;
     final statusRead = toolName == 'vm.status';
     return ToolExecutionResult(
