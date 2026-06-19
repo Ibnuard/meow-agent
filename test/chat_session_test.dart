@@ -25,11 +25,12 @@ void main() {
   // Frozen clock + deterministic RNG so the MEOW_YYYYMMDD_XXXX_N format is
   // exact-match testable. Production callers use the default DateTime.now /
   // Random.secure constructors.
-  ChatSessionService buildService(SharedPreferences prefs) => ChatSessionService(
-    prefs,
-    clock: () => DateTime(2026, 6, 9, 1, 6),
-    random: Random(42),
-  );
+  ChatSessionService buildService(SharedPreferences prefs) =>
+      ChatSessionService(
+        prefs,
+        clock: () => DateTime(2026, 6, 9, 1, 6),
+        random: Random(42),
+      );
 
   group('ChatSessionService', () {
     test('lazily creates and persists a session per agent', () async {
@@ -185,6 +186,50 @@ void main() {
       expect(current, isEmpty);
       expect(other.map((m) => m.content), ['other session']);
       expect(all.map((m) => m.content), ['other session']);
+    });
+
+    test('streamed bubble metadata survives persistence', () async {
+      await history.addMessage(
+        'a1',
+        ChatMessage(
+          role: 'assistant',
+          content: 'Table X already has column X.',
+          kind: ChatMessageKind.impact,
+          runId: 'run-42',
+          phase: 'reflect',
+          evidenceRefs: const ['snapshot:42', 'table:x'],
+          contextPolicy: ChatContextPolicy.include,
+        ),
+      );
+
+      final message = (await history.loadLatest('a1')).single;
+      expect(message.kind, ChatMessageKind.impact);
+      expect(message.runId, 'run-42');
+      expect(message.phase, 'reflect');
+      expect(message.evidenceRefs, ['snapshot:42', 'table:x']);
+      expect(message.includeInRuntimeContext, true);
+    });
+
+    test('analysis summaries can be excluded from runtime context', () async {
+      final message = ChatMessage(
+        role: 'assistant',
+        content: 'I understand the requested table shape.',
+        kind: ChatMessageKind.analysisSummary,
+        contextPolicy: ChatContextPolicy.exclude,
+      );
+
+      expect(message.includeInRuntimeContext, false);
+    });
+
+    test('semantic milestone kinds round-trip from storage labels', () {
+      expect(
+        ChatMessageKind.fromLabel('next_action'),
+        ChatMessageKind.nextAction,
+      );
+      expect(
+        ChatMessageKind.fromLabel('tool_failure'),
+        ChatMessageKind.toolFailure,
+      );
     });
   });
 

@@ -418,9 +418,11 @@ void main() {
       ],
       'review': [
         '{"status":"failed","error":"storage full",'
-            '"subgoal_update":{"id":"sg1","status":"failed"},"narrative":""}',
+            '"subgoal_update":{"id":"sg1","status":"failed"},'
+            '"narrative":"The note could not be saved because storage is full."}',
         '{"status":"failed","error":"storage full",'
-            '"subgoal_update":{"id":"sg1","status":"failed"},"narrative":""}',
+            '"subgoal_update":{"id":"sg1","status":"failed"},'
+            '"narrative":"The retry also failed because storage is full."}',
       ],
       'verbalize.abort': ['Could not save the note — storage is full.'],
     });
@@ -440,6 +442,14 @@ void main() {
 
     expect(res.success, false);
     expect(res.finalMessage.toLowerCase(), isNot(contains('created')));
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'tool_failure',
+      ),
+      true,
+    );
   });
 
   // ── Scenario 5: multi-target create (guards "→1 agen" regression) ──────
@@ -500,6 +510,14 @@ void main() {
     expect(res.state, AgentRuntimeState.done);
     // The regression guard: all three creates must run.
     expect(router.dispatchCountOf('notes.create'), 3);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'next_action',
+      ),
+      true,
+    );
   });
 
   // ── Scenario 11: Stage-1 scoping guard ─────────────────────────────────
@@ -993,5 +1011,4 @@ void main() {
     expect(answerCall.lastUserContent, contains('(es)'));
     expect(res.finalMessage, 'Tu batería está al 80%.');
   });
-
 }

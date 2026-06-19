@@ -97,7 +97,11 @@ class ExecuteLoopRunner {
     // leak into the executor or reviewer prompts.
     final loopRecentMsgs = () {
       final src = request.recentMessages
-          .where((m) => !LlmErrorMapper.isProviderErrorMessage(m.content))
+          .where(
+            (m) =>
+                m.includeInRuntimeContext &&
+                !LlmErrorMapper.isProviderErrorMessage(m.content),
+          )
           .toList();
       final latest = src.length > 20 ? src.sublist(src.length - 20) : src;
       return latest.map((m) => {'role': m.role, 'content': m.content}).toList();
@@ -129,6 +133,12 @@ class ExecuteLoopRunner {
       var state = AgentRuntimeState.selectingTool;
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);
+      if (logger.logPreActionNarrative(
+        'choosing',
+        NarrativeNarrator.narrateNext('choosing', detectedLang.code),
+      )) {
+        emit(logger.events.last);
+      }
 
       // Fast-path: try native function calling before JSON selector.
       // If successful, synthesize a selection map that the rest of the loop
@@ -230,6 +240,7 @@ class ExecuteLoopRunner {
           logger,
         );
       }
+      final selectionEvidenceRef = 'runtime_event:${logger.events.last.id}';
 
       // Extract status BEFORE emitting narrative so we can gate it against
       // the actual decision (kills "Got it, doing X" + status=ask_user desync).
@@ -482,7 +493,8 @@ class ExecuteLoopRunner {
         // it only fires when the intent is in the map AND the chosen tool is
         // explicitly listed as off-path — unknown intents pass through.
         final guardIntent = (plan['intent'] ?? '').toString();
-        if (guardIntent.isNotEmpty && !offPathHinted.contains(toolRequest.name)) {
+        if (guardIntent.isNotEmpty &&
+            !offPathHinted.contains(toolRequest.name)) {
           final canonical = checkOffPath(guardIntent, toolRequest.name);
           if (canonical != null && canonical.isNotEmpty) {
             offPathHinted.add(toolRequest.name);
@@ -562,8 +574,7 @@ class ExecuteLoopRunner {
           // issue" abort message. Falls through to the generic verbalizer when
           // there is nothing concrete to surface.
           final lastFailureCause = _lastFailureCauseFrom(previousResults);
-          final abortMsg =
-              lastFailureCause.isNotEmpty
+          final abortMsg = lastFailureCause.isNotEmpty
               ? lastFailureCause
               : recovery?.giveUpMessage(_settingsLanguage()) ??
                     await verbalizer.abort(
@@ -852,6 +863,28 @@ class ExecuteLoopRunner {
           continue;
         }
 
+        // The tool is now registry-validated, permission-checked, preflighted,
+        // and cleared for execution. Only at this boundary is a specific
+        // pre-action narrative truthful.
+        final executeNarrative = selectNarrative.trim().isNotEmpty
+            ? selectNarrative
+            : NarrativeNarrator.narrateNext('executing', detectedLang.code);
+        if (logger.logStreamBubble(
+          kind: 'next_action',
+          phase: 'select_tool',
+          message: executeNarrative,
+          evidenceRefs: [selectionEvidenceRef, 'tool:${toolRequest.name}'],
+          contextPolicy: 'exclude',
+        )) {
+          emit(logger.events.last);
+        }
+        if (logger.logPreActionNarrative(
+          'executing',
+          NarrativeNarrator.narrateNext('executing', detectedLang.code),
+        )) {
+          emit(logger.events.last);
+        }
+
         // Execute tool.
         state = AgentRuntimeState.executingTool;
         logger.logStateChange(state, 'Executing ${toolRequest.name}');
@@ -863,6 +896,7 @@ class ExecuteLoopRunner {
             : await _toolRouter.execute(toolRequest);
         logger.logToolResult(result);
         emit(logger.events.last);
+        final toolResultEvidenceRef = 'runtime_event:${logger.events.last.id}';
 
         final permissionFinal = permissionDeniedResponseFor(result);
         if (permissionFinal != null) {
@@ -1075,6 +1109,12 @@ class ExecuteLoopRunner {
           if (goalTree.isNotEmpty && goalTree.isComplete) {
             _emitTaskLedger(emit, request, goalTree);
           }
+          if (logger.logPreActionNarrative(
+            'composing',
+            NarrativeNarrator.narrateNext('composing', detectedLang.code),
+          )) {
+            emit(logger.events.last);
+          }
           final localFinal =
               shouldAnswerFromToolResult(
                 toolName: toolRequest.name,
@@ -1114,6 +1154,12 @@ class ExecuteLoopRunner {
         state = AgentRuntimeState.reviewing;
         logger.logStateChange(state, 'Reviewing tool result');
         emit(logger.events.last);
+        if (logger.logPreActionNarrative(
+          'reviewing',
+          NarrativeNarrator.narrateNext('reviewing', detectedLang.code),
+        )) {
+          emit(logger.events.last);
+        }
 
         final review = await executor.review(
           result: result,
@@ -1133,6 +1179,7 @@ class ExecuteLoopRunner {
         emit(logger.events.last);
 
         var reviewStatus = review?['status'] as String? ?? '';
+        final reportedReviewStatus = reviewStatus;
         // A failed tool can never finalize as "done" — the action did not
         // happen. Force the reviewer's hand: ask the user only when there is
         // genuine ambiguity the loop can't resolve.
@@ -1185,7 +1232,25 @@ class ExecuteLoopRunner {
               'decision': reviewStatus,
             });
           }
-          // 'review' is NOT a chat-bubble phase.
+          final milestoneNarrative =
+              !result.success &&
+                  reportedReviewStatus != 'done' &&
+                  rawReviewNarrative.trim().isNotEmpty
+              ? rawReviewNarrative
+              : reviewNarrative;
+          if (milestoneNarrative.isNotEmpty &&
+              logger.logStreamBubble(
+                kind: result.success ? 'tool_insight' : 'tool_failure',
+                phase: 'review',
+                message: milestoneNarrative,
+                evidenceRefs: [
+                  toolResultEvidenceRef,
+                  'tool:${toolRequest.name}',
+                ],
+                contextPolicy: result.success ? 'include' : 'exclude',
+              )) {
+            emit(logger.events.last);
+          }
         }
 
         if (review != null) {
@@ -1411,9 +1476,9 @@ class ExecuteLoopRunner {
               (deliveredContent != null && deliveredContent.isNotEmpty)
               ? deliveredContent
               : ((hasAnswerSubgoal || hasDeliverySubgoal) &&
-                        hasSubstantiveAnswer)
-                  ? reviewAnswer
-                  : (goalTree.isNotEmpty &&
+                    hasSubstantiveAnswer)
+              ? reviewAnswer
+              : (goalTree.isNotEmpty &&
                         goalTree.subgoals
                                 .where(
                                   (s) =>
@@ -1795,11 +1860,7 @@ class ExecuteLoopRunner {
   /// precursor result as task completion strands the real action (e.g. ending
   /// after `vm.status` without ever running `vm.run_command`).
   static bool _isPrecursorTool(String toolName) {
-    const precursors = {
-      'vm.status',
-      'vm.list_plugins',
-      'app.resolve',
-    };
+    const precursors = {'vm.status', 'vm.list_plugins', 'app.resolve'};
     return precursors.contains(toolName.toLowerCase());
   }
 
@@ -2391,8 +2452,10 @@ class ExecuteLoopRunner {
   /// verb — so [_isAnswerOnlySubgoal] misses it. Used at finalize so a
   /// "summarize and send" task surfaces the real content, not a label recap.
   bool _isDeliverySubgoal(Subgoal subgoal) {
-    final tool = _subgoalSlot(subgoal, const ['tool', 'tool_name'])
-        .toLowerCase();
+    final tool = _subgoalSlot(subgoal, const [
+      'tool',
+      'tool_name',
+    ]).toLowerCase();
     return tool == 'system.rtb' || tool == 'chat.send';
   }
 

@@ -34,6 +34,16 @@ class NarrativeNarrator {
     return bundle[phase] ?? bundle['composing']!;
   }
 
+  /// Describe the next runtime action before it starts.
+  ///
+  /// Indonesian and English have explicit future-intent phrasing. Other
+  /// registered languages keep their localized progressive phrase, emitted at
+  /// the pre-action boundary, rather than falling back to the wrong language.
+  static String narrateNext(String phase, String languageCode) {
+    final explicit = _nextBundles[languageCode]?[phase];
+    return explicit ?? narrate(phase, languageCode);
+  }
+
   /// Consistency gate for LLM-emitted narratives.
   ///
   /// LLM narrative is preserved for happy-path decisions (tool_required, done,
@@ -72,6 +82,29 @@ class NarrativeNarrator {
     'composing',
     'recovering',
   ];
+
+  static const Map<String, Map<String, String>> _nextBundles = {
+    'id': {
+      'reflecting': 'Selanjutnya saya akan memeriksa dampaknya...',
+      'asking': 'Selanjutnya saya akan memastikan detail yang masih kurang...',
+      'planning': 'Selanjutnya saya akan menyusun langkah-langkahnya...',
+      'choosing': 'Selanjutnya saya akan memilih tindakan yang paling pas...',
+      'executing': 'Selanjutnya saya akan menjalankan langkah yang dipilih...',
+      'reviewing': 'Selanjutnya saya akan memeriksa hasilnya...',
+      'composing': 'Selanjutnya saya akan merangkum hasilnya...',
+      'recovering': 'Selanjutnya saya akan mencoba pendekatan lain...',
+    },
+    'en': {
+      'reflecting': "Next, I'll check what this could affect...",
+      'asking': "Next, I'll confirm the detail that's still missing...",
+      'planning': "Next, I'll lay out the steps...",
+      'choosing': "Next, I'll choose the best action...",
+      'executing': "Next, I'll run the selected step...",
+      'reviewing': "Next, I'll verify the result...",
+      'composing': "Next, I'll summarize the result...",
+      'recovering': "Next, I'll try another approach...",
+    },
+  };
 
   static const Map<String, Map<String, String>> _bundles = {
     'id': {

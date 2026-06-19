@@ -37,6 +37,7 @@ class ChatRuntimeSession {
     this.lastReplyAt,
     this.narrativeTrail = const [],
     this.activeTaskLedger,
+    this.liveCheckpoints = const [],
     this.lastPersistedMessages = const [],
   });
 
@@ -47,10 +48,8 @@ class ChatRuntimeSession {
   final Map<String, dynamic>? pendingToolArgs;
   final DateTime? lastReplyAt;
 
-  /// Stacking narrative trail shown above the thinking indicator while
-  /// [isRunning]. New entries are appended as the runtime progresses;
-  /// older entries fade in the UI. Cleared once the run terminates.
-  /// Max 5 entries — oldest dropped when exceeded.
+  /// Replace-only pre-action narrative shown with the thinking indicator
+  /// while [isRunning]. Completed outcomes live in streamed chat bubbles.
   final List<String> narrativeTrail;
 
   /// Convenience: the latest narrative, or null if trail is empty.
@@ -59,6 +58,10 @@ class ChatRuntimeSession {
 
   /// Live multi-goal task ledger for complex chat requests.
   final TaskLedger? activeTaskLedger;
+
+  /// Phase-complete semantic checkpoints for the active run. Rendered above
+  /// the ledger; technical events and narrator updates never enter this list.
+  final List<ChatMessage> liveCheckpoints;
 
   /// Messages persisted by the latest completed runtime transition. The UI can
   /// upsert these directly instead of reloading the latest page from SQLite.
@@ -73,18 +76,20 @@ class ChatRuntimeSession {
     String? narrativeMessage,
     List<String>? narrativeTrail,
     TaskLedger? activeTaskLedger,
+    List<ChatMessage>? liveCheckpoints,
     List<ChatMessage>? lastPersistedMessages,
     bool clearPending = false,
     bool clearNarrative = false,
     bool clearTaskLedger = false,
+    bool clearLiveCheckpoints = false,
   }) {
     var trail = narrativeTrail ?? this.narrativeTrail;
     if (clearNarrative) {
       trail = const [];
     } else if (narrativeMessage != null) {
-      // Append new narrative to trail, cap at 5.
-      trail = [...trail, narrativeMessage];
-      if (trail.length > 5) trail = trail.sublist(trail.length - 5);
+      // Pre-action intent is replace-only; completed outcomes are persisted as
+      // streamed bubbles, so narrator history would duplicate the timeline.
+      trail = [narrativeMessage];
     }
     return ChatRuntimeSession(
       agentId: agentId,
@@ -99,6 +104,9 @@ class ChatRuntimeSession {
       activeTaskLedger: clearTaskLedger
           ? null
           : (activeTaskLedger ?? this.activeTaskLedger),
+      liveCheckpoints: clearLiveCheckpoints
+          ? const []
+          : (liveCheckpoints ?? this.liveCheckpoints),
       lastPersistedMessages:
           lastPersistedMessages ?? this.lastPersistedMessages,
     );
@@ -121,6 +129,9 @@ class ChatRuntimeManager extends ChangeNotifier {
 
   final Map<String, ChatRuntimeSession> _sessions = {};
   final Map<String, Future<void>> _runtimeLogWrites = {};
+  final Map<String, Future<void>> _streamBubbleWrites = {};
+  final Map<String, List<ChatMessage>> _streamedMessages = {};
+  final Map<String, Set<String>> _persistedStreamEventIds = {};
   final Map<String, Future<void>> _sendQueues = {};
 
   /// Agents whose current in-flight send was cancelled by the user.
@@ -185,6 +196,80 @@ class ChatRuntimeManager extends ChangeNotifier {
       _runtimeLogWrites.remove(agentId);
     }
   }
+
+  void _queueStreamBubble({
+    required String agentId,
+    required String runId,
+    required RuntimeEvent event,
+  }) {
+    final seen = _persistedStreamEventIds.putIfAbsent(
+      agentId,
+      () => <String>{},
+    );
+    if (!seen.add(event.id)) return;
+    final previous = _streamBubbleWrites[agentId] ?? Future<void>.value();
+    final next = previous
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Stream bubble write failed: $error');
+        })
+        .then((_) => _persistStreamBubble(agentId, runId, event))
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Stream bubble write failed: $error');
+        });
+    _streamBubbleWrites[agentId] = next;
+  }
+
+  Future<void> _persistStreamBubble(
+    String agentId,
+    String runId,
+    RuntimeEvent event,
+  ) async {
+    final data = event.data ?? const <String, dynamic>{};
+    final evidenceRefs = (data['evidence_refs'] as List? ?? const [])
+        .map((value) => value.toString())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    final message = ChatMessage(
+      role: 'assistant',
+      content: event.message.trim(),
+      kind: ChatMessageKind.fromLabel(data['kind']?.toString()),
+      runId: runId,
+      phase: data['phase']?.toString(),
+      evidenceRefs: evidenceRefs,
+      contextPolicy: ChatContextPolicy.fromLabel(
+        data['context_policy']?.toString(),
+      ),
+    );
+    if (message.content.isEmpty) return;
+    final id = await history.addMessage(agentId, message);
+    final persisted = message.copyWith(id: id);
+    final runMessages = _streamedMessages.putIfAbsent(agentId, () => []);
+    runMessages.add(persisted);
+    final current = sessionFor(agentId);
+    _set(
+      agentId,
+      current.copyWith(
+        liveCheckpoints: List<ChatMessage>.unmodifiable(runMessages),
+      ),
+    );
+  }
+
+  Future<void> _flushStreamBubbles(String agentId) async {
+    final pending = _streamBubbleWrites[agentId];
+    if (pending == null) return;
+    await pending;
+    if (identical(_streamBubbleWrites[agentId], pending)) {
+      _streamBubbleWrites.remove(agentId);
+    }
+  }
+
+  static bool _sameBubbleContent(String left, String right) =>
+      left.trim().replaceAll(RegExp(r'\s+'), ' ') ==
+      right
+          .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
+          .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
+          .trim()
+          .replaceAll(RegExp(r'\s+'), ' ');
 
   Future<void> _startRuntimeLog({
     required String agentId,
@@ -336,6 +421,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           debugMessages: [],
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
+          clearLiveCheckpoints: true,
           lastPersistedMessages: [sentUserMsg, persistedFallback],
         ),
       );
@@ -344,6 +430,8 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     // Reset cancellation flag from any previous send.
     _cancelledSends.remove(agentId);
+    _streamedMessages[agentId] = [];
+    _persistedStreamEventIds[agentId] = <String>{};
 
     _set(
       agentId,
@@ -351,6 +439,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         isRunning: true,
         debugMessages: [],
         clearPending: true,
+        clearLiveCheckpoints: true,
         narrativeMessage: NarrativeNarrator.narrate(
           'understanding',
           _languageForUserMessage(userMessage),
@@ -403,6 +492,14 @@ class ChatRuntimeManager extends ChangeNotifier {
           // we don't want them polluting the chat after the cancel message.
           if (_cancelledSends.contains(agentId)) return;
 
+          if (event.type == 'stream_bubble') {
+            _queueStreamBubble(
+              agentId: agentId,
+              runId: 'run-${userMsg.id ?? userMsg.clientId ?? event.id}',
+              event: event,
+            );
+          }
+
           // LLM-driven narrative bubble: ONLY update when an explicit
           // narrative event arrives. State_change events no longer override
           // — the last LLM narrative stays sticky across phases that don't
@@ -445,6 +542,7 @@ class ChatRuntimeManager extends ChangeNotifier {
       if (debugMode) {
         await _flushRuntimeLog(agentId);
       }
+      await _flushStreamBubbles(agentId);
 
       // If cancelled during the run, the cancel message has already been
       // posted by cancelActive() and isRunning has been cleared. Don't
@@ -471,7 +569,10 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearErrorMessage: true,
       );
       await history.updateMessage(sentUserMsg);
-      final persistedMessages = <ChatMessage>[sentUserMsg];
+      final streamedMessages = List<ChatMessage>.from(
+        _streamedMessages[agentId] ?? const [],
+      );
+      final persistedMessages = <ChatMessage>[sentUserMsg, ...streamedMessages];
       if (historicalLedger != null &&
           historicalLedger.goalTree.subgoals.length > 1 &&
           !isConfirm) {
@@ -484,9 +585,23 @@ class ChatRuntimeManager extends ChangeNotifier {
         persistedMessages.add(ledgerMsg.copyWith(id: ledgerId));
       }
 
-      final replyId = await history.addMessage(agentId, replyMsg);
-      final persistedReply = replyMsg.copyWith(id: replyId);
-      persistedMessages.add(persistedReply);
+      final streamedQuestion = response.state == AgentRuntimeState.askingUser
+          ? streamedMessages
+                .where(
+                  (message) =>
+                      message.kind == ChatMessageKind.decisionQuestion &&
+                      _sameBubbleContent(message.content, replyMsg.content),
+                )
+                .lastOrNull
+          : null;
+      final ChatMessage persistedReply;
+      if (streamedQuestion != null) {
+        persistedReply = streamedQuestion;
+      } else {
+        final replyId = await history.addMessage(agentId, replyMsg);
+        persistedReply = replyMsg.copyWith(id: replyId);
+        persistedMessages.add(persistedReply);
+      }
       await UnreadService.instance.increment(agentId);
 
       // If system.rtb was called with a message argument, the content was
@@ -547,10 +662,12 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          clearLiveCheckpoints: true,
           lastPersistedMessages: persistedMessages,
         ),
       );
     } catch (e) {
+      await _flushStreamBubbles(agentId);
       // Don't post an error if the user explicitly cancelled.
       if (_cancelledSends.contains(agentId)) {
         if (debugMode) {
@@ -597,7 +714,12 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
-          lastPersistedMessages: [sentUserMsg, persistedError],
+          clearLiveCheckpoints: true,
+          lastPersistedMessages: [
+            sentUserMsg,
+            ...?_streamedMessages[agentId],
+            persistedError,
+          ],
         ),
       );
     }
@@ -686,12 +808,18 @@ class ChatRuntimeManager extends ChangeNotifier {
       return;
     }
 
+    _streamedMessages[agentId] = [];
+    _persistedStreamEventIds[agentId] = <String>{};
+    final confirmationRunId =
+        'confirm-${DateTime.now().microsecondsSinceEpoch}';
+
     _set(
       agentId,
       s.copyWith(
         isRunning: true,
         debugMessages: [],
         clearPending: true,
+        clearLiveCheckpoints: true,
         narrativeMessage: NarrativeNarrator.narrate(
           'executing',
           engine.languageCode,
@@ -731,6 +859,13 @@ class ChatRuntimeManager extends ChangeNotifier {
         toolArgs: s.pendingToolArgs ?? {},
         alwaysApprove: alwaysApprove,
         onEvent: (event) {
+          if (event.type == 'stream_bubble') {
+            _queueStreamBubble(
+              agentId: agentId,
+              runId: confirmationRunId,
+              event: event,
+            );
+          }
           final llmNarrative = _narrativeFromEvent(event);
           if (llmNarrative != null) {
             final cur = sessionFor(agentId);
@@ -766,6 +901,7 @@ class ChatRuntimeManager extends ChangeNotifier {
       if (debugMode) {
         await _flushRuntimeLog(agentId);
       }
+      await _flushStreamBubbles(agentId);
 
       // Wrap with confirmation marker when the runtime is asking for ANOTHER
       // confirmation (e.g. multi-step task: gate #1 done, gate #2 awaiting).
@@ -774,7 +910,7 @@ class ChatRuntimeManager extends ChangeNotifier {
       final isNextConfirm =
           response.state == AgentRuntimeState.waitingConfirmation;
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
-      final persistedMessages = <ChatMessage>[];
+      final persistedMessages = <ChatMessage>[...?_streamedMessages[agentId]];
       if (historicalLedger != null &&
           historicalLedger.goalTree.subgoals.length > 1 &&
           !isNextConfirm) {
@@ -833,7 +969,10 @@ class ChatRuntimeManager extends ChangeNotifier {
         ..addAll(
           await history.loadLatest(
             agentId,
-            limit: (hasLedgerMsg ? 2 : 1) + (rtbInserted ? 1 : 0),
+            limit:
+                (_streamedMessages[agentId]?.length ?? 0) +
+                (hasLedgerMsg ? 2 : 1) +
+                (rtbInserted ? 1 : 0),
           ),
         );
 
@@ -848,10 +987,12 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
+          clearLiveCheckpoints: true,
           lastPersistedMessages: persistedMessages,
         ),
       );
     } catch (e) {
+      await _flushStreamBubbles(agentId);
       if (debugMode) {
         _queueRuntimeLog(
           agentId,
@@ -885,7 +1026,11 @@ class ChatRuntimeManager extends ChangeNotifier {
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
           clearTaskLedger: true,
-          lastPersistedMessages: [persistedError],
+          clearLiveCheckpoints: true,
+          lastPersistedMessages: [
+            ...?_streamedMessages[agentId],
+            persistedError,
+          ],
         ),
       );
     }
@@ -948,6 +1093,7 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       await _flushRuntimeLog(agentId);
     }
+    await _flushStreamBubbles(agentId);
     await engine.abortActiveTask(agentId);
     final cancelMsg = ChatMessage(
       role: 'assistant',
@@ -964,7 +1110,8 @@ class ChatRuntimeManager extends ChangeNotifier {
         lastReplyAt: DateTime.now(),
         clearNarrative: true,
         clearTaskLedger: true,
-        lastPersistedMessages: [cancelBubble],
+        clearLiveCheckpoints: true,
+        lastPersistedMessages: [...?_streamedMessages[agentId], cancelBubble],
       ),
     );
   }

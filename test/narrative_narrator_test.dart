@@ -29,6 +29,21 @@ void main() {
       expect(out, equals(composing));
     });
 
+    test('next action uses future intent without losing language fallback', () {
+      expect(
+        NarrativeNarrator.narrateNext('planning', 'id'),
+        startsWith('Selanjutnya'),
+      );
+      expect(
+        NarrativeNarrator.narrateNext('planning', 'en'),
+        startsWith('Next'),
+      );
+      expect(
+        NarrativeNarrator.narrateNext('planning', 'es'),
+        NarrativeNarrator.narrate('planning', 'es'),
+      );
+    });
+
     test('phrases never expose technical jargon', () {
       // Sample check across a few languages — confirms POV-AI tone.
       final forbidden = [
@@ -61,8 +76,10 @@ void main() {
       expect(NarrativePhaseMapper.phaseForState('planning'), 'planning');
       expect(NarrativePhaseMapper.phaseForState('selectingTool'), 'choosing');
       expect(NarrativePhaseMapper.phaseForState('executingTool'), 'executing');
-      expect(NarrativePhaseMapper.phaseForState('waitingConfirmation'),
-          'confirming');
+      expect(
+        NarrativePhaseMapper.phaseForState('waitingConfirmation'),
+        'confirming',
+      );
       expect(NarrativePhaseMapper.phaseForState('reviewing'), 'reviewing');
       expect(NarrativePhaseMapper.phaseForState('askingUser'), 'asking');
     });

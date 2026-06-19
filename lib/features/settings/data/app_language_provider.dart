@@ -314,31 +314,53 @@ class AppStrings {
   String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
   String get openApiStore => isId ? 'Buka API Store' : 'Open API Store';
   String get openVmRuntime => isId ? 'Buka VM Runtime' : 'Open VM Runtime';
-  String get openDatabaseManager => isId ? 'Buka Database Manager' : 'Open Database Manager';
+  String get openDatabaseManager =>
+      isId ? 'Buka Database Manager' : 'Open Database Manager';
   String get dbManagerTitle => isId ? 'Manajer Database' : 'Database Manager';
-  String get dbManagerEmpty => isId ? 'Belum ada tabel database.' : 'No database tables found.';
-  String get dbManagerEmptyDesc => isId ? 'Minta agen untuk membuat tabel pertama kamu lewat chat!' : 'Ask the agent to create your first table in chat!';
+  String get dbManagerEmpty =>
+      isId ? 'Belum ada tabel database.' : 'No database tables found.';
+  String get dbManagerEmptyDesc => isId
+      ? 'Minta agen untuk membuat tabel pertama kamu lewat chat!'
+      : 'Ask the agent to create your first table in chat!';
   String get dbManagerColumns => isId ? 'Kolom' : 'Columns';
   String get dbManagerRows => isId ? 'baris' : 'rows';
   String get dbManagerDropConfirm => isId ? 'Hapus Tabel?' : 'Drop Table?';
   String dbManagerDropConfirmDesc(String table) => isId
       ? 'Apakah kamu yakin ingin menghapus tabel "$table" beserta semua datanya secara permanen?'
       : 'Are you sure you want to permanently drop table "$table" and all its data?';
-  String get dbManagerDropSuccess => isId ? 'Tabel berhasil dihapus.' : 'Table successfully dropped.';
+  String get dbManagerDropSuccess =>
+      isId ? 'Tabel berhasil dihapus.' : 'Table successfully dropped.';
+  String get dbManagerDropError =>
+      isId ? 'Tabel tidak dapat dihapus.' : 'The table could not be deleted.';
   String get dbManagerTableDetail => isId ? 'Detail Tabel' : 'Table Details';
   String get dbManagerDeleteRow => isId ? 'Hapus Baris' : 'Delete Row';
-  String get dbManagerDeleteRowConfirm => isId ? 'Hapus baris data ini?' : 'Delete this row of data?';
-  String get dbManagerDeleteRowSuccess => isId ? 'Baris berhasil dihapus.' : 'Row successfully deleted.';
-  String get dbManagerCreateTableTitle => isId ? 'Buat Tabel Baru' : 'Create New Table';
+  String get dbManagerDeleteRowConfirm =>
+      isId ? 'Hapus baris data ini?' : 'Delete this row of data?';
+  String get dbManagerDeleteRowSuccess =>
+      isId ? 'Baris berhasil dihapus.' : 'Row successfully deleted.';
+  String get dbManagerNoRows =>
+      isId ? 'Tabel ini belum memiliki data.' : 'This table has no data yet.';
+  String get dbManagerTableNotFound =>
+      isId ? 'Detail tabel tidak ditemukan.' : 'Table details not found.';
+  String get dbManagerDeleteRowError =>
+      isId ? 'Baris tidak dapat dihapus.' : 'The row could not be deleted.';
+  String get dbManagerCreateTableTitle =>
+      isId ? 'Buat Tabel Baru' : 'Create New Table';
   String get dbManagerTableName => isId ? 'Nama Tabel' : 'Table Name';
   String get dbManagerColumnName => isId ? 'Nama Kolom' : 'Column Name';
   String get dbManagerColumnType => isId ? 'Tipe' : 'Type';
   String get dbManagerAddColumn => isId ? 'Tambah Kolom' : 'Add Column';
   String get dbManagerCreateTableBtn => isId ? 'Buat' : 'Create';
-  String get dbManagerInvalidTableName => isId ? 'Nama tabel tidak valid (hanya huruf, angka, dan _).' : 'Invalid table name (letters, numbers, _ only).';
-  String get dbManagerInvalidColumnName => isId ? 'Nama kolom tidak valid.' : 'Invalid column name.';
-  String get dbManagerCreateSuccess => isId ? 'Tabel berhasil dibuat.' : 'Table successfully created.';
-  String get dbManagerAutoColumnsInfo => isId ? 'ID & _created_at ditambahkan otomatis' : 'ID & _created_at are auto-added';
+  String get dbManagerInvalidTableName => isId
+      ? 'Nama tabel tidak valid (hanya huruf, angka, dan _).'
+      : 'Invalid table name (letters, numbers, _ only).';
+  String get dbManagerInvalidColumnName =>
+      isId ? 'Nama kolom tidak valid.' : 'Invalid column name.';
+  String get dbManagerCreateSuccess =>
+      isId ? 'Tabel berhasil dibuat.' : 'Table successfully created.';
+  String get dbManagerAutoColumnsInfo => isId
+      ? 'ID & _created_at ditambahkan otomatis'
+      : 'ID & _created_at are auto-added';
   String get featurePermission =>
       isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
   String get notificationPermissionRequired => isId

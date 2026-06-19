@@ -29,6 +29,9 @@ class RuntimeLogger {
   // normalized text with a small rolling window.
   static const int _narrativeWindow = 6;
   final List<String> _recentNarratives = [];
+  final List<String> _recentStreamBubbleKeys = [];
+  String? _lastPreActionPhase;
+  String? _lastPreActionNarrative;
 
   /// Emit a narrative bubble for [phase]. Returns true if it was actually
   /// logged (caller should `emit` only then). Drops the event when the phase
@@ -51,10 +54,28 @@ class RuntimeLogger {
     }
 
     _events.add(
+      RuntimeEvent(type: 'narrative', message: text, data: {'phase': phase}),
+    );
+    return true;
+  }
+
+  /// Emit an ephemeral narrator update for the action that is about to start.
+  /// It is consumed by the live thinking UI only and is never persisted as a
+  /// chat message or replayed into model context.
+  bool logPreActionNarrative(String nextPhase, String narrative) {
+    final text = narrative.trim();
+    if (text.isEmpty) return false;
+    final norm = _normalizeNarrative(text);
+    if (_lastPreActionPhase == nextPhase && _lastPreActionNarrative == norm) {
+      return false;
+    }
+    _lastPreActionPhase = nextPhase;
+    _lastPreActionNarrative = norm;
+    _events.add(
       RuntimeEvent(
         type: 'narrative',
         message: text,
-        data: {'phase': phase},
+        data: {'phase': nextPhase, 'mode': 'pre_action'},
       ),
     );
     return true;
@@ -62,6 +83,43 @@ class RuntimeLogger {
 
   static String _normalizeNarrative(String value) =>
       value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Publish one completed, user-facing phase outcome.
+  ///
+  /// Unlike [logNarrative], this event is intended to become a persisted chat
+  /// bubble. Callers must only use structured phase output or verified tool /
+  /// snapshot evidence; raw chain-of-thought and in-progress token streams do
+  /// not belong here.
+  bool logStreamBubble({
+    required String kind,
+    required String phase,
+    required String message,
+    List<String> evidenceRefs = const [],
+    required String contextPolicy,
+  }) {
+    final text = message.trim();
+    if (text.isEmpty) return false;
+    final norm = _normalizeNarrative(text);
+    final dedupeKey = [kind, phase, norm, ...evidenceRefs].join('|');
+    if (_recentStreamBubbleKeys.contains(dedupeKey)) return false;
+    _recentStreamBubbleKeys.add(dedupeKey);
+    if (_recentStreamBubbleKeys.length > _narrativeWindow) {
+      _recentStreamBubbleKeys.removeAt(0);
+    }
+    _events.add(
+      RuntimeEvent(
+        type: 'stream_bubble',
+        message: text,
+        data: {
+          'kind': kind,
+          'phase': phase,
+          'evidence_refs': evidenceRefs,
+          'context_policy': contextPolicy,
+        },
+      ),
+    );
+    return true;
+  }
 
   void logStateChange(AgentRuntimeState state, String message) {
     _events.add(
@@ -73,7 +131,11 @@ class RuntimeLogger {
     );
   }
 
-  void logLlmDecision(String phase, Map<String, dynamic> json, {String? version}) {
+  void logLlmDecision(
+    String phase,
+    Map<String, dynamic> json, {
+    String? version,
+  }) {
     _events.add(
       RuntimeEvent(
         type: 'llm_decision',

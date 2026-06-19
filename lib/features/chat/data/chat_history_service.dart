@@ -34,7 +34,7 @@ class ChatHistoryService {
     final dbPath = '$dbDir/meow_chat.db';
     return openDatabase(
       dbPath,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages (
@@ -48,7 +48,12 @@ class ChatHistoryService {
             client_id TEXT,
             delivery_status TEXT NOT NULL DEFAULT 'sent',
             error_message TEXT,
-            session_id TEXT
+            session_id TEXT,
+            message_kind TEXT NOT NULL DEFAULT 'conversation',
+            run_id TEXT,
+            phase TEXT,
+            evidence_refs TEXT,
+            context_policy TEXT NOT NULL DEFAULT 'include'
           )
         ''');
         await db.execute('''
@@ -90,6 +95,19 @@ class ChatHistoryService {
           await db.execute('ALTER TABLE messages ADD COLUMN session_id TEXT');
           await db.execute(
             "UPDATE messages SET session_id = 'legacy' WHERE session_id IS NULL",
+          );
+        }
+        if (oldVersion < 6) {
+          await db.execute(
+            "ALTER TABLE messages ADD COLUMN message_kind TEXT NOT NULL DEFAULT 'conversation'",
+          );
+          await db.execute('ALTER TABLE messages ADD COLUMN run_id TEXT');
+          await db.execute('ALTER TABLE messages ADD COLUMN phase TEXT');
+          await db.execute(
+            'ALTER TABLE messages ADD COLUMN evidence_refs TEXT',
+          );
+          await db.execute(
+            "ALTER TABLE messages ADD COLUMN context_policy TEXT NOT NULL DEFAULT 'include'",
           );
         }
       },
@@ -235,6 +253,13 @@ class ChatHistoryService {
       'error_message': message.errorMessage,
       'session_id':
           sessionId ?? message.sessionId ?? _sessionIdResolver?.call(agentId),
+      'message_kind': message.kind.label,
+      'run_id': message.runId,
+      'phase': message.phase,
+      'evidence_refs': message.evidenceRefs.isEmpty
+          ? null
+          : jsonEncode(message.evidenceRefs),
+      'context_policy': message.contextPolicy.label,
     });
   }
 
@@ -257,6 +282,13 @@ class ChatHistoryService {
         'client_id': message.clientId,
         'delivery_status': message.deliveryStatus.label,
         'error_message': message.errorMessage,
+        'message_kind': message.kind.label,
+        'run_id': message.runId,
+        'phase': message.phase,
+        'evidence_refs': message.evidenceRefs.isEmpty
+            ? null
+            : jsonEncode(message.evidenceRefs),
+        'context_policy': message.contextPolicy.label,
       },
       where: 'id = ?',
       whereArgs: [id],
@@ -289,6 +321,13 @@ class ChatHistoryService {
         'error_message': msg.errorMessage,
         'session_id':
             sessionId ?? msg.sessionId ?? _sessionIdResolver?.call(agentId),
+        'message_kind': msg.kind.label,
+        'run_id': msg.runId,
+        'phase': msg.phase,
+        'evidence_refs': msg.evidenceRefs.isEmpty
+            ? null
+            : jsonEncode(msg.evidenceRefs),
+        'context_policy': msg.contextPolicy.label,
       });
     }
     await batch.commit(noResult: true);
@@ -355,6 +394,57 @@ enum ChatMessageDeliveryStatus {
   }
 }
 
+/// Semantic role of a persisted chat bubble.
+///
+/// Streamed runtime outcomes use a non-conversation kind so the context
+/// builder can distinguish an interpretation from snapshot/tool-backed facts.
+enum ChatMessageKind {
+  conversation,
+  analysisSummary,
+  planSummary,
+  decisionSummary,
+  impact,
+  nextAction,
+  toolInsight,
+  toolFailure,
+  decisionQuestion;
+
+  String get label => switch (this) {
+    ChatMessageKind.conversation => 'conversation',
+    ChatMessageKind.analysisSummary => 'analysis_summary',
+    ChatMessageKind.planSummary => 'plan_summary',
+    ChatMessageKind.decisionSummary => 'decision_summary',
+    ChatMessageKind.impact => 'impact',
+    ChatMessageKind.nextAction => 'next_action',
+    ChatMessageKind.toolInsight => 'tool_insight',
+    ChatMessageKind.toolFailure => 'tool_failure',
+    ChatMessageKind.decisionQuestion => 'decision_question',
+  };
+
+  static ChatMessageKind fromLabel(String? raw) => switch (raw) {
+    'analysis_summary' => ChatMessageKind.analysisSummary,
+    'plan_summary' => ChatMessageKind.planSummary,
+    'decision_summary' => ChatMessageKind.decisionSummary,
+    'impact' => ChatMessageKind.impact,
+    'next_action' => ChatMessageKind.nextAction,
+    'tool_insight' => ChatMessageKind.toolInsight,
+    'tool_failure' => ChatMessageKind.toolFailure,
+    'decision_question' => ChatMessageKind.decisionQuestion,
+    _ => ChatMessageKind.conversation,
+  };
+}
+
+/// Controls whether a bubble is replayed to the LLM on later turns.
+enum ChatContextPolicy {
+  include,
+  exclude;
+
+  String get label => name;
+
+  static ChatContextPolicy fromLabel(String? raw) =>
+      raw == 'exclude' ? ChatContextPolicy.exclude : ChatContextPolicy.include;
+}
+
 /// A single chat message.
 class ChatMessage {
   ChatMessage({
@@ -368,6 +458,11 @@ class ChatMessage {
     this.deliveryStatus = ChatMessageDeliveryStatus.sent,
     this.errorMessage,
     this.sessionId,
+    this.kind = ChatMessageKind.conversation,
+    this.runId,
+    this.phase,
+    this.evidenceRefs = const [],
+    this.contextPolicy = ChatContextPolicy.include,
   }) : timestamp = timestamp ?? DateTime.now();
 
   factory ChatMessage.outgoing({
@@ -407,6 +502,16 @@ class ChatMessage {
   /// null only for legacy rows created before sessions existed.
   final String? sessionId;
 
+  /// Structured metadata for phase-complete streamed runtime bubbles.
+  final ChatMessageKind kind;
+  final String? runId;
+  final String? phase;
+  final List<String> evidenceRefs;
+  final ChatContextPolicy contextPolicy;
+
+  bool get includeInRuntimeContext =>
+      contextPolicy == ChatContextPolicy.include;
+
   ChatMessage copyWith({
     int? id,
     String? role,
@@ -419,6 +524,11 @@ class ChatMessage {
     String? errorMessage,
     bool clearErrorMessage = false,
     String? sessionId,
+    ChatMessageKind? kind,
+    String? runId,
+    String? phase,
+    List<String>? evidenceRefs,
+    ChatContextPolicy? contextPolicy,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -433,6 +543,11 @@ class ChatMessage {
           ? null
           : (errorMessage ?? this.errorMessage),
       sessionId: sessionId ?? this.sessionId,
+      kind: kind ?? this.kind,
+      runId: runId ?? this.runId,
+      phase: phase ?? this.phase,
+      evidenceRefs: evidenceRefs ?? this.evidenceRefs,
+      contextPolicy: contextPolicy ?? this.contextPolicy,
     );
   }
 
@@ -459,6 +574,15 @@ class ChatMessage {
         }
       } catch (_) {}
     }
+    final evidenceRefs = <String>[];
+    final evidenceRefsRaw = row['evidence_refs'] as String?;
+    if (evidenceRefsRaw != null && evidenceRefsRaw.isNotEmpty) {
+      try {
+        evidenceRefs.addAll(
+          (jsonDecode(evidenceRefsRaw) as List).map((e) => e.toString()),
+        );
+      } catch (_) {}
+    }
     return ChatMessage(
       id: row['id'] as int?,
       role: row['role'] as String,
@@ -472,6 +596,13 @@ class ChatMessage {
       ),
       errorMessage: row['error_message'] as String?,
       sessionId: row['session_id'] as String?,
+      kind: ChatMessageKind.fromLabel(row['message_kind'] as String?),
+      runId: row['run_id'] as String?,
+      phase: row['phase'] as String?,
+      evidenceRefs: evidenceRefs,
+      contextPolicy: ChatContextPolicy.fromLabel(
+        row['context_policy'] as String?,
+      ),
     );
   }
 }

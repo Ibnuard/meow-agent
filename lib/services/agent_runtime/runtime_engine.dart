@@ -263,7 +263,10 @@ class AgentRuntimeEngine {
     final memories = memoryRepo;
     final events = eventRepo;
     if (memories == null || events == null || request.agentId.isEmpty) return;
-    if (request.recentMessages.length < 4) return;
+    final contextMessages = request.recentMessages
+        .where((message) => message.includeInRuntimeContext)
+        .toList(growable: false);
+    if (contextMessages.length < 4) return;
 
     try {
       final recentEvents = await events.recent(request.agentId, limit: 1);
@@ -282,7 +285,7 @@ class AgentRuntimeEngine {
         if (age < const Duration(minutes: 30)) return;
       }
 
-      final transcript = request.recentMessages
+      final transcript = contextMessages
           .take(20)
           .map((m) => '${m.role}: ${m.content}')
           .join('\n');
@@ -546,7 +549,11 @@ class AgentRuntimeEngine {
       // a prior failed turn and parrots that narrative even after the
       // connection has recovered. See LlmErrorMapper.providerErrorSentinel.
       final sourceMessages = request.recentMessages
-          .where((m) => !LlmErrorMapper.isProviderErrorMessage(m.content))
+          .where(
+            (m) =>
+                m.includeInRuntimeContext &&
+                !LlmErrorMapper.isProviderErrorMessage(m.content),
+          )
           .toList();
       final latestMessages = sourceMessages.length > 20
           ? sourceMessages.sublist(sourceMessages.length - 20)
@@ -652,6 +659,7 @@ class AgentRuntimeEngine {
         agentId: request.agentId,
       );
       emit(logger.events.last);
+      final analysisEvidenceRef = 'runtime_event:${logger.events.last.id}';
       if (analysis == null) {
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return _loopRunner.fail('Failed to analyze request.', logger);
@@ -670,8 +678,14 @@ class AgentRuntimeEngine {
           'missing_count': earlyMissingInfo.length,
         });
       }
-      if (gatedAnalyzeNarrative.isNotEmpty) {
-        if (logger.logNarrative('analyze', gatedAnalyzeNarrative)) {
+      if (earlyMissingInfo.isEmpty && gatedAnalyzeNarrative.isNotEmpty) {
+        if (logger.logStreamBubble(
+          kind: 'analysis_summary',
+          phase: 'analyze',
+          message: gatedAnalyzeNarrative,
+          evidenceRefs: [analysisEvidenceRef],
+          contextPolicy: 'exclude',
+        )) {
           emit(logger.events.last);
         }
       }
@@ -884,6 +898,15 @@ class AgentRuntimeEngine {
           questions: missingInfo,
           createdAt: DateTime.now(),
         );
+        if (logger.logStreamBubble(
+          kind: 'decision_question',
+          phase: 'analyze',
+          message: question,
+          evidenceRefs: [analysisEvidenceRef],
+          contextPolicy: 'include',
+        )) {
+          emit(logger.events.last);
+        }
         logger.logFinalResponse(question);
         return AgentRuntimeResponse(
           finalMessage: question,
@@ -909,6 +932,14 @@ class AgentRuntimeEngine {
           missingInfo.isEmpty &&
           analysis['bulk_selector'] != true &&
           !_isDestructiveIntent(analysis);
+      if (analyzerSaysToolsForReflect && !likelyFastPath) {
+        if (logger.logPreActionNarrative(
+          'reflecting',
+          NarrativeNarrator.narrateNext('reflecting', detectedLang.code),
+        )) {
+          emit(logger.events.last);
+        }
+      }
       final reflectSnapshot = (analyzerSaysToolsForReflect && !likelyFastPath)
           ? await _buildSnapshot()
           : EcosystemSnapshot(
@@ -957,6 +988,17 @@ class AgentRuntimeEngine {
         targetGraph = targetResolution.graph;
         logger.logLlmDecision('reflect', reflection.toJson());
         emit(logger.events.last);
+        final reflectionEvidenceRefs = <String>[
+          'runtime_event:${logger.events.last.id}',
+          if (snapshot.builtAt.millisecondsSinceEpoch > 0)
+            'snapshot:${snapshot.builtAt.toIso8601String()}',
+          ...reflection.impacts
+              .where((impact) => impact.entityId.isNotEmpty)
+              .map(
+                (impact) =>
+                    '${impact.entityType}:${impact.entityId}:${impact.relation}',
+              ),
+        ];
         if (targetResolution.graph.isNotEmpty) {
           logger.logLlmDecision(
             'target_resolution',
@@ -976,7 +1018,18 @@ class AgentRuntimeEngine {
               'decision': reflection.strategy.name,
             });
           }
-          if (logger.logNarrative('reflect', gatedReflect)) {
+          if (!reflection.degraded &&
+              logger.logStreamBubble(
+                kind: reflection.impacts.isEmpty
+                    ? 'decision_summary'
+                    : 'impact',
+                phase: 'reflect',
+                message: gatedReflect,
+                evidenceRefs: reflectionEvidenceRefs,
+                contextPolicy: reflection.impacts.isEmpty
+                    ? 'exclude'
+                    : 'include',
+              )) {
             emit(logger.events.last);
           }
         }
@@ -988,6 +1041,15 @@ class AgentRuntimeEngine {
             questions: reflection.clarifyQuestions,
             createdAt: DateTime.now(),
           );
+          if (logger.logStreamBubble(
+            kind: 'decision_question',
+            phase: 'reflect',
+            message: question,
+            evidenceRefs: reflectionEvidenceRefs,
+            contextPolicy: 'include',
+          )) {
+            emit(logger.events.last);
+          }
           logger.logFinalResponse(question);
           return AgentRuntimeResponse(
             finalMessage: question,
@@ -1018,6 +1080,12 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
         emit(logger.events.last);
+        if (logger.logPreActionNarrative(
+          'composing',
+          NarrativeNarrator.narrateNext('composing', detectedLang.code),
+        )) {
+          emit(logger.events.last);
+        }
         final selfIdentity = PromptConstants.selfIdentity(
           agentName: wsName,
           agentId: request.agentId,
@@ -1112,6 +1180,12 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.planning;
         logger.logStateChange(state, 'Creating execution plan');
         emit(logger.events.last);
+        if (logger.logPreActionNarrative(
+          'planning',
+          NarrativeNarrator.narrateNext('planning', detectedLang.code),
+        )) {
+          emit(logger.events.last);
+        }
         _logEvent(
           agentId: request.agentId,
           eventType: 'state_change',
@@ -1174,11 +1248,26 @@ class AgentRuntimeEngine {
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return _loopRunner.fail('Failed to create execution plan.', logger);
         }
+        final planEvidenceRef = 'runtime_event:${logger.events.last.id}';
         final planNarrative = (plan['narrative'] ?? '').toString();
-        if (planNarrative.isNotEmpty) {
-          // 'plan' is not a bubble phase (it just restates reflect). Logged for
-          // /log visibility only; logNarrative drops it from the chat surface.
-          if (logger.logNarrative('plan', planNarrative)) {
+        final planLabels = (plan['subgoals'] as List? ?? const [])
+            .whereType<Map>()
+            .map((subgoal) => (subgoal['label'] ?? '').toString().trim())
+            .where((label) => label.isNotEmpty)
+            .toList(growable: false);
+        final planBubble = [
+          if (planNarrative.trim().isNotEmpty) planNarrative.trim(),
+          if (planLabels.length > 1)
+            planLabels.map((label) => '• $label').join('\n'),
+        ].join('\n\n');
+        if (planBubble.isNotEmpty) {
+          if (logger.logStreamBubble(
+            kind: 'plan_summary',
+            phase: 'plan',
+            message: planBubble,
+            evidenceRefs: [planEvidenceRef],
+            contextPolicy: 'exclude',
+          )) {
             emit(logger.events.last);
           }
         }

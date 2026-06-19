@@ -71,8 +71,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final ValueNotifier<bool> _showScrollToBottom = ValueNotifier(false);
   late String _activeAgentId;
 
-
-
   // Tracks the last manager reply timestamp so we know when to reload.
   DateTime? _lastSeenReplyAt;
   ChatRuntimeManager? _manager;
@@ -344,8 +342,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final hasLedger = _sending && (session?.activeTaskLedger != null);
     final hasNarrative =
         _sending && (session?.narrativeTrail.isNotEmpty == true);
+    final checkpointCount = _sending
+        ? (session?.liveCheckpoints.length ?? 0)
+        : 0;
     final tailCount =
-        (_sending ? 1 : 0) + (hasNarrative ? 1 : 0) + (hasLedger ? 1 : 0);
+        (_sending ? 1 : 0) +
+        (hasNarrative ? 1 : 0) +
+        (hasLedger ? 1 : 0) +
+        checkpointCount;
 
     final msgOffset = topBuilderIdx - tailCount;
     if (msgOffset < 0 || msgOffset >= _messages.length) {
@@ -410,9 +414,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final hasLedger = _sending && (session?.activeTaskLedger != null);
     final hasNarrative =
         _sending && (session?.narrativeTrail.isNotEmpty == true);
+    final checkpointCount = _sending
+        ? (session?.liveCheckpoints.length ?? 0)
+        : 0;
     return (_sending ? 1 : 0) + // thinking
         (hasNarrative ? 1 : 0) +
         (hasLedger ? 1 : 0) +
+        checkpointCount +
         _messages.length +
         (_hasMore ? 1 : 0); // permanent top anchor
   }
@@ -425,28 +433,45 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final hasLedger = _sending && liveLedger != null;
     final trail = session?.narrativeTrail ?? const <String>[];
     final hasNarrative = _sending && trail.isNotEmpty;
+    final liveCheckpoints = _sending
+        ? (session?.liveCheckpoints ?? const <ChatMessage>[])
+        : const <ChatMessage>[];
 
     int cursor = 0;
 
-    // Thinking bubble at the very bottom (index 0 in reversed = screen bottom).
+    // In the reversed list the first tail item is closest to the composer.
+    // Keep thinking there, with its narrator directly above it.
     if (_sending) {
       if (i == cursor) return const _ThinkingBubble();
       cursor++;
     }
 
-    // Narrative trail bubble.
     if (hasNarrative) {
       if (i == cursor) return _NarrativeTrail(entries: trail);
       cursor++;
     }
 
-    // Live task ledger bubble.
+    // The ledger remains in the live tail, but sits above narrator + thinking
+    // so it stays visible without becoming the bottom-most element.
     if (hasLedger) {
       if (i == cursor) {
         return TaskLedgerBubble(ledger: liveLedger, live: true);
       }
       cursor++;
     }
+
+    // All semantic checkpoints stay above the ledger during the active run.
+    // The reversed mapping keeps their normal chronological visual order.
+    final checkpointOffset = i - cursor;
+    if (checkpointOffset >= 0 && checkpointOffset < liveCheckpoints.length) {
+      final liveCheckpoint =
+          liveCheckpoints[liveCheckpoints.length - 1 - checkpointOffset];
+      return RepaintBoundary(
+        key: ValueKey('live-checkpoint-${liveCheckpoint.id}'),
+        child: MeowBubble(msg: liveCheckpoint, strings: s),
+      );
+    }
+    cursor += liveCheckpoints.length;
 
     // Messages: index `cursor` = newest message, increasing = older.
     final msgOffset = i - cursor;
@@ -1180,9 +1205,8 @@ class _StickyDatePill extends StatelessWidget {
   }
 }
 
-/// Stacking trail of POV-AI narratives shown above the thinking indicator.
-/// Newer entries appear at the bottom (closest to thinking dots); older
-/// entries fade as they age, simulating a CLI thinking-mode scrollback.
+/// Replace-only pre-action narrator shown beside the live thinking phase.
+/// The list shape is retained for compatibility with the animated chip.
 class _NarrativeTrail extends StatelessWidget {
   const _NarrativeTrail({required this.entries});
   final List<String> entries;
