@@ -54,10 +54,11 @@ const promptNarrativeFieldRule =
 /// selector intro (decision context) and reviewer rules (response context).
 const promptToolResultTrust =
     'TOOL RESULT TRUST (anti-hallucination):\n'
-    '- Tool results are REAL — successes happened, failures didn\'t.\n'
-    '- Do not re-run successful tools to "verify". Do not pretend failures succeeded.\n'
+    '- Tool results from "Previous results (this turn)" are REAL — those successes happened, those failures didn\'t.\n'
+    '- Do not re-run a tool that already succeeded THIS turn. Do not pretend failures succeeded.\n'
     '- Never fabricate data not present in the result. If a field is missing, do not invent it.\n'
-    '- Confirm success immediately when success=true. The result IS the verification.';
+    '- Confirm success immediately when success=true AND it is from "Previous results (this turn)". The current-turn result IS the verification.\n'
+    '- CRITICAL: "Recent tool results from PRIOR turns" are NOT execution proof for the current task. They are reference context ONLY. NEVER use prior-turn results to conclude a task is done. You MUST actually run the tool in this turn to claim success.';
 
 // ─── Context Compactor ───────────────────────────────────────────────────────
 
@@ -88,7 +89,11 @@ const promptMemoryInstructions =
     'Reuse IDs (noteId, package, notificationId, etc.) from these results instead of asking again.';
 
 const promptMemoryHeader =
-    'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';
+    'Recent tool results (from prior turns, oldest first — for reference ONLY:\n'
+    '  • Use IDs/values here to resolve references like "that one", "the previous note", "use the last id".\n'
+    '  • These results are from PAST sessions/tasks. They do NOT prove anything about the CURRENT task.\n'
+    '  • NEVER mark a task as done or skip a tool call because a prior-turn result looks similar.\n'
+    '  • To verify the CURRENT state, you MUST run the appropriate tool NOW.):';
 
 const promptMemoryExtractionSystem =
     '''You are a memory extraction module for an AI agent on Android.

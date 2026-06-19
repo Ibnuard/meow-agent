@@ -12,7 +12,9 @@ TASK BOUNDARY RULE:
 - "Previous results (this turn)" below is the ONLY source of truth for what has been executed in THIS task.
 - If "Previous results" says "None yet." then NO tool has been run — you MUST select a tool.
 - Conversation history is CONTEXT ONLY. Even if history shows the exact same command succeeded before, that was a DIFFERENT task invocation. You must execute the tool FRESH for this new request.
-- NEVER return status="done" when Previous results is empty or contains no successful tool execution.
+- "Recent tool results from PRIOR turns" is also CONTEXT ONLY. Even if it shows the exact same action succeeded before, that proves NOTHING about the current task. You MUST still run the tool.
+- NEVER return status="done" when Previous results is empty or contains no successful tool execution for this task.
+- NEVER return status="done" because prior-turn memory shows a similar action once succeeded. Past ≠ present.
 - A prior permission error in history does NOT mean permission is still denied now — always attempt the tool.
 
 $promptToolResultTrust''';
@@ -161,4 +163,10 @@ If unrecoverable:
 }''';
 
 const promptSelectToolMemoryHeader =
-    'Recent tool results from PRIOR turns (reference only — these do NOT count as execution for the current task. Use these IDs/values when the user references "the previous one", "that", "last note"):';
+    'Recent tool results from PRIOR turns/sessions (for reference ONLY — strict rules below):\n'
+    '  • Use IDs/values here ONLY when the user explicitly references a prior item ("that one", "the last note", "use the previous id").\n'
+    '  • These results belong to PAST task invocations — a different session, a different turn.\n'
+    '  • NEVER treat a prior-turn success as proof that the current task is done.\n'
+    '  • NEVER return status="done" because a prior-turn result shows the same action succeeded before.\n'
+    '  • If the current task requires a tool, you MUST call that tool NOW, even if an identical call appears here.\n'
+    '  • To know the CURRENT real-world state, run the appropriate read/query tool. Prior-turn results may be stale.';
