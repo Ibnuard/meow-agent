@@ -52,13 +52,20 @@ final coreAgentSoulRepositoryProvider = Provider<AgentSoulRepository>((ref) {
   return repo;
 });
 
+
+/// Delegates to [agentMemoryRepositoryProvider] so that runtime writes and UI
+/// reads share the SAME [AgentMemoryRepository] instance and stream controller.
+///
+/// Previously this created an independent instance, meaning `_notify()` calls
+/// from runtime tool executions (e.g. `system.memory.append`) did NOT wake up
+/// the UI's `agentMemoryStreamProvider` — the two instances had separate
+/// `_byAgentControllers` maps and never communicated. Delegating here fixes
+/// the split and ensures every append is immediately visible in the Memory UI.
 final coreAgentMemoryRepositoryProvider =
     Provider<AgentMemoryRepository>((ref) {
-  final db = ref.read(meowDatabaseProvider);
-  final repo = AgentMemoryRepository(db);
-  ref.onDispose(repo.dispose);
-  return repo;
+  return ref.watch(agentMemoryRepositoryProvider);
 });
+
 
 final coreAgentEventRepositoryProvider =
     Provider<AgentEventRepository>((ref) {
