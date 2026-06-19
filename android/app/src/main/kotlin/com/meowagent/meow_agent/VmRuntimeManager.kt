@@ -599,6 +599,15 @@ class VmRuntimeManager(private val context: Context) {
             // mount as the projects, so links resolve.
             File(workspaceDir, ".bun-cache").mkdirs()
             File(workspaceDir, ".npm-cache").mkdirs()
+            // proot's --link2symlink rewrites hardlink(2) into symlinks. bun
+            // and npm both default to a hardlink/clonefile install backend,
+            // and the cache→destination copy step then trips with errors like
+            // "FileNotFound: failed copying files from cache to destination"
+            // (bun) or EXDEV/ENOENT (npm). Force a plain copy backend for
+            // both. We can't drop --link2symlink itself — apt and the rootfs
+            // depend on it — so the fix lives in the per-tool config files.
+            writeBunConfig()
+            writeNpmConfig()
             repairMergedUsrLinks()
             repairShellLinks()
         } catch (e: Exception) {
@@ -611,6 +620,59 @@ class VmRuntimeManager(private val context: Context) {
         ensureRootLinkOrCopy("sbin", "usr/sbin")
         ensureRootLinkOrCopy("lib", "usr/lib")
         ensureRootLinkOrCopy("lib64", "usr/lib64")
+    }
+
+    /**
+     * Force bun to use the plain `copyfile` install backend.
+     *
+     * proot's `--link2symlink` rewrites hardlink(2) into a symlink, which
+     * breaks bun's default backend (hardlink) on the cache→destination step
+     * with: `FileNotFound: failed copying files from cache to destination`.
+     * `copyfile` does a regular byte copy and works under proot.
+     *
+     * Written to /root/.bunfig.toml inside the rootfs (HOME=/root in
+     * prootEnv), since bun reads the per-user config first. Idempotent —
+     * overwritten on every configureRootfs() pass so the value is canonical.
+     */
+    private fun writeBunConfig() {
+        try {
+            val home = File(rootfsDir, "root")
+            home.mkdirs()
+            File(home, ".bunfig.toml").writeText(
+                """
+                |[install]
+                |backend = "copyfile"
+                |""".trimMargin()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "writeBunConfig: ${e.message}")
+        }
+    }
+
+    /**
+     * Force npm to install via plain copy instead of hardlinks.
+     *
+     * Same root cause as [writeBunConfig]: under `--link2symlink` proot, npm's
+     * hardlink-based install (default since npm 7) intermittently fails on
+     * the cache→destination step. `install-strategy=copy` (npm 9+) and the
+     * legacy `cache-min` knob are both written; npm picks whichever it
+     * understands. Idempotent.
+     */
+    private fun writeNpmConfig() {
+        try {
+            val home = File(rootfsDir, "root")
+            home.mkdirs()
+            File(home, ".npmrc").writeText(
+                """
+                |install-strategy=copy
+                |cache=/root/workspace/.npm-cache
+                |fund=false
+                |audit=false
+                |""".trimMargin()
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "writeNpmConfig: ${e.message}")
+        }
     }
 
     private fun ensureRootLinkOrCopy(linkName: String, targetName: String) {
