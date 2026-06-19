@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../app/widgets/meow_mascot.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../modules/data/module_model.dart';
 import '../../modules/data/module_repository.dart';
@@ -70,19 +71,7 @@ class _LogoHeader extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 62,
-              height: 62,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(20),
-                child: Image.asset(
-                  'assets/images/meow.png',
-                  width: 62,
-                  height: 62,
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
+            const MeowMascot(size: 62, borderRadius: 20),
             const SizedBox(height: 14),
             ShaderMask(
               shaderCallback: (bounds) => LinearGradient(
@@ -384,14 +373,10 @@ class _SetupCallToAction extends StatelessWidget {
               border: Border.all(color: extras.subtleBorder),
             ),
             alignment: Alignment.center,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(22),
-              child: Image.asset(
-                'assets/images/meow.png',
-                width: 56,
-                height: 56,
-                fit: BoxFit.cover,
-              ),
+            child: const MeowMascot(
+              size: 56,
+              borderRadius: 22,
+              showShadow: false,
             ),
           ),
           const SizedBox(height: 22),
