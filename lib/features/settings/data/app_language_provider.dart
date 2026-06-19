@@ -314,6 +314,31 @@ class AppStrings {
   String get openWorkflows => isId ? 'Buka Workflows' : 'Open Workflows';
   String get openApiStore => isId ? 'Buka API Store' : 'Open API Store';
   String get openVmRuntime => isId ? 'Buka VM Runtime' : 'Open VM Runtime';
+  String get openDatabaseManager => isId ? 'Buka Database Manager' : 'Open Database Manager';
+  String get dbManagerTitle => isId ? 'Manajer Database' : 'Database Manager';
+  String get dbManagerEmpty => isId ? 'Belum ada tabel database.' : 'No database tables found.';
+  String get dbManagerEmptyDesc => isId ? 'Minta agen untuk membuat tabel pertama kamu lewat chat!' : 'Ask the agent to create your first table in chat!';
+  String get dbManagerColumns => isId ? 'Kolom' : 'Columns';
+  String get dbManagerRows => isId ? 'baris' : 'rows';
+  String get dbManagerDropConfirm => isId ? 'Hapus Tabel?' : 'Drop Table?';
+  String dbManagerDropConfirmDesc(String table) => isId
+      ? 'Apakah kamu yakin ingin menghapus tabel "$table" beserta semua datanya secara permanen?'
+      : 'Are you sure you want to permanently drop table "$table" and all its data?';
+  String get dbManagerDropSuccess => isId ? 'Tabel berhasil dihapus.' : 'Table successfully dropped.';
+  String get dbManagerTableDetail => isId ? 'Detail Tabel' : 'Table Details';
+  String get dbManagerDeleteRow => isId ? 'Hapus Baris' : 'Delete Row';
+  String get dbManagerDeleteRowConfirm => isId ? 'Hapus baris data ini?' : 'Delete this row of data?';
+  String get dbManagerDeleteRowSuccess => isId ? 'Baris berhasil dihapus.' : 'Row successfully deleted.';
+  String get dbManagerCreateTableTitle => isId ? 'Buat Tabel Baru' : 'Create New Table';
+  String get dbManagerTableName => isId ? 'Nama Tabel' : 'Table Name';
+  String get dbManagerColumnName => isId ? 'Nama Kolom' : 'Column Name';
+  String get dbManagerColumnType => isId ? 'Tipe' : 'Type';
+  String get dbManagerAddColumn => isId ? 'Tambah Kolom' : 'Add Column';
+  String get dbManagerCreateTableBtn => isId ? 'Buat' : 'Create';
+  String get dbManagerInvalidTableName => isId ? 'Nama tabel tidak valid (hanya huruf, angka, dan _).' : 'Invalid table name (letters, numbers, _ only).';
+  String get dbManagerInvalidColumnName => isId ? 'Nama kolom tidak valid.' : 'Invalid column name.';
+  String get dbManagerCreateSuccess => isId ? 'Tabel berhasil dibuat.' : 'Table successfully created.';
+  String get dbManagerAutoColumnsInfo => isId ? 'ID & _created_at ditambahkan otomatis' : 'ID & _created_at are auto-added';
   String get featurePermission =>
       isId ? 'Fitur & Izin Agen' : 'Feature & Permission';
   String get notificationPermissionRequired => isId
@@ -566,6 +591,9 @@ class AppStrings {
   String get moduleDescVm => isId
       ? 'Install dan kontrol runtime Linux lokal berbasis proot untuk sesi terminal, server web dev, dan preview localhost di dalam aplikasi.'
       : 'Install and control a local proot Linux runtime for terminal sessions, web dev servers, and in-app localhost previews.';
+  String get moduleDescDatabase => isId
+      ? 'Isolated SQLite database untuk tabel personalmu. Agen dapat membuat tabel, memasukkan data, dan melakukan query untuk mendukung mini app.'
+      : 'Isolated SQLite database for your personal tables. Agents can create tables, insert data, and query tables to support mini apps.';
   // --- Today Prompt (module detail) ---
   String get todayPromptTitle => isId ? 'Prompt Hari Ini' : 'Today\'s Prompt';
   String get todayPromptSubtitle => isId
@@ -706,6 +734,20 @@ class AppStrings {
                 'Send an SMS to Mom: "I\'ll be home late."',
                 'Look up the contact "Andi".',
                 'Call the last number I dialed.',
+              ];
+      case 'database':
+        return isId
+            ? const [
+                'Tampilkan semua tabel database ku.',
+                'Buat tabel baru bernama "expenses" dengan kolom deskripsi dan jumlah.',
+                'Tampilkan data dari tabel "workout_log" ku.',
+                'Hapus baris dari tabel dengan id tertentu.',
+              ]
+            : const [
+                'Show all my database tables.',
+                'Create a new table named "expenses" with columns description and amount.',
+                'Show all data from my "workout_log" table.',
+                'Delete a row from a table by its id.',
               ];
       default:
         return isId
@@ -1914,6 +1956,33 @@ class AppStrings {
         isId
             ? 'Izinkan agen membaca buku kontak untuk resolve nama.'
             : 'Allow agent to read contacts to resolve names to numbers.',
+      ),
+      _ => (key, ''),
+    },
+    'database' => switch (key) {
+      'allow_read' => (
+        isId ? 'Baca Database' : 'Read Database',
+        isId
+            ? 'Agen dapat membaca skema dan query data tabel.'
+            : 'Agent can read table schemas and query data.',
+      ),
+      'allow_write' => (
+        isId ? 'Modifikasi Data' : 'Modify Data',
+        isId
+            ? 'Agen dapat memasukkan, mengubah, dan menghapus baris data.'
+            : 'Agent can insert, update, and delete row data.',
+      ),
+      'allow_create_table' => (
+        isId ? 'Buat Tabel Baru' : 'Create New Tables',
+        isId
+            ? 'Agen dapat membuat tabel database baru secara dinamis.'
+            : 'Agent can dynamically create new database tables.',
+      ),
+      'allow_drop_table' => (
+        isId ? 'Hapus Tabel' : 'Drop Tables',
+        isId
+            ? 'Agen dapat menghapus tabel secara permanen. Aksi ini memerlukan konfirmasi.'
+            : 'Agent can permanently drop tables. This action requires confirmation.',
       ),
       _ => (key, ''),
     },

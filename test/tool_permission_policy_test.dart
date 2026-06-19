@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:meow_agent/features/modules/data/module_model.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
@@ -8,6 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -24,7 +30,7 @@ void main() {
     await repo.update(
       module.copyWith(
         enabled: enabled,
-        settings: {...module.settings, 'allow_url_intents': allowUrls},
+        settings: {...module.settings, 'allow_open_apps': allowUrls},
       ),
     );
     return repo;
@@ -49,8 +55,8 @@ void main() {
         result.data?['errorCode'],
         ToolPermissionPolicy.permissionDeniedCode,
       );
-      expect(result.data?['settingKey'], 'allow_url_intents');
-      expect(result.error, contains('Allow URL Intents'));
+      expect(result.data?['settingKey'], 'allow_open_apps');
+      expect(result.error, contains('Open Installed Apps'));
     });
 
     test('execute reaches confirmation gate when URL toggle is on', () async {

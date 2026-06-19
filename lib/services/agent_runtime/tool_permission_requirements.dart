@@ -466,6 +466,56 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     actionLabel: 'remove registered APIs',
   ),
 
+  // ─── Database module ────────────────────────────────────────────────────
+  'db.list_tables': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Tables',
+    actionLabel: 'list database tables',
+  ),
+  'db.describe_table': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Tables',
+    actionLabel: 'view table schema',
+  ),
+  'db.create_table': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_create_table',
+    settingLabel: 'Create Tables',
+    actionLabel: 'create database tables',
+  ),
+  'db.drop_table': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_drop_table',
+    settingLabel: 'Drop Tables',
+    actionLabel: 'drop database tables',
+  ),
+  'db.insert': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_write',
+    settingLabel: 'Write Database',
+    actionLabel: 'insert database records',
+  ),
+  'db.query': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_read',
+    settingLabel: 'Read Tables',
+    actionLabel: 'query database tables',
+  ),
+  'db.update': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_write',
+    settingLabel: 'Write Database',
+    actionLabel: 'update database records',
+  ),
+  'db.delete': ToolPermissionRequirement(
+    moduleId: 'database',
+    settingKey: 'allow_write',
+    settingLabel: 'Write Database',
+    actionLabel: 'delete database records',
+  ),
+
   // ─── Communication module ──────────────────────────────────────────────
   'communication.resolve_contact': ToolPermissionRequirement(
     moduleId: 'communication',
@@ -496,6 +546,7 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     androidPermission: PermissionType.sendSms,
   ),
 
+  /*
   // VM module: agent surface is intentionally narrow. Safe reads are ungated;
   // command/server process control is gated behind Run Command.
   'vm.status': ToolPermissionRequirement(
@@ -540,6 +591,7 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     settingLabel: 'Run Command',
     actionLabel: 'export the VM workspace to shared storage',
   ),
+  */
 };
 
 /// Prefix-based requirement rules, checked by [ToolPermissionPolicy] AFTER an

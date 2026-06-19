@@ -140,18 +140,7 @@ Multi-target examples (subgoal_seeds MUST list each target):
 
 CRITICAL ROUTING RULES:
 - For opening/launching apps: tool_groups MUST be ["app"]. The task is COMPLETE once the app is open.
-- ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.
-- For running shell commands, scripts, installing packages, starting servers, or executing code in the Linux VM: tool_groups MUST be ["vm"]. If the task also needs writing files to the VM workspace, use ["files", "vm"].
-
-VM routing examples:
-- "run <command>" / "jalankan <command>" → vm.run_command → tool_groups: ["vm"]
-- "install python" / "install git" → vm.run_command(apt-get install ...) → tool_groups: ["vm"]
-- "start a web server" / "jalankan server" → vm.start_server → tool_groups: ["vm"]
-- "buatkan landing page dan jalankan servernya" → files.create + vm.start_server → tool_groups: ["files", "vm"]
-- "stop server <name>" → vm.stop_server → tool_groups: ["vm"]
-- "list running servers" → vm.list_servers → tool_groups: ["vm"]
-- "check if node is installed" / "cek plugin" → vm.list_plugins → tool_groups: ["vm"]
-- "what's the VM status" → vm.status → tool_groups: ["vm"]''';
+- ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
 
 const promptAnalyzeResponseFormat =
     '''Respond with ONLY valid JSON, no markdown, no explanation:
@@ -187,7 +176,6 @@ Rules:
     communication \\u2014 phone calls (CALL_PHONE), SMS, contact lookup — external telephony and messaging
     attachment   \\u2014 list attached files and read supported text attachments from the current message
     web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
-    vm           \\u2014 check VM Linux runtime status, list installed plugins/toolchains, run shell commands in the local Linux VM (apt, node, python, bun, git, etc.)
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
 - $promptNarrativeFieldRule
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):

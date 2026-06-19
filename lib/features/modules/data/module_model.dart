@@ -170,21 +170,6 @@ class ModuleRegistry {
     },
   );
 
-  static const vm = ModuleModel(
-    id: 'vm',
-    name: 'VM Runtime',
-    description:
-        'A local Linux runtime for running shell commands. '
-        'You install and start the runtime — agents only run commands inside it.',
-    icon: 'terminal',
-    settings: {
-      // Only one agent-facing permission: run shell commands inside the
-      // already-running runtime. Install/start/stop are user-only actions
-      // performed from the VM Runtime screen.
-      'allow_run_command': true,
-    },
-  );
-
   static const communication = ModuleModel(
     id: 'communication',
     name: 'Communication',
@@ -199,6 +184,21 @@ class ModuleRegistry {
     },
   );
 
+  static const database = ModuleModel(
+    id: 'database',
+    name: 'User Database',
+    description:
+        'Isolated SQLite database for your personal tables. '
+        'Agents can create tables, insert data, and query tables to support mini apps.',
+    icon: '🗄️',
+    settings: {
+      'allow_read': true,
+      'allow_write': true,
+      'allow_create_table': true,
+      'allow_drop_table': false,
+    },
+  );
+
   static const List<ModuleModel> available = [
     deviceContext,
     notificationIntelligence,
@@ -207,7 +207,7 @@ class ModuleRegistry {
     calendar,
     workflows,
     web,
-    vm,
     communication,
+    database,
   ];
 }
