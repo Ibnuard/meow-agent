@@ -78,6 +78,8 @@ class AgentRuntimeResponse {
     this.pendingTool,
     this.pendingToolArgs,
     this.actions = const [],
+    this.previousResults,
+    this.nextStep,
   });
 
   final String finalMessage;
@@ -93,6 +95,12 @@ class AgentRuntimeResponse {
 
   /// Optional contextual action buttons to render after the final message.
   final List<ResultAction> actions;
+
+  /// Optional tool execution history for retries/resumes.
+  final List<Map<String, dynamic>>? previousResults;
+
+  /// Optional next step number for retries/resumes.
+  final int? nextStep;
 }
 
 /// A single event logged during runtime execution.

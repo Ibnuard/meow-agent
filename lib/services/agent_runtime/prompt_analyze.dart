@@ -23,18 +23,25 @@ World model (files.* tools):
 - Use this for tasks that span peer agents: copying files between agent workspaces, etc.
 - DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.
 
-DB schema (meow_core.db, accessible via sqlite.query for ad-hoc introspection):
-- agents(id, name, provider_id, model, max_context, auto_compact, icon_key, color_key, created_at, updated_at)
-- agent_soul(agent_id, user_name, user_nickname, persona, communication_style, work_role, main_project, design_preference, preferred_language, timezone, persona_meta, updated_at)
-- agent_memory(id, agent_id, category, content, created_at)
-- agent_events(id, agent_id, event_type, state, task, last_tool, last_result, created_at)
-- providers(id, nickname, base_url, api_key_ref, model_default, codename, models_json, created_at, updated_at) -- api_key_ref is a secure-storage handle, not the actual key.
-- modules(id, enabled, config_json, installed_at), agent_module_permissions(agent_id, module_id, enabled, config_json)
-- app_settings(key, value)
-Use sqlite.query only when structured tools (agent.list, agent.soul.read, system.config.read) cannot answer the question (joins, aggregates, custom filters).''';
+Databases:
+1. System Database (meow_core.db, read-only via sqlite.query tool for ad-hoc introspection):
+   - agents(id, name, provider_id, model, max_context, auto_compact, icon_key, color_key, created_at, updated_at)
+   - agent_soul(agent_id, user_name, user_nickname, persona, communication_style, work_role, main_project, design_preference, preferred_language, timezone, persona_meta, updated_at)
+   - agent_memory(id, agent_id, category, content, created_at)
+   - agent_events(id, agent_id, event_type, state, task, last_tool, last_result, created_at)
+   - providers(id, nickname, base_url, api_key_ref, model_default, codename, models_json, created_at, updated_at) -- api_key_ref is a secure-storage handle, not the actual key.
+   - modules(id, enabled, config_json, installed_at), agent_module_permissions(agent_id, module_id, enabled, config_json)
+   - app_settings(key, value)
+   Use sqlite.query ONLY when structured tools (agent.list, agent.soul.read, system.config.read) cannot answer the question (joins, aggregates, custom filters).
+2. User Database (meow_user.db, read/write via db.* tools):
+   - This is an isolated database sandbox for user-defined custom tables (e.g., to create trackers, lists, schedules, and custom app backends).
+   - Use db.list_tables to see all custom tables.
+   - Use db.describe_table to get table columns schema.
+   - Use db.create_table, db.drop_table, db.insert, db.query, db.update, and db.delete to interact with user tables.
+   - Example user query: db.query(sql: "SELECT * FROM expenses")''';
 
 const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
-- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
+- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, update agent profile/memory, or list/create/query/modify custom database tables.
 - Set true for phrases like: "open [app]", "launch [app]", "go to [url]"
 - Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update.
 - Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append.
@@ -42,7 +49,8 @@ const promptAnalyzeRequiresToolsRules = '''Rules for requires_tools:
 - Capability/ability questions MUST use system.tools.list. Never answer from memory or generic assistant knowledge.
 - Set true when attached files are present and the user asks to inspect, read, summarize, transform, explain, or answer from those attachments. Use attachment tools; never infer attachment contents from filenames.
 - Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
-- For DB introspection: prefer agent.list, agent.soul.read, system.config.read, system.tools.list. Fall back to sqlite.query (read-only SELECT) ONLY for queries those tools cannot answer (joins, aggregates, custom filters). sqlite.query is a power tool — never use it where a structured tool answers the same question.
+- For System DB (meow_core.db) introspection: prefer agent.list, agent.soul.read, system.config.read, system.tools.list. Fall back to sqlite.query (read-only SELECT) ONLY for queries those tools cannot answer. Never use sqlite.query on user-defined tables, and never use db.* tools on system tables.
+- For User-defined tables/custom DB (meow_user.db): always use the db.* tools (db.list_tables, db.query, etc.).
 - Set false if user is chatting, asking questions, or requesting information only
 - Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
 - When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
@@ -128,6 +136,12 @@ const promptAnalyzeExamples =
 - "which provider is used by the most agents?" → sqlite.query(sql: "SELECT provider_id, COUNT(*) c FROM agents GROUP BY provider_id ORDER BY c DESC LIMIT 1")
 - "how many modules do I have?" → system.config.read
 - "where is your workspace?" → system.self
+- "list all my custom database tables" / "show my tables" → db.list_tables → tool_groups: ["database"]
+- "what is the schema of table expenses?" → db.describe_table(table: "expenses") → tool_groups: ["database"]
+- "create database table money_tracker with category and amount" → db.create_table(table: "money_tracker", columns: [{"name": "category", "type": "TEXT", "notNull": true}, {"name": "amount", "type": "REAL"}]) → tool_groups: ["database"]
+- "show all rows in my expenses table" → db.query(sql: "SELECT * FROM expenses") → tool_groups: ["database"]
+- "add a row of food expense for 5000 to expenses table" → db.insert(table: "expenses", data: {"category": "food", "amount": 5000}) → tool_groups: ["database"]
+- "delete expense where category is food" → db.delete(table: "expenses", where: "category = ?", whereArgs: ["food"]) → tool_groups: ["database"]
 - "create a new agent named <name>" → agent.create(name: "<name>"), subgoal_seeds: ["create agent <name>"]
 - "create a new agent <name>, personality <persona>" → agent.create(name: "<name>", persona: "<persona>")
 - "create a new agent with the same config as you, named <name>" → agent.create(name: "<name>") with copied persona from self, subgoal_seeds: ["create agent <name> from self"]
@@ -172,6 +186,7 @@ Rules:
     calendar     \\u2014 create/read/update/delete calendar events, find free slots, conflicts
     workflow     \\u2014 create/list/update/delete/toggle scheduled or recurring automations
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
+    database     \\u2014 list user tables, create/drop tables, insert/update/delete/query records in user database
     chat         \\u2014 deliver a message into the Meow Agent internal chat UI (NOT external messaging apps)
     communication \\u2014 phone calls (CALL_PHONE), SMS, contact lookup — external telephony and messaging
     attachment   \\u2014 list attached files and read supported text attachments from the current message

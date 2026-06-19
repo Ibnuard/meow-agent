@@ -1351,6 +1351,8 @@ class AgentRuntimeEngine {
           autoApproveSensitive: autoApproveSensitive,
           isWorkflowAutoExecute: isWorkflowAutoExecute,
           fastPath: false,
+          initialPreviousResults: loopResponse.previousResults,
+          initialStep: loopResponse.nextStep ?? 1,
         );
       }
 

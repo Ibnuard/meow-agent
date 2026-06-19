@@ -371,6 +371,10 @@ class ExecuteLoopRunner {
           _emitTaskLedger(emit, request, goalTree);
         }
         logger.logFinalResponse(finalResponse);
+        await _taskScope.archiveLedgerForRequest(
+          request,
+          LedgerStatus.completed,
+        );
         return AgentRuntimeResponse(
           finalMessage: finalResponse,
           success: true,
@@ -1117,6 +1121,7 @@ class ExecuteLoopRunner {
           currentStep: currentStep,
           userMessage: request.userMessage,
           logger: logger,
+          previousResults: previousResults,
           language: detectedLang.label,
           goalTree: goalTree,
           recentMessages: loopRecentMsgs,
@@ -1564,6 +1569,8 @@ class ExecuteLoopRunner {
         success: false,
         state: AgentRuntimeState.fastPathExhausted,
         events: logger.events,
+        previousResults: previousResults,
+        nextStep: currentStep,
       );
     }
 

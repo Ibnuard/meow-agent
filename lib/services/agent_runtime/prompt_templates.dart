@@ -217,6 +217,7 @@ ${PromptConstants.selectToolResponseFormat}''';
     required Map<String, dynamic> plan,
     required int currentStep,
     required String userMessage,
+    List<Map<String, dynamic>> previousResults = const [],
     String language = 'English',
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
@@ -238,6 +239,8 @@ ${PromptConstants.selectToolResponseFormat}''';
               'final_response or summary, ground it strictly on this; do NOT '
               'invent items, names, numbers, or jokes not present here):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
+    final previousResultsBlock = '\nPrevious results (this turn):\n'
+        '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
     return '''${PromptConstants.reviewIntro}
 $selfIdentityBlock
 ${PromptConstants.policyGround}
@@ -250,7 +253,7 @@ Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
-$historyBlock$goalBlock
+$previousResultsBlock$historyBlock$goalBlock
 Current step: $currentStep
 
 Tool result:
@@ -291,7 +294,12 @@ ${PromptConstants.reviewResponseFormat}''';
       // Tool names look like "system.config.patch" or "app_agent.click".
       // Extract the leading token before the first dot.
       final match = RegExp(r'([a-z_]+)\.').firstMatch(firstLine);
-      if (match != null) domains.add(match.group(1)!);
+      if (match != null) {
+        var domain = match.group(1)!;
+        if (domain == 'db') domain = 'database';
+        if (domain == 'sqlite') domain = 'system';
+        domains.add(domain);
+      }
     }
     if (domains.isEmpty) return '';
     return renderForPrompt(domains.toList());

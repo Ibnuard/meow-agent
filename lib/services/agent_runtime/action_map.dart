@@ -311,6 +311,59 @@ const List<CanonicalAction> canonicalActionMap = [
     notTools: ['system.config.patch'],
     note: 'Read-only SELECT against meow_core.db. Power tool for ad-hoc introspection.',
   ),
+
+  // ─── User Database (meow_user.db) ──────────────────────────────────────────
+
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['list', 'tables'],
+    canonicalTools: ['db.list_tables'],
+    notTools: ['sqlite.query'],
+    note: 'List user tables in meow_user.db.',
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['describe', 'table'],
+    canonicalTools: ['db.describe_table'],
+    notTools: ['sqlite.query'],
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['create', 'table'],
+    canonicalTools: ['db.create_table'],
+    notTools: ['sqlite.query'],
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['drop', 'table'],
+    canonicalTools: ['db.drop_table'],
+    notTools: ['sqlite.query'],
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['insert', 'table'],
+    canonicalTools: ['db.insert'],
+    notTools: ['sqlite.query'],
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['query', 'table'],
+    canonicalTools: ['db.query'],
+    notTools: ['sqlite.query'],
+    note: 'Query custom/user tables in meow_user.db.',
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['update', 'table'],
+    canonicalTools: ['db.update'],
+    notTools: ['sqlite.query'],
+  ),
+  CanonicalAction(
+    domain: 'database',
+    intentKeywords: ['delete', 'table'],
+    canonicalTools: ['db.delete'],
+    notTools: ['sqlite.query'],
+  ),
 ];
 
 // ─── Lookup utilities ────────────────────────────────────────────────────────
