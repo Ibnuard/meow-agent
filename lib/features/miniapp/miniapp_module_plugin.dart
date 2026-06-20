@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../core/storage/meow_database.dart';
 import '../../services/agent_runtime/module_plugin.dart';
 import '../../services/agent_runtime/runtime_models.dart';
+import 'data/miniapp_repository.dart';
 
 class MiniAppModulePlugin extends ModulePlugin {
   const MiniAppModulePlugin();
@@ -244,6 +245,8 @@ class MiniAppModulePlugin extends ModulePlugin {
             'created_at': createdAt,
           }, conflictAlgorithm: ConflictAlgorithm.abort);
 
+          MiniAppRepository.notifyChange();
+
           final persisted = await db.query(
             'miniapps',
             where: 'id = ? AND name = ? AND code_html = ?',
@@ -419,6 +422,8 @@ class MiniAppModulePlugin extends ModulePlugin {
             where: 'id = ?',
             whereArgs: [id],
           );
+
+          MiniAppRepository.notifyChange();
           final persisted = await db.query(
             'miniapps',
             columns: ['code_html'],
@@ -459,6 +464,8 @@ class MiniAppModulePlugin extends ModulePlugin {
           final id = row['id'].toString();
 
           final count = await db.delete('miniapps', where: 'id = ?', whereArgs: [id]);
+
+          MiniAppRepository.notifyChange();
 
           final remaining = await db.query(
             'miniapps',

@@ -188,7 +188,9 @@ html, body {
     navigation: {
       pop: () => callNative("navigation.pop", {}),
       push: (route) => callNative("navigation.push", { route })
-    }
+    },
+    alert: (message) => callNative("ui.alert", { message }),
+    confirm: (message) => callNative("ui.confirm", { message })
   };
 })();
 </script>
@@ -341,6 +343,50 @@ html, body {
               context.push(route);
             }
             result = true;
+            break;
+
+          case 'ui.alert':
+            final message = args['message']?.toString() ?? '';
+            if (mounted) {
+              await showDialog(
+                context: context,
+                builder: (_) => AlertDialog(
+                  content: Text(message),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            result = true;
+            break;
+
+          case 'ui.confirm':
+            final message = args['message']?.toString() ?? '';
+            if (mounted) {
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  content: Text(message),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              );
+              result = confirmed ?? false;
+            } else {
+              result = false;
+            }
             break;
 
           default:

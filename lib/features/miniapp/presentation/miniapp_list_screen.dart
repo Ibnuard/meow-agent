@@ -8,14 +8,12 @@ import '../../settings/data/app_language_provider.dart';
 import '../data/miniapp_model.dart';
 import '../data/miniapp_repository.dart';
 
-final _miniAppChangeWatcherProvider = StreamProvider<void>((ref) {
-  final repo = ref.watch(miniAppRepositoryProvider);
-  return repo.onChange;
-});
-
 final miniAppsListProvider = FutureProvider<List<MiniApp>>((ref) async {
   final repo = ref.watch(miniAppRepositoryProvider);
-  ref.watch(_miniAppChangeWatcherProvider);
+  final sub = repo.onChange.listen((_) {
+    ref.invalidateSelf();
+  });
+  ref.onDispose(sub.cancel);
   return repo.listMiniApps();
 });
 

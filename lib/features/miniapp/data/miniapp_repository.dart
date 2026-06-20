@@ -7,9 +7,13 @@ import 'miniapp_model.dart';
 class MiniAppRepository {
   MiniAppRepository();
 
-  final _changeController = StreamController<void>.broadcast();
+  static final _globalChangeController = StreamController<void>.broadcast();
 
-  Stream<void> get onChange => _changeController.stream;
+  Stream<void> get onChange => _globalChangeController.stream;
+
+  static void notifyChange() {
+    _globalChangeController.add(null);
+  }
 
   Future<MiniApp> saveMiniApp(MiniApp app) async {
     final db = await MeowDatabase.instance.database;
@@ -18,7 +22,7 @@ class MiniAppRepository {
       app.toMap(),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    _changeController.add(null);
+    notifyChange();
     return app;
   }
 
@@ -38,12 +42,10 @@ class MiniAppRepository {
   Future<void> deleteMiniApp(String id) async {
     final db = await MeowDatabase.instance.database;
     await db.delete('miniapps', where: 'id = ?', whereArgs: [id]);
-    _changeController.add(null);
+    notifyChange();
   }
 
-  void dispose() {
-    _changeController.close();
-  }
+  void dispose() {}
 }
 
 final miniAppRepositoryProvider = Provider<MiniAppRepository>((ref) {
