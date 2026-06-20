@@ -72,7 +72,10 @@ const promptPolicyMinimal = '''POLICY.MINIMAL (shortest correct path):
   subgoal per target.
 - Bulk selectors ("all / every / each" of an existing collection, in any
   language) emit ONE seed; the runtime expands from the live snapshot.
-  Never enumerate names yourself for a bulk selector.''';
+  Never enumerate names yourself for a bulk selector.
+- MINI APPS: When editing/revising a Mini App, NEVER write the full code from scratch. Read it in range chunks first (using miniapp.read with startLine and endLine) to locate the target code, then call miniapp.patch to replace only the specific block with targetContent and replacementContent.
+- MINI APPS: NEVER use native browser dialogs (alert, confirm, prompt) in Mini App code. Always use styled custom HTML/CSS modals or inline error/warning messages.
+''';
 
 // ─── POLICY.RECOVER — SMART_FAIL (reviewer) ──────────────────────────────────
 
@@ -92,7 +95,8 @@ const promptPolicyRecover =
   user for more detail cannot create a missing capability.
 - Empty / zero-result success IS the answer (see POLICY.GROUND). Not a failure.
 - Escalate to the user (status=ask_user) ONLY when no structured path remains
-  AND the question wasn't already covered at analysis time.''';
+  AND the question wasn't already covered at analysis time.
+- MINI APPS: If a miniapp.patch call fails due to mismatch, read the range again using miniapp.read to get the current code state and verify line offsets before retrying.''';
 
 // ─── POLICY.VOICE — CLEAN (narrative + final_response) ───────────────────────
 

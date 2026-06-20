@@ -34,6 +34,9 @@ dependencies:
   gpt_markdown: ^1.1.7
   syncfusion_flutter_calendar: ^28.1.33
 
+  # WebView for sandbox apps
+  webview_flutter: ^4.10.0
+
   # Workflow scheduling & notifications
   flutter_local_notifications: ^18.0.1
   timezone: ^0.10.0

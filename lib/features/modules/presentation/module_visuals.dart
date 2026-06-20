@@ -17,6 +17,7 @@ class ModuleVisuals {
       'vm' => Icons.terminal_rounded,
       'communication' => Icons.send_rounded,
       'database' => Icons.storage_rounded,
+      'miniapp' => Icons.widgets_outlined,
       _ => Icons.extension_rounded,
     };
   }
@@ -33,6 +34,7 @@ class ModuleVisuals {
       'vm' => const Color(0xFF10B981),
       'communication' => const Color(0xFF22C55E),
       'database' => const Color(0xFF6366F1),
+      'miniapp' => const Color(0xFFA855F7),
       _ => const Color(0xFF64748B),
     };
   }

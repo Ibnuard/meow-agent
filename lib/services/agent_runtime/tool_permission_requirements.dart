@@ -516,6 +516,38 @@ const toolPermissionRequirements = <String, ToolPermissionRequirement>{
     actionLabel: 'delete database records',
   ),
 
+  // ─── Mini App module ───────────────────────────────────────────────────
+  'miniapp.list': ToolPermissionRequirement(
+    moduleId: 'miniapp',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Mini Apps',
+    actionLabel: 'list installed mini apps',
+  ),
+  'miniapp.read': ToolPermissionRequirement(
+    moduleId: 'miniapp',
+    settingKey: 'allow_read',
+    settingLabel: 'Allow Read Mini Apps',
+    actionLabel: 'read mini app code',
+  ),
+  'miniapp.create': ToolPermissionRequirement(
+    moduleId: 'miniapp',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Mini Apps',
+    actionLabel: 'create or update mini apps',
+  ),
+  'miniapp.patch': ToolPermissionRequirement(
+    moduleId: 'miniapp',
+    settingKey: 'allow_create',
+    settingLabel: 'Allow Create Mini Apps',
+    actionLabel: 'patch mini app code',
+  ),
+  'miniapp.delete': ToolPermissionRequirement(
+    moduleId: 'miniapp',
+    settingKey: 'allow_delete',
+    settingLabel: 'Allow Delete Mini Apps',
+    actionLabel: 'delete mini apps',
+  ),
+
   // ─── Communication module ──────────────────────────────────────────────
   'communication.resolve_contact': ToolPermissionRequirement(
     moduleId: 'communication',

@@ -31,7 +31,7 @@ class MeowDatabase {
   Future<Database> _open() async {
     final dir = await getDatabasesPath();
     final path = '$dir/$_dbName';
-    return openDatabase(
+    final db = await openDatabase(
       path,
       version: _schemaVersion,
       onConfigure: (db) async {
@@ -43,6 +43,17 @@ class MeowDatabase {
         await _createSchema(db);
       },
     );
+    // Ensure miniapps table exists for existing installs that already have version 1 database
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS miniapps (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        icon        TEXT,
+        code_html   TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+      )
+    ''');
+    return db;
   }
 
   Future<void> _createSchema(Database db) async {
@@ -210,6 +221,19 @@ class MeowDatabase {
       'CREATE INDEX idx_amp_module ON agent_module_permissions(module_id)',
     );
 
+    // -----------------------------------------------------------------------
+    // Mini Apps — user-created micro-applications
+    // -----------------------------------------------------------------------
+    batch.execute('''
+      CREATE TABLE miniapps (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        icon        TEXT,
+        code_html   TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+      )
+    ''');
+
     await batch.commit(noResult: true);
   }
 
@@ -217,6 +241,7 @@ class MeowDatabase {
   Future<void> resetForTesting() async {
     final db = await database;
     final batch = db.batch();
+    batch.execute('DROP TABLE IF EXISTS miniapps');
     batch.execute('DROP TABLE IF EXISTS agent_module_permissions');
     batch.execute('DROP TABLE IF EXISTS modules');
     batch.execute('DROP TABLE IF EXISTS agent_events');

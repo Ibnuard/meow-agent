@@ -364,6 +364,72 @@ const List<CanonicalAction> canonicalActionMap = [
     canonicalTools: ['db.delete'],
     notTools: ['sqlite.query'],
   ),
+
+  // ─── Mini Apps (miniapp) ──────────────────────────────────────────────────
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['list', 'mini', 'app'],
+    canonicalTools: ['miniapp.list'],
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['read', 'mini', 'app'],
+    canonicalTools: ['miniapp.read'],
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['create', 'mini', 'app'],
+    canonicalTools: ['miniapp.create'],
+    notTools: ['files.write', 'files.create'],
+    note: 'Saves mini app UI and logic definition to databases.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['edit', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Read in sliced chunks first to locate code, then patch target block.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['update', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Same as edit.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['modify', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Same as edit.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['patch', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Same as edit.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['fix', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Read in sliced chunks first to locate code, then patch target block.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['revise', 'mini', 'app'],
+    canonicalTools: ['miniapp.read', 'miniapp.patch'],
+    notTools: ['miniapp.create', 'files.write'],
+    note: 'Read in sliced chunks first to locate code, then patch target block.',
+  ),
+  CanonicalAction(
+    domain: 'miniapp',
+    intentKeywords: ['delete', 'mini', 'app'],
+    canonicalTools: ['miniapp.delete'],
+  ),
 ];
 
 // ─── Lookup utilities ────────────────────────────────────────────────────────

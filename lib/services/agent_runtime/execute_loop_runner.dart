@@ -525,7 +525,7 @@ class ExecuteLoopRunner {
         if (stuck.observe(
           toolName: toolRequest.name,
           args: toolRequest.args,
-          target: _targetFromArgs(toolRequest.args),
+          target: targetFromArgs(toolRequest.args),
         )) {
           if (!rePlanned) {
             rePlanned = true;
@@ -1742,7 +1742,7 @@ class ExecuteLoopRunner {
   /// detection. Returns the first present id/name-like field; empty when none
   /// (caller then falls back to full-arg matching). Generic across domains —
   /// covers the common id/name/target/path/package/url keys.
-  static String _targetFromArgs(Map<String, dynamic> args) {
+  static String targetFromArgs(Map<String, dynamic> args) {
     const keys = [
       'id',
       'agent_id',
@@ -1759,11 +1759,23 @@ class ExecuteLoopRunner {
       'title',
       'query',
     ];
+    String targetVal = '';
     for (final k in keys) {
       final v = args[k];
-      if (v is String && v.trim().isNotEmpty) return '$k=${v.trim()}';
+      if (v is String && v.trim().isNotEmpty) {
+        targetVal = '$k=${v.trim()}';
+        break;
+      }
     }
-    return '';
+
+    if (targetVal.isNotEmpty) {
+      final start = args['startLine'] ?? args['start'] ?? args['offset'];
+      final end = args['endLine'] ?? args['end'] ?? args['limit'];
+      if (start != null || end != null) {
+        targetVal += '|range:${start}_$end';
+      }
+    }
+    return targetVal;
   }
 
   /// Compact a tool result before it is appended to [previousResults] and

@@ -191,4 +191,47 @@ void main() {
       expect(ExecuteLoopRunner.extractFailureCause(r), stderr);
     });
   });
+
+  group('targetFromArgs — stuck detector target extraction', () {
+    test('extracts standard id or name field', () {
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {'id': 'my_app'}),
+        'id=my_app',
+      );
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {'name': 'Tester'}),
+        'name=Tester',
+      );
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {'path': '/some/path'}),
+        'path=/some/path',
+      );
+    });
+
+    test('appends range/slice/pagination bounds to prevent false positive stuck loops', () {
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {
+          'id': 'my_app',
+          'startLine': 100,
+          'endLine': 200,
+        }),
+        'id=my_app|range:100_200',
+      );
+
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {
+          'id': 'my_app',
+          'offset': 10,
+          'limit': 50,
+        }),
+        'id=my_app|range:10_50',
+      );
+
+      // No range/slice keys present - fallback to pure target identifier
+      expect(
+        ExecuteLoopRunner.targetFromArgs(const {'id': 'my_app'}),
+        'id=my_app',
+      );
+    });
+  });
 }

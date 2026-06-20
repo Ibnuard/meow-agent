@@ -199,6 +199,20 @@ class ModuleRegistry {
     },
   );
 
+  static const miniapp = ModuleModel(
+    id: 'miniapp',
+    name: 'Mini App',
+    description:
+        'Create and run custom mini applications locally. '
+        'Connect to user database, notes, APIs, and enjoy a native look-and-feel interface.',
+    icon: '📱',
+    settings: {
+      'allow_read': true,
+      'allow_create': true,
+      'allow_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     deviceContext,
     notificationIntelligence,
@@ -209,5 +223,6 @@ class ModuleRegistry {
     web,
     communication,
     database,
+    miniapp,
   ];
 }

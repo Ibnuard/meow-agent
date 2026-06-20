@@ -580,6 +580,41 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
+          // Mini App module: show "Open Mini App Dashboard" button when enabled.
+          if (module.id == 'miniapp' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => context.push('/miniapp'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.widgets_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openMiniApp,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
           // VM Runtime module: show "Open VM Runtime" button when enabled.
           if (module.id == 'vm' && module.enabled) ...[
             GestureDetector(

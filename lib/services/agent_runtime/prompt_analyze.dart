@@ -208,6 +208,7 @@ Rules:
     workflow     \\u2014 create/list/update/delete/toggle scheduled or recurring automations
     system       \\u2014 agents, providers, modules, tools, profile/identity, durable memory, workspace introspection
     database     \\u2014 list user tables, create/drop tables, insert/update/delete/query records in user database
+    miniapp      \\u2014 list, read, create, patch, or delete custom local mini apps
     chat         \\u2014 deliver a message into the Meow Agent internal chat UI (NOT external messaging apps)
     communication \\u2014 phone calls (CALL_PHONE), SMS, contact lookup — external telephony and messaging
     attachment   \\u2014 list attached files and read supported text attachments from the current message

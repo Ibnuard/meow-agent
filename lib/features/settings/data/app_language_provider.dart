@@ -316,6 +316,18 @@ class AppStrings {
   String get openVmRuntime => isId ? 'Buka VM Runtime' : 'Open VM Runtime';
   String get openDatabaseManager =>
       isId ? 'Buka Database Manager' : 'Open Database Manager';
+  String get openMiniApp => isId ? 'Buka Mini App' : 'Open Mini App';
+  String get miniAppDashboardTitle => isId ? 'Mini App' : 'Mini App';
+  String get miniAppDashboardEmpty => isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
+  String get miniAppDashboardEmptyDesc => isId
+      ? 'Minta agen untuk membuat Mini App pertamamu lewat chat!'
+      : 'Ask the agent to create your first Mini App in chat!';
+  String get miniAppDeleteConfirm => isId ? 'Hapus Mini App?' : 'Delete Mini App?';
+  String miniAppDeleteConfirmDesc(String name) => isId
+      ? 'Apakah kamu yakin ingin menghapus Mini App "$name" secara permanen?'
+      : 'Are you sure you want to permanently delete Mini App "$name"?';
+  String get miniAppDeleteSuccess => isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
+  String get miniAppDeleteError => isId ? 'Mini App tidak dapat dihapus.' : 'The Mini App could not be deleted.';
   String get dbManagerTitle => isId ? 'Manajer Database' : 'Database Manager';
   String get dbManagerEmpty =>
       isId ? 'Belum ada tabel database.' : 'No database tables found.';
@@ -616,6 +628,9 @@ class AppStrings {
   String get moduleDescDatabase => isId
       ? 'Isolated SQLite database untuk tabel personalmu. Agen dapat membuat tabel, memasukkan data, dan melakukan query untuk mendukung mini app.'
       : 'Isolated SQLite database for your personal tables. Agents can create tables, insert data, and query tables to support mini apps.';
+  String get moduleDescMiniApp => isId
+      ? 'Buat dan jalankan aplikasi mini personal secara lokal. Hubungkan ke database user, catatan, API, dan nikmati antarmuka feel-native.'
+      : 'Create and run custom mini applications locally. Connect to user database, notes, APIs, and enjoy a native look-and-feel interface.';
   // --- Today Prompt (module detail) ---
   String get todayPromptTitle => isId ? 'Prompt Hari Ini' : 'Today\'s Prompt';
   String get todayPromptSubtitle => isId
@@ -770,6 +785,18 @@ class AppStrings {
                 'Create a new table named "expenses" with columns description and amount.',
                 'Show all data from my "workout_log" table.',
                 'Delete a row from a table by its id.',
+              ];
+      case 'miniapp':
+        return isId
+            ? const [
+                'Buatkan aplikasi mini kalkulator kalori sederhana dengan style mint.',
+                'Tampilkan daftar aplikasi mini yang sudah terpasang.',
+                'Buat kalkulator pengeluaran bulanan yang menyimpan datanya di database.',
+              ]
+            : const [
+                'Create a simple calorie calculator mini app with mint styling.',
+                'List all installed mini apps.',
+                'Create a monthly expense calculator that stores data in the database.',
               ];
       default:
         return isId
@@ -2005,6 +2032,27 @@ class AppStrings {
         isId
             ? 'Agen dapat menghapus tabel secara permanen. Aksi ini memerlukan konfirmasi.'
             : 'Agent can permanently drop tables. This action requires confirmation.',
+      ),
+      _ => (key, ''),
+    },
+    'miniapp' => switch (key) {
+      'allow_read' => (
+        isId ? 'Buka Mini App' : 'Open Mini App',
+        isId
+            ? 'Agen dapat membaca dan membuka daftar aplikasi mini yang ada.'
+            : 'Agent can list and launch existing mini-applications.',
+      ),
+      'allow_create' => (
+        isId ? 'Buat Mini App' : 'Create Mini App',
+        isId
+            ? 'Agen dapat membuat aplikasi mini baru dengan HTML dan Javascript.'
+            : 'Agent can create new mini-applications using HTML and Javascript.',
+      ),
+      'allow_delete' => (
+        isId ? 'Hapus Mini App' : 'Delete Mini App',
+        isId
+            ? 'Agen dapat menghapus aplikasi mini yang sudah terinstall.'
+            : 'Agent can delete installed mini-applications.',
       ),
       _ => (key, ''),
     },

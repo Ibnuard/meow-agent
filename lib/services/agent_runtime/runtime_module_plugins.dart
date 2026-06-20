@@ -13,6 +13,7 @@ import '../../features/modules/web/web_module.dart';
 import '../../features/modules/communication/communication_module.dart';
 import '../../features/modules/workflows/workflow_module.dart';
 import '../../features/modules/db/db_module.dart';
+import '../../features/miniapp/miniapp_module_plugin.dart';
 import 'module_plugin.dart';
 import 'module_registry.dart';
 
@@ -35,6 +36,7 @@ const List<ModulePlugin> runtimeModulePlugins = [
   // VmModulePlugin(),
   CommunicationModulePlugin(),
   DatabaseModulePlugin(),
+  MiniAppModulePlugin(),
 ];
 
 ModuleRegistry? _cachedRegistry;

@@ -18,10 +18,12 @@ import '../features/modules/notes/notes_list_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/miniapp/presentation/miniapp_list_screen.dart';
+import '../features/miniapp/presentation/miniapp_runner_screen.dart';
 import 'shell.dart';
 
 /// Global navigator key for pushing routes from outside the widget tree
-/// (e.g., notification tap handlers).
+/// (e.g., navigator tap handlers).
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class AppRoutes {
@@ -48,6 +50,8 @@ class AppRoutes {
   static const noteEdit = '/notes/:id/edit';
   static const apiStore = '/modules/api-store';
   static const databaseManager = '/database';
+  static const miniappList = '/miniapp';
+  static const miniappRun = '/miniapp/run/:id';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -118,6 +122,19 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.databaseManager,
         name: 'databaseManager',
         builder: (context, state) => const DbManagerScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.miniappList,
+        name: 'miniappList',
+        builder: (context, state) => const MiniAppListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.miniappRun,
+        name: 'miniappRun',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return MiniAppRunnerScreen(appId: id);
+        },
       ),
       GoRoute(
         path: AppRoutes.moduleDetail,
