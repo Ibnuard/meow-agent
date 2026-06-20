@@ -277,6 +277,7 @@ class TargetResolver {
             'Runtime removed impacts that were not linked to eligible targets.',
         ].where((s) => s.trim().isNotEmpty).join(' '),
         narrative: expanded.narrative,
+        nextNarrative: expanded.nextNarrative,
         degraded: expanded.degraded,
       ),
     );
@@ -524,6 +525,7 @@ class TargetResolver {
         'Runtime fanned out bulk selector targets from snapshot.',
       ].where((s) => s.trim().isNotEmpty).join(' '),
       narrative: reflection.narrative,
+      nextNarrative: reflection.nextNarrative,
       degraded: reflection.degraded,
     );
   }

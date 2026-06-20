@@ -2,7 +2,10 @@
 library;
 
 import 'prompt_context.dart'
-    show promptNarrativeFieldRule, promptToolResultTrust;
+    show
+        promptNarrativeFieldRule,
+        promptNextNarrativeFieldRule,
+        promptToolResultTrust;
 
 // ─── Tool Selector ───────────────────────────────────────────────────────────
 
@@ -99,6 +102,10 @@ HARD RULES BEFORE DECIDING STATUS (read first):
 - status="done" is ONLY valid when ALL subgoals are terminal (done/failed/skipped) AND every completion_criterion is satisfied. If ANY pending subgoal remains, you MUST return status="continue".
 - The ORIGINAL USER REQUEST is the only goal that decides done. Compare the work actually performed against that request — not against subgoal labels alone. If the user asked for X (e.g. "create a note with clipboard text") and the only successful tool so far did Y (read the clipboard), the user's goal is NOT met. Return status="continue".
 - If the user request specifies a quantity or count of items to process (e.g. "insert 5 rows", "delete 3 notes"), you MUST count the actual number of successful operations in "Previous results" plus the current "Tool result". If the total count of successful operations is less than the requested amount, the goal is NOT met. You MUST return status="continue" to execute the remaining ones.
+- A plural/collection population is NEVER satisfied by one representative
+  insert unless the user explicitly chose a single item. If collection scope
+  is absent from both the original request and plan, return ask_user with one
+  concise scope question; do not return done after the first successful row.
 - A corrective / precondition / setup action succeeding is NEVER the goal. mkdir, cd, install, ensure-exists, status-check, lookup, resolve, and any "fix the prerequisite so the next step works" tool — when these succeed, you MUST return status="continue" and the next step MUST re-attempt the original action that triggered the fix. Do NOT mark the active subgoal "done" just because the corrective tool succeeded; mark it "in_progress" with notes describing the fix. Do NOT write a final_response that announces the corrective action as the result.
 - app.resolve is NOT app.open. app.resolve only looks up a package name — it does NOT open anything. After app.resolve succeeds, the app is NOT open yet. You MUST continue to call app.open next.
 - NEVER claim an action happened that the tool result does not prove. If the tool result says "matched: true, packageName: X", that means the package was FOUND, not that the app was OPENED.
@@ -119,6 +126,9 @@ ALL response shapes MUST include a `narrative` field. $promptNarrativeFieldRule
 - NEVER repeat a previous narrative verbatim. Each step must have a unique observation.
 - No mention of "subgoal" or other jargon.
 
+ALL response shapes MUST include a `next_narrative` field. $promptNextNarrativeFieldRule
+- Leave it empty only when status is done, ask_user, or failed and no autonomous next step will run.
+
 If the active subgoal succeeded but other subgoals are still pending: status=continue.
 Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
 
@@ -127,7 +137,8 @@ If task is complete:
   "status": "done",
   "final_response": "natural human reply, no tool names",
   "subgoal_update": {"id": "sgX", "status": "done"},
-  "narrative": ""
+  "narrative": "",
+  "next_narrative": ""
 }
 
 If more subgoals remain:
@@ -135,7 +146,8 @@ If more subgoals remain:
   "status": "continue",
   "reason": "why we need to continue",
   "subgoal_update": {"id": "sgX", "status": "done"},
-  "narrative": ""
+  "narrative": "",
+  "next_narrative": ""
 }
 
 If tool failed and should retry:
@@ -143,7 +155,8 @@ If tool failed and should retry:
   "status": "retry",
   "reason": "why retry might work",
   "subgoal_update": {"id": "sgX", "status": "in_progress"},
-  "narrative": ""
+  "narrative": "",
+  "next_narrative": ""
 }
 
 If you need user input:
@@ -151,7 +164,8 @@ If you need user input:
   "status": "ask_user",
   "question": "what you need",
   "subgoal_update": {"id": "sgX", "status": "in_progress"},
-  "narrative": ""
+  "narrative": "",
+  "next_narrative": ""
 }
 
 If unrecoverable:
@@ -159,7 +173,8 @@ If unrecoverable:
   "status": "failed",
   "error": "what went wrong",
   "subgoal_update": {"id": "sgX", "status": "failed"},
-  "narrative": ""
+  "narrative": "",
+  "next_narrative": ""
 }''';
 
 const promptSelectToolMemoryHeader =

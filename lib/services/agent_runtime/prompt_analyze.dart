@@ -3,7 +3,8 @@
 /// See [analyzePrompt] in [PromptTemplates] for usage.
 library;
 
-import 'prompt_context.dart' show promptNarrativeFieldRule;
+import 'prompt_context.dart'
+    show promptNarrativeFieldRule, promptNextNarrativeFieldRule;
 
 const promptAnalyzeIntro =
     'You are an AI agent runtime analyzer running on an Android device.';
@@ -94,6 +95,21 @@ Multi-target enumeration rule (CRITICAL):
 - If the request is single-target, return a single-element subgoal_seeds array.
 - subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).
 
+Collection population rule (CRITICAL, language-generic):
+- Treat "populate/fill/seed/complete this collection" as a collection-sized
+  outcome, never as a single-item request merely because no rows were listed.
+- If the current request and conversation do not establish an explicit item
+  list, count, or unambiguous scope, set requires_tools=false and put ONE short
+  question in missing_info asking whether to use the full recognized set, a
+  subset, or custom entries. Do not insert a sample row first.
+- A recognized finite collection is still a scope choice unless the user has
+  clearly requested the full collection. Confirm full set versus subset/custom.
+- Once scope is explicit and the entries are identifiable, emit one
+  subgoal_seed per item/row. If only a count is known but the actual entries
+  cannot be derived without guessing, ask for the entries instead.
+- Never use one successful insert as the implied meaning of a plural or
+  collection-population request.
+
 Bulk-selector rule (applies to ANY entity type — agents, workflows, providers, modules, notes, files):
 - A BULK SELECTOR is any word or phrase, IN ANY LANGUAGE, meaning "all / every / each" of an existing entity collection (or "*" as a wildcard). You understand the user's language — recognize it semantically, do NOT depend on a fixed word list. It means "every existing entity of this type that the user can see".
 - A bulk selector ALWAYS produces a multi-target intent even though the user did not type out the names. Examples (intent shown in English; user phrasing may be in any language):
@@ -168,13 +184,18 @@ const promptAnalyzeResponseFormat =
   "tool_groups": ["group enum", "..."],
   "missing_info": ["clarifying question 1", "clarifying question 2"],
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
+  "requested_item_count": null,
   "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
-  "narrative": "$promptNarrativeFieldRule Show what you understood and your initial read. Examples: 'Got it \\u2014 you want to remove three agents at once. Let me check if any of them have active workflows first.' / 'You\\u0027re asking to clone yourself into a new agent. Straightforward \\u2014 I\\u0027ll copy my current config over.'"
+  "narrative": "$promptNarrativeFieldRule Show only what you understood and your initial read.",
+  "next_narrative": "$promptNextNarrativeFieldRule Describe the phase that should happen immediately after analysis. Example: 'Next I need to check whether anything depends on those agents before I touch them.'"
 }
 
 Rules:
 - If missing_info has items, requires_tools MUST be false.
+- requested_item_count: exact integer when the user established a collection
+  size; otherwise null. It MUST agree with the number of per-item
+  subgoal_seeds when the entries are identifiable.
 - detected_language: the ISO 639-1 code of the language the USER wrote in (e.g. "en", "id", "es", "fr", "ja", "ar"). Judge from the user's actual message text, not the app setting. This drives every user-facing reply, so be accurate. If the message is too short or ambiguous to tell, repeat the language of the recent conversation, else default to "en".
 - tool_groups: when requires_tools is true, list the tool CATEGORY/CATEGORIES most relevant to the request, chosen ONLY from this fixed English enum:
     app          \\u2014 open apps/URLs, list installed apps, open settings
@@ -193,6 +214,7 @@ Rules:
     web          \\u2014 fetch HTTP URLs, register/list/call/remove stored APIs from the API Store
   Pick the smallest set that covers the request (usually ONE). If genuinely unsure, you MAY omit tool_groups or leave it empty \\u2014 the runtime then considers all tools. Never invent a group name outside this enum.
 - $promptNarrativeFieldRule
+- $promptNextNarrativeFieldRule
 - task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
   * "none"          -> no active task context provided, OR the new message clearly stands on its own and has nothing to do with the active task.
   * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok continue", "yes", short answer to a clarify). Treat as same task.

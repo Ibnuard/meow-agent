@@ -140,6 +140,18 @@ $_sharedSystemRules
     required String agentId,
   }) => promptSelfIdentity(agentName: agentName, agentId: agentId);
   static const narrativeFieldRule = promptNarrativeFieldRule;
+  static const nextNarrativeFieldRule = promptNextNarrativeFieldRule;
+  static String taskSummaryPrompt({
+    required String mainGoal,
+    required String subgoalsBlock,
+    required String languageLabel,
+    required String languageCode,
+  }) => promptTaskSummary(
+    mainGoal: mainGoal,
+    subgoalsBlock: subgoalsBlock,
+    languageLabel: languageLabel,
+    languageCode: languageCode,
+  );
   static const toolResultTrust = promptToolResultTrust;
   static const compactorSystemPrompt = promptCompactorSystemPrompt;
   static const jsonRepairIntro = promptJsonRepairIntro;

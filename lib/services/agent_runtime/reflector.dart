@@ -158,6 +158,7 @@ class ReflectionOutput {
     this.blockReason = '',
     this.reasoning = '',
     this.narrative = '',
+    this.nextNarrative = '',
     this.degraded = false,
   });
 
@@ -174,6 +175,11 @@ class ReflectionOutput {
   /// bubble. Empty when the model omitted it.
   final String narrative;
 
+  /// LLM-generated, forward-looking thought shown immediately before the
+  /// runtime enters the next phase. Empty means the runtime uses its safe
+  /// deterministic fallback.
+  final String nextNarrative;
+
   /// True when the reflector failed (parse / network) and we degraded to
   /// a directExecute fallback. Used for logging only.
   final bool degraded;
@@ -189,6 +195,7 @@ class ReflectionOutput {
     if (blockReason.isNotEmpty) 'block_reason': blockReason,
     if (reasoning.isNotEmpty) 'reasoning': reasoning,
     if (narrative.isNotEmpty) 'narrative': narrative,
+    if (nextNarrative.isNotEmpty) 'next_narrative': nextNarrative,
     if (degraded) 'degraded': true,
   };
 }
@@ -456,6 +463,7 @@ ${PromptConstants.reflectResponseFormat}''';
     final blockReason = (json['block_reason'] ?? '').toString();
     final reasoning = (json['reasoning'] ?? '').toString();
     final narrative = (json['narrative'] ?? '').toString();
+    final nextNarrative = (json['next_narrative'] ?? '').toString();
 
     return ReflectionOutput(
       strategy: strategy,
@@ -466,6 +474,7 @@ ${PromptConstants.reflectResponseFormat}''';
       blockReason: blockReason,
       reasoning: reasoning,
       narrative: narrative,
+      nextNarrative: nextNarrative,
     );
   }
 

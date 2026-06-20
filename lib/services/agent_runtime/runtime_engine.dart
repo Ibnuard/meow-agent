@@ -918,6 +918,17 @@ class AgentRuntimeEngine {
       _pendingClarifications.remove(request.agentId);
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
+      var pendingNextNarrative = (analysis['next_narrative'] ?? '')
+          .toString()
+          .trim();
+      String takeNextNarrative(String fallbackPhase) {
+        final llmNarrative = pendingNextNarrative;
+        pendingNextNarrative = '';
+        return llmNarrative.isNotEmpty
+            ? llmNarrative
+            : NarrativeNarrator.narrateNext(fallbackPhase, detectedLang.code);
+      }
+
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
 
       // Pre-check: if the task looks simple enough to fast-path, defer the
@@ -935,7 +946,7 @@ class AgentRuntimeEngine {
       if (analyzerSaysToolsForReflect && !likelyFastPath) {
         if (logger.logPreActionNarrative(
           'reflecting',
-          NarrativeNarrator.narrateNext('reflecting', detectedLang.code),
+          takeNextNarrative('reflecting'),
         )) {
           emit(logger.events.last);
         }
@@ -986,6 +997,7 @@ class AgentRuntimeEngine {
         );
         reflection = targetResolution.reflection;
         targetGraph = targetResolution.graph;
+        pendingNextNarrative = reflection.nextNarrative.trim();
         logger.logLlmDecision('reflect', reflection.toJson());
         emit(logger.events.last);
         final reflectionEvidenceRefs = <String>[
@@ -1082,7 +1094,7 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
         if (logger.logPreActionNarrative(
           'composing',
-          NarrativeNarrator.narrateNext('composing', detectedLang.code),
+          takeNextNarrative('composing'),
         )) {
           emit(logger.events.last);
         }
@@ -1135,6 +1147,12 @@ class AgentRuntimeEngine {
       }
       final seeds = analysis['subgoal_seeds'];
       final hasMultiSeed = seeds is List && seeds.length > 1;
+      final rawRequestedItemCount = analysis['requested_item_count'];
+      final requestedItemCount = rawRequestedItemCount is num
+          ? rawRequestedItemCount.toInt()
+          : int.tryParse(rawRequestedItemCount?.toString() ?? '');
+      final hasRequestedCollection =
+          requestedItemCount != null && requestedItemCount > 1;
       final analyzerBulk = analysis['bulk_selector'] == true;
       final reflectorMultiSubgoal =
           reflection != null && reflection.goalTree.subgoals.length > 1;
@@ -1144,6 +1162,7 @@ class AgentRuntimeEngine {
           targetGraph != null && targetGraph.eligibleTargets.length > 1;
       final hasMultiTarget =
           hasMultiSeed ||
+          hasRequestedCollection ||
           analyzerBulk ||
           reflectorMultiSubgoal ||
           reflectorMultiTarget ||
@@ -1167,6 +1186,8 @@ class AgentRuntimeEngine {
         );
         emit(logger.events.last);
         plan = {
+          if (pendingNextNarrative.isNotEmpty)
+            'next_narrative': pendingNextNarrative,
           'steps': [
             {
               'id': 1,
@@ -1176,13 +1197,14 @@ class AgentRuntimeEngine {
             },
           ],
         };
+        pendingNextNarrative = '';
       } else {
         state = AgentRuntimeState.planning;
         logger.logStateChange(state, 'Creating execution plan');
         emit(logger.events.last);
         if (logger.logPreActionNarrative(
           'planning',
-          NarrativeNarrator.narrateNext('planning', detectedLang.code),
+          takeNextNarrative('planning'),
         )) {
           emit(logger.events.last);
         }
@@ -1864,10 +1886,18 @@ class AgentRuntimeEngine {
         (plan['main_goal'] as String?) ??
         (analysis['goal'] as String?) ??
         userMessage;
-    // Highest priority: the planner LLM's own subgoals (it now receives the
-    // resolved targets as authoritative input, so its breakdown reflects them).
+    final seeds = analysis['subgoal_seeds'];
+    // The analyzer's explicit enumeration is a lower-bound invariant. If the
+    // planner collapses eight requested rows into one coarse "populate" goal,
+    // keep the per-item seeds so progress and completion cannot stop at row 1.
     final subgoalsJson = plan['subgoals'];
-    if (subgoalsJson is List && subgoalsJson.isNotEmpty) {
+    final plannerCollapsedEnumeration =
+        seeds is List &&
+        seeds.length > 1 &&
+        (subgoalsJson is! List || subgoalsJson.length < seeds.length);
+    if (!plannerCollapsedEnumeration &&
+        subgoalsJson is List &&
+        subgoalsJson.isNotEmpty) {
       try {
         return GoalTree.fromJson({
           'main_goal': mainGoal,
@@ -1901,7 +1931,6 @@ class AgentRuntimeEngine {
         ],
       );
     }
-    final seeds = analysis['subgoal_seeds'];
     if (seeds is List && seeds.length > 1) {
       return GoalTree(
         mainGoal: mainGoal,

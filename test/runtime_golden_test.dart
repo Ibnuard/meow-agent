@@ -79,7 +79,8 @@ void main() {
         '{"intent":"device.battery","goal":"check battery","requires_tools":true,'
             '"risk":"safe","tool_groups":["device"],"missing_info":[],'
             '"subgoal_seeds":["check battery"],'
-            '"task_relation":"none","narrative":""}',
+            '"task_relation":"none","narrative":"",'
+            '"next_narrative":"Next I need to inspect the current battery reading."}',
       ],
       'reflect': [
         '{"strategy":"direct_execute","goal_tree":{"main_goal":"check battery",'
@@ -94,7 +95,8 @@ void main() {
       ],
       'selectTool': [
         '{"status":"tool_required","tool":{"name":"device.battery","args":{},'
-            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+            '"risk":"safe","requires_confirmation":false},'
+            '"narrative":"I will read the current battery state now."}',
       ],
       'review': [
         '{"status":"done","final_response":"Battery is at 80%.",'
@@ -125,6 +127,25 @@ void main() {
     expect(res.finalMessage, contains('80%'));
     // Grounded: answer reflects canned data (not charging).
     expect(res.finalMessage.toLowerCase(), contains('not charging'));
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'narrative' &&
+            event.data?['mode'] == 'pre_action' &&
+            event.message ==
+                'Next I need to inspect the current battery reading.',
+      ),
+      isTrue,
+    );
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'narrative' &&
+            event.data?['mode'] == 'pre_action' &&
+            event.message == 'I will read the current battery state now.',
+      ),
+      isTrue,
+    );
     // POST-STAGE-2: a trivial, high-confidence, single safe-tool read skips
     // BOTH the redundant `review` (Stage 1) and the `reflect` (Stage 2) phases.
     // Simple read went 5 → 3 LLM calls. Destructive/multi-entity turns still
@@ -460,6 +481,7 @@ void main() {
         '{"intent":"notes.create","goal":"create 3 notes","requires_tools":true,'
             '"risk":"safe","missing_info":[],'
             '"subgoal_seeds":["create note A","create note B","create note C"],'
+            '"requested_item_count":3,'
             '"task_relation":"none","narrative":""}',
       ],
       'reflect': [
@@ -472,10 +494,8 @@ void main() {
       ],
       'plan': [
         '{"main_goal":"create 3 notes","completion_criteria":["3 notes exist"],'
-            '"subgoals":['
-            '{"id":"sg1","label":"create note A","required_slots":{},"missing_slots":[],"status":"pending"},'
-            '{"id":"sg2","label":"create note B","required_slots":{},"missing_slots":[],"status":"pending"},'
-            '{"id":"sg3","label":"create note C","required_slots":{},"missing_slots":[],"status":"pending"}],'
+            '"subgoals":[{"id":"sg1","label":"populate notes",'
+            '"required_slots":{},"missing_slots":[],"status":"pending"}],'
             '"narrative":""}',
       ],
       'selectTool': [
@@ -484,7 +504,8 @@ void main() {
         '{"status":"tool_required","tool":{"name":"notes.create","args":{"title":"C","body":"C"},"risk":"safe","requires_confirmation":false},"narrative":""}',
       ],
       'review': [
-        '{"status":"continue","reason":"more notes","subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
+        '{"status":"continue","reason":"more notes","subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"","next_narrative":"Next I need to create note B."}',
         '{"status":"continue","reason":"more notes","subgoal_update":{"id":"sg2","status":"done"},"narrative":""}',
         '{"status":"done","final_response":"Created all three notes.","subgoal_update":{"id":"sg3","status":"done"},"narrative":""}',
       ],
@@ -501,15 +522,30 @@ void main() {
         ),
       },
     );
+    final emitted = <RuntimeEvent>[];
     final res = await buildEngine(
       llm: llm,
       router: router,
-    ).run(req('create 3 notes A, B, C'), provider: provider());
+    ).run(
+      req('create 3 notes A, B, C'),
+      provider: provider(),
+      onEvent: emitted.add,
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     // The regression guard: all three creates must run.
     expect(router.dispatchCountOf('notes.create'), 3);
+    expect(emitted.any((event) => event.type == 'task_ledger'), isTrue);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'narrative' &&
+            event.data?['mode'] == 'pre_action' &&
+            event.message == 'Next I need to create note B.',
+      ),
+      isTrue,
+    );
     expect(
       res.events.any(
         (event) =>
@@ -965,6 +1001,33 @@ void main() {
     expect(res.actions.single.target, '/modules/device_context');
     expect(res.actions.single.label, 'Open Device Context');
     expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S21 unspecified collection scope asks before first insert', () async {
+    final llm = ScriptedLlmClient({
+      'analyze': [
+        '{"intent":"db.populate","goal":"populate planet table",'
+            '"requires_tools":false,"risk":"safe","tool_groups":["database"],'
+            '"missing_info":["Should I add the full recognized set, a subset, or custom entries?"],'
+            '"subgoal_seeds":[],"requested_item_count":null,'
+            '"task_relation":"none","narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(
+      req('populate the planet table', agentId: 'collection-scope-agent'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(res.finalMessage, contains('full recognized set'));
+    expect(router.dispatchSequence, isEmpty);
+    expect(llm.phaseSequence, ['analyze']);
   });
 
   test('S10 analyzer detected_language refines the reply language', () async {

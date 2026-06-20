@@ -4,6 +4,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'i18n_fallback.dart';
 import 'language_detector.dart';
+import 'prompt_constants.dart';
 import 'runtime_models.dart';
 
 /// Generic, LLM-backed user-facing string generator.
@@ -385,22 +386,12 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
         )
         .join('\n');
 
-    final prompt =
-        '''You write ONE natural recap of a multi-step task that just finished.
-
-Overall goal: $mainGoal
-
-Subgoals completed:
-$subgoalsBlock
-
-Rules:
-- Reply in ${language.label} (${language.code}). Match this language exactly.
-- 1–3 short sentences. Cover EVERY subgoal in human terms — never single one out and ignore the rest.
-- Speak naturally as a helpful assistant who just finished the work. No bullet lists. No checkmarks.
-- Never expose internal tool names, IDs, or status codes (e.g. "system.config.patch", "agent_xxx", "[done]").
-- If any subgoal was skipped or failed, briefly acknowledge that too.
-
-Reply with the message only. No JSON, no quotes, no markdown.''';
+    final prompt = PromptConstants.taskSummaryPrompt(
+      mainGoal: mainGoal,
+      subgoalsBlock: subgoalsBlock,
+      languageLabel: language.label,
+      languageCode: language.code,
+    );
 
     return _callOrFallback(
       prompt: prompt,

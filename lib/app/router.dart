@@ -11,6 +11,7 @@ import '../features/modules/presentation/clipboard_process_screen.dart';
 import '../features/modules/presentation/module_detail_screen.dart';
 import '../features/modules/presentation/module_store_screen.dart';
 import '../features/modules/web/presentation/api_store_screen.dart';
+import '../features/modules/db/presentation/db_manager_screen.dart';
 import '../features/modules/notes/note_detail_screen.dart';
 import '../features/modules/notes/note_editor_screen.dart';
 import '../features/modules/notes/notes_list_screen.dart';
@@ -46,6 +47,7 @@ class AppRoutes {
   static const noteNew = '/notes/new';
   static const noteEdit = '/notes/:id/edit';
   static const apiStore = '/modules/api-store';
+  static const databaseManager = '/database';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -111,6 +113,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.apiStore,
         name: 'apiStore',
         builder: (context, state) => const ApiStoreScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.databaseManager,
+        name: 'databaseManager',
+        builder: (context, state) => const DbManagerScreen(),
       ),
       GoRoute(
         path: AppRoutes.moduleDetail,

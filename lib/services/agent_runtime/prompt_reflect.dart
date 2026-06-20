@@ -1,7 +1,8 @@
 /// Reflector prompt constants extracted from [PromptConstants].
 library;
 
-import 'prompt_context.dart' show promptNarrativeFieldRule;
+import 'prompt_context.dart'
+    show promptNarrativeFieldRule, promptNextNarrativeFieldRule;
 
 const promptReflectIntro =
     'You are an AI agent reflector. Your job is to think carefully BEFORE the agent acts.';
@@ -96,7 +97,8 @@ const promptReflectResponseFormat =
   "clarify_questions": ["one combined question that covers all missing slots"],
   "block_reason": "string, only when strategy=block",
   "reasoning": "1-2 sentences in English describing why you picked this strategy",
-  "narrative": "$promptNarrativeFieldRule Show the reasoning behind your caution or confidence. Examples: 'Let me check what depends on this agent before I remove it \\u2014 don\\u0027t want to break any workflows.' / 'This looks safe, nothing else is using it. Good to go.'"
+  "narrative": "$promptNarrativeFieldRule Show the reasoning behind your caution or confidence.",
+  "next_narrative": "$promptNextNarrativeFieldRule Describe the immediate planning or execution decision that follows this reflection."
 }
 
 Rules:
@@ -104,4 +106,5 @@ Rules:
 - If strategy=block, block_reason MUST be filled with a clear, polite explanation in the user's language.
 - impacts may be empty when nothing in the ecosystem is affected.
 - $promptNarrativeFieldRule No mention of "goal tree" or other internal jargon.
+- $promptNextNarrativeFieldRule
 - Never include backticks or markdown fences.''';

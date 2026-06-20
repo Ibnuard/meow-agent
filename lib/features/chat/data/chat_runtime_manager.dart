@@ -25,6 +25,15 @@ import 'unread_service.dart';
 
 const _taskLedgerSentinelPrefix = '[[TASK_LEDGER]]';
 
+@visibleForTesting
+bool shouldPersistTaskLedgerSnapshot(
+  TaskLedger? ledger, {
+  required bool awaitingConfirmation,
+}) {
+  if (ledger == null) return false;
+  return awaitingConfirmation || ledger.goalTree.subgoals.length > 1;
+}
+
 /// Per-agent runtime state. Survives ChatScreen disposal so navigating away
 /// does not cancel in-flight work; results are persisted regardless of UI.
 class ChatRuntimeSession {
@@ -573,13 +582,14 @@ class ChatRuntimeManager extends ChangeNotifier {
         _streamedMessages[agentId] ?? const [],
       );
       final persistedMessages = <ChatMessage>[sentUserMsg, ...streamedMessages];
-      if (historicalLedger != null &&
-          historicalLedger.goalTree.subgoals.length > 1 &&
-          !isConfirm) {
+      if (shouldPersistTaskLedgerSnapshot(
+        historicalLedger,
+        awaitingConfirmation: isConfirm,
+      )) {
         final ledgerMsg = ChatMessage(
           role: 'assistant',
           content:
-              '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
+              '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger!.toJson())}',
         );
         final ledgerId = await history.addMessage(agentId, ledgerMsg);
         persistedMessages.add(ledgerMsg.copyWith(id: ledgerId));
@@ -661,7 +671,10 @@ class ChatRuntimeManager extends ChangeNotifier {
           pendingToolArgs: response.pendingToolArgs,
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
-          clearTaskLedger: true,
+          // At a gate the persisted snapshot moves above the confirmation
+          // card, while the live copy stays ready to become sticky again as
+          // soon as the user accepts.
+          clearTaskLedger: !isConfirm,
           clearLiveCheckpoints: true,
           lastPersistedMessages: persistedMessages,
         ),
@@ -768,6 +781,51 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
+  /// Remove the persisted gate snapshot when an accepted task resumes.
+  ///
+  /// The same ledger remains in [ChatRuntimeSession.activeTaskLedger], so once
+  /// [isRunning] flips back to true it returns to the live sticky tail instead
+  /// of appearing twice (once in history and once above the narrator).
+  Future<void> _removePersistedLedgerSnapshot(String agentId) async {
+    final liveLedger = sessionFor(agentId).activeTaskLedger;
+    if (liveLedger == null) return;
+    try {
+      final sessionId = ref
+          .read(chatSessionServiceProvider)
+          .currentSessionId(agentId);
+      final latest = await history.loadLatest(agentId, sessionId: sessionId);
+      for (var i = latest.length - 1; i >= 0; i--) {
+        final message = latest[i];
+        if (!message.content.startsWith(_taskLedgerSentinelPrefix)) continue;
+        try {
+          final raw = message.content.substring(
+            _taskLedgerSentinelPrefix.length,
+          );
+          final decoded = jsonDecode(raw);
+          if (decoded is! Map) continue;
+          final ledger = TaskLedger.fromJson(decoded.cast<String, dynamic>());
+          if (ledger.id != liveLedger.id) continue;
+        } catch (_) {
+          continue;
+        }
+
+        if (message.id != null) {
+          await history.deleteMessage(message.id!);
+        }
+        final notifier = ref.read(chatMessagesProvider(agentId).notifier);
+        final visible = ref.read(chatMessagesProvider(agentId)).messages;
+        final visibleIndex = visible.indexWhere(
+          (candidate) =>
+              message.id != null && candidate.id == message.id,
+        );
+        if (visibleIndex >= 0) notifier.removeAt(visibleIndex);
+        break;
+      }
+    } catch (_) {
+      // Best-effort promotion; duplicate prevention must never block resume.
+    }
+  }
+
   Future<void> confirm(String agentId, {bool alwaysApprove = false}) async {
     final s = sessionFor(agentId);
     final tool = s.pendingTool;
@@ -808,6 +866,8 @@ class ChatRuntimeManager extends ChangeNotifier {
       return;
     }
 
+    await _removePersistedLedgerSnapshot(agentId);
+
     _streamedMessages[agentId] = [];
     _persistedStreamEventIds[agentId] = <String>{};
     final confirmationRunId =
@@ -845,6 +905,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         agents.where((a) => a.id == agentId).firstOrNull ??
         (agents.isNotEmpty ? agents.first : null);
     final agentName = agent?.name ?? '';
+    var receivedLedgerEvent = false;
 
     try {
       final response = await engine.executeConfirmed(
@@ -873,6 +934,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           }
           final ledger = _taskLedgerFromEvent(event);
           if (ledger != null) {
+            receivedLedgerEvent = true;
             final cur = sessionFor(agentId);
             _set(agentId, cur.copyWith(activeTaskLedger: ledger));
           }
@@ -910,14 +972,22 @@ class ChatRuntimeManager extends ChangeNotifier {
       final isNextConfirm =
           response.state == AgentRuntimeState.waitingConfirmation;
       final historicalLedger = sessionFor(agentId).activeTaskLedger;
+      // A just-confirmed final tool may complete before emitting another
+      // ledger event. Do not persist the pre-confirmation in-progress snapshot
+      // as if it were the completed state. A new gate is the exception: it
+      // still needs the current snapshot directly above its confirmation card.
+      final boundaryLedger = isNextConfirm || receivedLedgerEvent
+          ? historicalLedger
+          : null;
       final persistedMessages = <ChatMessage>[...?_streamedMessages[agentId]];
-      if (historicalLedger != null &&
-          historicalLedger.goalTree.subgoals.length > 1 &&
-          !isNextConfirm) {
+      if (shouldPersistTaskLedgerSnapshot(
+        boundaryLedger,
+        awaitingConfirmation: isNextConfirm,
+      )) {
         final ledgerMsg = ChatMessage(
           role: 'assistant',
           content:
-              '$_taskLedgerSentinelPrefix${jsonEncode(historicalLedger.toJson())}',
+              '$_taskLedgerSentinelPrefix${jsonEncode(boundaryLedger!.toJson())}',
         );
         final ledgerId = await history.addMessage(agentId, ledgerMsg);
         persistedMessages.add(ledgerMsg.copyWith(id: ledgerId));
@@ -961,9 +1031,10 @@ class ChatRuntimeManager extends ChangeNotifier {
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
       final hasLedgerMsg =
-          historicalLedger != null &&
-          historicalLedger.goalTree.subgoals.length > 1 &&
-          !isNextConfirm;
+          shouldPersistTaskLedgerSnapshot(
+            boundaryLedger,
+            awaitingConfirmation: isNextConfirm,
+          );
       persistedMessages
         ..clear()
         ..addAll(
@@ -986,7 +1057,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           pendingToolArgs: response.pendingToolArgs,
           lastReplyAt: DateTime.now(),
           clearNarrative: true,
-          clearTaskLedger: true,
+          clearTaskLedger: !isNextConfirm,
           clearLiveCheckpoints: true,
           lastPersistedMessages: persistedMessages,
         ),

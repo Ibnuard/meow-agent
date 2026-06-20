@@ -19,7 +19,8 @@ library;
 /// Owner: analyzer. Downstream phases must NOT introduce new questions
 /// unless live tool data reveals an ambiguity that did not exist at
 /// analysis time.
-const promptPolicyAsk = '''POLICY.ASK (when to ask the user — analyzer is the owner):
+const promptPolicyAsk =
+    '''POLICY.ASK (when to ask the user — analyzer is the owner):
 - Ask exactly once at analysis time, and ONLY when ANY holds:
   1. A required input is absent or ambiguous (a time without AM/PM, an
      unnamed target, a count not given).
@@ -30,7 +31,12 @@ const promptPolicyAsk = '''POLICY.ASK (when to ask the user — analyzer is the 
 - A complete-but-sensitive action is NOT a question. Call the tool directly —
   the runtime renders an approve/cancel confirmation card.
 - Capability-missing is NOT a question. If no tool exists for the asked action,
-  report honestly. More user detail cannot create a missing capability.''';
+  report honestly. More user detail cannot create a missing capability.
+- POPULATING COLLECTIONS: a request to populate, fill, seed, or complete a
+  table/list/collection is incomplete when it gives no item list, count, or
+  unambiguous collection scope. Ask whether the user wants the full recognized
+  set, a subset, or custom entries. Never silently interpret it as permission
+  to create one representative/sample item.''';
 
 // ─── POLICY.GROUND — ACCURACY (selector + reviewer) ──────────────────────────
 
@@ -71,7 +77,8 @@ const promptPolicyMinimal = '''POLICY.MINIMAL (shortest correct path):
 // ─── POLICY.RECOVER — SMART_FAIL (reviewer) ──────────────────────────────────
 
 /// Structured failure handling. Consolidates retry/fallback/escalate logic.
-const promptPolicyRecover = '''POLICY.RECOVER (use structured failure data before giving up):
+const promptPolicyRecover =
+    '''POLICY.RECOVER (use structured failure data before giving up):
 - result.data.available is non-empty → the handler told you the id was stale
   or the entity was missing under the key you tried. Retry with a name from
   data.available[*] BEFORE asking the user or returning failed.

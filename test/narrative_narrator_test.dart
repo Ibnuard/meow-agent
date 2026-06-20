@@ -18,30 +18,39 @@ void main() {
 
     test('unknown language falls back to English bundle', () {
       // 'xx' is not a real language code; should fall back gracefully.
-      final out = NarrativeNarrator.narrate('planning', 'xx');
-      final en = NarrativeNarrator.narrate('planning', 'en');
+      final out = NarrativeNarrator.allPhrasesFor('planning', 'xx');
+      final en = NarrativeNarrator.allPhrasesFor('planning', 'en');
       expect(out, equals(en));
     });
 
     test('unknown phase falls back to "composing" within the bundle', () {
-      final out = NarrativeNarrator.narrate('not_a_real_phase', 'id');
-      final composing = NarrativeNarrator.narrate('composing', 'id');
+      final out = NarrativeNarrator.allPhrasesFor('not_a_real_phase', 'id');
+      final composing = NarrativeNarrator.allPhrasesFor('composing', 'id');
       expect(out, equals(composing));
     });
 
     test('next action uses future intent without losing language fallback', () {
-      expect(
-        NarrativeNarrator.narrateNext('planning', 'id'),
-        startsWith('Selanjutnya'),
-      );
-      expect(
-        NarrativeNarrator.narrateNext('planning', 'en'),
-        startsWith('Next'),
-      );
-      expect(
-        NarrativeNarrator.narrateNext('planning', 'es'),
-        NarrativeNarrator.narrate('planning', 'es'),
-      );
+      final idPhrases = NarrativeNarrator.allNextPhrasesFor('planning', 'id');
+      for (final p in idPhrases) {
+        expect(
+          p.startsWith('Selanjutnya') || p.startsWith('Berikutnya') || p.startsWith('Mari') || p.startsWith('Hmm'),
+          isTrue,
+          reason: 'phrase "$p" does not start with expected prefix',
+        );
+      }
+
+      final enPhrases = NarrativeNarrator.allNextPhrasesFor('planning', 'en');
+      for (final p in enPhrases) {
+        expect(
+          p.startsWith('Next') || p.startsWith("Let's"),
+          isTrue,
+          reason: 'phrase "$p" does not start with expected prefix',
+        );
+      }
+
+      final esNext = NarrativeNarrator.allNextPhrasesFor('planning', 'es');
+      final esAll = NarrativeNarrator.allPhrasesFor('planning', 'es');
+      expect(esNext, equals(esAll));
     });
 
     test('phrases never expose technical jargon', () {
@@ -57,13 +66,17 @@ void main() {
       ];
       for (final lang in ['id', 'en', 'ja', 'es']) {
         for (final phase in NarrativeNarrator.phases) {
-          final s = NarrativeNarrator.narrate(phase, lang).toLowerCase();
-          for (final bad in forbidden) {
-            expect(
-              s.contains(bad),
-              isFalse,
-              reason: '"$lang/$phase" leaks "$bad": $s',
-            );
+          final phrases = NarrativeNarrator.allPhrasesFor(phase, lang);
+          final nextPhrases = NarrativeNarrator.allNextPhrasesFor(phase, lang);
+          for (final rawS in {...phrases, ...nextPhrases}) {
+            final s = rawS.toLowerCase();
+            for (final bad in forbidden) {
+              expect(
+                s.contains(bad),
+                isFalse,
+                reason: '"$lang/$phase" leaks "$bad": $s',
+              );
+            }
           }
         }
       }

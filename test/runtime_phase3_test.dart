@@ -295,5 +295,17 @@ void main() {
       );
       expect(out.toJson()['degraded'], true);
     });
+
+    test('next narrative is carried through toJson', () {
+      final out = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree.singleSubgoal(mainGoal: 'm', subgoalLabel: 'm'),
+        nextNarrative: 'Next I need to validate the target.',
+      );
+      expect(
+        out.toJson()['next_narrative'],
+        'Next I need to validate the target.',
+      );
+    });
   });
 }

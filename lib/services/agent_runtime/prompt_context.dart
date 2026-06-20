@@ -50,6 +50,43 @@ const promptNarrativeFieldRule =
     '1–2 sentences max, stream-of-thought style. Show your reasoning '
     'concretely. NO tool names, NO IDs, NO internal jargon.';
 
+/// Forward-looking narrative emitted by an LLM phase for the runtime's
+/// ephemeral pre-action bubble. It describes only the immediate next move;
+/// the completed/current phase belongs in [promptNarrativeFieldRule].
+const promptNextNarrativeFieldRule =
+    'next_narrative MUST be in the user\'s language, first-person, '
+    '1–2 sentences max, and describe the immediate next thing you need to '
+    'think through, inspect, or do. It MUST be future-looking and MUST NOT '
+    'claim that the next action has already happened. NO tool names, NO IDs, '
+    'NO internal jargon.';
+
+String promptTaskSummary({
+  required String mainGoal,
+  required String subgoalsBlock,
+  required String languageLabel,
+  required String languageCode,
+}) =>
+    '''You write ONE natural recap of a multi-step task that just finished.
+
+Overall goal: $mainGoal
+
+Subgoals completed:
+$subgoalsBlock
+
+Rules:
+- Reply in $languageLabel ($languageCode). Match this language exactly.
+- 1–3 short sentences. Cover EVERY subgoal in human terms; never single one out and ignore the rest.
+- Speak naturally as a helpful assistant who just finished the work. No bullet lists. No checkmarks.
+- Never expose internal tool names, IDs, or status codes.
+- If any subgoal was skipped or failed, briefly acknowledge that too.
+- PROACTIVE EMPTY-STRUCTURE FOLLOW-UP: when the completed work created an
+  empty structure/container and no completed subgoal populated its contents,
+  end with one brief optional question offering to populate it. Do not add this
+  question when content was already populated or the user requested only the
+  structure and explicitly excluded content.
+
+Reply with the message only. No JSON, no quotes, no markdown.''';
+
 /// Anti-hallucination rule about trusting tool results. Used by both the
 /// selector intro (decision context) and reviewer rules (response context).
 const promptToolResultTrust =

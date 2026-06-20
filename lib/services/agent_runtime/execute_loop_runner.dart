@@ -79,6 +79,7 @@ class ExecuteLoopRunner {
     var currentStep = initialStep;
     var retryCount = 0;
     var rePlanned = false;
+    var pendingNextNarrative = (plan['next_narrative'] ?? '').toString().trim();
     final stuck = StuckDetector();
     // Soft-guard: track tools we've already hinted about so a stubborn
     // selector that re-picks the same off-path tool falls through instead of
@@ -133,10 +134,11 @@ class ExecuteLoopRunner {
       var state = AgentRuntimeState.selectingTool;
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);
-      if (logger.logPreActionNarrative(
-        'choosing',
-        NarrativeNarrator.narrateNext('choosing', detectedLang.code),
-      )) {
+      final choosingNarrative = pendingNextNarrative.isNotEmpty
+          ? pendingNextNarrative
+          : NarrativeNarrator.narrateNext('choosing', detectedLang.code);
+      pendingNextNarrative = '';
+      if (logger.logPreActionNarrative('choosing', choosingNarrative)) {
         emit(logger.events.last);
       }
 
@@ -878,10 +880,7 @@ class ExecuteLoopRunner {
         )) {
           emit(logger.events.last);
         }
-        if (logger.logPreActionNarrative(
-          'executing',
-          NarrativeNarrator.narrateNext('executing', detectedLang.code),
-        )) {
+        if (logger.logPreActionNarrative('executing', executeNarrative)) {
           emit(logger.events.last);
         }
 
@@ -1180,6 +1179,12 @@ class ExecuteLoopRunner {
 
         var reviewStatus = review?['status'] as String? ?? '';
         final reportedReviewStatus = reviewStatus;
+        final reviewNextNarrative = (review?['next_narrative'] ?? '')
+            .toString()
+            .trim();
+        if (reviewNextNarrative.isNotEmpty) {
+          pendingNextNarrative = reviewNextNarrative;
+        }
         // A failed tool can never finalize as "done" — the action did not
         // happen. Force the reviewer's hand: ask the user only when there is
         // genuine ambiguity the loop can't resolve.
