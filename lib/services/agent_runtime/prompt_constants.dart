@@ -25,7 +25,7 @@ class PromptConstants {
 
   /// Bump when prompt semantics change materially. Logged with each LLM
   /// decision for A/B traceability across deployments.
-  static const String promptVersion = '2026-06-v2';
+  static const String promptVersion = '2026-06-v3';
 
   // ─── System-level (logic with caching stays here) ──────────────────────────
 
@@ -33,10 +33,7 @@ class PromptConstants {
   static final Map<String, String> _systemRulesCache = {};
 
   /// System rules always enforced regardless of agent persona content.
-  static String systemRules(
-    String language, {
-    bool isWorkflowAutoExecute = false,
-  }) {
+  static String systemRules(String language, {bool isWorkflowAutoExecute = false}) {
     final cacheKey = '$language|$isWorkflowAutoExecute';
     final cached = _systemRulesCache[cacheKey];
     if (cached != null) return cached;
@@ -102,8 +99,7 @@ $_sharedSystemRules
   static const analyzeIntro = promptAnalyzeIntro;
   static const systemMarkdownMap = promptSystemMarkdownMap;
   static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
-  static const analyzeCrossDomainAmbiguityRule =
-      promptAnalyzeCrossDomainAmbiguityRule;
+  static const analyzeCrossDomainAmbiguityRule = promptAnalyzeCrossDomainAmbiguityRule;
   static const analyzeExamples = promptAnalyzeExamples;
   static const analyzeResponseFormat = promptAnalyzeResponseFormat;
 
@@ -127,19 +123,15 @@ $_sharedSystemRules
   // ─── Reviewer (delegated to prompt_execute.dart) ───────────────────────────
 
   static const reviewIntro = promptReviewIntro;
-  static String reviewRulesFor(String language) =>
-      promptReviewRulesFor(language);
+  static String reviewRulesFor(String language) => promptReviewRulesFor(language);
   static const reviewResponseFormat = promptReviewResponseFormat;
 
   // ─── Context / misc (delegated to prompt_context.dart) ─────────────────────
 
-  static String chatSystemPrompt(String agentName) =>
-      promptChatSystemPrompt(agentName);
+  static String chatSystemPrompt(String agentName) => promptChatSystemPrompt(agentName);
   static const firstIntroductionRule = promptFirstIntroductionRule;
-  static String selfIdentity({
-    required String agentName,
-    required String agentId,
-  }) => promptSelfIdentity(agentName: agentName, agentId: agentId);
+  static String selfIdentity({required String agentName, required String agentId}) =>
+      promptSelfIdentity(agentName: agentName, agentId: agentId);
   static const narrativeFieldRule = promptNarrativeFieldRule;
   static const nextNarrativeFieldRule = promptNextNarrativeFieldRule;
   static String taskSummaryPrompt({
@@ -160,21 +152,14 @@ $_sharedSystemRules
   static const memoryInstructions = promptMemoryInstructions;
   static const memoryHeader = promptMemoryHeader;
   static const memoryExtractionSystem = promptMemoryExtractionSystem;
-  static String memoryExtractionUser({
-    required String userMessage,
-    required String toolBlock,
-  }) => promptMemoryExtractionUser(
-    userMessage: userMessage,
-    toolBlock: toolBlock,
-  );
+  static String memoryExtractionUser({required String userMessage, required String toolBlock}) =>
+      promptMemoryExtractionUser(userMessage: userMessage, toolBlock: toolBlock);
   static const sessionSummarySystem = promptSessionSummarySystem;
-  static String sessionSummaryUser(String transcript) =>
-      promptSessionSummaryUser(transcript);
+  static String sessionSummaryUser(String transcript) => promptSessionSummaryUser(transcript);
 
   // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 
-  static String workflowApiContext(List<String> apiNames) =>
-      promptWorkflowApiContext(apiNames);
+  static String workflowApiContext(List<String> apiNames) => promptWorkflowApiContext(apiNames);
 
   // ─── Workflow Runner Prompts (delegated to prompt_workflow.dart) ──────────
 
@@ -188,11 +173,9 @@ $_sharedSystemRules
     userInstruction: userInstruction,
   );
 
-  static String workflowPreviousStepMarker(int stepIndex) =>
-      promptPreviousStepMarker(stepIndex);
+  static String workflowPreviousStepMarker(int stepIndex) => promptPreviousStepMarker(stepIndex);
 
-  static String workflowEarlierStepMarker(int stepNumber) =>
-      promptEarlierStepMarker(stepNumber);
+  static String workflowEarlierStepMarker(int stepNumber) => promptEarlierStepMarker(stepNumber);
 
   static const workflowTriggerContextWrapper = promptTriggerContextWrapper;
 }

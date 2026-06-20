@@ -19,8 +19,7 @@ library;
 /// Owner: analyzer. Downstream phases must NOT introduce new questions
 /// unless live tool data reveals an ambiguity that did not exist at
 /// analysis time.
-const promptPolicyAsk =
-    '''POLICY.ASK (when to ask the user — analyzer is the owner):
+const promptPolicyAsk = '''POLICY.ASK (when to ask the user — analyzer is the owner):
 - Ask exactly once at analysis time, and ONLY when ANY holds:
   1. A required input is absent or ambiguous (a time without AM/PM, an
      unnamed target, a count not given).
@@ -73,15 +72,16 @@ const promptPolicyMinimal = '''POLICY.MINIMAL (shortest correct path):
 - Bulk selectors ("all / every / each" of an existing collection, in any
   language) emit ONE seed; the runtime expands from the live snapshot.
   Never enumerate names yourself for a bulk selector.
-- MINI APPS: When editing/revising a Mini App, NEVER write the full code from scratch. Read it in range chunks first (using miniapp.read with startLine and endLine) to locate the target code, then call miniapp.patch to replace only the specific block with targetContent and replacementContent.
+- MINI APPS: When editing/revising a Mini App, NEVER write the full code from scratch. Pass the user-facing app name to miniapp.read; the handler resolves the internal ID. Read the current definition first, using range chunks only when it is too long, then call miniapp.patch with a specific targetContent and replacementContent.
+- MINI APPS: For miniapp.patch, pass the user-facing app name and omit startLine/endLine when targetContent already identifies the block. Whitespace differences are ignored. Use line bounds only to disambiguate repeated code.
+- MINI APPS: For a broad redesign, patch grounded sections separately (for example the layout block, then the style block). Do not send the entire app definition as one targetContent when only presentation sections need to change, and do not rewrite working behavior that the user did not ask to change.
 - MINI APPS: NEVER use native browser dialogs (alert, confirm, prompt) in Mini App code. Always use styled custom HTML/CSS modals or inline error/warning messages.
 ''';
 
 // ─── POLICY.RECOVER — SMART_FAIL (reviewer) ──────────────────────────────────
 
 /// Structured failure handling. Consolidates retry/fallback/escalate logic.
-const promptPolicyRecover =
-    '''POLICY.RECOVER (use structured failure data before giving up):
+const promptPolicyRecover = '''POLICY.RECOVER (use structured failure data before giving up):
 - result.data.available is non-empty → the handler told you the id was stale
   or the entity was missing under the key you tried. Retry with a name from
   data.available[*] BEFORE asking the user or returning failed.
@@ -96,7 +96,7 @@ const promptPolicyRecover =
 - Empty / zero-result success IS the answer (see POLICY.GROUND). Not a failure.
 - Escalate to the user (status=ask_user) ONLY when no structured path remains
   AND the question wasn't already covered at analysis time.
-- MINI APPS: If a miniapp.patch call fails due to mismatch, read the range again using miniapp.read to get the current code state and verify line offsets before retrying.''';
+- MINI APPS: If miniapp.patch reports a mismatch, use actualContentPreview when it contains the intended block. If the preview is truncated or the target is repeated, read a narrower line range and retry with that grounded content.''';
 
 // ─── POLICY.VOICE — CLEAN (narrative + final_response) ───────────────────────
 

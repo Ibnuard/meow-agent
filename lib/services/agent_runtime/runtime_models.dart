@@ -219,6 +219,7 @@ class ToolDefinition {
     this.isRetrieval = false,
     this.hiddenFromModel = false,
     this.verificationProbe,
+    this.resultContextLimits = const {},
   });
 
   final String name;
@@ -252,6 +253,11 @@ class ToolDefinition {
   /// `null` means "no automatic post-execute verification" — typically used
   /// for retrieval tools or tools whose outcome is not snapshot-observable.
   final ToolVerificationProbe? verificationProbe;
+
+  /// Per-result-key string limits used when carrying tool data into the next
+  /// selector/reviewer turn. Retrieval tools whose output is needed by a
+  /// follow-up mutation can opt into a larger bounded context window.
+  final Map<String, int> resultContextLimits;
 
   bool get hasRuntimeMetadata =>
       operation.isNotEmpty ||

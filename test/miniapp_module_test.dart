@@ -32,6 +32,7 @@ void main() {
       expect(def!.risk, 'safe');
       expect(def.requiresConfirmation, false);
       expect(def.isRetrieval, true);
+      expect(def.inputSchema, contains('app'));
     });
 
     test('miniapp.patch is registered correctly', () {
@@ -40,6 +41,7 @@ void main() {
       expect(def!.risk, 'safe');
       expect(def.requiresConfirmation, false);
       expect(def.isRetrieval, false);
+      expect(def.selectorArgs, contains('app'));
     });
 
     test('miniapp.create is registered correctly', () {
@@ -56,16 +58,13 @@ void main() {
       expect(def!.risk, 'sensitive');
       expect(def.requiresConfirmation, true);
       expect(def.isRetrieval, false);
+      expect(def.selectorArgs, contains('app'));
     });
   });
 
   group('Mini App Tool Executions', () {
     final plugin = MiniAppModulePlugin();
-    final ctx = ModuleToolContext(
-      agentName: '',
-      agentId: '',
-      moduleRepository: ModuleRepository(),
-    );
+    final ctx = ModuleToolContext(agentName: '', agentId: '', moduleRepository: ModuleRepository());
     const appId = 'calorie_tracker';
     const originalCode = 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10';
 
@@ -145,11 +144,7 @@ void main() {
       final readResSlice = await plugin.dispatch(
         const ToolCallRequest(
           name: 'miniapp.read',
-          args: {
-            'id': appId,
-            'startLine': 3,
-            'endLine': 6,
-          },
+          args: {'id': appId, 'startLine': 3, 'endLine': 6},
           risk: 'safe',
           requiresConfirmation: false,
         ),
@@ -250,9 +245,252 @@ void main() {
       expect(deleteRes.data!['deleted'], true);
     });
 
+    test('resolves a user-facing name and patches without internal ID or line range', () async {
+      const code = '''
+<html>
+<style>
+.card {
+  background: white;
+}
+</style>
+<body class="card">Calories</body>
+</html>
+''';
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {'id': 'calorie_tracker_internal', 'name': 'Kalkulator Kalori', 'codeHtml': code},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      final readResult = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'kalkulator-kalori'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(readResult.success, true);
+      expect(readResult.data!['id'], 'calorie_tracker_internal');
+      expect(readResult.data!['name'], 'Kalkulator Kalori');
+
+      final patchResult = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'app': 'Kalkulator Kalori',
+            'targetContent': '.card { background: white; }',
+            'replacementContent': '.card { background: mintcream; }',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(patchResult.success, true);
+      expect(patchResult.data!['id'], 'calorie_tracker_internal');
+      expect(patchResult.data!['persisted'], true);
+
+      final verifyResult = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Kalkulator Kalori'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(verifyResult.data!['codeHtml'], contains('background: mintcream'));
+      expect(verifyResult.data!['codeHtml'], contains('<body class="card">'));
+    });
+
+    test('unknown display name returns structured installed app choices', () async {
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'calorie_tracker_internal',
+            'name': 'Kalkulator Kalori',
+            'codeHtml': '<p>Calories</p>',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      final result = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Nutrition Dashboard'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(result.success, false);
+      expect(result.error, contains('was not found'));
+      expect(result.data!['available'], [
+        {'id': 'calorie_tracker_internal', 'name': 'Kalkulator Kalori'},
+      ]);
+    });
+
+    test('revision range patch replaces exact lines without echoing target content', () async {
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'revision_patch_test',
+            'name': 'Revision Patch Test',
+            'codeHtml': 'line1\nold layout\nline3',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      final read = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Revision Patch Test'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      final revision = read.data!['revision'] as String;
+
+      final patch = await plugin.dispatch(
+        ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'app': 'Revision Patch Test',
+            'expectedRevision': revision,
+            'startLine': 2,
+            'endLine': 2,
+            'replacementContent': 'new modern layout',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(patch.success, true);
+      expect(patch.data!['previousRevision'], revision);
+      expect(patch.data!['revision'], isNot(revision));
+      final verify = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Revision Patch Test'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(verify.data!['codeHtml'], 'line1\nnew modern layout\nline3');
+    });
+
+    test('revision range patch rejects stale reads without changing code', () async {
+      final create = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'stale_patch_test',
+            'name': 'Stale Patch Test',
+            'codeHtml': 'before',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      final patch = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'app': 'Stale Patch Test',
+            'expectedRevision': 'stale-revision',
+            'startLine': 1,
+            'endLine': 1,
+            'replacementContent': 'after',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(patch.success, false);
+      expect(patch.data!['staleRevision'], true);
+      expect(patch.data!['currentRevision'], create.data!['revision']);
+      final verify = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Stale Patch Test'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(verify.data!['codeHtml'], 'before');
+    });
+
+    test('create refuses to overwrite an existing Mini App', () async {
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'existing_app',
+            'name': 'Existing App',
+            'codeHtml': 'original',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      final overwrite = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'existing_app',
+            'name': 'Existing App',
+            'codeHtml': 'replacement',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(overwrite.success, false);
+      expect(overwrite.data!['existing'], true);
+      expect(overwrite.data!['requiredTool'], 'miniapp.patch');
+      final verify = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'app': 'Existing App'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(verify.data!['codeHtml'], 'original');
+    });
+
     test('automatically formats single-line HTML on read/create and updates database', () async {
-      const singleLineCode = '<html><head><style>body{color:red;margin:0}</style></head><body><h1>Hello</h1></body></html>';
-      
+      const singleLineCode =
+          '<html><head><style>body{color:red;margin:0}</style></head><body><h1>Hello</h1></body></html>';
+
       // 1. Create a mini app with single-line code
       final createRes = await plugin.dispatch(
         const ToolCallRequest(
@@ -281,13 +519,193 @@ void main() {
         ctx,
       );
       expect(readRes.success, true);
-      
+
       final codeHtml = readRes.data!['codeHtml'] as String;
       expect(codeHtml.contains('\n'), true);
       expect(readRes.data!['totalLines'] > 2, true);
-      
+
       // The CSS block body{color:red;margin:0} should be formatted with newlines
       expect(codeHtml, contains('body{\ncolor:red;\nmargin:0\n}\n'));
+    });
+
+    test('whitespace normalization: agent natural CSS matches formatted storage', () async {
+      // This simulates the real scenario: storage is formatted, agent writes natural CSS
+      const htmlCode = '''
+<style>
+body{
+color:red;
+margin:0;
+}
+</style>
+''';
+
+      // 1. Create with pre-formatted code (as if from _formatHtml)
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'css_norm_test',
+            'name': 'CSS Norm Test',
+            'icon': '🎨',
+            'codeHtml': htmlCode,
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      // 2. Agent writes NATURAL CSS (not matching internal formatting)
+      final patchRes = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'id': 'css_norm_test',
+            'startLine': 2,
+            'endLine': 5,
+            'targetContent': 'body { color: red; margin: 0; }',
+            'replacementContent': 'body { color: blue; margin: 0; }',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      // Should succeed — normalization handles whitespace differences
+      expect(patchRes.success, true);
+      expect(patchRes.data!['patched'], true);
+
+      // Verify the change was applied correctly
+      final readRes = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.read',
+          args: {'id': 'css_norm_test'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+      expect(readRes.success, true);
+      expect(readRes.data!['codeHtml'], contains('color:blue'));
+    });
+
+    test('whitespace normalization: multi-line JS block', () async {
+      const htmlCode = '''
+<script>
+function init(){
+console.log("hello");
+return true;
+}
+</script>
+''';
+
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {'id': 'js_norm_test', 'name': 'JS Norm Test', 'icon': '⚡', 'codeHtml': htmlCode},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      // Agent writes natural JS (single line, different formatting)
+      final patchRes = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'id': 'js_norm_test',
+            'startLine': 2,
+            'endLine': 5,
+            'targetContent': 'function init() { console.log("hello"); return true; }',
+            'replacementContent': 'function init() { console.log("hello world"); return true; }',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(patchRes.success, true);
+      expect(patchRes.data!['patched'], true);
+    });
+
+    test('mismatch error includes hint and actual content', () async {
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'error_hint_test',
+            'name': 'Error Hint Test',
+            'icon': '❌',
+            'codeHtml': '<style>\n.card {\n  background: white;\n  padding: 16px;\n}\n</style>',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      // Agent tries wrong targetContent
+      final patchRes = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'id': 'error_hint_test',
+            'startLine': 2,
+            'endLine': 4,
+            'targetContent': '.button { background: red; }', // Wrong selector
+            'replacementContent': '.button { background: blue; }',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(patchRes.success, false);
+      expect(patchRes.error, contains('ACTUAL CONTENT'));
+      expect(patchRes.error, contains('HINT'));
+      expect(patchRes.data!['hint'], contains('.card')); // CSS selector detected
+      expect(patchRes.data!['id'], 'error_hint_test');
+    });
+
+    test('patch with same-format targetContent still works', () async {
+      // Ensure we didn't break the exact-match path (it still works)
+      await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'exact_match_test',
+            'name': 'Exact Match Test',
+            'icon': '✓',
+            'codeHtml': '<style>\n.header {\n  color: green;\n}\n</style>',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      // Use EXACT text from storage (lines 2-4 = CSS block including closing brace)
+      final patchRes = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.patch',
+          args: {
+            'id': 'exact_match_test',
+            'startLine': 2,
+            'endLine': 4,
+            'targetContent': '.header {\n  color: green;\n}',
+            'replacementContent': '.header {\n  color: purple;\n}',
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(patchRes.success, true);
     });
   });
 }

@@ -1,8 +1,7 @@
 /// Planner prompt constants extracted from [PromptConstants].
 library;
 
-import 'prompt_context.dart'
-    show promptNarrativeFieldRule, promptNextNarrativeFieldRule;
+import 'prompt_context.dart' show promptNarrativeFieldRule, promptNextNarrativeFieldRule;
 
 const promptPlanIntro = 'You are an AI agent planner.';
 
@@ -19,7 +18,7 @@ const promptPlanResponseFormat =
     {
       "id": "sg1",
       "label": "one user-visible outcome",
-      "required_slots": {"name": "...", "persona": "..."},
+      "required_slots": {"_operation": "update", "name": "...", "persona": "..."},
       "missing_slots": ["persona"],
       "status": "pending"
     }
@@ -38,7 +37,8 @@ Rules:
 - For information requests that need a tool, include both the retrieval/validation outcome and the final answer outcome. The task is not complete until the user receives the answer based on retrieved data.
 - For the final answer outcome, set required_slots {"_operation":"respond"} (or {"tool":"none"}) and leave missing_slots empty.
 - ids must be short, stable, unique within the tree (e.g. sg1, sg2, sg_create_X).
-- required_slots is what the subgoal needs to be executable. Leave empty when not applicable.
+- Every actionable subgoal MUST include required_slots._operation using an English structural enum such as create, update, delete, read, list, search, open, send, or respond. Describe the USER-VISIBLE outcome, not a precursor: a read performed only to prepare an update still belongs to a subgoal whose _operation is update.
+- required_slots also carries what the subgoal needs to be executable. Other than _operation, omit slots that are not applicable.
 - missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
 - Use status="pending" for all subgoals at planning time.
 - completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.
