@@ -65,5 +65,23 @@ void main() {
       expect(prompt, contains('PROACTIVE EMPTY-STRUCTURE FOLLOW-UP'));
       expect(prompt, contains('offering to populate it'));
     });
+
+    test(
+      'failed actions remain unresolved until the same outcome succeeds',
+      () {
+        expect(
+          PromptConstants.selectToolResponseFormat,
+          contains('success=false is authoritative proof'),
+        );
+        expect(
+          PromptConstants.reviewResponseFormat,
+          contains('unresolved failure for the active'),
+        );
+        expect(
+          PromptConstants.reviewResponseFormat,
+          contains('Never mark a failed deletion done'),
+        );
+      },
+    );
   });
 }

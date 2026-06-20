@@ -59,6 +59,10 @@ If you need more info from the user:
 }
 
 CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
+- A previous result with success=false is authoritative proof that action did
+  NOT happen. Keep its active outcome open. Do not advance to a later outcome
+  until the failed action succeeds or another available action verifiably
+  establishes the exact same outcome.
 - If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
 - If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Use text reading for text files and image description for image files. Do not infer file contents from filenames or prior narrative.
 - LAUNCHING AN APP: To launch/open ANY app, use app.resolve(friendly_name) then app.open(package). If the user's ONLY goal is to open the app (no further interaction), return status="done" immediately after app.open succeeds.
@@ -109,6 +113,11 @@ HARD RULES BEFORE DECIDING STATUS (read first):
 - A corrective / precondition / setup action succeeding is NEVER the goal. mkdir, cd, install, ensure-exists, status-check, lookup, resolve, and any "fix the prerequisite so the next step works" tool — when these succeed, you MUST return status="continue" and the next step MUST re-attempt the original action that triggered the fix. Do NOT mark the active subgoal "done" just because the corrective tool succeeded; mark it "in_progress" with notes describing the fix. Do NOT write a final_response that announces the corrective action as the result.
 - app.resolve is NOT app.open. app.resolve only looks up a package name — it does NOT open anything. After app.resolve succeeds, the app is NOT open yet. You MUST continue to call app.open next.
 - NEVER claim an action happened that the tool result does not prove. If the tool result says "matched: true, packageName: X", that means the package was FOUND, not that the app was OPENED.
+- A successful action for a LATER/different outcome cannot complete the active
+  outcome. If Previous results contains an unresolved failure for the active
+  outcome, keep its status in_progress until that exact outcome has verified
+  success. Never mark a failed deletion done merely because a later creation
+  succeeded.
 - Count your pending subgoals. If there are N subgoals and only 1 tool has run, you cannot be done.
 
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:

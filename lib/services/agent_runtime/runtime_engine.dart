@@ -1609,6 +1609,8 @@ class AgentRuntimeEngine {
           previousResults.add({
             'step': resume['current_step'] ?? 1,
             'tool': pending.toolName,
+            'args': pending.toolArgs,
+            'success': true,
             'result': result.data,
             'confirmed': true,
           });
@@ -1797,7 +1799,10 @@ class AgentRuntimeEngine {
         previousResults.add({
           'step': failureResume['current_step'] ?? 1,
           'tool': pending.toolName,
+          'args': pending.toolArgs,
+          'success': false,
           'result': result.data,
+          'error': result.error,
           'confirmed': true,
         });
         final availableTools =

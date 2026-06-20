@@ -91,9 +91,9 @@ class UserDbRepository {
   Future<UserTableInfo?> describeTable(String tableName) async {
     if (!_validIdentifier(tableName)) return null;
     final db = await UserDatabase.instance.database;
-    final exists = await _tableExists(db, tableName);
-    if (!exists) return null;
-    return _tableInfo(db, tableName);
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) return null;
+    return _tableInfo(db, resolvedName);
   }
 
   /// Creates a new table with the given columns.
@@ -127,7 +127,9 @@ class UserDbRepository {
       return (created: false, error: 'Table already exists: $tableName');
     }
 
-    final hasUserPk = columns.any((c) => c.type.toUpperCase().contains('PRIMARY KEY'));
+    final hasUserPk = columns.any(
+      (c) => c.type.toUpperCase().contains('PRIMARY KEY'),
+    );
 
     final colDefs = [
       hasUserPk ? '_id TEXT NOT NULL' : '_id TEXT PRIMARY KEY',
@@ -149,11 +151,11 @@ class UserDbRepository {
       return (dropped: false, error: 'Invalid table name: $tableName');
     }
     final db = await UserDatabase.instance.database;
-    final exists = await _tableExists(db, tableName);
-    if (!exists) {
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
       return (dropped: false, error: 'Table not found: $tableName');
     }
-    await db.execute('DROP TABLE ${_q(tableName)}');
+    await db.execute('DROP TABLE ${_q(resolvedName)}');
     return (dropped: true, error: null);
   }
 
@@ -170,8 +172,10 @@ class UserDbRepository {
       return (id: null, error: 'Invalid table name: $tableName');
     }
     final db = await UserDatabase.instance.database;
-    final exists = await _tableExists(db, tableName);
-    if (!exists) return (id: null, error: 'Table not found: $tableName');
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
+      return (id: null, error: 'Table not found: $tableName');
+    }
 
     final id = 'row_${_uuid.v4().substring(0, 12)}';
     final sanitized = _sanitizeData(data);
@@ -179,7 +183,7 @@ class UserDbRepository {
     sanitized['_created_at'] = DateTime.now().millisecondsSinceEpoch;
 
     try {
-      await db.insert(tableName, sanitized);
+      await db.insert(resolvedName, sanitized);
       return (id: id, error: null);
     } catch (e) {
       return (id: null, error: e.toString());
@@ -217,11 +221,13 @@ class UserDbRepository {
       return (updated: 0, error: 'Invalid table name: $tableName');
     }
     final db = await UserDatabase.instance.database;
-    final exists = await _tableExists(db, tableName);
-    if (!exists) return (updated: 0, error: 'Table not found: $tableName');
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
+      return (updated: 0, error: 'Table not found: $tableName');
+    }
     try {
       final count = await db.update(
-        tableName,
+        resolvedName,
         _sanitizeData(data),
         where: whereClause,
         whereArgs: whereArgs,
@@ -242,11 +248,13 @@ class UserDbRepository {
       return (deleted: 0, error: 'Invalid table name: $tableName');
     }
     final db = await UserDatabase.instance.database;
-    final exists = await _tableExists(db, tableName);
-    if (!exists) return (deleted: 0, error: 'Table not found: $tableName');
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
+      return (deleted: 0, error: 'Table not found: $tableName');
+    }
     try {
       final count = await db.delete(
-        tableName,
+        resolvedName,
         where: whereClause,
         whereArgs: whereArgs,
       );
@@ -261,11 +269,20 @@ class UserDbRepository {
   // ---------------------------------------------------------------------------
 
   Future<bool> _tableExists(dynamic db, String name) async {
+    return await _resolveTableName(db, name) != null;
+  }
+
+  /// Resolve a user-supplied identifier to SQLite's canonical stored casing.
+  /// SQLite identifiers are case-insensitive, so repository pre-checks must
+  /// follow the same rule instead of rejecting `fabel` when `Fabel` exists.
+  Future<String?> _resolveTableName(dynamic db, String name) async {
     final rows = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      "SELECT name FROM sqlite_master "
+      "WHERE type='table' AND name = ? COLLATE NOCASE LIMIT 1",
       [name],
     );
-    return rows.isNotEmpty;
+    if (rows.isEmpty) return null;
+    return rows.first['name']?.toString();
   }
 
   Future<UserTableInfo> _tableInfo(dynamic db, String name) async {
@@ -324,8 +341,7 @@ class UserDbRepository {
       if (entry.key == '_id' || entry.key == '_created_at') continue;
       // Encode nested objects/lists as JSON strings.
       final v = entry.value;
-      result[entry.key] =
-          (v is Map || v is List) ? jsonEncode(v) : v;
+      result[entry.key] = (v is Map || v is List) ? jsonEncode(v) : v;
     }
     return result;
   }

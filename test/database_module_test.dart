@@ -23,22 +23,28 @@ void main() {
       expect(def.isRetrieval, true);
     });
 
-    test('db.create_table is registered as sensitive-lite and requires confirmation', () {
-      final def = router.getDefinition('db.create_table');
-      expect(def, isNotNull);
-      expect(def!.risk, 'sensitive-lite');
-      expect(def.requiresConfirmation, true);
-      expect(def.isRetrieval, false);
-      expect(def.verificationProbe, isNotNull);
-      expect(def.verificationProbe!.kind, 'tool_result_data');
-    });
+    test(
+      'db.create_table is registered as sensitive-lite and requires confirmation',
+      () {
+        final def = router.getDefinition('db.create_table');
+        expect(def, isNotNull);
+        expect(def!.risk, 'sensitive-lite');
+        expect(def.requiresConfirmation, true);
+        expect(def.isRetrieval, false);
+        expect(def.verificationProbe, isNotNull);
+        expect(def.verificationProbe!.kind, 'tool_result_data');
+      },
+    );
 
-    test('db.drop_table is registered as sensitive and requires confirmation', () {
-      final def = router.getDefinition('db.drop_table');
-      expect(def, isNotNull);
-      expect(def!.risk, 'sensitive');
-      expect(def.requiresConfirmation, true);
-    });
+    test(
+      'db.drop_table is registered as sensitive and requires confirmation',
+      () {
+        final def = router.getDefinition('db.drop_table');
+        expect(def, isNotNull);
+        expect(def!.risk, 'sensitive');
+        expect(def.requiresConfirmation, true);
+      },
+    );
 
     test('db.insert is registered as safe', () {
       final def = router.getDefinition('db.insert');
@@ -94,17 +100,28 @@ void main() {
       // 2. Create table
       final cols = [
         const UserTableColumn(name: 'title', type: 'TEXT', notNull: true),
-        const UserTableColumn(name: 'amount', type: 'REAL', defaultValue: '0.0'),
+        const UserTableColumn(
+          name: 'amount',
+          type: 'REAL',
+          defaultValue: '0.0',
+        ),
       ];
       final createRes = await repo.createTable('expenses', cols);
-      expect(createRes.created, true, reason: 'Failed to create table: ${createRes.error}');
+      expect(
+        createRes.created,
+        true,
+        reason: 'Failed to create table: ${createRes.error}',
+      );
 
       // 3. Describe table
       final desc = await repo.describeTable('expenses');
       expect(desc, isNotNull);
       expect(desc!.name, 'expenses');
       expect(desc.columns.any((c) => c.name == 'title'), true);
-      expect(desc.columns.any((c) => c.name == '_id'), false); // hidden from public columns list
+      expect(
+        desc.columns.any((c) => c.name == '_id'),
+        false,
+      ); // hidden from public columns list
 
       // 4. Insert row
       final insertRes = await repo.insert('expenses', {
@@ -131,7 +148,10 @@ void main() {
       expect(updateRes.updated, 1);
 
       // Verify update
-      final queryRes2 = await repo.query('SELECT * FROM expenses WHERE _id = ?', params: [insertRes.id!]);
+      final queryRes2 = await repo.query(
+        'SELECT * FROM expenses WHERE _id = ?',
+        params: [insertRes.id!],
+      );
       expect(queryRes2.rows!.first['amount'], 38000.0);
 
       // 7. Delete row
@@ -164,5 +184,32 @@ void main() {
       ]);
       expect(res2.created, false);
     });
+
+    test(
+      'resolves table names case-insensitively using stored casing',
+      () async {
+        const storedName = 'FabelCaseProbe';
+        await repo.dropTable(storedName);
+
+        final created = await repo.createTable(storedName, [
+          const UserTableColumn(name: 'title', type: 'TEXT'),
+        ]);
+        expect(created.created, true);
+
+        final described = await repo.describeTable('fabelcaseprobe');
+        expect(described, isNotNull);
+        expect(described!.name, storedName);
+
+        final duplicate = await repo.createTable('FABELCASEPROBE', [
+          const UserTableColumn(name: 'title', type: 'TEXT'),
+        ]);
+        expect(duplicate.created, false);
+        expect(duplicate.error, contains('already exists'));
+
+        final dropped = await repo.dropTable('fabelcaseprobe');
+        expect(dropped.dropped, true);
+        expect(await repo.describeTable(storedName), isNull);
+      },
+    );
   });
 }
