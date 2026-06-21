@@ -1696,7 +1696,9 @@ class _ChatInputState extends State<_ChatInput> {
           Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+              maxHeight: MediaQuery.of(context).viewInsets.bottom > 0
+                  ? 180
+                  : MediaQuery.of(context).size.height * 0.4,
             ),
             decoration: BoxDecoration(
               color: extras.card,

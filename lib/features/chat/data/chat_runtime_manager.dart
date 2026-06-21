@@ -216,6 +216,13 @@ class ChatRuntimeManager extends ChangeNotifier {
       () => <String>{},
     );
     if (!seen.add(event.id)) return;
+    final data = event.data ?? const <String, dynamic>{};
+    final kind = data['kind']?.toString();
+    if (kind == 'analysis_summary' ||
+        kind == 'decision_summary' ||
+        kind == 'next_action') {
+      return;
+    }
     final previous = _streamBubbleWrites[agentId] ?? Future<void>.value();
     final next = previous
         .catchError((Object error, StackTrace stackTrace) {

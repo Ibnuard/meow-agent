@@ -203,6 +203,7 @@ class _ModulesSection extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 16),
           modulesAsync.when(
             loading: () => const Center(
               child: Padding(
@@ -266,7 +267,7 @@ class _ModulesSection extends ConsumerWidget {
                   crossAxisCount: 3,
                   mainAxisSpacing: 12,
                   crossAxisSpacing: 12,
-                  childAspectRatio: 0.92,
+                  childAspectRatio: 0.82,
                 ),
                 itemBuilder: (context, i) {
                   return _ModuleCard(module: modules[i], s: s);
@@ -455,20 +456,20 @@ class _ModuleCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 ModuleIconBadge(
                   moduleId: module.id,
-                  size: 42,
-                  iconSize: 20,
-                  radius: 15,
+                  size: 36,
+                  iconSize: 18,
+                  radius: 12,
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 SizedBox(
-                  height: 30,
+                  height: 28,
                   child: Center(
                     child: Text(
                       module.name,
@@ -476,7 +477,7 @@ class _ModuleCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.w800,
                         color: cs.onSurface,
                         height: 1.12,
@@ -484,13 +485,13 @@ class _ModuleCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 5),
+                const SizedBox(height: 4),
                 Text(
                   module.enabled ? s.active : s.disabled,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 9.5,
+                    fontSize: 9,
                     fontWeight: FontWeight.w700,
                     color: module.enabled ? cs.primary : cs.onSurfaceVariant,
                   ),
