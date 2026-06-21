@@ -54,6 +54,24 @@ class MeowDatabase {
         show_on_home  INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    // Ensure agent_skills and agent_skill_assignments tables exist
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS agent_skills (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        github_url  TEXT,
+        is_enabled  INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS agent_skill_assignments (
+        skill_id  TEXT NOT NULL REFERENCES agent_skills(id) ON DELETE CASCADE,
+        agent_id  TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        PRIMARY KEY (skill_id, agent_id)
+      )
+    ''');
     try {
       await db.execute('ALTER TABLE miniapps ADD COLUMN show_on_home INTEGER NOT NULL DEFAULT 0');
     } catch (_) {}
@@ -238,6 +256,27 @@ class MeowDatabase {
       )
     ''');
 
+    // -----------------------------------------------------------------------
+    // Skills
+    // -----------------------------------------------------------------------
+    batch.execute('''
+      CREATE TABLE agent_skills (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        github_url  TEXT,
+        is_enabled  INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT NOT NULL
+      )
+    ''');
+    batch.execute('''
+      CREATE TABLE agent_skill_assignments (
+        skill_id  TEXT NOT NULL REFERENCES agent_skills(id) ON DELETE CASCADE,
+        agent_id  TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        PRIMARY KEY (skill_id, agent_id)
+      )
+    ''');
+
     await batch.commit(noResult: true);
   }
 
@@ -245,6 +284,8 @@ class MeowDatabase {
   Future<void> resetForTesting() async {
     final db = await database;
     final batch = db.batch();
+    batch.execute('DROP TABLE IF EXISTS agent_skill_assignments');
+    batch.execute('DROP TABLE IF EXISTS agent_skills');
     batch.execute('DROP TABLE IF EXISTS miniapps');
     batch.execute('DROP TABLE IF EXISTS agent_module_permissions');
     batch.execute('DROP TABLE IF EXISTS modules');

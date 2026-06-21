@@ -213,6 +213,19 @@ class ModuleRegistry {
     },
   );
 
+  static const skills = ModuleModel(
+    id: 'skills',
+    name: 'Skills',
+    description:
+        'Manage and assign agentic skills. Import from Markdown, write manually, or fetch from GitHub URLs.',
+    icon: '🔮',
+    settings: {
+      'allow_create': true,
+      'allow_update': true,
+      'allow_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
     deviceContext,
     notificationIntelligence,
@@ -224,5 +237,6 @@ class ModuleRegistry {
     communication,
     database,
     miniapp,
+    skills,
   ];
 }

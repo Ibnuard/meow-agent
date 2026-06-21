@@ -175,6 +175,15 @@ $_sharedSystemRules
   static const sessionSummarySystem = promptSessionSummarySystem;
   static String sessionSummaryUser(String transcript) => promptSessionSummaryUser(transcript);
 
+  static String selectRelevantSkills({
+    required String userMessage,
+    required String skillsListBlock,
+  }) =>
+      promptSelectRelevantSkills(
+        userMessage: userMessage,
+        skillsListBlock: skillsListBlock,
+      );
+
   // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 
   static String workflowApiContext(List<String> apiNames) => promptWorkflowApiContext(apiNames);

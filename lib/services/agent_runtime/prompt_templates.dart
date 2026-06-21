@@ -75,7 +75,7 @@ ${PromptConstants.systemMarkdownMap}
 $selfIdentityBlock$vmBlock
 Identity context (user profile stored in database):
 ${workspace.soul}
-
+${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
 Available tools:
 ${availableTools.join('\n')}
 

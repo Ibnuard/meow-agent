@@ -317,6 +317,51 @@ class AppStrings {
   String get openDatabaseManager =>
       isId ? 'Buka Database Manager' : 'Open Database Manager';
   String get openMiniApp => isId ? 'Buka Mini App' : 'Open Mini App';
+  String get openSkills => isId ? 'Buka Skills' : 'Open Skills';
+  String get skillsManagerTitle => isId ? 'Manajer Skills' : 'Skills Manager';
+  String get skillsEmpty => isId ? 'Belum ada skills.' : 'No skills found.';
+  String get skillsEmptyDesc => isId
+      ? 'Kamu bisa membuat skill baru secara manual, mengimpor file Markdown, atau mengunduhnya dari URL GitHub.'
+      : 'You can create a new skill manually, import a Markdown file, or fetch it from a GitHub URL.';
+  String get skillCreate => isId ? 'Buat Skill Baru' : 'Create New Skill';
+  String get skillEdit => isId ? 'Edit Skill' : 'Edit Skill';
+  String get skillTitleLabel => isId ? 'Judul Skill' : 'Skill Title';
+  String get skillTitleHint => isId ? 'Masukkan judul skill' : 'Enter skill title';
+  String get skillTitleRequired => isId ? 'Judul skill wajib diisi' : 'Skill title is required';
+  String get skillContentLabel => isId ? 'Konten Skill (Markdown)' : 'Skill Content (Markdown)';
+  String get skillContentHint => isId
+      ? 'Tulis instruksi/skill di sini menggunakan Markdown'
+      : 'Write instruction/skill here using Markdown';
+  String get skillContentRequired => isId ? 'Konten skill wajib diisi' : 'Skill content is required';
+  String get skillGithubUrlLabel => isId ? 'GitHub URL (Opsional)' : 'GitHub URL (Optional)';
+  String get skillGithubUrlHint => 'e.g. https://github.com/...';
+  String get skillFetch => isId ? 'Ambil dari GitHub' : 'Fetch from GitHub';
+  String get skillFetching => isId ? 'Mengambil...' : 'Fetching...';
+  String get skillFetchSuccess => isId ? 'Berhasil mengambil konten skill.' : 'Successfully fetched skill content.';
+  String get skillFetchError => isId ? 'Gagal mengambil konten dari URL.' : 'Failed to fetch content from URL.';
+  String get skillImport => isId ? 'Impor File (.md)' : 'Import File (.md)';
+  String get skillImportSuccess => isId ? 'Berhasil mengimpor file.' : 'Successfully imported file.';
+  String get skillImportError => isId ? 'Gagal mengimpor file.' : 'Failed to import file.';
+  String get skillAssignees => isId ? 'Penerima Skill' : 'Assignees';
+  String get skillAssigneesDesc => isId
+      ? 'Pilih agen yang menggunakan skill ini'
+      : 'Select agents that will use this skill';
+  String get skillEnabledLabel => isId ? 'Aktifkan Skill' : 'Enable Skill';
+  String get skillSaveSuccess => isId ? 'Skill berhasil disimpan.' : 'Skill successfully saved.';
+  String get skillDeleteConfirm => isId ? 'Hapus Skill?' : 'Delete Skill?';
+  String get skillDeleteConfirmDesc => isId
+      ? 'Apakah Anda yakin ingin menghapus skill ini?'
+      : 'Are you sure you want to delete this skill?';
+  String get skillDeleteButton => isId ? 'Hapus Skill' : 'Delete Skill';
+  String get skillTabManual => isId ? 'Manual & Impor' : 'Manual & Import';
+  String get skillTabGithub => isId ? 'Otomatis via GitHub' : 'Automatic via GitHub';
+  String get skillGithubUrlRequired => isId ? 'URL GitHub wajib diisi' : 'GitHub URL is required';
+  String get skillDownloadedContentPreview => isId ? 'Konten Terunduh (Preview)' : 'Downloaded Content (Preview)';
+  String get skillBulkImportTitle => isId ? 'Pilih Skill untuk Diimpor' : 'Select Skills to Import';
+  String get skillBulkImportNoSelection => isId ? 'Pilih setidaknya satu skill.' : 'Select at least one skill.';
+  String get skillBulkImportSearching => isId ? 'Memindai repositori...' : 'Scanning repository...';
+  String skillBulkImportButton(int count) => isId ? 'Impor ($count) Skill' : 'Import ($count) Skills';
+  String skillBulkImportSuccess(int count) => isId ? 'Berhasil mengimpor $count skill.' : 'Successfully imported $count skills.';
   String get miniAppDashboardTitle => isId ? 'Mini App' : 'Mini App';
   String get miniAppDashboardEmpty => isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
   String get miniAppDashboardEmptyDesc => isId
@@ -2061,6 +2106,27 @@ class AppStrings {
         isId
             ? 'Agen dapat menghapus aplikasi mini yang sudah terinstall.'
             : 'Agent can delete installed mini-applications.',
+      ),
+      _ => (key, ''),
+    },
+    'skills' => switch (key) {
+      'allow_create' => (
+        isId ? 'Buat Skill Baru' : 'Create New Skills',
+        isId
+            ? 'Agen dapat membuat/mengimpor skill baru secara dinamis.'
+            : 'Agent can dynamically create or import new skills.',
+      ),
+      'allow_update' => (
+        isId ? 'Edit Skill' : 'Edit Skills',
+        isId
+            ? 'Agen dapat memperbarui isi atau setingan skill yang sudah ada.'
+            : 'Agent can update existing skill contents or configurations.',
+      ),
+      'allow_delete' => (
+        isId ? 'Hapus Skill' : 'Delete Skills',
+        isId
+            ? 'Agen dapat menghapus skill yang terpasang.'
+            : 'Agent can delete installed skills.',
       ),
       _ => (key, ''),
     },

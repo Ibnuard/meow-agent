@@ -19,6 +19,7 @@ export 'provider_repository.dart' show ProviderEntry, ProviderEntryRepository;
 export 'agent_soul_repository.dart' show AgentSoul, AgentSoulRepository;
 export 'agent_memory_repository.dart'
     show AgentMemoryEntry, AgentMemoryRepository;
+export 'agent_skills_repository.dart' show AgentSkill, AgentSkillsRepository;
 export 'agent_event_repository.dart' show AgentEvent, AgentEventRepository;
 export 'app_settings_repository.dart' show AppSettingsRepository;
 export 'module_entry_repository.dart'

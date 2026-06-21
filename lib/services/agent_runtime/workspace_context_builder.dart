@@ -1,5 +1,6 @@
 import '../../core/storage/agent_memory_repository.dart';
 import '../../core/storage/agent_soul_repository.dart';
+import '../../core/storage/agent_skills_repository.dart';
 import 'runtime_models.dart';
 
 /// Builds LLM-facing workspace context from SQLite-backed repos.
@@ -12,10 +13,11 @@ import 'runtime_models.dart';
 /// Extracted from `AgentRuntimeEngine` to keep the engine focused on
 /// orchestration and reduce its line count.
 class WorkspaceContextBuilder {
-  WorkspaceContextBuilder({this.soulRepo, this.memoryRepo});
+  WorkspaceContextBuilder({this.soulRepo, this.memoryRepo, this.skillsRepo});
 
   final AgentSoulRepository? soulRepo;
   final AgentMemoryRepository? memoryRepo;
+  final AgentSkillsRepository? skillsRepo;
 
   /// Max recent entries pulled from DB before relevance filtering.
   static const int _recentMemoryPoolSize = 60;
@@ -38,8 +40,9 @@ class WorkspaceContextBuilder {
     String agentName,
     String agentId, {
     String? userMessage,
+    List<AgentSkill>? preFilteredSkills,
   }) async {
-    if (soulRepo == null && memoryRepo == null) {
+    if (soulRepo == null && memoryRepo == null && skillsRepo == null && preFilteredSkills == null) {
       return const AgentWorkspace(
         soul: '',
         memory: '',
@@ -53,11 +56,18 @@ class WorkspaceContextBuilder {
       agentId,
       limit: _recentMemoryPoolSize,
     );
+    final skillsFuture = preFilteredSkills != null
+        ? null
+        : skillsRepo?.getActiveSkillsForAgent(agentId);
 
     final soul = soulFuture == null ? null : await soulFuture;
     final memoryPool = memoryFuture == null
         ? const <AgentMemoryEntry>[]
         : await memoryFuture;
+    final activeSkills = preFilteredSkills ??
+        (skillsFuture == null
+            ? const <AgentSkill>[]
+            : await skillsFuture);
 
     final selected = _selectRelevantMemory(
       pool: memoryPool,
@@ -67,7 +77,7 @@ class WorkspaceContextBuilder {
     return AgentWorkspace(
       soul: formatSoul(agentName, soul),
       memory: formatMemory(selected),
-      skills: '',
+      skills: formatSkills(activeSkills),
       heartbeat: '',
     );
   }
@@ -240,6 +250,69 @@ Design Preference:
       default:
         return category;
     }
+  }
+
+  /// Filter markdown content to ensure only mobile-compatible instructions are included.
+  /// Ignores paragraphs or code blocks containing desktop/terminal shell commands or folders.
+  static String filterMobileCompatibleSkills(String markdownContent) {
+    if (markdownContent.isEmpty) return '';
+
+    // Split into paragraph/block units
+    final blocks = markdownContent.split(RegExp(r'\n\s*\n'));
+    final filteredBlocks = <String>[];
+
+    for (var block in blocks) {
+      final lowerBlock = block.toLowerCase();
+      
+      // Look for desktop indicators:
+      final hasDesktopTerm = 
+        lowerBlock.contains('desktop') ||
+        lowerBlock.contains('terminal') ||
+        lowerBlock.contains('bash') ||
+        lowerBlock.contains('powershell') ||
+        lowerBlock.contains('cmd.exe') ||
+        lowerBlock.contains('cmd ') ||
+        lowerBlock.contains('cmd\n') ||
+        lowerBlock.contains('shell command') ||
+        lowerBlock.contains('execute shell') ||
+        lowerBlock.contains('/etc/') ||
+        lowerBlock.contains('/var/') ||
+        lowerBlock.contains('c:\\windows') ||
+        lowerBlock.contains('c:\\program files');
+
+      // Check if block contains shell/bash code blocks
+      final hasDesktopCodeBlock =
+        lowerBlock.contains('```bash') ||
+        lowerBlock.contains('```sh') ||
+        lowerBlock.contains('```cmd') ||
+        lowerBlock.contains('```powershell') ||
+        lowerBlock.contains('```shell');
+
+      if (!hasDesktopTerm && !hasDesktopCodeBlock) {
+        filteredBlocks.add(block);
+      }
+    }
+
+    return filteredBlocks.join('\n\n').trim();
+  }
+
+  /// Render skills list to the markdown shape prompt templates expect.
+  static String formatSkills(List<AgentSkill> skills) {
+    if (skills.isEmpty) return '';
+    final buf = StringBuffer()
+      ..writeln('# Skills & Guidelines')
+      ..writeln('This agent has the following mobile-compatible skills and custom guidelines active:')
+      ..writeln();
+
+    for (final skill in skills) {
+      final filteredContent = filterMobileCompatibleSkills(skill.content);
+      if (filteredContent.isNotEmpty) {
+        buf.writeln('## Skill: ${skill.title}');
+        buf.writeln(filteredContent);
+        buf.writeln();
+      }
+    }
+    return buf.toString().trim();
   }
 }
 

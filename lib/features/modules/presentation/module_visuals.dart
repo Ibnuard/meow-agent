@@ -18,6 +18,7 @@ class ModuleVisuals {
       'communication' => Icons.send_rounded,
       'database' => Icons.storage_rounded,
       'miniapp' => Icons.widgets_outlined,
+      'skills' => Icons.psychology_rounded,
       _ => Icons.extension_rounded,
     };
   }
@@ -35,6 +36,7 @@ class ModuleVisuals {
       'communication' => const Color(0xFF22C55E),
       'database' => const Color(0xFF6366F1),
       'miniapp' => const Color(0xFFA855F7),
+      'skills' => const Color(0xFFF43F5E),
       _ => const Color(0xFF64748B),
     };
   }

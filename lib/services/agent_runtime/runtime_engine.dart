@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/storage/core_storage_providers.dart';
 import '../../core/storage/secure_storage_service.dart';
+import '../../core/storage/agent_skills_repository.dart';
 import '../../features/modules/data/module_repository.dart';
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
@@ -20,6 +21,7 @@ import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'json_utils.dart';
+import 'llm_json_caller.dart';
 import 'language_detector.dart';
 import 'memory_extractor.dart';
 import 'narrative_narrator.dart';
@@ -72,6 +74,7 @@ class AgentRuntimeEngine {
     this.soulRepo,
     this.memoryRepo,
     this.eventRepo,
+    this.skillsRepo,
     TaskLedgerDatabase? ledgerDb,
     OpenAiCompatibleClient? llmClient,
     Future<EcosystemSnapshot> Function()? snapshotOverride,
@@ -131,6 +134,7 @@ class AgentRuntimeEngine {
   final AgentSoulRepository? soulRepo;
   final AgentMemoryRepository? memoryRepo;
   final AgentEventRepository? eventRepo;
+  final AgentSkillsRepository? skillsRepo;
   final TaskLedgerDatabase ledgerDb;
   final OpenAiCompatibleClient _client;
   final Future<EcosystemSnapshot> Function()? _snapshotOverride;
@@ -142,6 +146,7 @@ class AgentRuntimeEngine {
   late final WorkspaceContextBuilder _contextBuilder = WorkspaceContextBuilder(
     soulRepo: soulRepo,
     memoryRepo: memoryRepo,
+    skillsRepo: skillsRepo,
   );
   static const int maxSteps = 5;
   final RuntimeMemory _memory = RuntimeMemory();
@@ -172,8 +177,76 @@ class AgentRuntimeEngine {
     String agentName,
     String agentId, {
     String? userMessage,
+    List<AgentSkill>? preFilteredSkills,
   }) async {
-    return _contextBuilder.build(agentName, agentId, userMessage: userMessage);
+    return _contextBuilder.build(
+      agentName,
+      agentId,
+      userMessage: userMessage,
+      preFilteredSkills: preFilteredSkills,
+    );
+  }
+
+  /// Use a lightweight LLM call to select which skills are relevant to the user request.
+  Future<List<AgentSkill>> _selectRelevantSkills({
+    required List<AgentSkill> activeSkills,
+    required String userMessage,
+    required LlmProviderConfig config,
+    required OpenAiCompatibleClient client,
+    required RuntimeLogger logger,
+  }) async {
+    if (activeSkills.isEmpty) return const [];
+    if (userMessage.trim().isEmpty) return activeSkills;
+    if (activeSkills.length <= 1) return activeSkills;
+
+    try {
+      final buffer = StringBuffer();
+      for (final skill in activeSkills) {
+        final snippet = skill.content.length > 200
+            ? '${skill.content.substring(0, 200)}...'
+            : skill.content;
+        buffer.writeln('- ID: ${skill.id}');
+        buffer.writeln('  Title: ${skill.title}');
+        buffer.writeln('  Content Snippet: $snippet');
+        buffer.writeln();
+      }
+
+      final prompt = PromptConstants.selectRelevantSkills(
+        userMessage: userMessage,
+        skillsListBlock: buffer.toString().trim(),
+      );
+
+      final caller = LlmJsonCaller(client: client, config: config);
+      final response = await caller.call(prompt, 'skills_selection', logger);
+
+      if (response == null) {
+        logger.logError('Skills selector returned null, falling back to all active skills');
+        return activeSkills;
+      }
+
+      final relevantIdentifiers = (response['relevant_skill_ids'] as List?)
+          ?.map((e) => e.toString().trim().toLowerCase())
+          .toSet();
+
+      if (relevantIdentifiers == null) {
+        logger.logError('Skills selector response format invalid, falling back to all active skills');
+        return activeSkills;
+      }
+
+      final matched = activeSkills.where((s) {
+        final idLower = s.id.toLowerCase();
+        final titleLower = s.title.toLowerCase();
+        return relevantIdentifiers.contains(idLower) || relevantIdentifiers.contains(titleLower);
+      }).toList();
+      logger.logStateChange(
+        AgentRuntimeState.analyzing,
+        'Skills selector filtered active skills: ${matched.map((s) => s.title).join(', ')} (from total ${activeSkills.length})',
+      );
+      return matched;
+    } catch (e) {
+      logger.logError('Failed to select relevant skills using LLM, falling back to all active skills', e);
+      return activeSkills;
+    }
   }
 
   /// True if the user hasn't introduced themselves yet. Drives the
@@ -479,10 +552,23 @@ class AgentRuntimeEngine {
       // Phase 7: identity lives in agent_soul. Check the DB row directly to
       // decide whether the introduction gate should fire.
       final activeSoul = await soulRepo?.get(request.agentId);
+      final allActiveSkills = skillsRepo != null
+          ? await skillsRepo!.getActiveSkillsForAgent(request.agentId)
+          : const <AgentSkill>[];
+
+      final filteredSkills = await _selectRelevantSkills(
+        activeSkills: allActiveSkills,
+        userMessage: request.userMessage,
+        config: llmConfig,
+        client: client,
+        logger: logger,
+      );
+
       final workspace = await _buildWorkspace(
         wsName,
         request.agentId,
         userMessage: request.userMessage,
+        preFilteredSkills: filteredSkills,
       );
       final userNotIntroduced = _isUserNameMissing(activeSoul);
       // Drop transient provider-error messages from history before slicing —
@@ -987,7 +1073,8 @@ class AgentRuntimeEngine {
           agentId: request.agentId,
         );
         final identityBlock =
-            'Identity context (user profile stored in database):\n${workspace.soul}';
+            'Identity context (user profile stored in database):\n${workspace.soul}'
+            '${workspace.skills.isEmpty ? '' : '\n\n${workspace.skills}'}';
         final recentToolMemory = _memory.formatForPrompt(request.agentId);
         final toolMemoryBlock = recentToolMemory.isEmpty
             ? ''
@@ -1997,10 +2084,9 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
       workflowRepository: ref.watch(workflowRepositoryProvider),
     ),
     agentLoader: () => ref.read(agentListProvider),
-    // Phase 5b: feed soul + memory from SQLite so the LLM gets real
-    // identity/memory context instead of empty strings.
     soulRepo: ref.read(coreAgentSoulRepositoryProvider),
     memoryRepo: ref.read(coreAgentMemoryRepositoryProvider),
     eventRepo: ref.read(coreAgentEventRepositoryProvider),
+    skillsRepo: ref.read(agentSkillsRepositoryProvider),
   );
 });

@@ -29,6 +29,8 @@ const MeowInput({
     this.maxLength,
     this.textCapitalization,
     this.showCounter = false,
+    this.enabled = true,
+    this.readOnly = false,
   });
 
   final TextEditingController? controller;
@@ -48,6 +50,8 @@ const MeowInput({
   final int? maxLength;
   final TextCapitalization? textCapitalization;
   final bool showCounter;
+  final bool enabled;
+  final bool readOnly;
 
   @override
   State<MeowInput> createState() => _MeowInputState();
@@ -109,6 +113,8 @@ class _MeowInputState extends State<MeowInput> {
           textCapitalization: widget.textCapitalization ?? TextCapitalization.none,
           maxLength: widget.maxLength,
           validator: widget.validator,
+          enabled: widget.enabled,
+          readOnly: widget.readOnly,
           onChanged: widget.onChanged,
           onFieldSubmitted: widget.onSubmitted,
           maxLines: widget.maxLines,
