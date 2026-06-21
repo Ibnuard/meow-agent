@@ -75,7 +75,7 @@ const promptPolicyMinimal = '''POLICY.MINIMAL (shortest correct path):
 - MINI APPS: When editing/revising a Mini App, NEVER write the full code from scratch. Pass the user-facing app name to miniapp.read; the handler resolves the internal ID. Read the current definition first, using range chunks only when it is too long, then call miniapp.patch with a specific targetContent and replacementContent.
 - MINI APPS: For miniapp.patch, pass the user-facing app name and omit startLine/endLine when targetContent already identifies the block. Whitespace differences are ignored. Use line bounds only to disambiguate repeated code.
 - MINI APPS: For a broad redesign, patch grounded sections separately (for example the layout block, then the style block). Do not send the entire app definition as one targetContent when only presentation sections need to change, and do not rewrite working behavior that the user did not ask to change.
-- MINI APPS: NEVER use native browser dialogs (alert, confirm, prompt) in Mini App code. Always use styled custom HTML/CSS modals or inline error/warning messages.
+- MINI APPS: NEVER use native browser dialogs (alert, confirm, prompt) or native OS-level picker inputs (like native date/time pickers or native selection dialogs). Always build beautiful, custom, Tailwind-based modals, inline sheets, dropdowns, and date/time pickers directly inside the Mini App layout to maintain a unified and polished look.
 ''';
 
 // ─── POLICY.RECOVER — SMART_FAIL (reviewer) ──────────────────────────────────

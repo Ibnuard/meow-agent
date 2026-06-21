@@ -328,6 +328,14 @@ class AppStrings {
       : 'Are you sure you want to permanently delete Mini App "$name"?';
   String get miniAppDeleteSuccess => isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
   String get miniAppDeleteError => isId ? 'Mini App tidak dapat dihapus.' : 'The Mini App could not be deleted.';
+  String get miniAppMaxHomeCountError => isId
+      ? 'Maksimal 4 Mini App yang dapat ditampilkan di layar utama.'
+      : 'A maximum of 4 Mini Apps can be shown on the home screen.';
+  String get miniAppsHomeTitle => isId ? 'Aplikasi Mini' : 'Mini Apps';
+  String get miniAppsHomeSubtitle => isId
+      ? 'Akses cepat aplikasi mini pilihanmu'
+      : 'Quick access to your pinned mini apps';
+  String get showOnHomeLabel => isId ? 'Tampilkan di Home' : 'Show on Home';
   String get dbManagerTitle => isId ? 'Manajer Database' : 'Database Manager';
   String get dbManagerEmpty =>
       isId ? 'Belum ada tabel database.' : 'No database tables found.';

@@ -154,6 +154,36 @@ class MiniAppListScreen extends ConsumerWidget {
                         const SizedBox(width: 8),
                         IconButton(
                           icon: Icon(
+                            app.showOnHome ? Icons.home_rounded : Icons.home_outlined,
+                            color: app.showOnHome
+                                ? cs.primary
+                                : cs.onSurfaceVariant.withValues(alpha: 0.6),
+                            size: 22,
+                          ),
+                          tooltip: s.showOnHomeLabel,
+                          onPressed: () async {
+                            final repo = ref.read(miniAppRepositoryProvider);
+                            if (!app.showOnHome) {
+                              final currentApps = await repo.listMiniApps();
+                              final shownCount = currentApps.where((a) => a.showOnHome).length;
+                              if (shownCount >= 4) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(s.miniAppMaxHomeCountError),
+                                    ),
+                                  );
+                                }
+                                return;
+                              }
+                            }
+                            await repo.saveMiniApp(
+                              app.copyWith(showOnHome: !app.showOnHome),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: Icon(
                             Icons.delete_outline_rounded,
                             color: cs.error.withValues(alpha: 0.8),
                             size: 22,

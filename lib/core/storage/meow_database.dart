@@ -46,13 +46,17 @@ class MeowDatabase {
     // Ensure miniapps table exists for existing installs that already have version 1 database
     await db.execute('''
       CREATE TABLE IF NOT EXISTS miniapps (
-        id          TEXT PRIMARY KEY,
-        name        TEXT NOT NULL,
-        icon        TEXT,
-        code_html   TEXT NOT NULL,
-        created_at  TEXT NOT NULL
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        icon          TEXT,
+        code_html     TEXT NOT NULL,
+        created_at    TEXT NOT NULL,
+        show_on_home  INTEGER NOT NULL DEFAULT 0
       )
     ''');
+    try {
+      await db.execute('ALTER TABLE miniapps ADD COLUMN show_on_home INTEGER NOT NULL DEFAULT 0');
+    } catch (_) {}
     return db;
   }
 
