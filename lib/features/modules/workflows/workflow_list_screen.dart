@@ -37,16 +37,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     _load();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Subscribe to mutations from any source (LLM tools, background runner).
-    ref.listen(workflowListProvider, (_, next) {
-      next.whenData((list) {
-        if (mounted) setState(() => _workflows = list);
-      });
-    });
-  }
+
 
   Future<void> _load() async {
     final list = await _repo.list();
@@ -195,11 +186,16 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<List<WorkflowModel>>>(workflowListProvider, (_, next) {
+      next.whenData((list) {
+        if (mounted) setState(() => _workflows = list);
+      });
+    });
+
     final cs = context.cs;
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
-    final s = AppStrings(isId ? 'id' : 'en');
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return PopScope(
       canPop: !_selectionMode,
