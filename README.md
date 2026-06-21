@@ -1,8 +1,12 @@
-<p align="center">
+<h1 align="center">
   <img src="assets/images/meow.png" width="168" alt="Meow Agent mascot">
-</p>
+</h1>
 
-<h1 align="center">Meow Agent</h1>
+<p align="center">
+  <h1 style="background: linear-gradient(135deg, #A855F7 0%, #6366F1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-size: 2.5em; margin: 0; display: inline-block;">
+    <strong>Meow Agent</strong>
+  </h1>
+</p>
 
 <p align="center">
   <strong>Your sandboxed agentic AI companion for everyday life.</strong>
@@ -21,10 +25,42 @@
 </p>
 
 <p align="center">
+  <a href="#get-the-app">Download</a> ·
   <a href="#why-meow">Why Meow?</a> ·
+  <a href="#what-can-it-do">Features</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#run-locally">Run Locally</a>
 </p>
+
+## Get the App
+
+📦 Download the latest APK from GitHub Releases:
+
+<a href="https://github.com/Ibnuard/meow-agent/releases/latest">
+  <img src="https://img.shields.io/badge/Download-APK-6366F1?style=for-the-badge&logo=github" alt="Download APK">
+</a>
+
+> Requires Android 8.0+ (API 26). Install only the modules you need and grant permissions one by one.
+
+## Screenshots
+
+<div align="center">
+  <img src="pic/screenshot_1.png" width="23%" alt="Screenshot 1">
+  <img src="pic/screenshot_2.png" width="23%" alt="Screenshot 2">
+  <img src="pic/screenshot_3.png" width="23%" alt="Screenshot 3">
+  <img src="pic/screenshot_4.png" width="23%" alt="Screenshot 4">
+</div>
+<div align="center">
+  <img src="pic/screenshot_5.png" width="23%" alt="Screenshot 5">
+  <img src="pic/screenshot_6.png" width="23%" alt="Screenshot 6">
+  <img src="pic/screenshot_7.png" width="23%" alt="Screenshot 7">
+  <img src="pic/screenshot_8.png" width="23%" alt="Screenshot 8">
+</div>
+<div align="center">
+  <img src="pic/screenshot_9.png" width="23%" alt="Screenshot 9">
+  <img src="pic/screenshot_10.png" width="23%" alt="Screenshot 10">
+  <img src="pic/screenshot_11.png" width="23%" alt="Screenshot 11">
+</div>
 
 ## Why Meow?
 
@@ -38,6 +74,27 @@ notes, organizing files, managing schedules, running workflows, working with
 personal data, and carrying out device actions that the user explicitly allows.
 It is designed to feel approachable enough to live with and capable enough to
 rely on.
+
+## What Can It Do?
+
+Meow Agent is an AI companion that lives on your phone and helps with everyday
+tasks through a calm, conversational interface:
+
+| What you can do | How it helps |
+|---|---|
+| 📝 **Take notes** | Create and search notes across all your conversations |
+| 📁 **Manage files** | Browse, organize, and share files on your device |
+| 📅 **Calendar** | View and manage your calendar events |
+| 💬 **Smart notifications** | Summarize and surface important notifications |
+| 📞 **Calls & SMS** | Initiate calls or send messages to contacts |
+| 🌐 **Web search** | Search the web and fetch information |
+| ⏰ **Reminders** | Set time-based or location-based reminders |
+| 🔄 **Workflows** | Automate repeating tasks on a schedule |
+| 📊 **HTTP APIs** | Connect to custom APIs and services |
+| 🧠 **Memory** | Remember your preferences and past conversations |
+
+Every action requires your explicit permission. Nothing runs in the background
+without consent.
 
 ## A Sandboxed Agent, Not Just a Chatbot
 
