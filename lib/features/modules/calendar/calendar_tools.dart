@@ -92,7 +92,6 @@ class CalendarTools {
         actions: const [
           ResultAction(
             label: 'Open Calendar',
-            labelId: 'Buka Kalender',
             icon: 'calendar_month_rounded',
             type: 'navigate',
             target: '/modules/calendar',
@@ -320,7 +319,6 @@ class CalendarTools {
         actions: [
           ResultAction(
             label: 'Open Calendar',
-            labelId: 'Buka Kalender',
             icon: 'calendar_month_rounded',
             type: 'navigate',
             target: '/modules/calendar',

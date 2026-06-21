@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -39,11 +39,9 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
     final s = AppStrings(resolveLanguageCode(langPref));
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
-      title: s.isId ? 'Hapus Note?' : 'Delete Note?',
-      message: s.isId
-          ? 'Note ini akan dihapus permanen. Lanjutkan?'
-          : 'This note will be permanently deleted. Continue?',
+      strings: s,
+      title: s.noteDetailDeleteTitle,
+      message: s.noteDetailDeleteMessage,
       confirmLabel: s.delete,
       cancelLabel: s.cancel,
     );
@@ -84,7 +82,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
         appBar: AppBar(),
         body: Center(
           child: Text(
-            s.isId ? 'Note tidak ditemukan' : 'Note not found',
+            s.noteDetailNotFound,
             style: TextStyle(color: cs.onSurfaceVariant),
           ),
         ),
@@ -105,7 +103,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
                   : Icons.push_pin_outlined,
               size: 20,
             ),
-            tooltip: _note!.pinned ? 'Unpin' : 'Pin',
+            tooltip: _note!.pinned ? s.noteDetailUnpin : s.noteDetailPin,
             onPressed: _togglePin,
           ),
           IconButton(
@@ -165,46 +163,14 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: extras.subtleBorder),
                 ),
-                child: MarkdownBody(
-                  data: _note!.content.isEmpty
-                      ? (s.isId ? '_Tidak ada konten_' : '_No content_')
+                child: GptMarkdown(
+                  _note!.content.isEmpty
+                      ? s.noteDetailEmptyContent
                       : _note!.content,
-                  selectable: true,
-                  shrinkWrap: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 14,
-                      height: 1.5,
-                    ),
-                    h1: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    h2: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    h3: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    strong: TextStyle(
-                      color: cs.onSurface,
-                      fontWeight: FontWeight.w700,
-                    ),
-                    code: TextStyle(
-                      color: cs.primary,
-                      backgroundColor: cs.primary.withValues(alpha: 0.08),
-                      fontSize: 13,
-                    ),
-                    listBullet: TextStyle(
-                      color: cs.onSurface,
-                      fontSize: 14,
-                    ),
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 14,
+                    height: 1.5,
                   ),
                 ),
               ),
@@ -212,9 +178,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               // Metadata.
               const SizedBox(height: 20),
               Text(
-                s.isId
-                    ? 'Dibuat: ${_formatDate(_note!.createdAt)}'
-                    : 'Created: ${_formatDate(_note!.createdAt)}',
+                s.noteDetailCreated(_formatDate(_note!.createdAt)),
                 style: TextStyle(
                   fontSize: 11,
                   color: cs.onSurfaceVariant,
@@ -222,9 +186,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               ),
               const SizedBox(height: 2),
               Text(
-                s.isId
-                    ? 'Diperbarui: ${_formatDate(_note!.updatedAt)}'
-                    : 'Updated: ${_formatDate(_note!.updatedAt)}',
+                s.noteDetailUpdated(_formatDate(_note!.updatedAt)),
                 style: TextStyle(
                   fontSize: 11,
                   color: cs.onSurfaceVariant,
@@ -233,7 +195,7 @@ class _NoteDetailScreenState extends ConsumerState<NoteDetailScreen> {
               if (_note!.source.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(
-                  'Source: ${_note!.source}',
+                  s.noteDetailSourceLabel(_note!.source),
                   style: TextStyle(
                     fontSize: 11,
                     color: cs.onSurfaceVariant,

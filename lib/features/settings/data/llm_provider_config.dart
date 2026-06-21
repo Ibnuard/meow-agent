@@ -7,11 +7,13 @@ class LlmProviderConfig {
     required this.baseUrl,
     required this.apiKey,
     required this.model,
+    this.supportsFunctionCalling = false,
   });
 
   final String baseUrl;
   final String apiKey;
   final String model;
+  final bool supportsFunctionCalling;
 
   bool get isComplete =>
       baseUrl.trim().isNotEmpty &&
@@ -22,11 +24,14 @@ class LlmProviderConfig {
     String? baseUrl,
     String? apiKey,
     String? model,
+    bool? supportsFunctionCalling,
   }) {
     return LlmProviderConfig(
       baseUrl: baseUrl ?? this.baseUrl,
       apiKey: apiKey ?? this.apiKey,
       model: model ?? this.model,
+      supportsFunctionCalling:
+          supportsFunctionCalling ?? this.supportsFunctionCalling,
     );
   }
 

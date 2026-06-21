@@ -6,6 +6,121 @@ class RuntimeLogger {
 
   List<RuntimeEvent> get events => List.unmodifiable(_events);
 
+  /// Phases allowed to surface a narrative bubble to the user.
+  ///
+  /// The narrative is the ambient "what I'm doing" line. We only show it at
+  /// THINKING / DECISION / REFLECT moments — not on every tool step — so the
+  /// user gets one coherent line per turn instead of 3–4 near-identical bubbles
+  /// ("Oke saya akan buka X...") restated by analyze → reflect → plan → select.
+  ///
+  /// Excluded on purpose: 'plan' (restates reflect), 'select_tool' and
+  /// 'review' (per-tool-step chatter). Those phases still drive the overlay /
+  /// thinking indicator elsewhere; they just don't emit a chat bubble.
+  static const _narrativeBubblePhases = <String>{
+    'analyze',
+    'reflect',
+    'relation',
+    'direct',
+  };
+
+  // Cross-phase de-duplication of narrative bubbles for the CURRENT turn.
+  // Loop-local dedup missed repeats ACROSS phases (analyze vs reflect vs
+  // select), which is exactly where the user saw stacked duplicates. Keyed on
+  // normalized text with a small rolling window.
+  static const int _narrativeWindow = 6;
+  final List<String> _recentNarratives = [];
+  final List<String> _recentStreamBubbleKeys = [];
+  String? _lastPreActionPhase;
+  String? _lastPreActionNarrative;
+
+  /// Emit a narrative bubble for [phase]. Returns true if it was actually
+  /// logged (caller should `emit` only then). Drops the event when the phase
+  /// isn't bubble-eligible or the text duplicates a recent narrative.
+  bool logNarrative(String phase, String narrative) {
+    final text = narrative.trim();
+    if (text.isEmpty) return false;
+    if (!_narrativeBubblePhases.contains(phase)) return false;
+
+    final norm = _normalizeNarrative(text);
+    for (final prior in _recentNarratives) {
+      if (prior == norm) return false;
+      if (norm.length >= 12 && (prior.contains(norm) || norm.contains(prior))) {
+        return false;
+      }
+    }
+    _recentNarratives.add(norm);
+    if (_recentNarratives.length > _narrativeWindow) {
+      _recentNarratives.removeAt(0);
+    }
+
+    _events.add(
+      RuntimeEvent(type: 'narrative', message: text, data: {'phase': phase}),
+    );
+    return true;
+  }
+
+  /// Emit an ephemeral narrator update for the action that is about to start.
+  /// It is consumed by the live thinking UI only and is never persisted as a
+  /// chat message or replayed into model context.
+  bool logPreActionNarrative(String nextPhase, String narrative) {
+    final text = narrative.trim();
+    if (text.isEmpty) return false;
+    final norm = _normalizeNarrative(text);
+    if (_lastPreActionPhase == nextPhase && _lastPreActionNarrative == norm) {
+      return false;
+    }
+    _lastPreActionPhase = nextPhase;
+    _lastPreActionNarrative = norm;
+    _events.add(
+      RuntimeEvent(
+        type: 'narrative',
+        message: text,
+        data: {'phase': nextPhase, 'mode': 'pre_action'},
+      ),
+    );
+    return true;
+  }
+
+  static String _normalizeNarrative(String value) =>
+      value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  /// Publish one completed, user-facing phase outcome.
+  ///
+  /// Unlike [logNarrative], this event is intended to become a persisted chat
+  /// bubble. Callers must only use structured phase output or verified tool /
+  /// snapshot evidence; raw chain-of-thought and in-progress token streams do
+  /// not belong here.
+  bool logStreamBubble({
+    required String kind,
+    required String phase,
+    required String message,
+    List<String> evidenceRefs = const [],
+    required String contextPolicy,
+  }) {
+    final text = message.trim();
+    if (text.isEmpty) return false;
+    final norm = _normalizeNarrative(text);
+    final dedupeKey = [kind, phase, norm, ...evidenceRefs].join('|');
+    if (_recentStreamBubbleKeys.contains(dedupeKey)) return false;
+    _recentStreamBubbleKeys.add(dedupeKey);
+    if (_recentStreamBubbleKeys.length > _narrativeWindow) {
+      _recentStreamBubbleKeys.removeAt(0);
+    }
+    _events.add(
+      RuntimeEvent(
+        type: 'stream_bubble',
+        message: text,
+        data: {
+          'kind': kind,
+          'phase': phase,
+          'evidence_refs': evidenceRefs,
+          'context_policy': contextPolicy,
+        },
+      ),
+    );
+    return true;
+  }
+
   void logStateChange(AgentRuntimeState state, String message) {
     _events.add(
       RuntimeEvent(
@@ -16,12 +131,16 @@ class RuntimeLogger {
     );
   }
 
-  void logLlmDecision(String phase, Map<String, dynamic> json) {
+  void logLlmDecision(
+    String phase,
+    Map<String, dynamic> json, {
+    String? version,
+  }) {
     _events.add(
       RuntimeEvent(
         type: 'llm_decision',
         message: '$phase decision',
-        data: json,
+        data: {'_prompt_version': ?version, ...json},
       ),
     );
   }
@@ -71,16 +190,16 @@ class RuntimeLogger {
     _events.add(RuntimeEvent(type: 'final_response', message: response));
   }
 
-  /// LLM-supplied POV-AI narrative attached to a phase JSON.
-  /// Surfaced to the UI as the "what is the agent thinking right now" bubble.
-  /// [phase] is the phase that produced it (analyze, reflect, plan, ...).
-  void logNarrative(String phase, String narrative) {
-    if (narrative.trim().isEmpty) return;
+  /// A self-correction moment — the runtime caught and recovered from a
+  /// model mistake or a stale-state mismatch. Surfaced in /log for visibility
+  /// into how often each recovery path fires. [kind] is a stable enum-like
+  /// string (e.g. 'fast_path_exhausted', 'narrative_gate_override').
+  void logDivergence(String kind, Map<String, dynamic> details) {
     _events.add(
       RuntimeEvent(
-        type: 'narrative',
-        message: narrative.trim(),
-        data: {'phase': phase},
+        type: 'divergence',
+        message: 'Recovery: $kind',
+        data: {'kind': kind, ...details},
       ),
     );
   }

@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../../features/settings/data/app_language_provider.dart';
 import '../theme.dart';
 
 /// Show a generic, reusable destructive confirmation dialog.
 ///
 /// Returns `true` if the user confirmed, `false` or `null` otherwise.
 ///
-/// All copy is parameterized so callers can keep their own tone, but defaults
-/// are provided that work for 90% of delete flows. Pass `isId` to switch the
-/// default labels between Indonesian and English.
+/// All copy is parameterized so callers can keep their own tone. Pass the
+/// caller's [AppStrings] via `strings:` so default labels (title/body/confirm/
+/// cancel) come from the right locale. Per AGENTS.md, the screen resolves
+/// `AppStrings` once at the top of `build()` and passes it down — `isId` must
+/// not leak into presentation. The legacy `isId` flag is kept as a deprecated
+/// shim during the migration; new callers MUST use `strings:`.
 Future<bool> showMeowConfirmDialog(
   BuildContext context, {
   String? title,
@@ -16,24 +20,22 @@ Future<bool> showMeowConfirmDialog(
   String? confirmLabel,
   String? cancelLabel,
   IconData icon = Icons.delete_outline_rounded,
+  AppStrings? strings,
+  @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
   bool isId = true,
   bool destructive = true,
 }) async {
   final cs = Theme.of(context).colorScheme;
   final extras = Theme.of(context).extension<MeowExtras>()!;
+  final s = strings ?? AppStrings(isId ? 'id' : 'en');
 
   final accent = destructive ? cs.error : cs.primary;
   final resolvedTitle = title ??
-      (isId
-          ? (destructive ? 'Hapus Item?' : 'Konfirmasi')
-          : (destructive ? 'Delete Item?' : 'Confirm'));
-  final resolvedMessage = message ??
-      (isId
-          ? 'Tindakan ini tidak dapat dibatalkan. Lanjutkan?'
-          : 'This action cannot be undone. Continue?');
+      (destructive ? s.confirmDefaultTitle : s.confirmDefaultConfirm);
+  final resolvedMessage = message ?? s.confirmDefaultBody;
   final resolvedConfirm = confirmLabel ??
-      (isId ? (destructive ? 'Hapus' : 'Lanjutkan') : (destructive ? 'Delete' : 'Continue'));
-  final resolvedCancel = cancelLabel ?? (isId ? 'Batal' : 'Cancel');
+      (destructive ? s.confirmDefaultDelete : s.confirmDefaultContinue);
+  final resolvedCancel = cancelLabel ?? s.cancel;
 
   final result = await showDialog<bool>(
     context: context,

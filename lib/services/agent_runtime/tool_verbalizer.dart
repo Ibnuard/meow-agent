@@ -4,6 +4,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'i18n_fallback.dart';
 import 'language_detector.dart';
+import 'prompt_constants.dart';
 import 'runtime_models.dart';
 
 /// Generic, LLM-backed user-facing string generator.
@@ -180,13 +181,71 @@ Rules:
 
 Reply with the answer only. No JSON, no quotes.''';
 
-    return _callOrFallback(
+    final raw = await _callOrFallback(
       prompt: prompt,
       phase: 'verbalize.answer_from_tool_result',
       languageCode: language.code,
       fallbackPhase: 'success',
       cacheKey: cacheKey,
     );
+
+    // Safety net: if the model echoed the prompt structure (rare on capable
+    // models, common on weak ones), fall back to extracting the primary
+    // human-readable field from the result data.
+    if (_looksLikePromptEcho(raw)) {
+      final extracted = _extractPrimaryText(result.data);
+      if (extracted != null && extracted.isNotEmpty) {
+        _turnCache[cacheKey] = extracted;
+        return extracted;
+      }
+    }
+    return raw;
+  }
+
+  /// Detect when an output is the model echoing back the prompt structure
+  /// instead of producing a real answer. Generic — looks for the kind of
+  /// labeled section markers verbalizer prompts contain. Vendor-agnostic.
+  static bool _looksLikePromptEcho(String s) {
+    final lower = s.toLowerCase();
+    var hits = 0;
+    const markers = [
+      'user request:',
+      'tool action:',
+      'tool arguments:',
+      'tool result data:',
+      'rules:',
+    ];
+    for (final m in markers) {
+      if (lower.contains(m)) hits++;
+    }
+    return hits >= 2;
+  }
+
+  /// Pull the most user-relevant text field out of arbitrary tool result
+  /// data. Tries a small ordered list of common field names. This is
+  /// shape-based, not tool-specific.
+  static String? _extractPrimaryText(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return null;
+    const preferredKeys = [
+      'description',
+      'summary',
+      'text',
+      'content',
+      'message',
+      'answer',
+      'result',
+      'value',
+      'output',
+    ];
+    for (final k in preferredKeys) {
+      final v = data[k];
+      if (v is String && v.trim().isNotEmpty) return v.trim();
+    }
+    // Fallback: first string value of meaningful length.
+    for (final v in data.values) {
+      if (v is String && v.trim().length > 20) return v.trim();
+    }
+    return null;
   }
 
   /// Message shown when the user rejects a pending action.
@@ -327,22 +386,12 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
         )
         .join('\n');
 
-    final prompt =
-        '''You write ONE natural recap of a multi-step task that just finished.
-
-Overall goal: $mainGoal
-
-Subgoals completed:
-$subgoalsBlock
-
-Rules:
-- Reply in ${language.label} (${language.code}). Match this language exactly.
-- 1–3 short sentences. Cover EVERY subgoal in human terms — never single one out and ignore the rest.
-- Speak naturally as a helpful assistant who just finished the work. No bullet lists. No checkmarks.
-- Never expose internal tool names, IDs, or status codes (e.g. "system.agents.delete", "agent_xxx", "[done]").
-- If any subgoal was skipped or failed, briefly acknowledge that too.
-
-Reply with the message only. No JSON, no quotes, no markdown.''';
+    final prompt = PromptConstants.taskSummaryPrompt(
+      mainGoal: mainGoal,
+      subgoalsBlock: subgoalsBlock,
+      languageLabel: language.label,
+      languageCode: language.code,
+    );
 
     return _callOrFallback(
       prompt: prompt,
@@ -580,9 +629,9 @@ Reply with the message only. No JSON, no quotes, no markdown.''';
 
   /// Deterministic provider disambiguation prompt.
   ///
-  /// Used by the engine fallback when `system.agents.create` returned a
-  /// providers list. The verbalizer doesn't need to be smart here — just
-  /// natural and localized.
+  /// Used by the engine fallback when a config operation returns a providers
+  /// list. The verbalizer doesn't need to be smart here — just natural and
+  /// localized.
   Future<String> providerDisambiguation({
     required String availableProviders,
     required DetectedLanguage language,

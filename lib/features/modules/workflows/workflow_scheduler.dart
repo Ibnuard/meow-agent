@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:workmanager/workmanager.dart';
 
+import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 
@@ -79,6 +80,28 @@ class WorkflowScheduler {
     }
   }
 
+  /// Register a WorkManager periodic keep-alive task (L2 fallback).
+  /// If the app process is killed, WorkManager fires every ~15 min and
+  /// restarts the persistent foreground service via [_workManagerDispatcher].
+  static Future<void> registerKeepAlive() async {
+    final repo = WorkflowRepository();
+    final hasEnabled = (await repo.listEnabled()).isNotEmpty;
+    if (!hasEnabled) return;
+
+    await Workmanager().registerPeriodicTask(
+      'meow_keep_alive',
+      'meow_keep_alive',
+      frequency: const Duration(minutes: 15),
+      constraints: Constraints(networkType: NetworkType.notRequired),
+      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+    );
+  }
+
+  /// Cancel the keep-alive task (when all workflows are disabled).
+  static Future<void> cancelKeepAlive() async {
+    await Workmanager().cancelByUniqueName('meow_keep_alive');
+  }
+
   /// Calculate the next fire time for a schedule trigger.
   /// Made public so the dynamic runner can use it for smart timer calculation.
   static DateTime? nextFireTime(TriggerConfig trigger) {
@@ -151,8 +174,8 @@ class WorkflowScheduler {
 }
 
 /// Top-level callback for AlarmManager (must be static/top-level).
-/// Runs in a separate isolate — only reschedules the next occurrence.
-/// Actual execution is handled by WorkflowRunner in the main isolate.
+/// Runs in a separate isolate — reschedules the next occurrence and
+/// ensures the persistent scheduler service is alive.
 @pragma('vm:entry-point')
 Future<void> _alarmCallback() async {
   final repo = WorkflowRepository();
@@ -162,13 +185,19 @@ Future<void> _alarmCallback() async {
     if (wf.trigger.type != TriggerType.schedule) continue;
     await WorkflowScheduler.schedule(wf);
   }
+
+  // Ensure persistent foreground service is alive.
+  await WorkflowForegroundService.ensureRunning();
 }
 
 /// Top-level WorkManager dispatcher.
-/// Same limitation: cannot access RuntimeEngine from background isolate.
+/// Acts as a restart fallback: if the app process was killed, WorkManager
+/// fires periodically and restarts the persistent foreground service.
 @pragma('vm:entry-point')
 void _workManagerDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {
+    // Restart the persistent scheduler notification to keep the process alive.
+    await WorkflowForegroundService.ensureRunning();
     return true;
   });
 }

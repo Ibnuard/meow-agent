@@ -130,6 +130,140 @@ void main() {
       expect(result.reflection.impacts.map((i) => i.entityId), ['wf_a']);
     });
 
+    test('resolves current-agent placeholder to the active agent', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'update current agent',
+          subgoals: [Subgoal(id: 'sg_current', label: 'update current agent')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_current',
+            operation: 'update',
+            entityType: 'agent',
+            entityLabel: 'current_agent',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(),
+        language: language,
+      );
+
+      final target = result.graph.eligibleTargets.single;
+      expect(target.entityId, 'mina');
+      expect(target.entityLabel, 'Mina');
+      expect(target.selector['resolved_reference'], 'current_agent');
+      expect(result.reflection.strategy, ReflectionStrategy.directExecute);
+    });
+
+    test(
+      'read of a peer agent NOT named this turn rebinds to the active agent '
+      '(context-bleed guard)',
+      () {
+        // Simulates the reported bug: a prior turn surfaced "Agent A", then the
+        // user asks "what is your personality?" and the reflector leaks the
+        // stale "Agent A" label as the read target. The user did not name
+        // Agent A this turn, so the runtime must answer about the active agent.
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'read personality',
+            subgoals: [Subgoal(id: 'sg_read', label: 'read personality')],
+          ),
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg_read',
+              operation: 'read',
+              entityType: 'agent',
+              entityId: 'agent_a',
+              entityLabel: 'Agent A',
+            ),
+          ],
+        );
+
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot(),
+          request: request(userMessage: 'apa kepribadian kamu?'),
+          language: language,
+        );
+
+        final target = result.graph.eligibleTargets.single;
+        expect(target.entityId, 'mina');
+        expect(target.entityLabel, 'Mina');
+        expect(target.selector['resolved_reference'], 'current_agent');
+        expect(target.selector['rebound_from'], 'Agent A');
+      },
+    );
+
+    test('read of a peer agent the user NAMES this turn is preserved', () {
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'read Agent A personality',
+          subgoals: [Subgoal(id: 'sg_read', label: 'read Agent A personality')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_read',
+            operation: 'read',
+            entityType: 'agent',
+            entityId: 'agent_a',
+            entityLabel: 'Agent A',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: "what is Agent A's personality?"),
+        language: language,
+      );
+
+      final target = result.graph.eligibleTargets.single;
+      expect(target.entityId, 'agent_a');
+      expect(target.entityLabel, 'Agent A');
+      expect(target.selector['resolved_reference'], isNull);
+    });
+
+    test('DELETE of a peer agent is NOT rebound by the read guard', () {
+      // The guard must only touch the silent read path — a destructive op goes
+      // through the confirmation gate and must keep its resolved target.
+      final reflection = ReflectionOutput(
+        strategy: ReflectionStrategy.directExecute,
+        goalTree: GoalTree(
+          mainGoal: 'delete Agent A',
+          subgoals: [Subgoal(id: 'sg_del', label: 'delete Agent A')],
+        ),
+        targets: const [
+          ReflectionTarget(
+            subgoalId: 'sg_del',
+            operation: 'delete',
+            entityType: 'agent',
+            entityId: 'agent_a',
+            entityLabel: 'Agent A',
+          ),
+        ],
+      );
+
+      final result = TargetResolver.resolveReflection(
+        reflection: reflection,
+        snapshot: snapshot(),
+        request: request(userMessage: 'hapus agent itu'),
+        language: language,
+      );
+
+      final target = result.graph.targets.single;
+      expect(target.entityId, 'agent_a');
+      expect(target.selector['resolved_reference'], isNull);
+    });
+
     test('drops unlinked impacts when valid targets are known', () {
       final reflection = ReflectionOutput(
         strategy: ReflectionStrategy.clarify,
@@ -644,42 +778,43 @@ void main() {
       );
 
       expect(result.graph.eligibleTargets.length, 2);
-      expect(
-        result.graph.eligibleTargets.map((t) => t.operation).toSet(),
-        {'delete'},
-      );
+      expect(result.graph.eligibleTargets.map((t) => t.operation).toSet(), {
+        'delete',
+      });
     });
 
-    test('"delete every agent" expands and still skips current active agent',
-        () {
-      final reflection = ReflectionOutput(
-        strategy: ReflectionStrategy.directExecute,
-        goalTree: GoalTree(
-          mainGoal: 'delete every agent',
-          subgoals: [Subgoal(id: 'sg_bulk', label: 'delete every agent')],
-        ),
-        targets: const [
-          ReflectionTarget(
-            subgoalId: 'sg_bulk',
-            operation: 'delete',
-            entityType: 'agent',
-            entityLabel: 'every',
+    test(
+      '"delete every agent" expands and still skips current active agent',
+      () {
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'delete every agent',
+            subgoals: [Subgoal(id: 'sg_bulk', label: 'delete every agent')],
           ),
-        ],
-      );
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg_bulk',
+              operation: 'delete',
+              entityType: 'agent',
+              entityLabel: 'every',
+            ),
+          ],
+        );
 
-      final result = TargetResolver.resolveReflection(
-        reflection: reflection,
-        snapshot: snapshot(),
-        request: request(),
-        language: language,
-      );
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: snapshot(),
+          request: request(),
+          language: language,
+        );
 
-      // 3 agents, but Mina is current active → skipped.
-      expect(result.graph.eligibleTargets.length, 2);
-      expect(result.graph.skippedTargets.length, 1);
-      expect(result.graph.skippedTargets.single.entityId, 'mina');
-    });
+        // 3 agents, but Mina is current active → skipped.
+        expect(result.graph.eligibleTargets.length, 2);
+        expect(result.graph.skippedTargets.length, 1);
+        expect(result.graph.skippedTargets.single.entityId, 'mina');
+      },
+    );
 
     test('selector.scope=all expands even when label is generic', () {
       final reflection = ReflectionOutput(
@@ -707,10 +842,9 @@ void main() {
       );
 
       expect(result.graph.eligibleTargets.length, 2);
-      expect(
-        result.graph.eligibleTargets.map((t) => t.entityType).toSet(),
-        {'provider'},
-      );
+      expect(result.graph.eligibleTargets.map((t) => t.entityType).toSet(), {
+        'provider',
+      });
     });
 
     test('does NOT expand when entity already concrete (id provided)', () {
@@ -769,46 +903,152 @@ void main() {
 
       // Create is not bulk-eligible — leaves the seed alone, normal resolution
       // then either blocks (target not found) or stays single.
-      expect(result.graph.eligibleTargets.length + result.graph.blockingTargets.length, 1);
+      expect(
+        result.graph.eligibleTargets.length +
+            result.graph.blockingTargets.length,
+        1,
+      );
     });
 
-    test('expansion is a no-op when snapshot has zero entities of that type',
-        () {
-      final emptyWorkflows = EcosystemSnapshot(
-        builtAt: DateTime(2026, 1, 1),
-        agents: const [
-          EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'X'),
-        ],
-        workflows: const [],
-        providers: const [],
-        modules: const [],
-      );
-      final reflection = ReflectionOutput(
-        strategy: ReflectionStrategy.directExecute,
-        goalTree: GoalTree(
-          mainGoal: 'hapus semua workflow',
-          subgoals: [Subgoal(id: 'sg', label: 'hapus semua workflow')],
-        ),
-        targets: const [
-          ReflectionTarget(
-            subgoalId: 'sg',
-            operation: 'delete',
-            entityType: 'workflow',
-            entityLabel: 'all',
-            selector: {'scope': 'all'},
+    test(
+      'expansion is a no-op when snapshot has zero entities of that type',
+      () {
+        final emptyWorkflows = EcosystemSnapshot(
+          builtAt: DateTime(2026, 1, 1),
+          agents: const [
+            EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'X'),
+          ],
+          workflows: const [],
+          providers: const [],
+          modules: const [],
+        );
+        final reflection = ReflectionOutput(
+          strategy: ReflectionStrategy.directExecute,
+          goalTree: GoalTree(
+            mainGoal: 'hapus semua workflow',
+            subgoals: [Subgoal(id: 'sg', label: 'hapus semua workflow')],
           ),
-        ],
-      );
+          targets: const [
+            ReflectionTarget(
+              subgoalId: 'sg',
+              operation: 'delete',
+              entityType: 'workflow',
+              entityLabel: 'all',
+              selector: {'scope': 'all'},
+            ),
+          ],
+        );
 
+        final result = TargetResolver.resolveReflection(
+          reflection: reflection,
+          snapshot: emptyWorkflows,
+          request: request(),
+          language: language,
+        );
+
+        // No snapshot entities → no expansion → original target falls through to
+        // normal resolution which marks it as missing/blocking.
+        expect(result.graph.eligibleTargets, isEmpty);
+      },
+    );
+  });
+
+  group('TargetResolver — predicate selector (language-agnostic)', () {
+    // Snapshot with three agents whose names exercise an "ends_with don" filter.
+    EcosystemSnapshot agentsSnapshot() => EcosystemSnapshot(
+      builtAt: DateTime(2026, 1, 1),
+      agents: const [
+        EcosystemAgent(id: 'mina', name: 'Mina', providerNickname: 'P'),
+        EcosystemAgent(id: 'gordon', name: 'Gordon', providerNickname: 'P'),
+        EcosystemAgent(id: 'brandon', name: 'Brandon', providerNickname: 'P'),
+      ],
+      workflows: const [],
+      providers: const [],
+      modules: const [],
+    );
+
+    ReflectionOutput predicateDelete({
+      required String op,
+      required String value,
+      bool caseSensitive = false,
+    }) => ReflectionOutput(
+      strategy: ReflectionStrategy.directExecute,
+      goalTree: GoalTree(
+        mainGoal: 'delete agents by name pattern',
+        subgoals: [Subgoal(id: 'sg_bulk', label: 'delete matching agents')],
+      ),
+      targets: [
+        ReflectionTarget(
+          subgoalId: 'sg_bulk',
+          operation: 'delete',
+          entityType: 'agent',
+          entityLabel: 'matching agents',
+          selector: {
+            'scope': 'predicate',
+            'field': 'name',
+            'op': op,
+            'value': value,
+            'case_sensitive': caseSensitive,
+          },
+        ),
+      ],
+    );
+
+    test('ends_with fans out only to matching agents (Gordon, Brandon)', () {
       final result = TargetResolver.resolveReflection(
-        reflection: reflection,
-        snapshot: emptyWorkflows,
-        request: request(),
+        reflection: predicateDelete(op: 'ends_with', value: 'don'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with Don'),
         language: language,
       );
 
-      // No snapshot entities → no expansion → original target falls through to
-      // normal resolution which marks it as missing/blocking.
+      final labels = result.reflection.goalTree.subgoals
+          .map((s) => s.label)
+          .join(' | ');
+      // Mina must NOT be selected; Gordon and Brandon must be.
+      expect(labels.contains('Mina'), isFalse, reason: labels);
+      expect(labels.contains('Gordon'), isTrue, reason: labels);
+      expect(labels.contains('Brandon'), isTrue, reason: labels);
+      // Two concrete eligible targets, both real snapshot entities.
+      final ids = result.graph.eligibleTargets.map((t) => t.entityId).toSet();
+      expect(ids, {'gordon', 'brandon'});
+    });
+
+    test('starts_with filters by prefix', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(op: 'starts_with', value: 'g'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents starting with G'),
+        language: language,
+      );
+      expect(result.graph.eligibleTargets.map((t) => t.entityId).toSet(), {
+        'gordon',
+      });
+    });
+
+    test('predicate matching nothing yields no fabricated targets', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(op: 'ends_with', value: 'zzz'),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with zzz'),
+        language: language,
+      );
+      // No match → no eligible targets → runtime cannot act on a guessed entity.
+      expect(result.graph.eligibleTargets, isEmpty);
+    });
+
+    test('case_sensitive predicate respects exact case', () {
+      final result = TargetResolver.resolveReflection(
+        reflection: predicateDelete(
+          op: 'ends_with',
+          value: 'DON',
+          caseSensitive: true,
+        ),
+        snapshot: agentsSnapshot(),
+        request: request(userMessage: 'delete agents ending with DON'),
+        language: language,
+      );
+      // "Gordon"/"Brandon" end with "don" not "DON" → no case-sensitive match.
       expect(result.graph.eligibleTargets, isEmpty);
     });
   });

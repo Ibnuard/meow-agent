@@ -35,62 +35,36 @@ class ModuleModel {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'description': description,
-        'icon': icon,
-        'enabled': enabled,
-        'settings': settings.map((k, v) => MapEntry(k, v)),
-      };
+    'id': id,
+    'name': name,
+    'description': description,
+    'icon': icon,
+    'enabled': enabled,
+    'settings': settings.map((k, v) => MapEntry(k, v)),
+  };
 
   factory ModuleModel.fromJson(Map<String, dynamic> json) => ModuleModel(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        description: json['description'] as String,
-        icon: json['icon'] as String,
-        enabled: json['enabled'] as bool? ?? false,
-        settings: (json['settings'] as Map<String, dynamic>?)
-                ?.map((k, v) => MapEntry(k, v as bool)) ??
-            {},
-      );
+    id: json['id'] as String,
+    name: json['name'] as String,
+    description: json['description'] as String,
+    icon: json['icon'] as String,
+    enabled: json['enabled'] as bool? ?? false,
+    settings:
+        (json['settings'] as Map<String, dynamic>?)?.map(
+          (k, v) => MapEntry(k, v as bool),
+        ) ??
+        {},
+  );
 }
 
 /// Registry of all available modules that can be installed.
 class ModuleRegistry {
-  static const clipboardAi = ModuleModel(
-    id: 'clipboard_ai',
-    name: 'Clipboard',
-    description:
-        'Process copied text with AI. Translate, summarize, rewrite, '
-        'or explain any text from any app.',
-    icon: '📋',
-    settings: {
-      'share_intent': true,
-      'persistent_notification': false,
-      'floating_bubble': false,
-    },
-  );
-
-  static const appControl = ModuleModel(
-    id: 'app_control',
-    name: 'App Control',
-    description:
-        'Let AI open apps, URLs, and system settings on your behalf.',
-    icon: '📱',
-    settings: {
-      'require_confirmation': true,
-      'allow_system_settings': false,
-      'allow_url_intents': true,
-      'allow_background_launch': false,
-      'show_execution_toast': true,
-    },
-  );
-
   static const deviceContext = ModuleModel(
     id: 'device_context',
     name: 'Device Context',
     description:
-        'Let agents read battery, network, storage, time, locale, charging, DND, and Bluetooth.',
+        'Let agents read device state, app context, connectivity, clipboard, '
+        'and launch apps, URLs, or system settings.',
     icon: '📊',
     settings: {
       'allow_battery': true,
@@ -101,7 +75,10 @@ class ModuleRegistry {
       'allow_charging': true,
       'allow_dnd': true,
       'allow_bluetooth': true,
-      'show_logs': true,
+      'allow_clipboard_read': false,
+      'allow_clipboard_write': false,
+      'allow_open_apps': false,
+      'allow_background_launch': false,
     },
   );
 
@@ -109,15 +86,12 @@ class ModuleRegistry {
     id: 'notification_intelligence',
     name: 'Notification',
     description:
-        'Let agents read and summarize Android notifications. Read-only — never auto-replies or dismisses.',
+        'Manage agent notifications, read Android notifications, and keep a clipboard quick action ready.',
     icon: '🔔',
     settings: {
       'allow_read': false,
-      'allow_summary': false,
-      'allow_classify': false,
-      'allow_reply_suggestion': false,
-      'allow_open_source_app': false,
-      'show_logs': false,
+      'allow_reply': false,
+      'persistent_notification': false,
     },
   );
 
@@ -132,9 +106,6 @@ class ModuleRegistry {
       'allow_create': true,
       'allow_read': true,
       'allow_search': true,
-      'allow_export': true,
-      'require_confirm_update': true,
-      'require_confirm_delete': true,
     },
   );
 
@@ -184,14 +155,88 @@ class ModuleRegistry {
     },
   );
 
+  static const web = ModuleModel(
+    id: 'web',
+    name: 'API Store',
+    description:
+        'Fetch HTTP APIs and register reusable endpoints. '
+        'Any agent can call stored APIs by name with auto-filled parameters.',
+    icon: '🌐',
+    settings: {
+      'allow_fetch': true,
+      'allow_register': true,
+      'allow_call': true,
+      'allow_remove': true,
+    },
+  );
+
+  static const communication = ModuleModel(
+    id: 'communication',
+    name: 'Communication',
+    description:
+        'Automate calls, SMS, and contact resolution. '
+        'Make phone calls, send SMS, and resolve contacts hands-free.',
+    icon: '📲',
+    settings: {
+      'call_enabled': false,
+      'sms_enabled': false,
+      'contact_access': false,
+    },
+  );
+
+  static const database = ModuleModel(
+    id: 'database',
+    name: 'User Database',
+    description:
+        'Isolated SQLite database for your personal tables. '
+        'Agents can create tables, insert data, and query tables to support mini apps.',
+    icon: '🗄️',
+    settings: {
+      'allow_read': true,
+      'allow_write': true,
+      'allow_create_table': true,
+      'allow_drop_table': false,
+    },
+  );
+
+  static const miniapp = ModuleModel(
+    id: 'miniapp',
+    name: 'Mini App',
+    description:
+        'Create and run custom mini applications locally. '
+        'Connect to user database, notes, APIs, and enjoy a native look-and-feel interface.',
+    icon: '📱',
+    settings: {
+      'allow_read': true,
+      'allow_create': true,
+      'allow_delete': true,
+    },
+  );
+
+  static const skills = ModuleModel(
+    id: 'skills',
+    name: 'Skills',
+    description:
+        'Manage and assign agentic skills. Import from Markdown, write manually, or fetch from GitHub URLs.',
+    icon: '🔮',
+    settings: {
+      'allow_create': true,
+      'allow_update': true,
+      'allow_delete': true,
+    },
+  );
+
   static const List<ModuleModel> available = [
-    clipboardAi,
-    appControl,
     deviceContext,
     notificationIntelligence,
     notes,
     files,
     calendar,
     workflows,
+    web,
+    communication,
+    database,
+    miniapp,
+    skills,
   ];
 }

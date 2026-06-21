@@ -1,668 +1,260 @@
-# AGENTS.md — Meow Agent Design System & UI Consistency Rules
+# AGENTS_2.md — Meow Agent Development Rules
 
-## Purpose
-
-This document defines the visual identity, layout rules, spacing system, interaction behavior, and UI philosophy for Meow Agent.
-
-All coding/design agents working on this project MUST follow this document to maintain a consistent experience across the entire application.
-
----
-
-## Scope & Cross-References
-
-AGENTS.md governs **design, UX, and visual identity**. It does NOT cover code architecture.
-
-For ANY code-level work — adding tools, adding modules, modifying the agent runtime, native Android code, prompt engineering, testing — you MUST read and follow:
-
-> **[SKILLS.md](./SKILLS.md)** — the canonical codebase guide for Meow Agent.
-
-SKILLS.md contains:
-
-* Architecture overview (lib/, services/, features/, native/)
-* Agentic runtime loop (Planner → Executor → ToolRouter)
-* **Step-by-step tool registration** (registry, dispatch, **tool_catalog sync**, skills block, humanize)
-* Step-by-step module creation (model, service, repository, gating)
-* LLM client patterns (OpenAI-compatible, JSON repair, prompt phases)
-* Native MethodChannel patterns (Kotlin ↔ Flutter)
-* Confirmation flow (PendingAction, ConfirmationChecker)
-* Permission-on-toggle rules (in-app vs settings redirect)
-* Quick-reference checklists for new tools and new modules
-* Testing requirements (unit + real-device verification)
-
-> [!CAUTION]
-> If you add a new tool but skip the `tool_catalog.dart` sync step in SKILLS.md, the LLM analyzer will silent-drop your tool from the shortlist and the agent will hallucinate "I don't have that capability" — even though the tool is registered and executable. **Always run through the SKILLS.md checklist.**
+> The canonical rulebook for anyone (human or AI) writing code in Meow Agent.
+> Every change MUST conform to these rules. When a rule here conflicts with
+> older docs (the now-removed AGENTS.md / SKILLS.md), **this file wins**.
+>
+> Companion docs:
+> - **[DESIGN_2.md](./DESIGN_2.md)** — visual language, layout, spacing, components.
+> - **[ARCHITECTURE_2.md](./ARCHITECTURE_2.md)** — runtime, LLM, agent, data flow.
 
 ---
 
+## 0. The Five Non-Negotiables
 
-Meow Agent is NOT:
-
-* a developer dashboard
-* a terminal app
-* an enterprise admin panel
-* a hacker-style UI
-
-Meow Agent IS:
-
-> a modern Android-native AI companion operating system.
-
-The app should feel:
-
-* calm
-* futuristic
-* lightweight
-* ambient
-* premium
-* minimal
-* approachable
-
-Inspired by:
-
-* OpenAI Mobile
-* Arc Search
-* Linear
-* Perplexity
-* Raycast
-* Nothing OS
-* visionOS floating surfaces
+1. **Accuracy over everything.** Never hallucinate a capability or claim success you cannot verify. Missing data / absent capability → say so honestly and stop. No guessing, no fabricating, no silent retry.
+2. **Language-generic, always.** No per-language word lists, no per-case patches, no language-specific branches in engine, routing, or prompts.
+3. **Reusable first.** Before writing a widget, helper, or prompt, find the existing one. Duplication is a defect.
+4. **One source of truth per concern.** UI copy → `AppStrings`. Prompts → `prompt_*` files. Tool existence → `ModulePlugin`. Permissions → the gate maps. Never fork these.
+5. **Verify before declaring done.** State re-check (snapshot probe, registry re-read, result-data keys) gates every mutation. The LLM's "done" is not proof.
 
 ---
 
-# CORE DESIGN PRINCIPLES
+## 1. Localization Rules (STRICT)
 
-## 1. Controlled Emptiness
+### 1.1 `isId` must NEVER appear in a screen or widget
 
-The UI must breathe.
+`isId` is a private detail of `AppStrings` (`code == 'id'`). It exists so the
+string class can pick a variant. It must not leak into presentation code.
 
-Do NOT stack elements tightly.
-Do NOT overfill the screen.
+**Banned in `lib/features/**/presentation/**` and `lib/app/widgets/**`:**
+- `final isId = resolveLanguageCode(...) == 'id';`
+- `AppStrings(isId ? 'id' : 'en')`
+- a `bool isId` parameter threaded through a widget constructor
+- `isId: s.isId` passed into a child widget
 
-Good UI in Meow Agent relies heavily on:
+**Why:** every `isId` branch in a screen is a place a translation can silently
+go wrong, and it spreads the language concept across the UI instead of keeping
+it sealed inside `AppStrings`. The string class already knows the language —
+ask it for the finished string, never for the language flag.
 
-* spacing
-* rhythm
-* hierarchy
-* subtle contrast
+### 1.2 The only correct pattern
 
-The app should feel:
+Resolve once at the top of `build` (or once per widget that needs copy), then
+read finished strings:
 
-> spacious but intentional.
-
----
-
-## 2. Floating Surfaces
-
-Most UI components should feel detached from the background.
-
-Use:
-
-* floating cards
-* rounded surfaces
-* soft shadows
-* translucent layers
-* subtle depth
-
-Avoid:
-
-* flat harsh containers
-* heavy separators
-* rigid dashboard layouts
-
----
-
-## 3. Soft Futuristic
-
-The app should feel futuristic WITHOUT:
-
-* cyberpunk overload
-* neon everywhere
-* hacker aesthetics
-* excessive gradients
-
-Target:
-
-> ambient AI operating system.
-
----
-
-## 4. Calm Interaction
-
-Animations and transitions must feel:
-
-* smooth
-* subtle
-* premium
-* lightweight
-
-Avoid:
-
-* aggressive bounce
-* flashy transitions
-* exaggerated motion
-
----
-
-# GLOBAL STYLE RULES
-
-## Background
-
-Primary background:
-
-```txt
-#020817
+```dart
+@override
+Widget build(BuildContext context, WidgetRef ref) {
+  final langPref = ref.watch(appLanguageProvider);
+  final s = AppStrings(resolveLanguageCode(langPref));
+  // ...
+  return Text(s.agentListTitle);   // finished string, no flag
+}
 ```
 
-Background must remain:
+If a child widget needs copy, **pass the finished `AppStrings s`** (or the
+specific finished strings), never `isId`. A widget that needs three labels
+takes three resolved `String`s or the `AppStrings` instance — not a bool.
 
-* dark navy
-* deep
-* clean
-* minimal
+### 1.3 No hardcoded natural-language strings
 
-Do NOT use:
+No Indonesian or English literal may appear in a widget tree. Every
+user-facing string is a getter/method on `AppStrings`
+(`lib/features/settings/data/app_language_provider.dart`). Add the getter there
+**before** referencing it in UI.
 
-* pure black
-* colorful backgrounds
-* busy textures
+Exempt (not translatable): brand name `MEOW AGENT`, route names, model-id
+hints (`gpt-4o-mini`), emoji, and other non-language tokens.
+
+### 1.4 New features add their strings first
+
+Adding a screen/dialog/snackbar = add every label to `AppStrings` first, with
+both `id` and `en` variants, then reference them. A getter that returns the
+same text for both languages is fine when the term is a proper noun, but it
+must still go through `AppStrings`.
+
+### 1.5 Runtime (agent-facing) language is separate
+
+The agent's spoken language is handled by the runtime via `DetectedLanguage` +
+`ToolVerbalizer` / `NarrativeNarrator` / `LanguageRegistry` — NOT by
+`AppStrings`. Never wire `AppStrings` into runtime prompt logic, and never wire
+`DetectedLanguage` into UI copy. They are two different layers (see §3).
 
 ---
 
-# COLOR SYSTEM
+## 2. Prompt Rules (STRICT)
 
-## Primary Blue
+### 2.1 All prompt text lives in `prompt_*` files
 
-```txt
-#3B82F6
+Every LLM-facing string lives under `lib/services/agent_runtime/`:
+
+| File | Owns |
+|------|------|
+| `prompt_constants.dart` | Central accessor (`PromptConstants.*`) + version + caching |
+| `prompt_system.dart` | System rules, introduction gate |
+| `prompt_analyze.dart` | Analyzer phase (intent, tool_groups, selectors) |
+| `prompt_reflect.dart` | Reflector phase (strategy, impacts, slots) |
+| `prompt_plan.dart` | Planner phase (goal tree) |
+| `prompt_execute.dart` | Tool selector + reviewer |
+| `prompt_context.dart` | Chat, compactor, repair, pending action, memory, workflow API context |
+| `prompt_policy.dart` | Reusable policy blocks (Ask / Ground / Minimal / Recover / Voice) |
+| `prompt_workflow.dart` | Workflow auto-execute prompts |
+| `prompt_templates.dart` | Assembles the above into final prompts |
+
+**Banned:** inline prompt strings in `runtime_engine.dart`, `workflow_runner.dart`,
+module code, or any feature file. If you are writing a sentence the LLM will
+read, it belongs in a `prompt_*` file and is exposed through `PromptConstants`.
+
+### 2.2 Prompts are English-only
+
+All prompt scaffolding and examples are authored in English. The LLM responds
+in the user's language naturally via the separately-injected `DetectedLanguage`.
+
+- No per-language example sets.
+- Never enumerate language-specific words ("semua/setiap" / "all/every") as a
+  fixed list. Describe the concept semantically ("any word meaning all/every in
+  any language").
+- The `tool_groups` enum and `capabilityHints` are English-only closed sets.
+- Bulk/predicate selectors are structural, never language-dependent.
+
+### 2.3 No redundant prompt copy
+
+A spec (e.g. the narrative one-sentence rule) is documented once and referenced,
+not copy-pasted across phases. When you refactor a phase, delete the prompt
+constants it no longer uses — dead prompt constants are a defect.
+
+### 2.4 Dynamic values via parameters
+
+Inject dynamic content with typed parameters
+(`String fooPrompt(String name)`), never by string-concatenating in the caller.
+
+---
+
+## 3. Layering Rules
+
+Two language systems, never crossed:
+
+```
+UI copy            ──▶  AppStrings (id/en)              ──▶  widgets
+agent spoken lang  ──▶  DetectedLanguage + Verbalizer   ──▶  chat bubbles
+prompt scaffolding ──▶  prompt_* (English only)         ──▶  LLM
 ```
 
-Used for:
-
-* active states
-* focused inputs
-* chat FAB
-* primary actions
+- UI never reads `DetectedLanguage`. Runtime never reads `AppStrings`.
+- Prompts never embed user-facing localized copy; they request structured
+  output and let the verbalizer render language.
 
 ---
 
-## Surface
+## 4. Code Reuse & Consistency
 
-```txt
-rgba(15,23,42,0.82)
-```
+### 4.1 Reuse the design system
 
-Used for:
+Use the existing widgets (see DESIGN_2.md §components) instead of rebuilding:
+`MeowCard`, `MeowInput`, `MeowDropdown`, `MeowPrimaryButton`,
+`MeowSecondaryButton`, `MeowSection`, `MeowAgentIcon`, `showMeowConfirmDialog`.
+New shared UI goes in `lib/app/widgets/` and is exported from `widgets.dart`.
 
-* cards
-* modals
-* bottom dock
-* floating containers
+- Read theme tokens via `context.cs` / `context.extras` — never hardcode a hex
+  color in a widget.
+- Match the spacing scale and radii in DESIGN_2.md; don't invent new ones.
 
----
+### 4.2 Tools and modules are one-file additions
 
-## Text Colors
+Adding a tool/module = ONE `ModulePlugin` file + one line in
+`runtime_module_plugins.dart`. There is no central dispatch switch, registry
+map, or catalog map to hand-edit (see ARCHITECTURE_2.md §4).
 
-Primary text:
+### 4.3 Permissions are gated, never fail-open
 
-```txt
-#E5E7EB
-```
+Every new tool that mutates state or touches sensitive data MUST have a gate
+entry in `tool_permission_requirements.dart` (exact map) — or be covered by a
+prefix rule in `toolPermissionPrefixRequirements`. A tool absent from both
+**fails open** (the policy allows it).
 
-Secondary text:
+`test/tool_permission_coverage_test.dart` enforces this: every registered tool
+must be gated OR in the documented `intentionallyUngated` allowlist. Run it
+after adding any tool. Prefer a gate entry over expanding the allowlist.
 
-```txt
-#94A3B8
-```
+### 4.4 Risk comes from the registry, not the LLM
 
-Muted/inactive:
+`risk` and `requiresConfirmation` are read from the `ToolDefinition`, never
+trusted from model output. Never route a security decision through LLM text.
 
-```txt
-#64748B
-```
+### 4.5 Error handling
 
----
+- Tools return `ToolExecutionResult` — never throw across the dispatch boundary.
+- Native (Kotlin) returns `Map<String, Any?>`, wrapped in try/catch, never
+  crashes the app, logs with `Log.e(TAG, msg, e)`, and never blocks the main
+  thread.
+- LLM JSON calls go through `LlmJsonCaller` (one repair retry); handle a `null`
+  result as a real failure path, don't assume success.
 
-## Borders
+### 4.6 Every mutating tool has a `verificationProbe`
 
-Borders must be subtle.
-
-Preferred:
-
-```txt
-rgba(255,255,255,0.05)
-```
-
-Never use:
-
-* thick borders
-* bright outlines
-* hard dividers
+A tool that reports `success: true` for a mutation without a `verificationProbe`
+is a gap. Use `tool_result_data` (assert keys) or `snapshot_contains` /
+`snapshot_absent` (re-read state).
 
 ---
 
-# SPACING SYSTEM
+## 5. Testing Requirements
 
-## Most Important Rule
+| Suite | File | When to run |
+|-------|------|-------------|
+| Golden end-to-end | `test/runtime_golden_test.dart` | after any runtime refactor |
+| Module drift guard | `test/module_plugin_test.dart` | after adding/changing a module |
+| Permission coverage | `test/tool_permission_coverage_test.dart` | after adding/gating any tool |
+| Per-tool unit | `test/<module>_test.dart` | with every new tool |
 
-Spacing consistency is critical.
+Minimum per new tool: success path, empty/null input (no crash), permission
+missing (safe fallback), registered with correct risk/confirmation metadata,
+and `verificationProbe` present for mutations.
 
-The app should NEVER feel cramped.
-
----
-
-# Vertical Rhythm
-
-Recommended spacing:
-
-## Section Title → Section Subtitle
-
-```txt
-10–14px
-```
-
-## Subtitle → Input Field
-
-```txt
-8–10px
-```
-
-## Input → Input
-
-```txt
-14–18px
-```
-
-## Section → Section
-
-```txt
-24–32px
-```
-
-## Card Internal Padding
-
-```txt
-18–24px
-```
+Real-LLM flow tests (`test/runtime_real_llm_test.dart`) read credentials from
+`.env` (gitignored). Never hardcode or commit credentials. These tests no-op
+without `.env`, so a green run without creds proves nothing — run them with a
+real provider when validating multi-turn flows.
 
 ---
 
-# SAFE AREA RULES
+## 6. Distribution & Permission Philosophy
 
-Always support:
-
-* Android edge-to-edge
-* gesture navigation
-* floating bottom dock
-
-Critical:
-UI elements must NEVER collide with:
-
-* Android gesture area
-* virtual navigation bar
-* floating FAB
-
-Use SafeArea properly.
-
-Bottom padding should feel intentional and breathable.
+1. **Not targeting Play Store** (direct APK / sideload). No store-policy
+   constraints on Accessibility Service, background services, or system
+   integrations.
+2. **Accessibility-based automation is allowed** — implement freely.
+3. **Everything is opt-in.** The app never force-enables or silently activates a
+   permission. Pattern: **Present → Explain → Request → Respect.** Degrade
+   gracefully when denied.
+4. **User stays in control.** Any permission can be revoked at any time;
+   `ModulePermissionReconciler` flips dependent toggles off when the OS
+   permission is revoked.
 
 ---
 
-# TYPOGRAPHY RULES
+## 7. Pre-Commit Checklist
 
-Typography should feel:
-
-* modern
-* calm
-* highly readable
-* soft
-
-Avoid:
-
-* overly bold typography
-* giant headings
-* compressed text
+- [ ] No `isId` anywhere under `presentation/` or `app/widgets/`.
+- [ ] No inline natural-language literal in a widget tree.
+- [ ] New UI copy added to `AppStrings` (both `id` + `en`) before use.
+- [ ] No inline prompt string outside `prompt_*` files.
+- [ ] New prompt text is English-only, no per-language word lists.
+- [ ] Reused existing widgets / theme tokens; no duplicated styling or hex colors.
+- [ ] New tool: one `ModulePlugin` file + registered in `runtime_module_plugins.dart`.
+- [ ] New tool: gated (exact or prefix) or justified in the allowlist.
+- [ ] Mutating tool: has a `verificationProbe`.
+- [ ] `flutter analyze` clean; relevant test suites pass.
 
 ---
 
-# Typography Hierarchy
+## 8. The One Question
 
-## Screen Title
+Before merging, ask:
 
-* medium weight
-* slightly emphasized
-* never oversized
+> "Is this consistent with what's already here — same widgets, same string
+> system, same prompt home, same gate — and does it tell the truth about what
+> the agent can do?"
 
-## Section Title
-
-* subtle emphasis
-* clean spacing
-
-## Field Labels
-
-* small
-* muted
-* secondary hierarchy
-
-## Body Text
-
-* clean
-* readable
-* relaxed line height
-
----
-
-# CONTAINER RULES
-
-All surfaces should use:
-
-* large rounded corners
-* subtle depth
-* soft translucent backgrounds
-
-Avoid:
-
-* flat rectangles
-* harsh cards
-* Material default appearance
-
----
-
-# Rounded Radius
-
-Preferred:
-
-```txt
-20–28px
-```
-
-Floating dock:
-
-```txt
-999px (pill shape)
-```
-
-FAB:
-
-```txt
-fully circular
-```
-
----
-
-# SHADOW RULES
-
-Shadows must be:
-
-* soft
-* ambient
-* subtle
-
-Avoid:
-
-* dark hard shadows
-* excessive blur
-* dramatic elevation
-
-Goal:
-
-> floating AI surfaces.
-
----
-
-# INPUT FIELD RULES
-
-Inputs must:
-
-* feel soft
-* modern
-* premium
-* calm
-
-Input containers:
-
-* rounded
-* slightly translucent
-* subtle gradient
-* faint inner highlight
-
-Avoid:
-
-* Flutter default TextField appearance
-* thick borders
-* enterprise form styling
-
----
-
-# INPUT FOCUS STATE
-
-Focused input should:
-
-* softly glow blue
-* slightly brighten border
-* feel ambient
-
-Do NOT use:
-
-* harsh blue outlines
-* Material default focus
-
----
-
-# BUTTON RULES
-
-Buttons should:
-
-* feel soft and premium
-* use subtle gradients
-* have rounded corners
-* minimal elevation
-
-Primary CTA:
-
-* blue accent
-* subtle glow
-* clean typography
-
-Avoid:
-
-* bulky buttons
-* enterprise buttons
-* excessive shadows
-
----
-
-# BOTTOM NAVIGATION RULES
-
-Bottom navigation uses:
-
-* floating dock style
-* full pill shape
-* translucent surface
-* soft blur
-
-The dock must:
-
-* float above bottom edge
-* respect SafeArea
-* never touch Android gesture area
-
----
-
-# CHAT FAB RULES
-
-The center Chat button is:
-
-> the heart of the app.
-
-It should:
-
-* be the most visually important navigation item
-* slightly larger than others
-* softly glowing
-* premium and calm
-
-Avoid:
-
-* giant oversized FAB
-* aggressive neon glow
-* cartoonish bounce
-
----
-
-# ICON RULES
-
-Icons must:
-
-* use consistent stroke weight
-* be minimal
-* modern
-* slightly rounded
-
-Avoid mixing:
-
-* filled
-* outline
-* thin
-* thick
-
-icon styles randomly.
-
----
-
-# CARD DESIGN RULES
-
-Cards should feel:
-
-* interactive
-* lightweight
-* floating
-
-Use:
-
-* translucent navy surfaces
-* subtle border
-* soft shadow
-* rounded corners
-
-Avoid:
-
-* giant dashboard cards
-* excessive padding
-* rigid grid systems
-
----
-
-# EMPTY STATE RULES
-
-Empty states should:
-
-* educate naturally
-* feel friendly
-* guide the user
-
-Avoid:
-
-* technical language
-* cold placeholders
-* generic empty boxes
-
-Preferred structure:
-
-```txt
-Icon / Illustration
-
-Title
-Description
-
-Primary Action
-```
-
----
-
-# MOTION RULES
-
-Animations must feel:
-
-* soft
-* elegant
-* premium
-* ambient
-
-Recommended:
-
-* fade
-* smooth slide
-* subtle scale
-* gentle glow pulse
-
-Avoid:
-
-* spring explosions
-* exaggerated bounce
-* flashy transitions
-
----
-
-# DEVELOPMENT RULES
-
-## Flutter Guidelines
-
-Optimize for:
-
-* Flutter Material 3
-* reusable widgets
-* dark mode first
-* responsive layouts
-* edge-to-edge Android
-
----
-
-# COMPONENT SYSTEM
-
-Reusable components should exist for:
-
-* AppScaffold
-* FloatingDock
-* ChatFAB
-* GlassCard
-* MeowTextField
-* SectionHeader
-* SettingsTile
-* ModuleCard
-* EmptyStateCard
-* PrimaryButton
-
-Avoid duplicated styling.
-
----
-
-# DESIGN PHILOSOPHY
-
-Every screen should feel like:
-
-> “You are interacting with an ambient AI operating system.”
-
-NOT:
-
-* server management software
-* Android settings app
-* terminal wrapper
-* cyberpunk dashboard
-
-The UI should communicate:
-
-* intelligence
-* calmness
-* safety
-* modernity
-* simplicity
-
----
-
-# FINAL RULE
-
-When designing anything in Meow Agent, always ask:
-
-> “Does this feel like a calm futuristic AI companion?”
-
-If the answer is no:
-simplify it.
+If no: align it before shipping.

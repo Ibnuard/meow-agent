@@ -1,5 +1,10 @@
-import '../../../services/workspace/workspace_file_service.dart';
+import 'dart:convert';
+
+import '../../../core/storage/agent_soul_repository.dart';
+import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../chat/data/chat_history_service.dart';
+import '../web/data/api_store_repository.dart';
+import '../web/domain/http_executor.dart';
 
 /// Catalog entry describing a single built-in variable so the editor UI
 /// can render it (label + description) and let users tap-to-insert.
@@ -30,6 +35,7 @@ class BuiltInVariable {
 enum BuiltInCategory {
   time,
   identity,
+  action,
   triggerNotification,
   triggerAppOpen,
   triggerBattery,
@@ -44,6 +50,8 @@ extension BuiltInCategoryX on BuiltInCategory {
         return isId ? 'Waktu & Tanggal' : 'Time & Date';
       case BuiltInCategory.identity:
         return isId ? 'Identitas' : 'Identity';
+      case BuiltInCategory.action:
+        return isId ? 'Aksi' : 'Actions';
       case BuiltInCategory.triggerNotification:
         return isId ? 'Pemicu: Notifikasi' : 'Trigger: Notification';
       case BuiltInCategory.triggerAppOpen:
@@ -158,6 +166,16 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
     exampleValue: 'user: halo\nassistant: hai, ada yang bisa dibantu?',
   ),
 
+  // ─── Actions ──────────────────────────────────────────────────────────────
+  BuiltInVariable(
+    key: 'push_nofif',
+    descriptionId:
+        'Kirim notifikasi push ke perangkat kamu',
+    descriptionEn: 'Send a push notification to your device',
+    category: BuiltInCategory.action,
+    exampleValue: '[push notification target]',
+  ),
+
   // ─── Multi-step ──────────────────────────────────────────────────────────
   // NOTE: @step1, @step2, ... @stepN are generated dynamically per workflow
   // by [stepResultVariables] (they depend on how many steps exist). Only the
@@ -172,32 +190,20 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
   // ─── Trigger: Notification ───────────────────────────────────────────────
   BuiltInVariable(
     key: 'notif',
-    descriptionId: 'Notifikasi pemicu (judul + isi)',
-    descriptionEn: 'Triggering notification (title + body)',
-    category: BuiltInCategory.triggerNotification,
-  ),
-  BuiltInVariable(
-    key: 'notif_title',
-    descriptionId: 'Judul notifikasi',
-    descriptionEn: 'Notification title',
+    descriptionId: 'Notifikasi pemicu (pengirim + isi + app)',
+    descriptionEn: 'Triggering notification (sender + body + app)',
     category: BuiltInCategory.triggerNotification,
   ),
   BuiltInVariable(
     key: 'notif_body',
-    descriptionId: 'Isi notifikasi',
-    descriptionEn: 'Notification body',
+    descriptionId: 'Isi pesan notifikasi',
+    descriptionEn: 'Notification message body',
     category: BuiltInCategory.triggerNotification,
   ),
   BuiltInVariable(
-    key: 'notif_app',
-    descriptionId: 'Nama aplikasi pengirim',
-    descriptionEn: 'Sender app name',
-    category: BuiltInCategory.triggerNotification,
-  ),
-  BuiltInVariable(
-    key: 'notif_keyword',
-    descriptionId: 'Kata kunci yang cocok',
-    descriptionEn: 'Matched keyword',
+    key: 'notif_sender',
+    descriptionId: 'Pengirim + aplikasi (mis. Andi via WhatsApp)',
+    descriptionEn: 'Sender + app (e.g. Andi via WhatsApp)',
     category: BuiltInCategory.triggerNotification,
   ),
 
@@ -238,11 +244,14 @@ int? stepResultNumber(String key) {
 }
 
 /// True if [key] is any recognized built-in: a static catalog entry OR a
-/// dynamic `@stepN` reference. The editor uses this for highlighting,
-/// atomic-token deletion, and the undefined-variable check so dynamic step
-/// variables are treated as first-class.
+/// dynamic `@stepN` reference OR an `@api:name` reference. The editor uses
+/// this for highlighting, atomic-token deletion, and the undefined-variable
+/// check so dynamic step variables and API references are treated as
+/// first-class.
 bool isKnownBuiltInKey(String key) =>
-    kBuiltInVariableKeys.contains(key) || isStepResultKey(key);
+    kBuiltInVariableKeys.contains(key) ||
+    isStepResultKey(key) ||
+    key.startsWith('api:');
 
 /// Build the dynamic step-result variables for a workflow with [stepCount]
 /// steps. `@stepN` resolves to the output of step N (1-based).
@@ -271,11 +280,13 @@ class WorkflowBuiltInVars {
 
   /// Build the full variable map for a workflow execution.
   ///
-  /// [agentName] is used both as `{{agent_name}}` and to fetch the user's
-  /// SOUL.md identity fields.
-  /// [agentId] is the running agent's id; used to resolve `{{chat_session}}`
+  /// [agentName] is used as `{{agent_name}}`.
+  /// [agentId] is the running agent's id; used to fetch identity fields from
+  /// the local database (`agent_soul` table) and to resolve `{{chat_session}}`
   /// from recent chat history. Pass null if not available — `chat_session`
   /// will resolve to an empty string in that case.
+  /// [soulRepo] is the AgentSoulRepository used to read identity. When null,
+  /// `{{user_name}}` and `{{user_nickname}}` resolve to empty strings.
   /// [triggerVars] are event-derived values like `{{notif}}`. They take
   /// precedence over computed values.
   /// [extra] is for runtime additions (e.g. {{prev}} during chained steps).
@@ -283,6 +294,7 @@ class WorkflowBuiltInVars {
     required String agentName,
     required DateTime now,
     String? agentId,
+    AgentSoulRepository? soulRepo,
     String langCode = 'id',
     Map<String, String> triggerVars = const {},
     Map<String, String> extra = const {},
@@ -301,7 +313,7 @@ class WorkflowBuiltInVars {
 
     // ── Identity ──────────────────────────────────────────────────────────
     vars['agent_name'] = agentName;
-    final identity = await _readUserIdentity(agentName);
+    final identity = await _readUserIdentity(agentId, soulRepo);
     vars['user_name'] = identity.name;
     vars['user_nickname'] = identity.nickname;
     vars['chat_session'] = agentId == null
@@ -310,6 +322,11 @@ class WorkflowBuiltInVars {
     vars['chat_history'] = agentId == null
         ? ''
         : await resolveChatHistory(agentId);
+
+    // ── Action targets ─────────────────────────────────────────────────────
+    vars['push_nofif'] =
+        '[push notification target — use tool notification.create_local with '
+        'args {title, body, style}; style defaults to normal]';
 
     // ── Trigger overrides ─────────────────────────────────────────────────
     vars.addAll(triggerVars);
@@ -391,6 +408,94 @@ class WorkflowBuiltInVars {
       resolved = resolved.replaceAllMapped(re, (_) => entry.value);
     }
     return resolved;
+  }
+
+  /// Resolve all `@api:Name` references in [prompt] by executing the stored
+  /// API and replacing the token with the HTTP response body.
+  ///
+  /// API names are matched case-insensitively with spaces normalized to
+  /// underscores. If an API is not found or execution fails, the token is
+  /// replaced with an error message so the agent can react gracefully.
+  static Future<String> resolveApiReferences(String prompt) async {
+    // Match @api:Name tokens (name is word chars including underscores).
+    final pattern = RegExp(r'(?<![\w@])@api:(\w+)');
+    final matches = pattern.allMatches(prompt).toList();
+    if (matches.isEmpty) return prompt;
+
+    final apis = await ApiStoreRepository.instance.list();
+    var resolved = prompt;
+    final resolvedNames = <String>[];
+
+    // Process in reverse so indices stay valid after replacements.
+    for (final match in matches.reversed) {
+      final rawName = match.group(1) ?? '';
+      final searchName = rawName.replaceAll('_', ' ').toLowerCase();
+
+      // Find API by name (case-insensitive, underscore = space).
+      final api = apis.where((a) {
+        return a.name.toLowerCase() == searchName ||
+            a.name.replaceAll(' ', '_').toLowerCase() == rawName.toLowerCase();
+      }).firstOrNull;
+
+      String replacement;
+      if (api == null) {
+        replacement = '[API "$rawName" not found in store]';
+      } else {
+        try {
+          final executor = HttpExecutor();
+          final result = await executor.executeFromConfig(config: api);
+          if (result.isSuccess) {
+            final raw = result.body is String
+                ? result.body as String
+                : jsonEncode(result.body);
+            replacement = _wrapApiResponse(api.name, api.method, raw);
+            resolvedNames.add(api.name);
+          } else {
+            replacement =
+                '[API "${api.name}" returned ${result.statusCode}: ${result.error ?? result.body}]';
+          }
+        } catch (e) {
+          replacement = '[API "${api.name}" failed: $e]';
+        }
+      }
+
+      resolved = resolved.replaceRange(match.start, match.end, replacement);
+    }
+
+    // Prepend an instruction header so the agent treats the embedded
+    // API_RESPONSE blocks as ground truth, not as missing context.
+    if (resolvedNames.isNotEmpty) {
+      resolved =
+          PromptConstants.workflowApiContext(resolvedNames) + resolved;
+    }
+
+    return resolved;
+  }
+
+  /// Maximum size of an inlined API response body. Anything larger is
+  /// truncated with a clear marker so the prompt budget stays sane.
+  static const int _apiResponseCharCap = 6000;
+
+  /// Wrap a fetched API body so the agent treats it as a data payload
+  /// (not free-form text). The fenced block + metadata header makes
+  /// downstream tool selection ("save this to a note") much more reliable.
+  static String _wrapApiResponse(String apiName, String method, String body) {
+    final trimmed = body.trim();
+    final truncated = trimmed.length > _apiResponseCharCap
+        ? '${trimmed.substring(0, _apiResponseCharCap)}\n...[truncated, original ${trimmed.length} chars]'
+        : trimmed;
+    final lang = _detectBodyLang(truncated);
+    return '\n[API_RESPONSE name="$apiName" method="$method" bytes=${trimmed.length}]\n'
+        '```$lang\n$truncated\n```\n[/API_RESPONSE]\n';
+  }
+
+  /// Heuristic: pick a markdown fence label so the agent treats JSON/XML
+  /// payloads as structured data rather than prose.
+  static String _detectBodyLang(String body) {
+    final t = body.trimLeft();
+    if (t.startsWith('{') || t.startsWith('[')) return 'json';
+    if (t.startsWith('<')) return 'xml';
+    return 'text';
   }
 
   /// Convert any legacy `{{key}}` placeholder for KNOWN built-ins into the
@@ -481,38 +586,24 @@ class WorkflowBuiltInVars {
     return '${d.day} ${_monthName(d.month, langCode)} ${d.year}';
   }
 
-  // ─── User identity from SOUL.md ───────────────────────────────────────
+  // ─── User identity from database ────────────────────────────────────────
 
-  static Future<_UserIdentity> _readUserIdentity(String agentName) async {
+  static Future<_UserIdentity> _readUserIdentity(
+    String? agentId,
+    AgentSoulRepository? soulRepo,
+  ) async {
+    if (agentId == null || soulRepo == null) return _UserIdentity.empty();
     try {
-      final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
-      if (soul.isEmpty) return _UserIdentity.empty();
-      // Find the User Identity section.
-      final sectionMatch = RegExp(
-        r'##\s*User Identity[^\n]*\n([\s\S]*?)(?=\n##\s|---\s*\n|$)',
-        caseSensitive: false,
-      ).firstMatch(soul);
-      if (sectionMatch == null) return _UserIdentity.empty();
-      final body = sectionMatch.group(1) ?? '';
-      return _UserIdentity(
-        name: _extractField(body, 'Name'),
-        nickname: _extractField(body, 'Nickname'),
-      );
+      final soul = await soulRepo.get(agentId);
+      if (soul == null) return _UserIdentity.empty();
+      final name = (soul.userName ?? '').trim();
+      final nickname = (soul.userNickname ?? '').trim();
+      // Strip bracketed placeholders like [Your Name].
+      final cleanName = RegExp(r'^\[.*\]$').hasMatch(name) ? '' : name;
+      return _UserIdentity(name: cleanName, nickname: nickname);
     } catch (_) {
       return _UserIdentity.empty();
     }
-  }
-
-  static String _extractField(String body, String fieldName) {
-    final m = RegExp(
-      '^$fieldName:[ \\t]*(.*?)[ \\t]*\$',
-      multiLine: true,
-    ).firstMatch(body);
-    if (m == null) return '';
-    final v = (m.group(1) ?? '').trim();
-    // Strip placeholders like [Your Name].
-    if (RegExp(r'^\[.*\]$').hasMatch(v)) return '';
-    return v;
   }
 }
 

@@ -3,8 +3,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Required for app to appear in Usage Access settings (foreground app detection). -->
     <uses-permission
         android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -25,16 +25,26 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29"
         tools:ignore="ScopedStorage" />
+    <!-- Android 11+: full file access needed for Documents/MeowAgent workspace. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <!-- Workflow scheduling: exact alarms, full-screen alarm notifications, reboot reschedule. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Battery optimization exclusion: keeps scheduled workflows alive. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Communication module: contacts, calls, SMS. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <application
-        android:label="meow_agent"
+        android:label="Meow Agent"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -66,11 +76,17 @@
             android:exported="false"
             android:foregroundServiceType="specialUse" />
 
-        <!-- Floating Bubble Service (overlay) -->
+        <!-- VM Runtime Service: hosts the proot Linux session for the VM
+             module. Runs as a foreground service so the kernel doesn't kill
+             long-running plugin installs. -->
         <service
-            android:name=".FloatingBubbleService"
+            android:name=".VmRuntimeService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="local linux runtime for developer tools" />
+        </service>
 
         <!-- Notification Listener Service (read-only). User must enable in
              Settings → Notifications → Notification access. -->

@@ -2,6 +2,9 @@ import 'dart:typed_data';
 import 'dart:ui' show Color;
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../settings/data/notification_sound_provider.dart';
 
 /// Agent-initiated local notifications.
 ///
@@ -40,25 +43,36 @@ class AgentNotificationService {
     required String body,
     String style = 'normal',
     String? payload,
+    String? soundFileName,
   }) async {
     await _ensureInit();
+    final selectedSound = soundFileName ?? await _selectedSoundFileName();
     final id = DateTime.now().millisecondsSinceEpoch.remainder(2147483647);
     await _plugin.show(
       id,
       title,
       body,
-      _detailsFor(style),
+      _detailsFor(style, selectedSound),
       payload: payload,
     );
     return id;
   }
 
-  static NotificationDetails _detailsFor(String style) {
-    final channelId = switch (style) {
+  static Future<String> _selectedSoundFileName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(notificationSoundPreferenceKey);
+    if (stored != null && stored.isNotEmpty) return stored;
+    return NotificationSound.notification.fileName;
+  }
+
+  static NotificationDetails _detailsFor(String style, String soundFileName) {
+    final useSound = style != 'silent';
+    final baseChannelId = switch (style) {
       'silent' => _channelSilent,
       'alarm' => _channelAlarm,
       _ => _channelNormal,
     };
+    final channelId = useSound ? '${baseChannelId}_$soundFileName' : baseChannelId;
     final channelName = switch (style) {
       'silent' => 'Agent (Silent)',
       'alarm' => 'Agent (Alarm)',
@@ -81,7 +95,8 @@ class AgentNotificationService {
         channelDescription: 'Meow Agent push notifications ($style)',
         importance: importance,
         priority: priority,
-        playSound: style != 'silent',
+        playSound: useSound,
+        sound: useSound ? RawResourceAndroidNotificationSound(soundFileName) : null,
         enableVibration: style != 'silent',
         fullScreenIntent: style == 'alarm',
         autoCancel: true,

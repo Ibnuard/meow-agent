@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'ecosystem_snapshot.dart';
@@ -156,6 +158,7 @@ class ReflectionOutput {
     this.blockReason = '',
     this.reasoning = '',
     this.narrative = '',
+    this.nextNarrative = '',
     this.degraded = false,
   });
 
@@ -172,6 +175,11 @@ class ReflectionOutput {
   /// bubble. Empty when the model omitted it.
   final String narrative;
 
+  /// LLM-generated, forward-looking thought shown immediately before the
+  /// runtime enters the next phase. Empty means the runtime uses its safe
+  /// deterministic fallback.
+  final String nextNarrative;
+
   /// True when the reflector failed (parse / network) and we degraded to
   /// a directExecute fallback. Used for logging only.
   final bool degraded;
@@ -187,6 +195,7 @@ class ReflectionOutput {
     if (blockReason.isNotEmpty) 'block_reason': blockReason,
     if (reasoning.isNotEmpty) 'reasoning': reasoning,
     if (narrative.isNotEmpty) 'narrative': narrative,
+    if (nextNarrative.isNotEmpty) 'next_narrative': nextNarrative,
     if (degraded) 'degraded': true,
   };
 }
@@ -203,10 +212,11 @@ class ReflectionOutput {
 /// Failures degrade to `directExecute` with the analyzer's seed tree, so a
 /// reflection outage never bricks the runtime.
 class Reflector {
-  Reflector({required this.client, required this.config});
+  Reflector({required this.client, required this.config, this.cancelToken});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
+  final CancelToken? cancelToken;
 
   /// Maximum LLM retries before degrading to directExecute. Per user spec.
   static const int maxRetries = 2;
@@ -219,6 +229,8 @@ class Reflector {
     required DetectedLanguage language,
     required RuntimeLogger logger,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) async {
     final analyzerSeedTree = _seedTreeFromAnalysis(analysis, userMessage);
 
@@ -240,6 +252,8 @@ class Reflector {
       availableTools: availableTools,
       language: language,
       recentMessages: recentMessages,
+      agentName: agentName,
+      agentId: agentId,
     );
 
     Map<String, dynamic>? parsed;
@@ -250,6 +264,7 @@ class Reflector {
         final response = await client.chat(
           config: config,
           phase: attempts == 0 ? 'reflect' : 'reflect.repair',
+          cancelToken: cancelToken,
           messages: [
             {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
             {
@@ -295,7 +310,12 @@ class Reflector {
     required List<ToolDefinition> availableTools,
     required DetectedLanguage language,
     required List<Map<String, String>> recentMessages,
+    String agentName = '',
+    String agentId = '',
   }) {
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final historyBlock = recentMessages.isEmpty
         ? 'No prior conversation.'
         : recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n');
@@ -353,7 +373,21 @@ class Reflector {
 
     return '''${PromptConstants.reflectIntro}
 
+${PromptConstants.policyMinimal}
+$selfIdentityBlock
 ${PromptConstants.reflectRules(language.label)}
+
+SELF-TARGET BINDING (CRITICAL — prevents focusing on the wrong agent):
+- When the user's CURRENT message refers to THIS agent with a first/second-person reference ("you", "your personality", "this agent", "yourself") and the operation is a READ (read/get/list a persona/config/identity), emit the target with entity_type="agent", operation="read", and entity_label="current_agent". The runtime binds that to the active agent.
+- Do NOT copy an agent name that appeared only in EARLIER turns (e.g. an agent the user listed or deleted before) into the current target. The current user message is authoritative for who the target is.
+- Only emit a DIFFERENT agent's name as the target when the user names that agent in the CURRENT message.
+
+CRITICAL — ANALYZER DECISION BINDING:
+- The analyzer has ALREADY classified this request: requires_tools=${analysis['requires_tools']}, intent="${analysis['intent']}", goal="${analysis['goal']}".
+- If requires_tools=true and subgoal_seeds are present, the request IS an action request — DO NOT downgrade it to a casual greeting or chat response.
+- Recent friendly conversation tone (greetings, small talk) does NOT override the analyzer's classification. Treat the analyzer's intent as authoritative for strategy selection.
+- If requires_tools=true, use direct_execute or auto_resolve — NEVER clarify/block just because the tone is friendly.
+- Your goal_tree main_goal MUST reflect the analyzer's goal, not the conversation tone.
 
 User message: "$userMessage"
 
@@ -429,6 +463,7 @@ ${PromptConstants.reflectResponseFormat}''';
     final blockReason = (json['block_reason'] ?? '').toString();
     final reasoning = (json['reasoning'] ?? '').toString();
     final narrative = (json['narrative'] ?? '').toString();
+    final nextNarrative = (json['next_narrative'] ?? '').toString();
 
     return ReflectionOutput(
       strategy: strategy,
@@ -439,6 +474,7 @@ ${PromptConstants.reflectResponseFormat}''';
       blockReason: blockReason,
       reasoning: reasoning,
       narrative: narrative,
+      nextNarrative: nextNarrative,
     );
   }
 

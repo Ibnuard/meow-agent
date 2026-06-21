@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Meow Agent uses accessibility to automate messaging and calls in WhatsApp. This allows hands-free sending of messages and initiating calls on your behalf.</string>
+</resources>

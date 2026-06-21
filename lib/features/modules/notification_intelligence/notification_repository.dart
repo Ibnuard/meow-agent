@@ -83,9 +83,9 @@ class NotificationRepository {
   Future<({List<NotificationInfo>? data, String? error})> getForSummary({
     int limit = 25,
   }) async {
-    final check = await _check('allow_summary');
+    final check = await _check('allow_read');
     if (check != _NotifCheck.ok) {
-      return (data: null, error: _errorFor(check, 'Allow Notification Summaries'));
+      return (data: null, error: _errorFor(check, 'Read Notifications'));
     }
     final list = await service.getRecent(limit: limit);
     return (data: list, error: null);
@@ -94,9 +94,9 @@ class NotificationRepository {
   Future<({List<NotificationInfo>? data, String? error})> getForClassify({
     int limit = 15,
   }) async {
-    final check = await _check('allow_classify');
+    final check = await _check('allow_read');
     if (check != _NotifCheck.ok) {
-      return (data: null, error: _errorFor(check, 'Allow Importance Detection'));
+      return (data: null, error: _errorFor(check, 'Read Notifications'));
     }
     final list = await service.getRecent(limit: limit);
     return (data: list, error: null);
@@ -105,9 +105,9 @@ class NotificationRepository {
   Future<({NotificationInfo? data, String? error})> getForReply(
     String notificationId,
   ) async {
-    final check = await _check('allow_reply_suggestion');
+    final check = await _check('allow_reply');
     if (check != _NotifCheck.ok) {
-      return (data: null, error: _errorFor(check, 'Allow Reply Suggestions'));
+      return (data: null, error: _errorFor(check, 'Reply to Notifications'));
     }
     final notif = await service.getById(notificationId);
     if (notif == null) {
@@ -119,9 +119,11 @@ class NotificationRepository {
   Future<({NotificationInfo? data, String? error})> getForOpenApp(
     String notificationId,
   ) async {
-    final check = await _check('allow_open_source_app');
+    // Opening the source app reuses the same read permission — if you can
+    // read notifications, you can open the source app they came from.
+    final check = await _check('allow_read');
     if (check != _NotifCheck.ok) {
-      return (data: null, error: _errorFor(check, 'Allow Open Source App'));
+      return (data: null, error: _errorFor(check, 'Read Notifications'));
     }
     final notif = await service.getById(notificationId);
     if (notif == null) {

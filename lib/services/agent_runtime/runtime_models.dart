@@ -1,7 +1,6 @@
-import '../../features/chat/data/chat_history_service.dart';
+import 'package:uuid/uuid.dart';
 
-/// Feature flag for Agent Runtime v1.
-const bool enableAgentRuntimeV1 = true;
+import '../../features/chat/data/chat_history_service.dart';
 
 /// Runtime states for the agentic loop.
 enum AgentRuntimeState {
@@ -20,6 +19,10 @@ enum AgentRuntimeState {
   /// action but the workflow's "Allow sensitive actions" toggle was off.
   /// The runner converts this into a step failure that destroys the chain.
   blockedSensitive,
+
+  /// Fast-path iteration cap hit. The caller should retry in normal mode
+  /// (full adaptive limit) with the same plan and goal tree.
+  fastPathExhausted,
 }
 
 /// Where a runtime request originated from.
@@ -29,7 +32,6 @@ enum AgentRuntimeState {
 /// without a user in the loop (workflow).
 enum RequestSource { chat, workflow }
 
-/// Request to run the agent runtime.
 class AgentRuntimeRequest {
   const AgentRuntimeRequest({
     required this.agentId,
@@ -38,6 +40,7 @@ class AgentRuntimeRequest {
     this.recentMessages = const [],
     this.metadata = const {},
     this.source = RequestSource.chat,
+    this.attachments = const [],
   });
 
   final String agentId;
@@ -46,6 +49,23 @@ class AgentRuntimeRequest {
   final List<ChatMessage> recentMessages;
   final Map<String, dynamic> metadata;
   final RequestSource source;
+
+  /// File paths attached to this request (max 2, each ≤ 5 MB).
+  /// The runtime reads text files inline and notes non-text files so the
+  /// agent can use file.* tools to access them.
+  final List<AttachedFile> attachments;
+}
+
+/// A file attached to a user message.
+class AttachedFile {
+  const AttachedFile({
+    required this.path,
+    required this.name,
+    this.sizeBytes = 0,
+  });
+  final String path;
+  final String name;
+  final int sizeBytes;
 }
 
 /// Response from the agent runtime.
@@ -58,6 +78,8 @@ class AgentRuntimeResponse {
     this.pendingTool,
     this.pendingToolArgs,
     this.actions = const [],
+    this.previousResults,
+    this.nextStep,
   });
 
   final String finalMessage;
@@ -73,12 +95,18 @@ class AgentRuntimeResponse {
 
   /// Optional contextual action buttons to render after the final message.
   final List<ResultAction> actions;
+
+  /// Optional tool execution history for retries/resumes.
+  final List<Map<String, dynamic>>? previousResults;
+
+  /// Optional next step number for retries/resumes.
+  final int? nextStep;
 }
 
 /// A single event logged during runtime execution.
 class RuntimeEvent {
   RuntimeEvent({required this.type, required this.message, this.data})
-    : id = DateTime.now().microsecondsSinceEpoch.toString(),
+    : id = const Uuid().v4(),
       createdAt = DateTime.now();
 
   final String id;
@@ -118,23 +146,19 @@ class ToolCallRequest {
 class ResultAction {
   const ResultAction({
     required this.label,
-    required this.labelId,
     required this.icon,
     required this.type,
     required this.target,
     this.params = const {},
   });
 
-  /// English label.
+  /// Label (English canonical form — UI localizes via LanguageRegistry).
   final String label;
-
-  /// Indonesian label.
-  final String labelId;
 
   /// Material icon name (e.g., 'calendar_month_rounded').
   final String icon;
 
-  /// Action type: 'navigate' | 'open_folder' | 'open_url'.
+  /// Action type: 'navigate' | 'open_folder' | 'open_url' | 'install_module'.
   final String type;
 
   /// Route path or URI.
@@ -145,7 +169,6 @@ class ResultAction {
 
   Map<String, dynamic> toJson() => {
     'label': label,
-    'labelId': labelId,
     'icon': icon,
     'type': type,
     'target': target,
@@ -154,7 +177,6 @@ class ResultAction {
 
   factory ResultAction.fromJson(Map<String, dynamic> json) => ResultAction(
     label: json['label'] as String? ?? '',
-    labelId: json['labelId'] as String? ?? '',
     icon: json['icon'] as String? ?? '',
     type: json['type'] as String? ?? 'navigate',
     target: json['target'] as String? ?? '',
@@ -195,7 +217,9 @@ class ToolDefinition {
     this.policies = const [],
     this.postconditions = const {},
     this.isRetrieval = false,
+    this.hiddenFromModel = false,
     this.verificationProbe,
+    this.resultContextLimits = const {},
   });
 
   final String name;
@@ -218,6 +242,9 @@ class ToolDefinition {
   /// single tool call.
   final bool isRetrieval;
 
+  /// Registered and dispatchable, but omitted from model-visible tool prompts.
+  final bool hiddenFromModel;
+
   /// Optional spec describing how to verify a mutating tool actually
   /// landed in the ecosystem after execution. Drives the generic
   /// PostExecuteValidator (replacing the agent-only
@@ -226,6 +253,11 @@ class ToolDefinition {
   /// `null` means "no automatic post-execute verification" — typically used
   /// for retrieval tools or tools whose outcome is not snapshot-observable.
   final ToolVerificationProbe? verificationProbe;
+
+  /// Per-result-key string limits used when carrying tool data into the next
+  /// selector/reviewer turn. Retrieval tools whose output is needed by a
+  /// follow-up mutation can opt into a larger bounded context window.
+  final Map<String, int> resultContextLimits;
 
   bool get hasRuntimeMetadata =>
       operation.isNotEmpty ||

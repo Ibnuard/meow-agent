@@ -10,16 +10,22 @@ import '../features/home/presentation/home_screen.dart';
 import '../features/modules/presentation/clipboard_process_screen.dart';
 import '../features/modules/presentation/module_detail_screen.dart';
 import '../features/modules/presentation/module_store_screen.dart';
+import '../features/modules/web/presentation/api_store_screen.dart';
+import '../features/modules/db/presentation/db_manager_screen.dart';
 import '../features/modules/notes/note_detail_screen.dart';
 import '../features/modules/notes/note_editor_screen.dart';
 import '../features/modules/notes/notes_list_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/miniapp/presentation/miniapp_list_screen.dart';
+import '../features/miniapp/presentation/miniapp_runner_screen.dart';
+import '../features/modules/skills/skills_manager_screen.dart';
+import '../features/modules/skills/skill_editor_screen.dart';
 import 'shell.dart';
 
 /// Global navigator key for pushing routes from outside the widget tree
-/// (e.g., notification tap handlers).
+/// (e.g., navigator tap handlers).
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class AppRoutes {
@@ -44,6 +50,14 @@ class AppRoutes {
   static const noteDetail = '/notes/:id';
   static const noteNew = '/notes/new';
   static const noteEdit = '/notes/:id/edit';
+  static const apiStore = '/modules/api-store';
+  static const databaseManager = '/database';
+  static const miniappList = '/miniapp';
+  static const miniappRun = '/miniapp/run/:id';
+  // Skills.
+  static const skillsList = '/skills';
+  static const skillNew = '/skills/new';
+  static const skillEdit = '/skills/:id';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -106,6 +120,29 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ModuleStoreScreen(),
       ),
       GoRoute(
+        path: AppRoutes.apiStore,
+        name: 'apiStore',
+        builder: (context, state) => const ApiStoreScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.databaseManager,
+        name: 'databaseManager',
+        builder: (context, state) => const DbManagerScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.miniappList,
+        name: 'miniappList',
+        builder: (context, state) => const MiniAppListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.miniappRun,
+        name: 'miniappRun',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return MiniAppRunnerScreen(appId: id);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.moduleDetail,
         name: 'moduleDetail',
         builder: (context, state) {
@@ -145,6 +182,24 @@ final goRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final id = state.pathParameters['id']!;
           return NoteEditorScreen(noteId: id);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.skillsList,
+        name: 'skillsList',
+        builder: (context, state) => const SkillsManagerScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.skillNew,
+        name: 'skillNew',
+        builder: (context, state) => const SkillEditorScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.skillEdit,
+        name: 'skillEdit',
+        builder: (context, state) {
+          final id = state.pathParameters['id']!;
+          return SkillEditorScreen(skillId: id);
         },
       ),
 

@@ -1,35 +1,43 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../core/storage/app_settings_repository.dart';
 import '../../../services/agent_runtime/context_compactor.dart';
-import '../../../services/agent_runtime/context_report.dart';
-import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
-import '../../../services/workspace/workspace_file_service.dart';
-import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
-import '../../agents/data/workspace_service.dart';
-import '../../modules/calendar/calendar_screen.dart';
-import '../../modules/workflows/workflow_list_screen.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/llm_provider_config.dart';
 import '../data/chat_history_service.dart';
-import '../data/chat_runtime_log_service.dart';
+import '../data/chat_messages_notifier.dart';
 import '../data/chat_runtime_manager.dart';
 import '../data/unread_service.dart';
+import 'chat_shimmer.dart';
+import 'widgets/task_ledger_bubble.dart';
+import 'widgets/meow_bubble.dart';
+import 'mixins/chat_message_actions.dart';
+import 'mixins/chat_debug_sheet.dart';
+import 'mixins/chat_history_manager.dart';
+import 'mixins/chat_send_handler.dart';
+import 'mixins/chat_command_handler.dart';
+import 'mixins/chat_report_builder.dart';
+import 'mixins/chat_compactor.dart';
+
+/// Initial active agent id, pre-loaded from app_settings in main().
+/// Injected via ProviderScope override so ChatScreen can read it synchronously.
+final initialActiveAgentIdProvider = Provider<String?>((_) => null);
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.agentId, this.initialText});
@@ -41,7 +49,17 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with
+        WidgetsBindingObserver,
+        ChatMessageActionsMixin,
+        ChatDebugSheetMixin,
+        ChatHistoryManagerMixin,
+        ChatSendHandlerMixin,
+        ChatCommandHandlerMixin,
+        ChatReportBuilderMixin,
+        ChatCompactorMixin {
+  @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
@@ -49,11 +67,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  // Per-agent message history — paginated from local storage.
-  final Map<String, List<ChatMessage>> _messagesByAgent = {};
-  final Set<String> _fullyLoaded = {}; // Agents with no more older messages.
-  bool _loadingOlder = false;
-  bool _initialLoading = true;
+  final _listKey = GlobalKey();
+  final ValueNotifier<bool> _showScrollToBottom = ValueNotifier(false);
   late String _activeAgentId;
 
   // Tracks the last manager reply timestamp so we know when to reload.
@@ -64,24 +79,100 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// active reply context. Cleared after send or when user taps the X.
   ChatMessage? _replyTo;
 
+  // Mixin interface delegates.
+
+  @override
+  ChatMessage? get replyToContext => _replyTo;
+  @override
+  set replyToContext(ChatMessage? value) => _replyTo = value;
+  @override
+  Future<ChatMessage> persistMessage(ChatMessage message) =>
+      _persistMessage(message);
+  @override
+  void scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scroll.hasClients) return;
+      _scroll.jumpTo(0); // In reversed list, position 0 = bottom (newest).
+    });
+  }
+
+  // ChatDebugSheetMixin interface delegates.
+  @override
+  String get activeAgentId => _activeAgentId;
+  @override
+  ChatRuntimeManager ensureManager() => _ensureManager();
+
+  // ChatHistoryManagerMixin interface delegates.
+  @override
+  ChatRuntimeManager? get manager => _manager;
+  @override
+  ScrollController get chatScroll => _scroll;
+  @override
+  void Function() get rebuildDateBoundaries => _rebuildDateBoundaries;
+  ScrollController get scrollController => _scroll;
+
+  // Sticky date overlay state — ValueNotifiers to avoid full-tree rebuilds.
+  final ValueNotifier<DateTime?> _stickyDate = ValueNotifier(null);
+  final ValueNotifier<bool> _stickyDateVisible = ValueNotifier(false);
+  Timer? _stickyDateTimer;
+  Timer? _stickyDateThrottle;
+  Timer? _loadMoreThrottle;
+  bool _rebuildScheduled = false;
+  final Map<int, DateTime> _dateBoundaries = {};
+
+  // ChatSendHandlerMixin interface delegates.
+  @override
+  List<AttachedFile> get attachments => _attachments;
+  @override
+  set attachments(List<AttachedFile> value) => _attachments = value;
+  @override
+  GlobalKey<_ChatInputState> get chatInputKey => _chatInputKey;
+  @override
+  TextEditingController get inputController => _input;
+  @override
+  bool get sending => _sending;
+  @override
+  ProviderConfig? resolveProvider() => _resolveProvider();
+  @override
+  Future<bool> autoCompactIfNeeded() => _autoCompactIfNeeded();
+
+  // ChatCommandHandlerMixin interface delegates.
+  @override
+  bool get debugMode => ref.read(llmDebugModeProvider);
+
+  /// Attached files for the next send (synced from _ChatInput).
+  List<AttachedFile> _attachments = [];
+  final _chatInputKey = GlobalKey<_ChatInputState>();
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final agents = ref.read(agentListProvider);
+    final storedActiveAgentId = ref.read(initialActiveAgentIdProvider);
     if (widget.agentId == 'default' && agents.isNotEmpty) {
-      _activeAgentId = agents.first.id;
+      _activeAgentId = agents.any((a) => a.id == storedActiveAgentId)
+          ? storedActiveAgentId!
+          : agents.first.id;
     } else {
       _activeAgentId = widget.agentId;
     }
+    ref
+        .read(appSettingsRepositoryProvider)
+        .set('active.agent_id', _activeAgentId);
     if (widget.initialText != null && widget.initialText!.isNotEmpty) {
       _input.text = widget.initialText!;
     }
-    _loadHistory(_activeAgentId);
+
     _scroll.addListener(_onScroll);
 
     // Mark this agent's chat as in-foreground so the unread counter clears
     // and incoming messages don't bump the badge while user is reading.
     UnreadService.instance.setActive(_activeAgentId);
+
+    // Phase 7 architecture: chat history and agent identity live in SQLite,
+    // not workspace files. Load history directly without a permission gate.
+    loadHistory(_activeAgentId);
 
     // Subscribe once after first frame so ref is available.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -91,30 +182,67 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // No-op: storage permission is no longer required for chat to function.
+    // Files.* tools request permission on-demand when actually invoked.
+  }
+
   void _onManagerChanged() {
     if (!mounted) return;
     final session = _manager!.sessionFor(_activeAgentId);
-    // When a new reply lands, reload history to pick up persisted messages.
+    final wasNearBottom = _isNearBottom;
     if (session.lastReplyAt != null &&
         session.lastReplyAt != _lastSeenReplyAt) {
       _lastSeenReplyAt = session.lastReplyAt;
-      _reloadHistory(_activeAgentId);
-    } else {
-      // Rebuild for debug/running state changes.
-      setState(() {});
+      final persistedMessages = session.lastPersistedMessages;
+      if (persistedMessages.isNotEmpty) {
+        ref
+            .read(chatMessagesProvider(_activeAgentId).notifier)
+            .upsertMessages(persistedMessages);
+        _rebuildDateBoundaries();
+        if (wasNearBottom) scrollToEnd();
+      } else {
+        reloadHistory(_activeAgentId, scrollToBottom: wasNearBottom);
+      }
     }
-    // Always nudge to the bottom so new bubbles (debug, thinking, replies)
-    // remain visible without manual scrolling.
-    _scrollToEnd();
+    // Coalesce rebuilds: the runtime fires notifyListeners on every LLM
+    // event (state, narrative, ledger, debug). Without coalescing, dozens
+    // of setStates per second cascade into frame drops and OOM. We schedule
+    // a single rebuild after the next frame; further notifications in the
+    // same window are no-ops.
+    if (!_rebuildScheduled) {
+      _rebuildScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _rebuildScheduled = false;
+        if (!mounted) return;
+        setState(() {});
+        if (wasNearBottom) scrollToEnd();
+      });
+    }
   }
 
+  /// Messages from the Riverpod notifier (read-only snapshot for local use).
   List<ChatMessage> get _messages =>
-      _messagesByAgent.putIfAbsent(_activeAgentId, () => []);
+      ref.read(chatMessagesProvider(_activeAgentId)).messages;
 
-  bool get _hasMore => !_fullyLoaded.contains(_activeAgentId);
+  bool get _hasMore => ref.read(chatMessagesProvider(_activeAgentId)).hasMore;
+
+  bool get _isNearBottom {
+    if (!_scroll.hasClients) return true;
+    // In reversed list, position 0 = bottom (newest messages).
+    return _scroll.position.pixels <= 200;
+  }
 
   @override
   void dispose() {
+    _stickyDateTimer?.cancel();
+    _stickyDateThrottle?.cancel();
+    _loadMoreThrottle?.cancel();
+    _stickyDate.dispose();
+    _stickyDateVisible.dispose();
+    _showScrollToBottom.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     UnreadService.instance.clearActive(_activeAgentId);
     _manager?.removeListener(_onManagerChanged);
     _scroll.removeListener(_onScroll);
@@ -123,12 +251,285 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
-  /// Detect scroll to top → load older messages.
+  /// Detect scroll to top — load older messages. Also toggle scroll-to-bottom FAB
+  /// and update the sticky date overlay.
   void _onScroll() {
-    if (!_hasMore || _loadingOlder) return;
-    if (_scroll.position.pixels <= 80) {
-      _loadOlderMessages();
+    if (!_scroll.hasClients) return;
+    // Reversed list: pixels=0 is bottom, maxScrollExtent is top.
+    final showFab = _scroll.position.pixels > 200;
+    if (showFab != _showScrollToBottom.value) {
+      _showScrollToBottom.value = showFab;
     }
+    _scheduleStickyDateUpdate();
+    if (!_hasMore || loadingOlder) return;
+    // Trigger load-more with large runway (1500px) so the user NEVER sees
+    // the loading edge — WhatsApp-style seamless preload.
+    final distFromTop =
+        _scroll.position.maxScrollExtent - _scroll.position.pixels;
+    if (distFromTop <= 1500) {
+      _throttledLoadOlder();
+    }
+  }
+
+  /// Throttled load-older: ensures only one request fires per 300ms window,
+  /// preventing rapid-fire calls during fast scroll momentum.
+  void _throttledLoadOlder() {
+    if (_loadMoreThrottle?.isActive == true) return;
+    loadOlderMessages();
+    _loadMoreThrottle = Timer(const Duration(milliseconds: 300), () {});
+  }
+
+  void _scheduleStickyDateUpdate() {
+    if (_stickyDateThrottle?.isActive == true) return;
+    _stickyDateThrottle = Timer(const Duration(milliseconds: 90), () {
+      if (mounted) _updateStickyDate();
+    });
+  }
+
+  void _updateStickyDate() {
+    if (_dateBoundaries.isEmpty || !_scroll.hasClients) {
+      if (_stickyDateVisible.value) _stickyDateVisible.value = false;
+      return;
+    }
+    if (_messages.isEmpty) return;
+
+    // --- Determine the topmost visible builder index by inspecting the
+    // actual RenderSliverList children. This avoids the inaccurate
+    // average-height estimation that broke sticky dates for variable-height
+    // bubbles.
+    int topBuilderIdx = 0;
+    final listContext = _listKey.currentContext;
+    if (listContext != null) {
+      // Walk from the ListView's Element to find the RenderSliverList.
+      bool found = false;
+      void visitor(Element el) {
+        if (found) return;
+        final ro = el.renderObject;
+        if (ro is RenderSliverMultiBoxAdaptor) {
+          found = true;
+          // Use LIVE scroll offset (not constraints, which lag by one frame
+          // during active scroll). Children layout offsets are stable mid-scroll
+          // since the viewport just translates painted output, so these stay
+          // valid while pixels updates synchronously.
+          final visibleStart = _scroll.position.pixels;
+          final visibleEnd = visibleStart + _scroll.position.viewportDimension;
+
+          // Only count children whose scroll offset places them within the
+          // actual viewport, NOT the cache-extent zone beyond it.
+          var child = ro.firstChild;
+          while (child != null) {
+            final childOffset = ro.childScrollOffset(child);
+            if (childOffset != null && childOffset < visibleEnd) {
+              final childExtent = child.size.height;
+              // Child overlaps viewport if it ends after visibleStart.
+              if (childOffset + childExtent > visibleStart) {
+                final idx = ro.indexOf(child);
+                topBuilderIdx = math.max(topBuilderIdx, idx);
+              }
+            }
+            child = ro.childAfter(child);
+          }
+          return;
+        }
+        el.visitChildren(visitor);
+      }
+
+      listContext.visitChildElements(visitor);
+    }
+
+    // Account for tail items (thinking, narrative, ledger) offset.
+    final session = _manager?.sessionFor(_activeAgentId);
+    final hasLedger = _sending && (session?.activeTaskLedger != null);
+    final hasNarrative =
+        _sending && (session?.narrativeTrail.isNotEmpty == true);
+    final checkpointCount = _sending
+        ? (session?.liveCheckpoints.length ?? 0)
+        : 0;
+    final tailCount =
+        (_sending ? 1 : 0) +
+        (hasNarrative ? 1 : 0) +
+        (hasLedger ? 1 : 0) +
+        checkpointCount;
+
+    final msgOffset = topBuilderIdx - tailCount;
+    if (msgOffset < 0 || msgOffset >= _messages.length) {
+      if (_stickyDateVisible.value) _stickyDateVisible.value = false;
+      return;
+    }
+
+    // Convert reversed builder offset → chronological array index.
+    final topArrayIdx = (_messages.length - 1 - msgOffset).clamp(
+      0,
+      _messages.length - 1,
+    );
+
+    // Find the date boundary at or before topArrayIdx.
+    final keys = _dateBoundaries.keys.toList()..sort();
+    if (keys.isEmpty) return;
+    int lo = 0, hi = keys.length - 1;
+    DateTime? found;
+    while (lo <= hi) {
+      final mid = (lo + hi) ~/ 2;
+      if (keys[mid] <= topArrayIdx) {
+        found = _dateBoundaries[keys[mid]];
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    found ??= _dateBoundaries[keys.first];
+    _stickyDate.value = found;
+    _stickyDateVisible.value = true;
+
+    // Auto-hide after 1.5s of no scroll activity.
+    _stickyDateTimer?.cancel();
+    _stickyDateTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) _stickyDateVisible.value = false;
+    });
+  }
+
+  void _rebuildDateBoundaries() {
+    _dateBoundaries.clear();
+    DateTime? lastDay;
+    for (var i = 0; i < _messages.length; i++) {
+      final t = _messages[i].timestamp.toLocal();
+      final day = DateTime(t.year, t.month, t.day);
+      if (lastDay == null || day != lastDay) {
+        _dateBoundaries[i] = t;
+        lastDay = day;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reversed ListView helpers
+  // ---------------------------------------------------------------------------
+
+  /// Total item count for reversed list.
+  /// Order (bottom→top): tail items → messages (newest→oldest) → top indicator.
+  /// The top indicator is ALWAYS present when more history exists — no layout
+  /// shift from widget insertion/removal during load cycles.
+  int get _itemCount {
+    final session = _manager?.sessionFor(_activeAgentId);
+    final hasLedger = _sending && (session?.activeTaskLedger != null);
+    final hasNarrative =
+        _sending && (session?.narrativeTrail.isNotEmpty == true);
+    final checkpointCount = _sending
+        ? (session?.liveCheckpoints.length ?? 0)
+        : 0;
+    return (_sending ? 1 : 0) + // thinking
+        (hasNarrative ? 1 : 0) +
+        (hasLedger ? 1 : 0) +
+        checkpointCount +
+        _messages.length +
+        (_hasMore ? 1 : 0); // permanent top anchor
+  }
+
+  /// Build a single item for the reversed ListView.
+  /// Index 0 = bottom (newest/tail), highest index = top (loading/oldest).
+  Widget _buildReversedItem(int i, AppStrings s) {
+    final session = _manager?.sessionFor(_activeAgentId);
+    final liveLedger = session?.activeTaskLedger;
+    final hasLedger = _sending && liveLedger != null;
+    final trail = session?.narrativeTrail ?? const <String>[];
+    final hasNarrative = _sending && trail.isNotEmpty;
+    final liveCheckpoints = _sending
+        ? (session?.liveCheckpoints ?? const <ChatMessage>[])
+        : const <ChatMessage>[];
+
+    int cursor = 0;
+
+    // In the reversed list the first tail item is closest to the composer.
+    // Keep thinking there, with its narrator directly above it.
+    if (_sending) {
+      if (i == cursor) return const _ThinkingBubble();
+      cursor++;
+    }
+
+    if (hasNarrative) {
+      if (i == cursor) return _NarrativeTrail(entries: trail);
+      cursor++;
+    }
+
+    // The ledger remains in the live tail, but sits above narrator + thinking
+    // so it stays visible without becoming the bottom-most element.
+    if (hasLedger) {
+      if (i == cursor) {
+        return TaskLedgerBubble(ledger: liveLedger, live: true);
+      }
+      cursor++;
+    }
+
+    // All semantic checkpoints stay above the ledger during the active run.
+    // The reversed mapping keeps their normal chronological visual order.
+    final checkpointOffset = i - cursor;
+    if (checkpointOffset >= 0 && checkpointOffset < liveCheckpoints.length) {
+      final liveCheckpoint =
+          liveCheckpoints[liveCheckpoints.length - 1 - checkpointOffset];
+      return RepaintBoundary(
+        key: ValueKey('live-checkpoint-${liveCheckpoint.id}'),
+        child: MeowBubble(msg: liveCheckpoint, strings: s),
+      );
+    }
+    cursor += liveCheckpoints.length;
+
+    // Messages: index `cursor` = newest message, increasing = older.
+    final msgOffset = i - cursor;
+    if (msgOffset < _messages.length) {
+      // Map reversed builder offset to chronological array index.
+      final msgIndex = _messages.length - 1 - msgOffset;
+      final current = _messages[msgIndex];
+
+      // Date separator: show when day changes from the message ABOVE (older).
+      final olderMsg = msgIndex > 0 ? _messages[msgIndex - 1] : null;
+      final showDate =
+          olderMsg == null ||
+          !_isSameDay(
+            olderMsg.timestamp.toLocal(),
+            current.timestamp.toLocal(),
+          );
+
+      final ledger = taskLedgerFromSentinel(current.content);
+      final bubble = RepaintBoundary(
+        key: ValueKey('msg-${current.id ?? identityHashCode(current)}'),
+        child: ledger != null
+            ? TaskLedgerBubble(ledger: ledger, timestamp: current.timestamp)
+            : MeowBubble(
+                msg: current,
+                strings: s,
+                onConfirmAction: (action) =>
+                    handleConfirmation(action, msgIndex),
+                onActionTap: handleResultAction,
+                onLongPress: () => showMessageActions(current),
+              ),
+      );
+
+      if (!showDate) return bubble;
+      // In reversed list, Column still renders top→bottom within its bounds.
+      // Separator above bubble is correct visually.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DateSeparator(date: current.timestamp.toLocal(), strings: s),
+          bubble,
+        ],
+      );
+    }
+
+    // Top anchor: always present when more history exists.
+    // Shows active spinner during load, subtle idle dot otherwise.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: ref.read(chatMessagesProvider(_activeAgentId)).loadingOlder
+              ? const CircularProgressIndicator(strokeWidth: 2)
+              : const SizedBox.shrink(),
+        ),
+      ),
+    );
   }
 
   ProviderConfig? _resolveProvider() {
@@ -144,8 +545,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     if (agent == null) return null;
 
-    // Find the provider.
-    return providers.where((p) => p.id == agent!.providerId).firstOrNull;
+    // Find the provider and apply the model selected on the agent.
+    final provider = providers
+        .where((p) => p.id == agent!.providerId)
+        .firstOrNull;
+    if (provider == null) return null;
+    return provider.copyWith(model: provider.effectiveModel(agent.model));
   }
 
   /// Whether the runtime is currently working on this agent's request.
@@ -172,806 +577,188 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     mgr.cancelActive(_activeAgentId);
   }
 
-  /// Show long-press action sheet for a chat bubble.
-  void _showMessageActions(ChatMessage msg) {
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  ctx,
-                ).colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              leading: const Icon(Icons.reply_rounded),
-              title: Text(isId ? 'Balas' : 'Reply'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _handleReply(msg);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: Text(isId ? 'Salin teks' : 'Copy text'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _handleCopy(msg);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _handleCopy(ChatMessage msg) {
-    final text = _cleanContent(msg.content);
-    Clipboard.setData(ClipboardData(text: text));
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isId ? 'Disalin ke clipboard' : 'Copied to clipboard'),
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _handleReply(ChatMessage msg) {
-    final clean = _cleanContent(msg.content);
-    if (clean.isEmpty) {
-      final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isId
-                ? 'Tidak bisa membalas pesan kosong.'
-                : 'Cannot reply to an empty message.',
-          ),
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-    setState(() => _replyTo = msg);
-    // Auto-focus the input.
-    FocusScope.of(context).requestFocus(FocusNode());
-  }
-
-  void _cancelReply() {
-    setState(() => _replyTo = null);
-  }
-
-  /// Strip all sentinels (confirmation, reply-quote opening + closing) and
-  /// trim whitespace. Used everywhere we need the "clean" user-visible text.
-  static String _cleanContent(String raw) {
-    return raw
-        .replaceAll(
-          RegExp(
-            r'\[\[REPLY_QUOTE:[^\]]+\]\].*?\[\[/REPLY_QUOTE\]\]\n?',
-            dotAll: true,
-          ),
-          '',
-        )
-        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
-        .trim();
-  }
-
-  /// Wrap user text with a quote sentinel so the LLM and the UI both see
-  /// what's being referenced. Sentinels are stripped from display by [_Bubble]
-  /// which renders the quote as a styled inline chip above the user's text.
-  String _buildReplyPayload(ChatMessage quoted, String userText) {
-    final quotedText = _cleanContent(quoted.content);
-    // Truncate very long quotes so we don't blow up context.
-    final truncated = quotedText.length > 280
-        ? '${quotedText.substring(0, 280)}…'
-        : quotedText;
-    final role = quoted.role == 'user' ? 'You' : 'Agent';
-    return '[[REPLY_QUOTE:$role]]$truncated[[/REPLY_QUOTE]]\n$userText';
-  }
-
-  Future<void> _send() async {
-    final text = _input.text.trim();
-    if (text.isEmpty || _sending) return;
-    FocusManager.instance.primaryFocus?.unfocus();
-
-    // Slash commands handled locally.
-    if (text.startsWith('/')) {
-      _handleCommand(text);
-      return;
-    }
-
-    final provider = _resolveProvider();
-    if (provider == null) {
-      final userMsg = ChatMessage(role: 'user', content: text);
-      final botMsg = ChatMessage(
-        role: 'assistant',
-        content:
-            'No provider connected. Please check your agent settings — '
-            'the linked provider may have been removed.',
-      );
-      setState(() {
-        _messages.add(userMsg);
-        _messages.add(botMsg);
-      });
-      _input.clear();
-      _persistMessage(userMsg);
-      _persistMessage(botMsg);
-      _scrollToEnd();
-      return;
-    }
-    if (!provider.isComplete) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Provider configuration is incomplete.')),
-      );
-      return;
-    }
-
-    _input.clear();
-    final replyContext = _replyTo;
-    if (replyContext != null) {
-      setState(() => _replyTo = null);
-    }
-
-    // Build the user-visible message with an optional reply quote.
-    // The quote is included in both the displayed bubble and the LLM payload
-    // so the agent has the full context of what was referenced.
-    final messageText = replyContext == null
-        ? text
-        : _buildReplyPayload(replyContext, text);
-
-    if (enableAgentRuntimeV1) {
-      // Auto-compact if context threshold reached.
-      await _autoCompactIfNeeded();
-      // Manager persists user msg + final reply, listener reloads history.
-      final mgr = _ensureManager();
-      // Optimistically show the user message immediately.
-      final userMsg = ChatMessage(role: 'user', content: messageText);
-      setState(() => _messages.add(userMsg));
-      _scrollToEnd();
-      // Send recent persisted messages (those with id) as context.
-      final recent = _messages.where((m) => m.id != null).toList();
-      // Fire-and-forget — manager keeps running even if screen disposes.
-      mgr.send(
-        agentId: _activeAgentId,
-        userMessage: messageText,
-        recentMessages: recent,
-      );
-      return;
-    }
-
-    // Legacy direct LLM path.
-    final userMsg = ChatMessage(role: 'user', content: text);
-    setState(() => _messages.add(userMsg));
-    _persistMessage(userMsg);
-    _scrollToEnd();
-
-    try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-      );
-      final reply = await OpenAiCompatibleClient().chat(
-        config: llmConfig,
-        phase: 'legacy_chat',
-        messages: _buildHistory(),
-      );
-      if (!mounted) return;
-      final replyMsg = ChatMessage(role: 'assistant', content: reply);
-      setState(() => _messages.add(replyMsg));
-      _persistMessage(replyMsg);
-      _scrollToEnd();
-    } catch (e) {
-      if (!mounted) return;
-      final errorMsg = ChatMessage(role: 'assistant', content: 'Error: $e');
-      setState(() => _messages.add(errorMsg));
-      _persistMessage(errorMsg);
-      _scrollToEnd();
-    }
-  }
-
-  /// Reload history from disk after manager persists a reply.
-  /// Preserves the marker on the most recent assistant message when there's
-  /// an active pending tool so the action buttons keep rendering.
-  Future<void> _reloadHistory(String agentId) async {
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    final hasPending = _manager?.sessionFor(agentId).pendingTool != null;
-    // Find the index of the last assistant message (where the live
-    // confirmation marker, if any, lives).
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _messagesByAgent[agentId] = cleaned;
-    });
-    _scrollToEnd();
-  }
-
-  void _handleConfirmation(String action, int msgIndex) {
-    if (msgIndex < 0 || msgIndex >= _messages.length) return;
-
-    // Destroy the confirmation bubble entirely after action.
-    // Also delete it from persistent history so it doesn't reappear.
-    final msg = _messages[msgIndex];
-    setState(() => _messages.removeAt(msgIndex));
-    if (msg.id != null) {
-      _deletePersistedMessage(msg.id!);
-    }
-
+  /// Developer-only: show a runtime debug stream as a bottom sheet, triggered
+  /// by long-pressing the agent name in the AppBar. Subscribes to the chat
+  /// runtime manager so new events appear live without re-opening the sheet.
+  /// Replaces the old behavior of injecting debug bubbles into the chat list.
+  @override
+  void showDebugBottomSheet() {
     final mgr = _ensureManager();
-
-    switch (action) {
-      case 'accept':
-      case 'always_accept':
-        mgr.confirm(_activeAgentId);
-        break;
-      case 'reject':
-        mgr.reject(_activeAgentId);
-        break;
-    }
-  }
-
-  Future<void> _handleResultAction(ResultAction action) async {
-    switch (action.type) {
-      case 'navigate':
-        // Special-case screens not in the router → push directly.
-        if (action.target == '/modules/calendar') {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CalendarScreen()),
-          );
-        } else if (action.target == '/modules/workflows') {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const WorkflowListScreen()),
-          );
-        } else {
-          if (!mounted) return;
-          context.push(action.target);
-        }
-        break;
-      case 'open_folder':
-        // target = agentName.
-        final ws = ref.read(workspaceServiceProvider);
-        await ws.openInFileManager(action.target);
-        break;
-      case 'open_url':
-        // Reserved for future use.
-        break;
-    }
-  }
-
-  /// Delete a single message from SQLite by its row id.
-  Future<void> _deletePersistedMessage(int id) async {
-    final service = ref.read(chatHistoryServiceProvider);
-    await service.deleteMessage(id);
-  }
-
-  List<Map<String, String>> _buildHistory() {
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final name = agent?.name ?? 'Assistant';
-    final isFirstChat = _messages.where((m) => m.role == 'user').length <= 1;
-
-    final systemPrompt = StringBuffer()
-      ..write(PromptConstants.chatSystemPrompt(name));
-
-    if (isFirstChat) {
-      systemPrompt
-        ..writeln()
-        ..writeln()
-        ..write(PromptConstants.firstIntroductionRule);
-    }
-
-    // Only send the last 20 messages as context to save tokens.
-    final contextMessages = _messages.length > 20
-        ? _messages.sublist(_messages.length - 20)
-        : _messages;
-
-    return [
-      {'role': 'system', 'content': systemPrompt.toString().trim()},
-      ...contextMessages.map((m) => {'role': m.role, 'content': m.content}),
-    ];
-  }
-
-  void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
-      }
-      // Secondary scroll after markdown widgets finish layout.
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (_scroll.hasClients) {
-          _scroll.animateTo(
-            _scroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    });
-  }
-
-  Future<void> _handleCommand(String text) async {
-    final cmd = text.split(' ').first.toLowerCase();
-    _input.clear();
-
-    // Show the slash command itself in the chat history so the user can see
-    // what they ran (and scroll back to it later). For /clear we deliberately
-    // skip persistence because the next step wipes the agent's history.
-    final userMsg = ChatMessage(role: 'user', content: text);
-    setState(() => _messages.add(userMsg));
-    if (cmd != '/clear') {
-      _persistMessage(userMsg);
-    }
-    _scrollToEnd();
-
-    String response;
-    bool shouldPersist = true;
-
-    switch (cmd) {
-      case '/clear':
-        await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
-        _messagesByAgent.remove(_activeAgentId);
-        _fullyLoaded.remove(_activeAgentId);
-        setState(() {});
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Chat history and context cleared.'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-        return;
-      case '/help':
-        response = _buildCommandHelp(ref.read(llmDebugModeProvider));
-      case '/reset':
-        // Reset context only — keep chat visible but AI forgets prior context.
-        response = '✓ Context reset. AI will treat next message as fresh.';
-      case '/model':
-        final agents = ref.read(agentListProvider);
-        final providers = ref.read(providerListProvider).value ?? [];
-        final agent = _activeAgentId == 'default'
-            ? (agents.isNotEmpty ? agents.first : null)
-            : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-        final provider = agent != null
-            ? providers.where((p) => p.id == agent.providerId).firstOrNull
-            : null;
-        if (provider != null) {
-          response =
-              '🤖 Model Info:\n'
-              '• Provider: ${provider.nickname}\n'
-              '• Model: ${provider.model}\n'
-              '• Endpoint: ${provider.baseUrl}';
-        } else {
-          response = '⚠️ No provider connected to this agent.';
-        }
-      case '/compact':
-        await _performCompaction();
-        return;
-      case '/status':
-        response = _buildStatusInfo();
-      case '/context':
-        response = await _buildContextReport();
-      case '/cron':
-        response =
-            '📋 Scheduled Tasks (HEARTBEAT.md):\n'
-            'No active cron jobs configured.\n'
-            'Edit HEARTBEAT.md in your agent workspace to add scheduled tasks.';
-      case '/log':
-        response = await _buildRuntimeLogReport();
-      case '/clearlog':
-        response = await _clearRuntimeLog();
-      default:
-        response = 'Unknown command: $cmd\nType /help for available commands.';
-    }
-
-    final botMsg = ChatMessage(role: 'assistant', content: response);
-    setState(() => _messages.add(botMsg));
-    if (shouldPersist) _persistMessage(botMsg);
-    _scrollToEnd();
-  }
-
-  String _buildCommandHelp(bool debugMode) {
-    final buffer = StringBuffer()
-      ..writeln('Available commands:')
-      ..writeln('- /clear - Clear chat history & context')
-      ..writeln('- /help - Show this list')
-      ..writeln('- /status - Show agent & context info')
-      ..writeln('- /context - Show token/context breakdown')
-      ..writeln('- /reset - Reset context only')
-      ..writeln('- /model - Show current model info')
-      ..writeln('- /compact - Compact context window')
-      ..write('- /cron - Show scheduled tasks');
-    if (debugMode) {
-      buffer
-        ..writeln()
-        ..writeln('- /log - Show the last runtime debug log')
-        ..write('- /clearlog - Clear the last runtime debug log');
-    }
-    return buffer.toString();
-  }
-
-  Future<String> _buildRuntimeLogReport() async {
-    if (!ref.read(llmDebugModeProvider)) {
-      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /log.';
-    }
-
-    final events = await ref
-        .read(chatRuntimeLogServiceProvider)
-        .loadLast(_activeAgentId);
-    if (events.isEmpty) {
-      return 'No runtime log recorded for the last command.';
-    }
-
-    String? userMessage;
-    final stepEvents = <ChatRuntimeLogEvent>[];
-    for (final event in events) {
-      if (event.isUserRequest) {
-        userMessage = event.data?['message']?.toString();
-      } else {
-        stepEvents.add(event);
-      }
-    }
-
-    final buffer = StringBuffer('Runtime log (last command)');
-    if (userMessage != null && userMessage.trim().isNotEmpty) {
-      buffer
-        ..writeln()
-        ..writeln('Command: ${_truncateLogText(userMessage, 220)}');
-    }
-
-    if (stepEvents.isEmpty) {
-      buffer
-        ..writeln()
-        ..write('No runtime steps have been recorded yet.');
-      return buffer.toString();
-    }
-
-    for (var i = 0; i < stepEvents.length; i++) {
-      final event = stepEvents[i];
-      buffer
-        ..writeln()
-        ..write('${i + 1}. ${_formatRuntimeLogLine(event)}');
-      final details = _formatRuntimeLogDetails(event);
-      if (details.isNotEmpty) {
-        buffer
-          ..writeln()
-          ..write('   $details');
-      }
-    }
-
-    return buffer.toString();
-  }
-
-  Future<String> _clearRuntimeLog() async {
-    if (!ref.read(llmDebugModeProvider)) {
-      return 'Debug LLM (Dev) is off. Turn it on in Settings to use /clearlog.';
-    }
-
-    await ref.read(chatRuntimeLogServiceProvider).clear(_activeAgentId);
-    return 'Runtime debug log cleared.';
-  }
-
-  String _formatRuntimeLogLine(ChatRuntimeLogEvent event) {
-    final label = switch (event.type) {
-      'state_change' => event.data?['state']?.toString() ?? 'state',
-      'llm_decision' => 'llm',
-      'tool_call' => 'tool call',
-      'tool_result' => 'tool result',
-      'narrative' => 'narrative',
-      'error' => 'error',
-      'confirmation' => 'confirmation',
-      'cancelled' => 'cancelled',
-      _ => event.type,
-    };
-    return '[$label] ${_truncateLogText(event.message, 260)}';
-  }
-
-  String _formatRuntimeLogDetails(ChatRuntimeLogEvent event) {
-    final data = event.data;
-    if (data == null || data.isEmpty) return '';
-
-    switch (event.type) {
-      case 'state_change':
-        return '';
-      case 'tool_call':
-        return _compactLogJson({
-          'tool': data['name'],
-          'args': data['args'],
-          'risk': data['risk'],
-        });
-      case 'tool_result':
-        final details = <String, dynamic>{
-          'tool': data['tool'],
-          'success': data['success'],
-        };
-        if (data['error'] != null) {
-          details['error'] = data['error'];
-        }
-        if (data['data'] != null) {
-          details['data'] = data['data'];
-        }
-        return _compactLogJson(details);
-      case 'error':
-        return _truncateLogText(data['error']?.toString() ?? '', 700);
-      default:
-        return _compactLogJson(data);
-    }
-  }
-
-  String _compactLogJson(Object? value, {int maxChars = 700}) {
-    if (value == null) return '';
-    try {
-      return _truncateLogText(jsonEncode(value), maxChars);
-    } catch (_) {
-      return _truncateLogText(value.toString(), maxChars);
-    }
-  }
-
-  String _truncateLogText(String text, int maxChars) {
-    final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (compact.length <= maxChars) return compact;
-    return '${compact.substring(0, maxChars)}...';
-  }
-
-  Future<String> _buildContextReport() async {
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    if (agent == null) {
-      return 'No active agent.';
-    }
-
-    final languagePref = ref.read(appLanguageProvider);
-    final languageCode = resolveLanguageCode(languagePref);
-    return ContextReport.build(
-      agentName: agent.name,
-      languageCode: languageCode,
-      messages: _messages,
-      maxContextLength: agent.maxContextLength,
-      userMessageHint: _input.text,
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: cs.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.6,
+          minChildSize: 0.3,
+          maxChildSize: 0.9,
+          expand: false,
+          builder: (sheetCtx, scrollCtrl) {
+            return AnimatedBuilder(
+              animation: mgr,
+              builder: (innerCtx, _) {
+                final session = mgr.sessionFor(_activeAgentId);
+                final events = session.debugMessages;
+                final narrative = session.narrativeMessage;
+                final isRunning = session.isRunning;
+                return Column(
+                  children: [
+                    Container(
+                      margin: const EdgeInsets.only(top: 8),
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 16, 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.bug_report_outlined,
+                            size: 18,
+                            color: cs.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            s.runtimeDebugTitle,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: cs.onSurface,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (isRunning)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: cs.primary.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                s.runningLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: cs.primary,
+                                ),
+                              ),
+                            ),
+                          IconButton(
+                            tooltip: s.closeTooltip,
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (narrative != null && narrative.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: cs.primary.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: cs.primary.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          child: Text(
+                            narrative,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: cs.onSurface,
+                              fontStyle: FontStyle.italic,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: events.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  isRunning
+                                      ? 'Waiting for runtime events\u2026'
+                                      : 'No runtime events for this run.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              controller: scrollCtrl,
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                12,
+                                16,
+                                24,
+                              ),
+                              itemCount: events.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 6),
+                              itemBuilder: (lctx, i) {
+                                final e = events[i];
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 9,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: cs.surfaceContainerHighest
+                                        .withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    e.content,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: cs.onSurface,
+                                      height: 1.35,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
     );
-  }
-
-  /// Build /status info string.
-  String _buildStatusInfo() {
-    final agents = ref.read(agentListProvider);
-    final providers = ref.read(providerListProvider).value ?? [];
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final provider = agent != null
-        ? providers.where((p) => p.id == agent.providerId).firstOrNull
-        : null;
-
-    final maxCtx = agent?.maxContextLength ?? 8191;
-    final usage = ContextCompactor.getUsageInfo(
-      messages: _messages,
-      maxContextLength: maxCtx,
-    );
-
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
-    final pct = usage.percentage.toStringAsFixed(1);
-    final compactNote = usage.needsCompact
-        ? (isId
-              ? 'Threshold auto-compact tercapai — pertimbangkan jalankan /compact.'
-              : 'Auto-compact threshold reached — consider running /compact.')
-        : (isId
-              ? 'Auto-compact aman, belum perlu dijalankan.'
-              : 'Auto-compact OK, no action needed.');
-
-    final usageLine = usage.source == 'measured'
-        ? (isId
-              ? 'Pemakaian aktual (puncak ${usage.peakMeasured} token dari LLM call terakhir): '
-                    '$pct% dari $maxCtx max. Histori chat sendiri ~${usage.chatTokens} token.'
-              : 'Actual usage (peak ${usage.peakMeasured} tokens from recent LLM calls): '
-                    '$pct% of $maxCtx max. Chat history alone is ~${usage.chatTokens} tokens.')
-        : (isId
-              ? 'Belum ada panggilan LLM tercatat. Estimasi histori chat: '
-                    '${usage.chatTokens} token ($pct% dari $maxCtx max).'
-              : 'No LLM call recorded yet. Chat history estimate: '
-                    '${usage.chatTokens} tokens ($pct% of $maxCtx max).');
-
-    final buf = StringBuffer();
-
-    if (isId) {
-      buf
-        ..writeln('📊 Status Agen — ${agent?.name ?? "default"}')
-        ..writeln()
-        ..writeln(
-          'Agent terhubung ke provider ${provider?.nickname ?? "—"} '
-          'dengan model ${provider?.model ?? "—"}.',
-        )
-        ..writeln()
-        ..writeln('Detail:')
-        ..writeln()
-        ..writeln('- Aplikasi: Meow Agent v1.0.0')
-        ..writeln('- Agen aktif: ${agent?.name ?? "default"}')
-        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
-        ..writeln('- Model: ${provider?.model ?? "—"}')
-        ..writeln('- Pesan tersimpan: ${_messages.length}')
-        ..writeln()
-        ..writeln(usageLine)
-        ..writeln()
-        ..writeln(compactNote);
-    } else {
-      buf
-        ..writeln('📊 Agent Status — ${agent?.name ?? "default"}')
-        ..writeln()
-        ..writeln(
-          'Connected to provider ${provider?.nickname ?? "—"} '
-          'using model ${provider?.model ?? "—"}.',
-        )
-        ..writeln()
-        ..writeln('Details:')
-        ..writeln()
-        ..writeln('- App: Meow Agent v1.0.0')
-        ..writeln('- Active agent: ${agent?.name ?? "default"}')
-        ..writeln('- Provider: ${provider?.nickname ?? "—"}')
-        ..writeln('- Model: ${provider?.model ?? "—"}')
-        ..writeln('- Stored messages: ${_messages.length}')
-        ..writeln()
-        ..writeln(usageLine)
-        ..writeln()
-        ..writeln(compactNote);
-    }
-
-    return buf.toString().trim();
-  }
-
-  /// Perform manual /compact.
-  Future<void> _performCompaction() async {
-    final provider = _resolveProvider();
-    if (provider == null) {
-      final msg = ChatMessage(
-        role: 'assistant',
-        content: '⚠️ Cannot compact: no provider connected.',
-      );
-      setState(() => _messages.add(msg));
-      _persistMessage(msg);
-      _scrollToEnd();
-      return;
-    }
-
-    final agents = ref.read(agentListProvider);
-    final agent = _activeAgentId == 'default'
-        ? (agents.isNotEmpty ? agents.first : null)
-        : agents.where((a) => a.id == _activeAgentId).firstOrNull;
-    final maxCtx = agent?.maxContextLength ?? 8191;
-
-    if (_messages.length <= 8) {
-      final msg = ChatMessage(
-        role: 'assistant',
-        content:
-            '✓ Context sudah ringkas (${_messages.length} pesan, '
-            '~${ContextCompactor.estimateChatTokens(_messages)} tokens / $maxCtx max).',
-      );
-      setState(() => _messages.add(msg));
-      _persistMessage(msg);
-      _scrollToEnd();
-      return;
-    }
-
-    // Show compacting indicator.
-    final loadingMsg = ChatMessage(
-      role: 'assistant',
-      content: '⏳ Compacting context...',
-    );
-    setState(() => _messages.add(loadingMsg));
-    _scrollToEnd();
-
-    try {
-      final llmConfig = LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-      );
-      final compactor = ContextCompactor();
-      final compacted = await compactor.compact(
-        messages: _messages,
-        config: llmConfig,
-        keepRecent: 6,
-      );
-
-      // Clear old history and replace with compacted.
-      await ref.read(chatHistoryServiceProvider).clear(_activeAgentId);
-      for (final msg in compacted) {
-        await ref
-            .read(chatHistoryServiceProvider)
-            .addMessage(_activeAgentId, msg);
-      }
-
-      // Remove loading indicator and reload.
-      setState(() {
-        _messages.remove(loadingMsg);
-        _messagesByAgent[_activeAgentId] = compacted;
-      });
-
-      // Write summary snapshot to workspace.
-      final summaryText = compacted.first.content;
-      final agentName = agent?.name ?? '';
-      if (agentName.isNotEmpty) {
-        WorkspaceFileService.writeSummarySnapshot(agentName, summaryText);
-      }
-
-      final doneMsg = ChatMessage(
-        role: 'assistant',
-        content:
-            '✓ Context compacted: ${compacted.length} pesan '
-            '(~${ContextCompactor.estimateChatTokens(compacted)} tokens).',
-      );
-      setState(() => _messages.add(doneMsg));
-      _persistMessage(doneMsg);
-      _scrollToEnd();
-    } catch (e) {
-      setState(() => _messages.remove(loadingMsg));
-      final errMsg = ChatMessage(
-        role: 'assistant',
-        content: '⚠️ Compact failed: $e',
-      );
-      setState(() => _messages.add(errMsg));
-      _persistMessage(errMsg);
-      _scrollToEnd();
-    }
   }
 
   /// Auto-compact if context exceeds 80% threshold.
-  Future<void> _autoCompactIfNeeded() async {
+  ///
+  /// Returns `true` when the send was BLOCKED (auto-compact off + context full),
+  /// and the caller should not proceed with the user's request.
+  Future<bool> _autoCompactIfNeeded() async {
     final agents = ref.read(agentListProvider);
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -982,11 +769,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       messages: _messages,
       maxContextLength: maxCtx,
     )) {
-      return;
+      return false;
+    }
+
+    if (agent?.autoCompact == false) {
+      final msg = ChatMessage(
+        role: 'assistant',
+        content: s.contextExhausted(agent!.maxContextLength),
+      );
+      ref.read(chatMessagesProvider(_activeAgentId).notifier).addMessage(msg);
+      _persistMessage(msg);
+      return true;
     }
 
     final provider = _resolveProvider();
-    if (provider == null) return;
+    if (provider == null) return false;
 
     try {
       final llmConfig = LlmProviderConfig(
@@ -1009,133 +806,48 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             .addMessage(_activeAgentId, msg);
       }
 
-      setState(() {
-        _messagesByAgent[_activeAgentId] = compacted;
-      });
+      final notifier = ref.read(chatMessagesProvider(_activeAgentId).notifier);
+      notifier.replaceAll(compacted);
 
       // Notify user.
       final infoMsg = ChatMessage(
         role: 'assistant',
-        content:
-            '🔄 Context auto-compacted (threshold 80% reached). '
-            '${compacted.length} pesan tersisa.',
+        content: s.autoCompacted(compacted.length),
       );
-      setState(() => _messages.add(infoMsg));
+      notifier.addMessage(infoMsg);
       _persistMessage(infoMsg);
+      return false;
     } catch (_) {
-      // Silent fail for auto-compact — don't block the user's message.
+      // Silent fail for auto-compact - don't block the user's message.
     }
+    return false;
   }
 
   void _switchAgent(String agentId) {
     if (agentId == _activeAgentId) return;
     UnreadService.instance.clearActive(_activeAgentId);
     UnreadService.instance.setActive(agentId);
-    _loadHistory(agentId);
     setState(() => _activeAgentId = agentId);
+    ref.read(appSettingsRepositoryProvider).set('active.agent_id', agentId);
+    loadHistory(agentId);
+    _rebuildDateBoundaries();
   }
 
-  /// Load the latest page of messages for an agent.
-  /// Preserves the [[CONFIRMATION_REQUIRED]] marker on the most recent
-  /// assistant message when the manager has an active pending tool, so
-  /// the action buttons reappear when re-entering a chat mid-confirmation.
-  Future<void> _loadHistory(String agentId) async {
-    if (_messagesByAgent.containsKey(agentId)) {
-      if (_initialLoading) setState(() => _initialLoading = false);
-      return;
-    }
-    // Mark the slot immediately so concurrent _send() calls don't trigger
-    // a second putIfAbsent from the _messages getter while we're loading.
-    _messagesByAgent[agentId] = [];
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final history = await service.loadLatest(agentId);
-
-    // Resolve manager (may be null if not subscribed yet); pending state
-    // determines whether to keep the live confirmation marker.
-    final ChatRuntimeManager mgr =
-        _manager ?? ref.read(chatRuntimeManagerProvider);
-    final hasPending = mgr.sessionFor(agentId).pendingTool != null;
-    int lastAssistantIdx = -1;
-    for (var i = history.length - 1; i >= 0; i--) {
-      if (history[i].role == 'assistant') {
-        lastAssistantIdx = i;
-        break;
-      }
-    }
-
-    final cleaned = <ChatMessage>[];
-    for (var i = 0; i < history.length; i++) {
-      final m = history[i];
-      final isLiveConfirmation = hasPending && i == lastAssistantIdx;
-      if (!isLiveConfirmation &&
-          m.content.contains('[[CONFIRMATION_REQUIRED]]')) {
-        cleaned.add(
-          ChatMessage(
-            id: m.id,
-            role: m.role,
-            content: m.content
-                .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-                .trim(),
-            actions: m.actions,
-          ),
-        );
-      } else {
-        cleaned.add(m);
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        // Merge: prepend loaded history before any messages added during load.
-        final live = _messagesByAgent[agentId] ?? [];
-        _messagesByAgent[agentId] = [...cleaned, ...live];
-        _initialLoading = false;
-      });
-      if (cleaned.length < kMessagePageSize) {
-        _fullyLoaded.add(agentId);
-      }
-      _scrollToEnd();
-    }
-  }
-
-  /// Load older messages when scrolling to the top.
-  Future<void> _loadOlderMessages() async {
-    if (_loadingOlder || !_hasMore) return;
-    final messages = _messages;
-    if (messages.isEmpty) return;
-
-    final oldestId = messages.first.id;
-    if (oldestId == null) {
-      _fullyLoaded.add(_activeAgentId);
-      return;
-    }
-
-    _loadingOlder = true;
-    setState(() {}); // Show loading indicator.
-
-    final service = ref.read(chatHistoryServiceProvider);
-    final older = await service.loadOlder(_activeAgentId, beforeId: oldestId);
-
-    if (!mounted) return;
-
-    setState(() {
-      if (older.isEmpty) {
-        _fullyLoaded.add(_activeAgentId);
-      } else {
-        messages.insertAll(0, older);
-        if (older.length < kMessagePageSize) {
-          _fullyLoaded.add(_activeAgentId);
-        }
-      }
-      _loadingOlder = false;
-    });
-  }
-
-  Future<void> _persistMessage(ChatMessage message) async {
-    await ref
+  Future<ChatMessage> _persistMessage(ChatMessage message) async {
+    final id = await ref
         .read(chatHistoryServiceProvider)
         .addMessage(_activeAgentId, message);
+    return ChatMessage(
+      id: id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+      actions: message.actions,
+      imagePaths: message.imagePaths,
+      clientId: message.clientId,
+      deliveryStatus: message.deliveryStatus,
+      errorMessage: message.errorMessage,
+    );
   }
 
   /// True when [a] and [b] fall on the same calendar day (local time).
@@ -1148,7 +860,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final agents = ref.watch(agentListProvider);
     final providers = ref.watch(providerListProvider).value ?? [];
     final debugMode = ref.watch(llmDebugModeProvider);
-    final isId = resolveLanguageCode(ref.watch(appLanguageProvider)) == 'id';
+    final s = AppStrings(resolveLanguageCode(ref.watch(appLanguageProvider)));
 
     final agent = _activeAgentId == 'default'
         ? (agents.isNotEmpty ? agents.first : null)
@@ -1157,7 +869,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final provider = agent != null
         ? providers.where((p) => p.id == agent.providerId).firstOrNull
         : null;
-    final modelName = provider?.model;
+    final modelName = agent?.model.isNotEmpty == true
+        ? provider?.effectiveModel(agent!.model)
+        : null;
+    final modelIsOverride = modelName != null;
+
+    final providerCode = provider?.displayCode ?? '';
+    final displayModelName = modelName != null && modelName.isNotEmpty
+        ? '$providerCode${providerCode.isNotEmpty ? ' \u{2022} ' : ''}$modelName'
+        : null;
 
     return PopScope(
       canPop: false,
@@ -1171,22 +891,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(agentName),
-              if (modelName != null) ...[
-                const SizedBox(height: 3),
-                Text(
-                  modelName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    color: cs.onSurfaceVariant,
+          title: GestureDetector(
+            // Long-press on the agent name (header title) opens the runtime
+            // debug bottom sheet, but only when LLM debug mode is enabled.
+            // This replaces the previous behavior of mixing debug bubbles
+            // into the chat list, which polluted the conversation view.
+            onLongPress: debugMode ? showDebugBottomSheet : null,
+            behavior: HitTestBehavior.opaque,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(agentName),
+                if (modelName != null && modelName.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    displayModelName!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: modelIsOverride ? cs.primary : cs.onSurfaceVariant,
+                    ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back_rounded),
@@ -1267,143 +995,102 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 : Column(
                     children: [
                       Expanded(
-                        child: _initialLoading
-                            ? const Center(
-                                child: SizedBox(
-                                  width: 24,
-                                  height: 24,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                        child: Consumer(
+                          builder: (context, cRef, _) {
+                            final chatState = cRef.watch(
+                              chatMessagesProvider(_activeAgentId),
+                            );
+                            if (chatState.initialLoading) {
+                              return const ChatShimmer();
+                            }
+                            if (chatState.messages.isEmpty && !_sending) {
+                              return _ChatEmptyState(s: s);
+                            }
+                            return Stack(
+                              children: [
+                                ListView.builder(
+                                  key: _listKey,
+                                  controller: _scroll,
+                                  reverse: true,
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                    parent: BouncingScrollPhysics(),
+                                  ),
+                                  cacheExtent: 1200,
+                                  addAutomaticKeepAlives: false,
+                                  addRepaintBoundaries: true,
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    12,
+                                    16,
+                                    12,
+                                  ),
+                                  itemCount: _itemCount,
+                                  itemBuilder: (context, i) =>
+                                      _buildReversedItem(i, s),
+                                ),
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: _showScrollToBottom,
+                                  builder: (context, show, child) {
+                                    if (!show) return const SizedBox.shrink();
+                                    return child!;
+                                  },
+                                  child: Positioned(
+                                    right: 16,
+                                    bottom: 16,
+                                    child: _ScrollToBottomFab(
+                                      onTap: () {
+                                        if (_scroll.hasClients) {
+                                          _scroll.animateTo(
+                                            0,
+                                            duration: const Duration(
+                                              milliseconds: 300,
+                                            ),
+                                            curve: Curves.easeOut,
+                                          );
+                                        }
+                                      },
+                                    ),
                                   ),
                                 ),
-                              )
-                            : _messages.isEmpty && !_sending
-                            ? _ChatEmptyState(s: s)
-                            : ListView.builder(
-                                controller: _scroll,
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  12,
-                                  16,
-                                  12,
+                                ListenableBuilder(
+                                  listenable: Listenable.merge([
+                                    _stickyDateVisible,
+                                    _stickyDate,
+                                  ]),
+                                  builder: (context, _) {
+                                    final visible = _stickyDateVisible.value;
+                                    final date = _stickyDate.value;
+                                    if (!visible || date == null) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    return Positioned(
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      child: _StickyDatePill(
+                                        date: date,
+                                        strings: s,
+                                      ),
+                                    );
+                                  },
                                 ),
-                                // +1 loading, +N debug, +1 narrative (when present), +1 thinking.
-                                itemCount:
-                                    (_loadingOlder ? 1 : 0) +
-                                    _messages.length +
-                                    (_manager
-                                            ?.sessionFor(_activeAgentId)
-                                            .debugMessages
-                                            .length ??
-                                        0) +
-                                    ((_sending &&
-                                            (_manager
-                                                    ?.sessionFor(_activeAgentId)
-                                                    .narrativeMessage
-                                                    ?.isNotEmpty ==
-                                                true))
-                                        ? 1
-                                        : 0) +
-                                    (_sending ? 1 : 0),
-                                itemBuilder: (context, i) {
-                                  // Loading indicator at top.
-                                  if (_loadingOlder && i == 0) {
-                                    return const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                        vertical: 8,
-                                      ),
-                                      child: Center(
-                                        child: SizedBox(
-                                          width: 20,
-                                          height: 20,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                  final debugBubbles =
-                                      _manager
-                                          ?.sessionFor(_activeAgentId)
-                                          .debugMessages ??
-                                      const <ChatMessage>[];
-                                  final msgIndex = i - (_loadingOlder ? 1 : 0);
-                                  // Order: messages → debug bubbles → thinking.
-                                  if (msgIndex < _messages.length) {
-                                    final current = _messages[msgIndex];
-                                    // Show a floating date separator when the
-                                    // day changes from the previous message
-                                    // (or for the very first message).
-                                    final prev = msgIndex > 0
-                                        ? _messages[msgIndex - 1]
-                                        : null;
-                                    final showDate =
-                                        prev == null ||
-                                        !_isSameDay(
-                                          prev.timestamp.toLocal(),
-                                          current.timestamp.toLocal(),
-                                        );
-                                    final bubble = RepaintBoundary(
-                                      child: _Bubble(
-                                        msg: current,
-                                        onConfirmAction: (action) =>
-                                            _handleConfirmation(
-                                              action,
-                                              msgIndex,
-                                            ),
-                                        onActionTap: _handleResultAction,
-                                        onLongPress: () =>
-                                            _showMessageActions(current),
-                                      ),
-                                    );
-                                    if (!showDate) return bubble;
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        _DateSeparator(
-                                          date: current.timestamp.toLocal(),
-                                          isId: isId,
-                                        ),
-                                        bubble,
-                                      ],
-                                    );
-                                  }
-                                  final debugIdx = msgIndex - _messages.length;
-                                  if (debugIdx < debugBubbles.length) {
-                                    return RepaintBoundary(
-                                      child: _Bubble(
-                                        msg: debugBubbles[debugIdx],
-                                      ),
-                                    );
-                                  }
-                                  // Narrative bubble — above the thinking dots,
-                                  // shown only while sending AND a narrative is set.
-                                  final narrative = _manager
-                                      ?.sessionFor(_activeAgentId)
-                                      .narrativeMessage;
-                                  final hasNarrative =
-                                      _sending &&
-                                      (narrative?.isNotEmpty == true);
-                                  final narrativeIdx =
-                                      debugIdx - debugBubbles.length;
-                                  if (hasNarrative && narrativeIdx == 0) {
-                                    return _NarrativeBubble(text: narrative!);
-                                  }
-                                  // Thinking bubble at very bottom.
-                                  return const _ThinkingBubble();
-                                },
-                              ),
+                              ],
+                            );
+                          },
+                        ),
                       ),
                       _ChatInput(
+                        key: _chatInputKey,
                         controller: _input,
                         sending: _sending,
                         debugMode: debugMode,
-                        onSend: _send,
+                        onSend: send,
                         onStop: _stop,
                         replyTo: _replyTo,
-                        onCancelReply: _cancelReply,
+                        onCancelReply: cancelReply,
+                        onAttachmentsChanged: (files) {
+                          setState(() => _attachments = files);
+                        },
                         s: s,
                       ),
                     ],
@@ -1415,233 +1102,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
-class _Bubble extends StatelessWidget {
-  const _Bubble({
-    required this.msg,
-    this.onConfirmAction,
-    this.onActionTap,
-    this.onLongPress,
-  });
-  final ChatMessage msg;
-  final void Function(String action)? onConfirmAction;
-  final void Function(ResultAction action)? onActionTap;
-  final VoidCallback? onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = context.cs;
-    final extras = context.extras;
-    final isUser = msg.role == 'user';
-    final isConfirmation = msg.content.contains('[[CONFIRMATION_REQUIRED]]');
-
-    // Extract reply-quote sentinel if present.
-    String? quoteRole;
-    String? quoteText;
-    var rawContent = msg.content;
-    final quoteMatch = RegExp(
-      r'\[\[REPLY_QUOTE:([^\]]+)\]\](.*?)\[\[/REPLY_QUOTE\]\]\n?',
-      dotAll: true,
-    ).firstMatch(rawContent);
-    if (quoteMatch != null) {
-      quoteRole = quoteMatch.group(1);
-      quoteText = quoteMatch.group(2)?.trim();
-      rawContent = rawContent.replaceFirst(quoteMatch.group(0)!, '');
-    }
-    final displayContent = rawContent
-        .replaceAll('\n\n[[CONFIRMATION_REQUIRED]]', '')
-        .replaceAll('[[CONFIRMATION_REQUIRED]]', '')
-        .trim();
-
-    // Skip rendering ghost bubbles that have nothing visible to show.
-    // These can exist in the DB from before the cancel-guard fix, where
-    // engine.run() resolved with an empty finalMessage post-cancellation.
-    final hasNothingToShow =
-        displayContent.isEmpty &&
-        (quoteText == null || quoteText.isEmpty) &&
-        msg.actions.isEmpty &&
-        !isConfirmation;
-    if (hasNothingToShow) {
-      return const SizedBox.shrink();
-    }
-
-    final bubble = Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.of(context).size.width * 0.78,
-      ),
-      decoration: BoxDecoration(
-        color: isUser ? cs.primary : extras.card,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: Radius.circular(isUser ? 16 : 4),
-          bottomRight: Radius.circular(isUser ? 4 : 16),
-        ),
-        border: isUser ? null : Border.all(color: extras.subtleBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Reply quote chip (WhatsApp-style).
-          if (quoteText != null && quoteText.isNotEmpty) ...[
-            Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: isUser
-                    ? Colors.white.withValues(alpha: 0.18)
-                    : cs.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border(
-                  left: BorderSide(
-                    color: isUser ? Colors.white70 : cs.primary,
-                    width: 3,
-                  ),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    quoteRole ?? '',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isUser ? Colors.white : cs.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    quoteText,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isUser ? Colors.white70 : cs.onSurfaceVariant,
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          if (isUser)
-            Text(
-              displayContent,
-              style: TextStyle(color: cs.onPrimary, fontSize: 14, height: 1.4),
-            )
-          else
-            MarkdownBody(
-              data: displayContent,
-              selectable: true,
-              shrinkWrap: true,
-              styleSheet: MarkdownStyleSheet(
-                p: TextStyle(color: cs.onSurface, fontSize: 14, height: 1.4),
-                strong: TextStyle(
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-                em: TextStyle(color: cs.onSurface, fontStyle: FontStyle.italic),
-                code: TextStyle(
-                  color: cs.primary,
-                  backgroundColor: cs.primary.withValues(alpha: 0.08),
-                  fontSize: 13,
-                ),
-                listBullet: TextStyle(color: cs.onSurface, fontSize: 14),
-              ),
-            ),
-          // Confirmation action buttons.
-          if (isConfirmation && onConfirmAction != null) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: [
-                _ConfirmButton(
-                  label: 'Accept',
-                  icon: Icons.check_rounded,
-                  color: cs.primary,
-                  onTap: () => onConfirmAction!('accept'),
-                ),
-                _ConfirmButton(
-                  label: 'Always',
-                  icon: Icons.done_all_rounded,
-                  color: Colors.green,
-                  onTap: () => onConfirmAction!('always_accept'),
-                ),
-                _ConfirmButton(
-                  label: 'Reject',
-                  icon: Icons.close_rounded,
-                  color: Colors.redAccent,
-                  onTap: () => onConfirmAction!('reject'),
-                ),
-              ],
-            ),
-          ],
-          // Contextual result actions (e.g., "Open Calendar").
-          if (!isUser && msg.actions.isNotEmpty && onActionTap != null) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 6,
-              children: msg.actions
-                  .map(
-                    (a) => _ResultActionButton(
-                      action: a,
-                      onTap: () => onActionTap!(a),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-          // Timestamp (WhatsApp-style, bottom-aligned). Respects the system
-          // 24H/12H clock preference.
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              _formatBubbleTime(context, msg.timestamp),
-              style: TextStyle(
-                fontSize: 10,
-                color: isUser
-                    ? Colors.white.withValues(alpha: 0.7)
-                    : cs.onSurfaceVariant.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: onLongPress != null
-          ? GestureDetector(onLongPress: onLongPress, child: bubble)
-          : bubble,
-    );
-  }
-
-  /// Format a message timestamp following the device's 24H/12H clock setting.
-  static String _formatBubbleTime(BuildContext context, DateTime dt) {
-    final use24 = MediaQuery.of(context).alwaysUse24HourFormat;
-    final tod = TimeOfDay.fromDateTime(dt.toLocal());
-    return MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(tod, alwaysUse24HourFormat: use24);
-  }
-}
-
-/// A floating, centered date separator (WhatsApp/Telegram style) shown above
-/// the first message of each day. Renders "Today" / "Yesterday" for recent
-/// days and a localized date otherwise.
 class _DateSeparator extends StatelessWidget {
-  const _DateSeparator({required this.date, required this.isId});
+  const _DateSeparator({required this.date, required this.strings});
 
   final DateTime date;
-  final bool isId;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
@@ -1670,248 +1135,187 @@ class _DateSeparator extends StatelessWidget {
   }
 
   String _label() {
+    final s = strings;
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final that = DateTime(date.year, date.month, date.day);
     final diff = today.difference(that).inDays;
-    if (diff == 0) return isId ? 'Hari ini' : 'Today';
-    if (diff == 1) return isId ? 'Kemarin' : 'Yesterday';
+    if (diff == 0) return s.today;
+    if (diff == 1) return s.yesterday;
 
-    const monthsId = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'Mei',
-      'Jun',
-      'Jul',
-      'Agu',
-      'Sep',
-      'Okt',
-      'Nov',
-      'Des',
-    ];
-    const monthsEn = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final months = isId ? monthsId : monthsEn;
-    final mon = months[date.month - 1];
-    // Include year only when it's not the current year.
+    final mon = s.monthsShort[date.month - 1];
     if (date.year == now.year) return '${date.day} $mon';
     return '${date.day} $mon ${date.year}';
   }
 }
 
-class _ConfirmButton extends StatelessWidget {
-  const _ConfirmButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
+/// WhatsApp/Telegram-style sticky date pill — appears at the top of the
+/// chat when the date separator scrolls off-screen.
+class _StickyDatePill extends StatelessWidget {
+  const _StickyDatePill({required this.date, required this.strings});
+
+  final DateTime date;
+  final AppStrings strings;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: color.withValues(alpha: 0.12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: color.withValues(alpha: 0.3)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 14, color: color),
-              const SizedBox(width: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ResultActionButton extends ConsumerWidget {
-  const _ResultActionButton({required this.action, required this.onTap});
-  final ResultAction action;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
     final cs = context.cs;
-    final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
-    final label = isId ? action.labelId : action.label;
-
-    return Material(
-      color: cs.primary.withValues(alpha: 0.12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: cs.primary.withValues(alpha: 0.3)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(_iconFor(action.icon), size: 14, color: cs.primary),
-              const SizedBox(width: 6),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: cs.primary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  IconData _iconFor(String name) {
-    switch (name) {
-      case 'calendar_month_rounded':
-        return Icons.calendar_month_rounded;
-      case 'note_outlined':
-        return Icons.note_outlined;
-      case 'folder_open_rounded':
-        return Icons.folder_open_rounded;
-      case 'open_in_new_rounded':
-        return Icons.open_in_new_rounded;
-      case 'schedule_rounded':
-        return Icons.schedule_rounded;
-      default:
-        return Icons.arrow_forward_rounded;
-    }
-  }
-}
-
-class _NarrativeBubble extends StatelessWidget {
-  const _NarrativeBubble({required this.text});
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final extras = context.extras;
-    final cs = context.cs;
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 220),
-        switchInCurve: Curves.easeOut,
-        switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, anim) => FadeTransition(
-          opacity: anim,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 0.08),
-              end: Offset.zero,
-            ).animate(anim),
-            child: child,
-          ),
-        ),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.only(top: 10),
         child: Container(
-          key: ValueKey<String>(text),
-          margin: const EdgeInsets.only(top: 4, bottom: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
-            color: extras.card.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: extras.subtleBorder.withValues(alpha: 0.6),
+            color: cs.primary,
+            borderRadius: BorderRadius.circular(999),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            _label(),
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: 0.2,
             ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Text(_emojiFor(text), style: const TextStyle(fontSize: 13)),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  text,
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontStyle: FontStyle.italic,
-                    color: cs.onSurfaceVariant,
-                    height: 1.3,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 
-  /// Pick an ambient emoji that loosely matches the phase tone.
-  /// Pure cosmetic; no semantic dependency.
-  static String _emojiFor(String text) {
-    final t = text.toLowerCase();
-    if (t.contains('confirm') || t.contains('konfirmasi')) return '⏸️';
-    if (t.contains('check') || t.contains('cek') || t.contains('hasil')) {
-      return '🔍';
-    }
-    if (t.contains('plan') || t.contains('rencana') || t.contains('langkah')) {
-      return '🧭';
-    }
-    if (t.contains('write') ||
-        t.contains('compos') ||
-        t.contains('jawaban') ||
-        t.contains('reply')) {
-      return '✍️';
-    }
-    if (t.contains('try') ||
-        t.contains('coba') ||
-        t.contains('different') ||
-        t.contains('lain')) {
-      return '🔁';
-    }
-    if (t.contains('execut') ||
-        t.contains('mengerjakan') ||
-        t.contains('working') ||
-        t.contains('progress')) {
-      return '⚙️';
-    }
-    if (t.contains('ask') || t.contains('quest') || t.contains('pertanyaan')) {
-      return '💬';
-    }
-    return '✨';
+  String _label() {
+    final s = strings;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final that = DateTime(date.year, date.month, date.day);
+    final diff = today.difference(that).inDays;
+    if (diff == 0) return s.today;
+    if (diff == 1) return s.yesterday;
+
+    final mon = s.monthsShort[date.month - 1];
+    if (date.year == now.year) return '${date.day} $mon';
+    return '${date.day} $mon ${date.year}';
+  }
+}
+
+/// Replace-only pre-action narrator shown beside the live thinking phase.
+/// The list shape is retained for compatibility with the animated chip.
+class _NarrativeTrail extends StatelessWidget {
+  const _NarrativeTrail({required this.entries});
+  final List<String> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) return const SizedBox.shrink();
+    final extras = context.extras;
+    final cs = context.cs;
+    final n = entries.length;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < n; i++)
+            _NarrativeChip(
+              key: ValueKey('narr_${i}_${entries[i]}'),
+              text: entries[i],
+              // Older entries (lower index) fade more. Newest (last) is full.
+              opacity: _opacityFor(i, n),
+              isLatest: i == n - 1,
+              extras: extras,
+              cs: cs,
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Older entries fade more. With max 5 entries:
+  /// oldest=0.35, then 0.5, 0.65, 0.85, newest=1.0.
+  static double _opacityFor(int index, int total) {
+    if (total <= 1) return 1.0;
+    final age = total - 1 - index; // 0 = newest
+    const fades = [1.0, 0.85, 0.65, 0.5, 0.35];
+    return age < fades.length ? fades[age] : 0.3;
+  }
+}
+
+class _NarrativeChip extends StatelessWidget {
+  const _NarrativeChip({
+    super.key,
+    required this.text,
+    required this.opacity,
+    required this.isLatest,
+    required this.extras,
+    required this.cs,
+  });
+
+  final String text;
+  final double opacity;
+  final bool isLatest;
+  final dynamic extras;
+  final ColorScheme cs;
+
+  @override
+  Widget build(BuildContext context) {
+    final chip = AnimatedOpacity(
+      opacity: opacity,
+      duration: const Duration(milliseconds: 220),
+      child: Container(
+        margin: const EdgeInsets.only(top: 3, bottom: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: extras.card.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: extras.subtleBorder.withValues(alpha: 0.6)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('✨', style: const TextStyle(fontSize: 13)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontStyle: FontStyle.italic,
+                  color: cs.onSurfaceVariant,
+                  height: 1.35,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Animate the latest chip's first appearance with a slide-in.
+    if (!isLatest) return chip;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOut,
+      transitionBuilder: (child, anim) => FadeTransition(
+        opacity: anim,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.08),
+            end: Offset.zero,
+          ).animate(anim),
+          child: child,
+        ),
+      ),
+      child: KeyedSubtree(key: ValueKey<String>(text), child: chip),
+    );
   }
 }
 
@@ -2039,6 +1443,7 @@ class _ChatEmptyState extends StatelessWidget {
 
 class _ChatInput extends StatefulWidget {
   const _ChatInput({
+    super.key,
     required this.controller,
     required this.sending,
     required this.debugMode,
@@ -2047,6 +1452,7 @@ class _ChatInput extends StatefulWidget {
     required this.s,
     this.replyTo,
     this.onCancelReply,
+    required this.onAttachmentsChanged,
   });
 
   final TextEditingController controller;
@@ -2057,39 +1463,64 @@ class _ChatInput extends StatefulWidget {
   final AppStrings s;
   final ChatMessage? replyTo;
   final VoidCallback? onCancelReply;
+  final void Function(List<AttachedFile>) onAttachmentsChanged;
 
   @override
   State<_ChatInput> createState() => _ChatInputState();
 }
 
 class _ChatInputState extends State<_ChatInput> {
-  static const _baseCommands = [
-    _SlashCommand('/clear', 'Clear chat history & context'),
-    _SlashCommand('/help', 'Show available commands'),
-    _SlashCommand('/status', 'Show agent & context info'),
-    _SlashCommand('/context', 'Show token/context breakdown'),
-    _SlashCommand('/reset', 'Reset context only'),
-    _SlashCommand('/model', 'Show current model info'),
-    _SlashCommand('/compact', 'Compact context window'),
-    _SlashCommand('/cron', 'Show scheduled tasks'),
+  List<_SlashCommand> get _baseCommands => [
+    _SlashCommand('/clear', widget.s.helpSlashClear),
+    _SlashCommand('/help', widget.s.helpSlashHelp),
+    _SlashCommand('/status', widget.s.helpSlashStatus),
+    _SlashCommand('/context', widget.s.helpSlashContext),
+    _SlashCommand('/reset', widget.s.helpSlashReset),
+    _SlashCommand('/new-session', widget.s.helpSlashNewSession),
+    _SlashCommand('/resume', widget.s.helpSlashResume),
+    _SlashCommand('/history', widget.s.helpSlashHistory),
+    _SlashCommand('/model', widget.s.helpSlashModel),
+    _SlashCommand('/set-model', widget.s.helpSlashSetModel),
+    _SlashCommand('/compact', widget.s.helpSlashCompact),
+    _SlashCommand('/workflow', widget.s.helpSlashWorkflow),
   ];
-  static const _debugCommands = [
-    _SlashCommand('/log', 'Show last runtime debug log'),
-    _SlashCommand('/clearlog', 'Clear last runtime debug log'),
+  List<_SlashCommand> get _debugCommands => [
+    _SlashCommand('/log', widget.s.helpSlashLog),
+    _SlashCommand('/clearlog', widget.s.helpSlashClearlog),
   ];
 
-  List<_SlashCommand> get _commands => widget.debugMode
-      ? const [..._baseCommands, ..._debugCommands]
-      : _baseCommands;
+  List<_SlashCommand> get _commands =>
+      widget.debugMode ? [..._baseCommands, ..._debugCommands] : _baseCommands;
 
   List<_SlashCommand> _filtered = [];
   bool _showSuggestions = false;
-  File? _attachedFile;
-  String? _attachedFileName;
+  bool _hasText = false;
+  final List<_AttachedFile> _attachments = [];
+  static const _maxFiles = 2;
+  static const _maxFileBytes = 5 * 1024 * 1024; // 5 MB
+
+  /// Returns a snapshot of attached files for the parent to pass to the runtime.
+  /// Uses sizes stored at pick time (never lengthSync, which would crash on
+  /// Android content URIs from file_picker).
+  List<AttachedFile> get _attachmentsSnapshot => [
+    for (final a in _attachments)
+      AttachedFile(path: a.file.path, name: a.name, sizeBytes: a.sizeBytes),
+  ];
+
+  void _notifyAttachments() =>
+      widget.onAttachmentsChanged(_attachmentsSnapshot);
+
+  /// Clear all attachments (called by parent after send).
+  void clearAttachments() {
+    if (_attachments.isEmpty) return;
+    setState(() => _attachments.clear());
+    _notifyAttachments();
+  }
 
   @override
   void initState() {
     super.initState();
+    _hasText = widget.controller.text.trim().isNotEmpty;
     widget.controller.addListener(_onTextChanged);
   }
 
@@ -2100,57 +1531,135 @@ class _ChatInputState extends State<_ChatInput> {
   }
 
   Future<void> _pickFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-      allowMultiple: false,
-      withData: false,
-    );
-    if (result == null || result.files.isEmpty) return;
-
-    final file = result.files.first;
-    if (file.path == null) return;
-
-    // 1MB limit.
-    final sizeBytes = file.size;
-    if (sizeBytes > 1024 * 1024) {
+    final remaining = _maxFiles - _attachments.length;
+    if (remaining <= 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('File too large. Max size is 1 MB.'),
-            duration: Duration(seconds: 2),
+          SnackBar(
+            content: Text(widget.s.maxFilesExceeded(_maxFiles)),
+            duration: const Duration(seconds: 2),
           ),
         );
       }
       return;
     }
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+      allowMultiple: remaining > 1,
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) return;
 
-    setState(() {
-      _attachedFile = File(file.path!);
-      _attachedFileName = file.name;
-    });
+    final newFiles = <_AttachedFile>[];
+    for (final pf in result.files) {
+      if (pf.path == null) continue;
+      final sizeBytes = pf.size;
+      if (sizeBytes > _maxFileBytes) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(widget.s.fileTooLarge(pf.name)),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        continue;
+      }
+      // Prevent duplicates by name.
+      if (_attachments.any((a) => a.name == pf.name)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(widget.s.fileAlreadyAttached(pf.name)),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        continue;
+      }
+      newFiles.add(
+        _AttachedFile(file: File(pf.path!), name: pf.name, sizeBytes: pf.size),
+      );
+    }
+    if (newFiles.isEmpty) return;
+
+    // Cap at max.
+    final toAdd = newFiles.take(remaining).toList();
+    setState(() => _attachments.addAll(toAdd));
+    _notifyAttachments();
   }
 
-  void _removeFile() {
-    setState(() {
-      _attachedFile = null;
-      _attachedFileName = null;
-    });
+  void _removeFile(int index) {
+    setState(() => _attachments.removeAt(index));
+    _notifyAttachments();
+  }
+
+  bool _isImageExtension(String name) {
+    final dot = name.lastIndexOf('.');
+    if (dot < 0) return false;
+    final ext = name.substring(dot).toLowerCase();
+    return const {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    }.contains(ext);
+  }
+
+  void _showImagePreview(BuildContext context, File file) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: GestureDetector(
+          onTap: () => Navigator.of(context).pop(),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.file(
+              file,
+              fit: BoxFit.contain,
+              errorBuilder: (_, e, s) => Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  Icons.broken_image_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onTextChanged() {
     final text = widget.controller.text;
+    final hasText = text.trim().isNotEmpty;
     if (text.startsWith('/')) {
       final query = text.toLowerCase();
       final matches = _commands
           .where((c) => c.command.startsWith(query))
           .toList();
       setState(() {
+        _hasText = hasText;
         _filtered = matches;
         _showSuggestions = matches.isNotEmpty;
       });
     } else {
-      if (_showSuggestions) {
-        setState(() => _showSuggestions = false);
+      if (_showSuggestions || _hasText != hasText) {
+        setState(() {
+          _hasText = hasText;
+          _showSuggestions = false;
+        });
       }
     }
   }
@@ -2178,6 +1687,7 @@ class _ChatInputState extends State<_ChatInput> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final showStop = widget.sending && !_hasText;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -2185,13 +1695,19 @@ class _ChatInputState extends State<_ChatInput> {
         if (_showSuggestions)
           Container(
             margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).viewInsets.bottom > 0
+                  ? 180
+                  : MediaQuery.of(context).size.height * 0.4,
+            ),
             decoration: BoxDecoration(
               color: extras.card,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: extras.subtleBorder),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ListView(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
               children: _filtered.map((cmd) {
                 return InkWell(
                   borderRadius: BorderRadius.circular(14),
@@ -2244,7 +1760,7 @@ class _ChatInputState extends State<_ChatInput> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left accent strip (drawn as a sibling so the rounded
-                    // corners stay intact — non-uniform Border widths break
+                    // corners stay intact Ã¢â‚¬â€ non-uniform Border widths break
                     // when combined with borderRadius).
                     Container(width: 3, color: cs.primary),
                     Expanded(
@@ -2268,8 +1784,8 @@ class _ChatInputState extends State<_ChatInput> {
                                 children: [
                                   Text(
                                     widget.replyTo!.role == 'user'
-                                        ? 'You'
-                                        : 'Agent',
+                                        ? widget.s.you
+                                        : widget.s.agentLabel,
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.w700,
@@ -2330,36 +1846,113 @@ class _ChatInputState extends State<_ChatInput> {
               ),
             ),
           ),
-        // File preview chip.
-        if (_attachedFile != null)
-          Container(
-            margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: extras.card,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: extras.subtleBorder),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.attach_file_rounded, size: 18, color: cs.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _attachedFileName ?? 'File',
-                    style: TextStyle(fontSize: 12, color: cs.onSurface),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                GestureDetector(
-                  onTap: _removeFile,
-                  child: Icon(
-                    Icons.close_rounded,
-                    size: 18,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ],
+        // File preview chips (up to 2, 5 MB each).
+        if (_attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: List.generate(_attachments.length, (i) {
+                  final a = _attachments[i];
+                  final isImage = _isImageExtension(a.name);
+                  if (isImage) {
+                    // Image thumbnail preview.
+                    return Stack(
+                      children: [
+                        GestureDetector(
+                          onTap: () => _showImagePreview(context, a.file),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.file(
+                              a.file,
+                              width: 56,
+                              height: 56,
+                              cacheWidth: 112,
+                              cacheHeight: 112,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, e, s) => Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: extras.card,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(
+                                  Icons.broken_image_rounded,
+                                  size: 20,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          top: 2,
+                          right: 2,
+                          child: GestureDetector(
+                            onTap: () => _removeFile(i),
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.close_rounded,
+                                size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  // Non-image file chip (existing style).
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: extras.card,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: extras.subtleBorder),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.attach_file_rounded,
+                          size: 16,
+                          color: cs.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 200),
+                          child: Text(
+                            a.name,
+                            style: TextStyle(fontSize: 12, color: cs.onSurface),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () => _removeFile(i),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 16,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
 
@@ -2376,14 +1969,16 @@ class _ChatInputState extends State<_ChatInput> {
                   onSubmitted: (_) => widget.onSend(),
                   decoration: InputDecoration(
                     hintText: widget.s.typeMessage,
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        Icons.attach_file_rounded,
-                        size: 20,
-                        color: cs.onSurfaceVariant,
-                      ),
-                      onPressed: _pickFile,
-                    ),
+                    suffixIcon: _attachments.length < _maxFiles
+                        ? IconButton(
+                            icon: Icon(
+                              Icons.attach_file_rounded,
+                              size: 20,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            onPressed: _pickFile,
+                          )
+                        : null,
                   ),
                 ),
               ),
@@ -2412,15 +2007,15 @@ class _ChatInputState extends State<_ChatInput> {
               ),
               const SizedBox(width: 6),
               Material(
-                color: widget.sending ? Colors.red.shade400 : cs.primary,
+                color: showStop ? Colors.red.shade400 : cs.primary,
                 borderRadius: BorderRadius.circular(14),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: widget.sending ? widget.onStop : widget.onSend,
+                  onTap: showStop ? widget.onStop : widget.onSend,
                   child: SizedBox(
                     width: 48,
                     height: 48,
-                    child: widget.sending
+                    child: showStop
                         ? const Icon(
                             Icons.stop_rounded,
                             color: Colors.white,
@@ -2497,7 +2092,7 @@ class _AgentDrawer extends ConsumerWidget {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'No agents yet',
+                            s.noAgentsYet,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -2660,4 +2255,52 @@ class _DrawerUnreadChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Close button that appears when scrolled away from the bottom — scrolls
+/// back to the latest message with animation.
+class _ScrollToBottomFab extends StatelessWidget {
+  const _ScrollToBottomFab({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: cs.primary.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: cs.primary.withValues(alpha: 0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.keyboard_arrow_down_rounded,
+          color: Colors.white,
+          size: 24,
+        ),
+      ),
+    );
+  }
+}
+
+/// Internal wrapper for a picked file.
+class _AttachedFile {
+  const _AttachedFile({
+    required this.file,
+    required this.name,
+    this.sizeBytes = 0,
+  });
+  final File file;
+  final String name;
+  final int sizeBytes;
 }

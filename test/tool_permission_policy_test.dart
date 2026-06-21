@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:meow_agent/features/modules/data/module_model.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
@@ -7,22 +8,29 @@ import 'package:meow_agent/services/agent_runtime/tool_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  Future<ModuleRepository> installAppControl({
+  Future<ModuleRepository> installDeviceContext({
     bool enabled = true,
     bool allowUrls = false,
   }) async {
     final repo = ModuleRepository();
-    await repo.install(ModuleRegistry.appControl);
+    await repo.install(ModuleRegistry.deviceContext);
     final installed = await repo.getInstalled();
-    final module = installed.singleWhere((m) => m.id == 'app_control');
+    final module = installed.singleWhere((m) => m.id == 'device_context');
     await repo.update(
       module.copyWith(
         enabled: enabled,
-        settings: {...module.settings, 'allow_url_intents': allowUrls},
+        settings: {...module.settings, 'allow_open_apps': allowUrls},
       ),
     );
     return repo;
@@ -30,7 +38,7 @@ void main() {
 
   group('Tool permission policy', () {
     test('forceExecute blocks URL intents when toggle is off', () async {
-      final repo = await installAppControl();
+      final repo = await installDeviceContext();
       final router = ToolRouter(moduleRepository: repo);
 
       final result = await router.forceExecute(
@@ -47,12 +55,12 @@ void main() {
         result.data?['errorCode'],
         ToolPermissionPolicy.permissionDeniedCode,
       );
-      expect(result.data?['settingKey'], 'allow_url_intents');
-      expect(result.error, contains('Allow URL Intents'));
+      expect(result.data?['settingKey'], 'allow_open_apps');
+      expect(result.error, contains('Open Installed Apps'));
     });
 
     test('execute reaches confirmation gate when URL toggle is on', () async {
-      final repo = await installAppControl(allowUrls: true);
+      final repo = await installDeviceContext(allowUrls: true);
       final router = ToolRouter(moduleRepository: repo);
 
       final result = await router.execute(
@@ -68,8 +76,8 @@ void main() {
       expect(result.error, 'REQUIRES_CONFIRMATION');
     });
 
-    test('blocks app launch when App Control module is disabled', () async {
-      final repo = await installAppControl(enabled: false, allowUrls: true);
+    test('blocks app launch when Device Context module is disabled', () async {
+      final repo = await installDeviceContext(enabled: false, allowUrls: true);
       final router = ToolRouter(moduleRepository: repo);
 
       final result = await router.forceExecute(

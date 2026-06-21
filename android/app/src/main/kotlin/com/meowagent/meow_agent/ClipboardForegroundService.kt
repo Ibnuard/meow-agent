@@ -42,10 +42,10 @@ class ClipboardForegroundService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Clipboard AI",
+                "Clipboard Quick Action",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Persistent notification for quick clipboard processing"
+                description = "Keeps a button ready to process the current clipboard text"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -65,8 +65,8 @@ class ClipboardForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Clipboard AI")
-            .setContentText("Tap to process clipboard text")
+            .setContentTitle("Clipboard Quick Action")
+            .setContentText("Tap to process the current clipboard text with Meow Agent")
             .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setOngoing(true)
             .setSilent(true)

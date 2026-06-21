@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,11 +8,31 @@ import 'workflow_database.dart';
 import 'workflow_model.dart';
 
 /// Repository for workflow CRUD and execution history.
+///
+/// Exposes a [watchAll] broadcast stream so UI consumers (and any other
+/// listener) see mutations from every source — LLM tool plugins, user UI
+/// actions, background runners.
 class WorkflowRepository {
   final WorkflowDatabase _db = WorkflowDatabase();
+  final _controller = StreamController<void>.broadcast();
 
   /// Max active workflows allowed.
   static const int maxWorkflows = 20;
+
+  /// Reactive stream of all workflows. Emits the initial list immediately
+  /// and re-emits after every CRUD mutation.
+  Stream<List<WorkflowModel>> watchAll({String? agentId}) async* {
+    yield await list(agentId: agentId);
+    yield* _controller.stream.asyncMap((_) => list(agentId: agentId));
+  }
+
+  void _notify() {
+    if (!_controller.isClosed) _controller.add(null);
+  }
+
+  void dispose() {
+    _controller.close();
+  }
 
   // ─── Workflow CRUD ──────────────────────────────────────────────────────────
 
@@ -26,6 +47,7 @@ class WorkflowRepository {
     if (count >= maxWorkflows) return false;
 
     await db.insert('workflows', _db.workflowToRow(workflow));
+    _notify();
     return true;
   }
 
@@ -60,6 +82,7 @@ class WorkflowRepository {
       where: 'id = ?',
       whereArgs: [workflow.id],
     );
+    if (count > 0) _notify();
     return count > 0;
   }
 
@@ -71,6 +94,7 @@ class WorkflowRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (count > 0) _notify();
     return count > 0;
   }
 
@@ -83,6 +107,7 @@ class WorkflowRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    if (count > 0) _notify();
     return count > 0;
   }
 
@@ -228,4 +253,14 @@ class WorkflowRepository {
   }
 }
 
-final workflowRepositoryProvider = Provider((_) => WorkflowRepository());
+final workflowRepositoryProvider = Provider<WorkflowRepository>((ref) {
+  final repo = WorkflowRepository();
+  ref.onDispose(repo.dispose);
+  return repo;
+});
+
+/// Reactive workflow list — re-emits whenever the repository signals a
+/// mutation (create/update/delete/toggle from any source).
+final workflowListProvider = StreamProvider<List<WorkflowModel>>((ref) {
+  return ref.read(workflowRepositoryProvider).watchAll();
+});

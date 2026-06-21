@@ -7,7 +7,9 @@ import '../../../app/widgets/widgets.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
+import 'workflow_runner.dart';
 import 'workflow_editor_screen.dart';
+import 'workflow_foreground_service.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_templates_screen.dart';
 
@@ -20,7 +22,6 @@ class WorkflowListScreen extends ConsumerStatefulWidget {
 }
 
 class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
-  final WorkflowRepository _repo = WorkflowRepository();
   List<WorkflowModel> _workflows = [];
   bool _loading = true;
 
@@ -28,11 +29,15 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
 
+  WorkflowRepository get _repo => ref.read(workflowRepositoryProvider);
+
   @override
   void initState() {
     super.initState();
     _load();
   }
+
+
 
   Future<void> _load() async {
     final list = await _repo.list();
@@ -46,7 +51,52 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   Future<void> _toggle(WorkflowModel wf) async {
     await _repo.toggle(wf.id, !wf.enabled);
+    await WorkflowForegroundService.ensureSchedulerRunning();
     _load();
+  }
+
+  void _runNow(WorkflowModel wf, AppStrings s) {
+    final cs = context.cs;
+    // Direct-trigger only supports time-based workflows.
+    // Event-based workflows must wait for their event to fire.
+    if (wf.trigger.type == TriggerType.event) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowEventBlocked),
+          backgroundColor: cs.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!wf.enabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.wfListRunNowDisabled),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+      return;
+    }
+    ref.read(workflowRunnerProvider).enqueue(wf);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.wfListRunNowQueued),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
   }
 
   void _enterSelection(String id) {
@@ -87,17 +137,15 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     });
   }
 
-  Future<void> _deleteSelected(bool isId) async {
+  Future<void> _deleteSelected(AppStrings s) async {
     final count = _selectedIds.length;
     final confirm = await showMeowConfirmDialog(
       context,
-      isId: isId,
-      title: isId ? 'Hapus Workflow?' : 'Delete Workflows?',
-      message: isId
-          ? '$count workflow akan dihapus permanen. Lanjutkan?'
-          : '$count workflows will be permanently deleted. Continue?',
-      confirmLabel: isId ? 'Hapus' : 'Delete',
-      cancelLabel: isId ? 'Batal' : 'Cancel',
+      strings: s,
+      title: s.wfListDeleteTitle,
+      message: s.wfListDeleteMessage(count),
+      confirmLabel: s.delete,
+      cancelLabel: s.cancel,
     );
     if (!confirm) return;
 
@@ -138,10 +186,16 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<List<WorkflowModel>>>(workflowListProvider, (_, next) {
+      next.whenData((list) {
+        if (mounted) setState(() => _workflows = list);
+      });
+    });
+
     final cs = context.cs;
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
-    final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(resolveLanguageCode(langPref));
 
     return PopScope(
       canPop: !_selectionMode,
@@ -150,32 +204,37 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
       },
       child: Scaffold(
         appBar: _selectionMode
-            ? _buildSelectionAppBar(cs, isId)
-            : _buildDefaultAppBar(isId),
+            ? _buildSelectionAppBar(cs, s)
+            : _buildDefaultAppBar(s),
         floatingActionButton: _selectionMode
             ? null
             : FloatingActionButton(
                 onPressed: () => _openEditor(),
                 backgroundColor: cs.primary,
-                child: const Icon(Icons.add_rounded, color: Colors.white),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(Icons.add_rounded, size: 28),
               ),
         body: _loading
             ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
             : _workflows.isEmpty
-            ? _buildEmpty(cs, extras, isId)
+            ? _buildEmpty(cs, extras, s)
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
                 itemCount: _workflows.length,
                 itemBuilder: (_, i) =>
-                    _buildCard(_workflows[i], cs, extras, isId),
+                    _buildCard(_workflows[i], cs, extras, s),
               ),
       ),
     );
   }
 
-  PreferredSizeWidget _buildDefaultAppBar(bool isId) {
+  PreferredSizeWidget _buildDefaultAppBar(AppStrings s) {
     return AppBar(
-      title: Text(isId ? 'Workflows' : 'Workflows'),
+      title: Text(s.workflowsTitle),
       leading: IconButton(
         icon: const Icon(Icons.arrow_back_rounded),
         onPressed: () => context.pop(),
@@ -183,7 +242,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
       actions: [
         IconButton(
           icon: const Icon(Icons.auto_awesome_rounded),
-          tooltip: isId ? 'Template' : 'Templates',
+          tooltip: s.wfListTemplates,
           onPressed: () async {
             final result = await Navigator.push<bool>(
               context,
@@ -197,7 +256,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
         if (_workflows.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.checklist_rounded),
-            tooltip: isId ? 'Pilih' : 'Select',
+            tooltip: s.wfListSelect,
             onPressed: () {
               if (_workflows.isNotEmpty) {
                 _enterSelection(_workflows.first.id);
@@ -208,12 +267,12 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     );
   }
 
-  PreferredSizeWidget _buildSelectionAppBar(ColorScheme cs, bool isId) {
+  PreferredSizeWidget _buildSelectionAppBar(ColorScheme cs, AppStrings s) {
     final count = _selectedIds.length;
     final allSelected = count == _workflows.length;
     return AppBar(
       title: Text(
-        isId ? '$count dipilih' : '$count selected',
+        s.wfListSelectedCount(count),
         style: const TextStyle(fontSize: 16),
       ),
       leading: IconButton(
@@ -226,8 +285,8 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             allSelected ? Icons.deselect_rounded : Icons.select_all_rounded,
           ),
           tooltip: allSelected
-              ? (isId ? 'Batal pilih semua' : 'Deselect all')
-              : (isId ? 'Pilih semua' : 'Select all'),
+              ? s.wfListDeselectAll
+              : s.wfListSelectAll,
           onPressed: _selectAll,
         ),
         IconButton(
@@ -235,14 +294,14 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             Icons.delete_outline_rounded,
             color: Colors.redAccent,
           ),
-          tooltip: isId ? 'Hapus' : 'Delete',
-          onPressed: count > 0 ? () => _deleteSelected(isId) : null,
+          tooltip: s.delete,
+          onPressed: count > 0 ? () => _deleteSelected(s) : null,
         ),
       ],
     );
   }
 
-  Widget _buildEmpty(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildEmpty(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -254,14 +313,12 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            isId ? 'Belum ada workflow' : 'No workflows yet',
+            s.wfListEmpty,
             style: TextStyle(fontSize: 15, color: cs.onSurfaceVariant),
           ),
           const SizedBox(height: 6),
           Text(
-            isId
-                ? 'Buat workflow untuk menjalankan tugas otomatis'
-                : 'Create workflows to run automated tasks',
+            s.wfListEmptyDesc,
             style: TextStyle(
               fontSize: 12,
               color: cs.onSurfaceVariant.withValues(alpha: 0.6),
@@ -279,7 +336,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
               if (result == true) _load();
             },
             icon: const Icon(Icons.auto_awesome_rounded, size: 16),
-            label: Text(isId ? 'Pilih dari Template' : 'Pick a Template'),
+            label: Text(s.wfListPickTemplate),
             style: OutlinedButton.styleFrom(
               foregroundColor: cs.primary,
               side: BorderSide(color: cs.primary.withValues(alpha: 0.4)),
@@ -297,7 +354,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     WorkflowModel wf,
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     final selected = _selectedIds.contains(wf.id);
     return GestureDetector(
@@ -369,7 +426,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        _notifLabel(wf.notification.style, isId),
+                        _notifLabel(wf.notification.style, s),
                         style: TextStyle(
                           fontSize: 12,
                           color: cs.onSurfaceVariant,
@@ -380,7 +437,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                   if (wf.lastRun != null) ...[
                     const SizedBox(height: 6),
                     Text(
-                      '${isId ? "Terakhir:" : "Last run:"} ${_formatTime(wf.lastRun!)}',
+                      '${s.wfListLastRun} ${_formatTime(wf.lastRun!)}',
                       style: TextStyle(
                         fontSize: 11,
                         color: cs.onSurfaceVariant.withValues(alpha: 0.6),
@@ -391,7 +448,24 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
               ),
             ),
             if (!_selectionMode) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: Icon(
+                  Icons.play_arrow_rounded,
+                  size: 22,
+                  color: wf.trigger.type == TriggerType.event
+                      ? cs.onSurfaceVariant.withValues(alpha: 0.4)
+                      : cs.primary,
+                ),
+                tooltip: s.wfListRunNow,
+                onPressed: () => _runNow(wf, s),
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
+              ),
               Transform.scale(
                 scale: 0.85,
                 child: Switch(
@@ -419,14 +493,14 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     }
   }
 
-  String _notifLabel(NotifStyle style, bool isId) {
+  String _notifLabel(NotifStyle style, AppStrings s) {
     switch (style) {
       case NotifStyle.silent:
-        return isId ? 'Senyap' : 'Silent';
+        return s.workflowSilent;
       case NotifStyle.alarm:
-        return 'Alarm';
+        return s.wfListAlarm;
       case NotifStyle.normal:
-        return 'Normal';
+        return s.wfListNormal;
     }
   }
 

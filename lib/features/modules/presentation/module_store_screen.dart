@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
+import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../web/data/web_module_seeder.dart';
 import 'module_visuals.dart';
 
 /// Screen showing available modules to install.
@@ -100,6 +102,15 @@ class ModuleStoreScreen extends ConsumerWidget {
                                 await ref
                                     .read(moduleRepositoryProvider)
                                     .install(module);
+                                // Seed sample API + workflow when web module installed.
+                                if (module.id == 'web') {
+                                  final agents = ref.read(agentListProvider);
+                                  if (agents.isNotEmpty) {
+                                    await WebModuleSeeder.seed(
+                                      agentId: agents.first.id,
+                                    );
+                                  }
+                                }
                                 ref.invalidate(installedModulesProvider);
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -138,18 +149,23 @@ class ModuleStoreScreen extends ConsumerWidget {
   }
 
   String _moduleDescription(ModuleModel module, AppStrings s) {
-    if (!s.isId) return module.description;
     switch (module.id) {
-      case 'clipboard_ai':
-        return 'Proses teks dari clipboard dengan AI. Terjemahkan, rangkum, tulis ulang, atau jelaskan teks apapun.';
-      case 'app_control':
-        return 'Biarkan AI membuka aplikasi, URL, dan pengaturan sistem atas nama kamu.';
       case 'device_context':
-        return 'Biarkan agen membaca baterai, jaringan, penyimpanan, waktu, locale, DND, dan lainnya.';
+        return s.moduleDescDeviceContext;
       case 'notification_intelligence':
-        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca - tidak membalas otomatis.';
+        return s.moduleDescNotification;
       case 'notes':
-        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
+        return s.moduleDescNotes;
+      case 'files':
+        return s.moduleDescFiles;
+      case 'calendar':
+        return s.moduleDescCalendar;
+      case 'workflows':
+        return s.moduleDescWorkflows;
+      case 'web':
+        return s.moduleDescWeb;
+      case 'vm':
+        return s.moduleDescVm;
       default:
         return module.description;
     }

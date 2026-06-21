@@ -67,40 +67,66 @@ void main() {
     });
   });
 
-  group('LanguageDetector — Latin probe', () {
+  group('LanguageDetector — Latin script (analyzer-driven, no word probe)', () {
     final detector = LanguageDetector();
 
-    test('detects Indonesian from word markers', () {
-      final result = detector.detect(
-        userMessage: 'tolong buatkan saya catatan tentang ini',
-        fallbackCode: 'en',
-      );
-      expect(result.code, 'id');
-    });
+    // The detector no longer guesses between Latin languages from word lists
+    // (that privileged ID/EN and mis-detected every other Latin language).
+    // For Latin script it returns the caller's fallback as a provisional
+    // value; the analyzer's `detected_language` refines it authoritatively.
 
-    test('detects English from word markers', () {
-      final result = detector.detect(
-        userMessage: 'please create a note about this for me',
+    test('Latin text returns the fallback code (no ID/EN guessing)', () {
+      final idFallback = detector.detect(
+        userMessage: 'tolong buatkan saya catatan tentang ini',
         fallbackCode: 'id',
       );
-      expect(result.code, 'en');
+      expect(idFallback.code, 'id');
+
+      final enFallback = detector.detect(
+        userMessage: 'please create a note about this for me',
+        fallbackCode: 'en',
+      );
+      expect(enFallback.code, 'en');
     });
 
-    test('falls back when neither ID nor EN markers hit', () {
+    test('same Latin text follows the fallback, not the word content', () {
+      // Spanish text with an "en" fallback must NOT be mislabeled — it simply
+      // takes the fallback, and the analyzer corrects it downstream.
+      final result = detector.detect(
+        userMessage: 'por favor crea una nota sobre esto',
+        fallbackCode: 'en',
+      );
+      expect(result.code, 'en');
+      expect(result.isHighConfidence, isFalse); // provisional only
+    });
+
+    test('arbitrary token falls back to caller code', () {
       final result = detector.detect(
         userMessage: 'spotify',
         fallbackCode: 'id',
       );
       expect(result.code, 'id');
     });
+  });
 
-    test('falls back when ID and EN tied', () {
-      // Crafted so both score 0.
-      final result = detector.detect(
-        userMessage: 'xyz',
-        fallbackCode: 'en',
-      );
-      expect(result.code, 'en');
+  group('DetectedLanguage.fromAnalyzerCode', () {
+    test('maps a known code to its label with high confidence', () {
+      final es = DetectedLanguage.fromAnalyzerCode('es');
+      expect(es.code, 'es');
+      expect(es.label, 'Spanish');
+      expect(es.isHighConfidence, isTrue);
+    });
+
+    test('normalizes case/whitespace', () {
+      final fr = DetectedLanguage.fromAnalyzerCode('  FR ');
+      expect(fr.code, 'fr');
+      expect(fr.label, 'French');
+    });
+
+    test('unknown code keeps the code with an English label fallback', () {
+      final xx = DetectedLanguage.fromAnalyzerCode('xx');
+      expect(xx.code, 'xx');
+      expect(xx.label, 'English');
     });
   });
 
@@ -108,15 +134,14 @@ void main() {
     test('returns cached result for same input', () {
       final detector = LanguageDetector();
       final a = detector.detect(
-        userMessage: 'tolong buatkan saya catatan ini',
+        userMessage: 'こんにちは、エージェントを作って',
         fallbackCode: 'en',
       );
       final b = detector.detect(
-        userMessage: 'tolong buatkan saya catatan ini',
+        userMessage: 'こんにちは、エージェントを作って',
         fallbackCode: 'en',
       );
-      // Latin probe builds a new instance per call. If cache works, both
-      // calls return the same instance.
+      // If cache works, both calls return the same instance.
       expect(identical(a, b), true);
     });
 

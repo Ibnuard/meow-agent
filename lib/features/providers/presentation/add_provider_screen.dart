@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -27,10 +28,16 @@ class AddProviderScreen extends ConsumerStatefulWidget {
 class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nicknameController = TextEditingController();
-  final _baseUrlController =
-      TextEditingController(text: 'https://api.openai.com/v1');
+  final _codenameController = TextEditingController();
+  final _baseUrlController = TextEditingController(
+    text: 'https://api.openai.com/v1',
+  );
   final _apiKeyController = TextEditingController();
-  final _modelController = TextEditingController(text: 'gpt-4.1-mini');
+  final _modelInputController = TextEditingController();
+  final List<String> _models = [];
+  final Set<String> _visionModels = {};
+  final Set<String> _testingModels = {};
+  CancelToken? _modelTestCancelToken;
 
   bool _obscureKey = true;
   bool _testing = false;
@@ -54,33 +61,122 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   Future<void> _loadExisting() async {
     final providers = ref.read(providerListProvider).value ?? [];
-    final existing = providers.where((p) => p.id == widget.providerId).firstOrNull;
+    final existing = providers
+        .where((p) => p.id == widget.providerId)
+        .firstOrNull;
     if (existing != null) {
       _existingId = existing.id;
       _nicknameController.text = existing.nickname;
+      _codenameController.text = existing.codename ?? '';
       _baseUrlController.text = existing.baseUrl;
       _apiKeyController.text = existing.apiKey;
-      _modelController.text = existing.model;
+      _models
+        ..clear()
+        ..addAll(existing.models);
+      _visionModels
+        ..clear()
+        ..addAll(existing.visionModels);
       if (mounted) setState(() {});
     }
   }
 
   @override
   void dispose() {
+    _modelTestCancelToken?.cancel();
     _nicknameController.dispose();
+    _codenameController.dispose();
     _baseUrlController.dispose();
     _apiKeyController.dispose();
-    _modelController.dispose();
+    _modelInputController.dispose();
     super.dispose();
   }
 
   ProviderConfig _buildConfig() => ProviderConfig(
-        id: _existingId,
-        nickname: _nicknameController.text.trim(),
-        baseUrl: _baseUrlController.text.trim(),
-        apiKey: _apiKeyController.text.trim(),
-        model: _modelController.text.trim(),
+    id: _existingId,
+    nickname: _nicknameController.text.trim(),
+    codename: _codenameController.text.trim().isEmpty ? null : _codenameController.text.trim().toUpperCase(),
+    baseUrl: _baseUrlController.text.trim(),
+    apiKey: _apiKeyController.text.trim(),
+    model: _models.firstOrNull ?? '',
+    models: _models,
+    visionModels: _visionModels.toList(),
+  );
+
+  void _addModel() {
+    final model = _modelInputController.text.trim();
+    if (model.isEmpty || _models.contains(model)) return;
+    setState(() {
+      _models.add(model);
+      _modelInputController.clear();
+    });
+    // Re-validate so the model error clears after adding a model.
+    _formKey.currentState?.validate();
+  }
+
+  Future<void> _testModel(String model) async {
+    if (_testingModels.contains(model)) return;
+    final baseUrl = _baseUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+    if (baseUrl.isEmpty || apiKey.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.baseUrlRequired)),
+        );
+      }
+      return;
+    }
+    setState(() => _testingModels.add(model));
+    _modelTestCancelToken = CancelToken();
+    final config = LlmProviderConfig(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+    );
+    try {
+      final client = OpenAiCompatibleClient(dio: Dio());
+      await client.chat(
+        config: config,
+        messages: [{'role': 'user', 'content': 'ping'}],
+        phase: 'model_test',
+        cancelToken: _modelTestCancelToken,
       );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestValid(model)),
+          backgroundColor: Colors.green.shade700,
+        ),
+      );
+    } on DioException catch (e) {
+      if (!mounted || e.type == DioExceptionType.cancel) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestInvalid(model)),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.modelTestInvalid(model)),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _testingModels.remove(model));
+    }
+  }
+
+  void _removeModel(String model) {
+    if (_models.isEmpty) return;
+    setState(() {
+      _models.remove(model);
+      _visionModels.remove(model);
+    });
+    // Re-validate so the model error appears if the list became empty.
+    _formKey.currentState?.validate();
+  }
 
   Future<void> _testConnection() async {
     if (!_formKey.currentState!.validate()) return;
@@ -92,9 +188,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     final config = _buildConfig();
     final client = OpenAiCompatibleClient();
     // Reuse the existing LlmProviderConfig-compatible test.
-    final ok = await client.testConnection(
-      _toLlmConfig(config),
-    );
+    final ok = await client.testConnection(_toLlmConfig(config));
     if (!mounted) return;
     setState(() {
       _testing = false;
@@ -119,20 +213,21 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
 
   Future<void> _confirmDelete() async {
     final agents = ref.read(agentListProvider);
-    final affectedAgents =
-        agents.where((a) => a.providerId == widget.providerId).toList();
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
+    final affectedAgents = agents
+        .where((a) => a.providerId == widget.providerId)
+        .toList();
 
     final affectedWarning = affectedAgents.isNotEmpty
         ? '\n\n${s.affectedAgentsWarning(affectedAgents.length)}\n'
-            '${affectedAgents.map((a) => '• ${a.name}').join('\n')}'
+              '${affectedAgents.map((a) => '• ${a.name}').join('\n')}'
         : '';
 
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
+      strings: s,
       title: s.deleteProvider,
-      message: '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
+      message:
+          '${s.deleteProviderBody(_nicknameController.text)}$affectedWarning',
       confirmLabel: s.delete,
       cancelLabel: s.cancel,
     );
@@ -239,6 +334,20 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       ),
                       const SizedBox(height: 18),
                       MeowInput(
+                        controller: _codenameController,
+                        label: s.codename,
+                        hint: s.codenameHint,
+                        helper: s.codenameHelper,
+                        maxLength: 4,
+                        textCapitalization: TextCapitalization.characters,
+                        validator: (v) {
+                          final val = v?.trim() ?? '';
+                          if (val.length > 4) return s.codenameTooLong;
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 18),
+                      MeowInput(
                         controller: _baseUrlController,
                         label: s.baseUrl,
                         hint: 'https://api.openai.com/v1',
@@ -278,16 +387,14 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         },
                       ),
                       const SizedBox(height: 18),
-                      MeowInput(
-                        controller: _modelController,
-                        label: s.model,
-                        hint: 'gpt-4.1-mini',
-                        validator: (v) {
-                          if ((v ?? '').trim().isEmpty) {
-                            return s.modelRequired;
-                          }
-                          return null;
-                        },
+                      _ModelListEditor(
+                        models: _models,
+                        controller: _modelInputController,
+                        strings: s,
+                        onAdd: _addModel,
+                        onRemove: _removeModel,
+                        onTest: _testModel,
+                        testingModels: _testingModels,
                       ),
                     ],
                   ),
@@ -299,7 +406,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
                       decoration: BoxDecoration(
                         color: (_testSuccess ?? false)
                             ? extras.success.withValues(alpha: 0.1)
@@ -348,8 +457,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                           label: _testing ? s.testing : s.test,
                           icon: Icons.bolt_rounded,
                           loading: _testing,
-                          onPressed:
-                              _testing || _saving ? null : _testConnection,
+                          onPressed: _testing || _saving
+                              ? null
+                              : _testConnection,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -380,7 +490,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.delete_outline_rounded, size: 18, color: cs.error),
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: cs.error,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             s.deleteProvider,
@@ -404,9 +518,172 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   }
 }
 
-/// Bridge to the existing OpenAI client which expects LlmProviderConfig.
-LlmProviderConfig _toLlmConfig(ProviderConfig p) => LlmProviderConfig(
-      baseUrl: p.baseUrl,
-      apiKey: p.apiKey,
-      model: p.model,
+class _ModelListEditor extends FormField<List<String>> {
+  _ModelListEditor({
+    required List<String> models,
+    required TextEditingController controller,
+    required AppStrings strings,
+    required VoidCallback onAdd,
+    required ValueChanged<String> onRemove,
+    required ValueChanged<String> onTest,
+    required Set<String> testingModels,
+  }) : super(
+         initialValue: models,
+         autovalidateMode: AutovalidateMode.onUserInteraction,
+         validator: (_) {
+           if (models.isEmpty) {
+             return strings.modelListRequired;
+           }
+           return null;
+         },
+         builder: (state) {
+           final s = strings;
+           final extras = state.context.extras;
+           final hasError = state.hasError;
+           return Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+               MeowInput(
+                 controller: controller,
+                 label: s.modelListLabel,
+                 hint: s.modelListHint,
+                 textInputAction: TextInputAction.done,
+                 onSubmitted: (_) => onAdd(),
+                 errorText: hasError ? state.errorText : null,
+                 suffixIcon: Padding(
+                   padding: const EdgeInsets.only(right: 8),
+                   child: Center(
+                     widthFactor: 1,
+                     heightFactor: 1,
+                     child: ValueListenableBuilder<TextEditingValue>(
+                       valueListenable: controller,
+                       builder: (ctx, value, _) {
+                         final hasText = value.text.trim().isNotEmpty;
+                         final cs = Theme.of(ctx).colorScheme;
+                         return IconButton.filledTonal(
+                           onPressed: hasText ? onAdd : null,
+                           icon: const Icon(Icons.add_rounded, size: 18),
+                           style: IconButton.styleFrom(
+                             minimumSize: const Size(36, 36),
+                             maximumSize: const Size(36, 36),
+                             padding: EdgeInsets.zero,
+                             backgroundColor: hasText
+                                 ? cs.primary
+                                 : null,
+                             foregroundColor: hasText
+                                 ? cs.onPrimary
+                                 : null,
+                           ),
+                         );
+                       },
+                     ),
+                   ),
+                 ),
+               ),
+               const SizedBox(height: 12),
+               Wrap(
+                 spacing: 8,
+                 runSpacing: 8,
+                 children: [
+                   for (final model in models)
+                     _ModelChip(
+                       model: model,
+                       onRemove: () => onRemove(model),
+                       onTest: () => onTest(model),
+                       isTesting: testingModels.contains(model),
+                     ),
+                 ],
+               ),
+               const SizedBox(height: 8),
+               Text(
+                 s.modelListHelper,
+                 style: TextStyle(
+                   fontSize: 12,
+                   color: extras.subtleText,
+                   height: 1.35,
+                 ),
+               ),
+               const SizedBox(height: 18),
+             ],
+           );
+         },
+       );
+}
+
+class _ModelChip extends StatelessWidget {
+  const _ModelChip({
+    required this.model,
+    required this.onRemove,
+    required this.onTest,
+    this.isTesting = false,
+  });
+
+  final String model;
+  final VoidCallback onRemove;
+  final VoidCallback onTest;
+  final bool isTesting;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Container(
+      padding: const EdgeInsets.only(left: 10, right: 4, top: 7, bottom: 7),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            model,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: cs.onSurface,
+            ),
+          ),
+          const SizedBox(width: 4),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: isTesting ? null : onTest,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: isTesting
+                  ? SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: cs.primary.withValues(alpha: 0.7),
+                      ),
+                    )
+                  : Icon(
+                      Icons.bolt_rounded,
+                      size: 14,
+                      color: cs.primary.withValues(alpha: 0.7),
+                    ),
+            ),
+          ),
+          InkWell(
+            borderRadius: BorderRadius.circular(999),
+            onTap: onRemove,
+            child: Padding(
+              padding: const EdgeInsets.all(2),
+              child: Icon(
+                Icons.close_rounded,
+                size: 14,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+}
+
+/// Bridge to the existing OpenAI client which expects LlmProviderConfig.
+LlmProviderConfig _toLlmConfig(ProviderConfig p) =>
+    LlmProviderConfig(baseUrl: p.baseUrl, apiKey: p.apiKey, model: p.model);

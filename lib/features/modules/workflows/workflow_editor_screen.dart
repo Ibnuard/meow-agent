@@ -13,6 +13,8 @@ import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_scheduler.dart';
 import 'workflow_templates.dart';
+import '../web/data/api_config.dart';
+import '../web/data/api_store_repository.dart';
 
 /// Create or edit a workflow.
 class WorkflowEditorScreen extends ConsumerStatefulWidget {
@@ -95,7 +97,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   }
 
   void _loadFromTemplate(WorkflowTemplate tpl) {
-    _titleCtrl.text = tpl.titleId;
+    final langCode = resolveLanguageCode(ref.read(appLanguageProvider));
+    _titleCtrl.text = langCode == 'id' ? tpl.titleId : tpl.title;
     _promptCtrl.text = WorkflowBuiltInVars.migrateLegacyPlaceholders(
       tpl.defaultPrompt,
     );
@@ -140,11 +143,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   Future<void> _save() async {
     final isId = Localizations.localeOf(context).languageCode == 'id';
+    final sSave = AppStrings(isId ? 'id' : 'en');
     if (_selectedAgentId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            isId ? 'Pilih agent terlebih dahulu.' : 'Please select an agent.',
+            sSave.workflowSelectAgentFirst,
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -154,11 +158,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (_titleCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            isId
-                ? 'Judul workflow tidak boleh kosong.'
-                : 'Workflow title is required.',
-          ),
+          content: Text(sSave.wfTitleRequired),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -274,7 +274,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       final success = await _repo.create(workflow);
       if (!success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Max 20 workflows reached.')),
+          SnackBar(content: Text(sSave.wfMaxWorkflows)),
         );
         return;
       }
@@ -289,18 +289,16 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (picked != null) setState(() => _time = picked);
   }
 
-  Future<void> _confirmDelete(bool isId) async {
+  Future<void> _confirmDelete(AppStrings s) async {
     if (widget.workflow == null) return;
     final wf = widget.workflow!;
     final confirm = await showMeowConfirmDialog(
       context,
-      isId: isId,
-      title: isId ? 'Hapus Workflow?' : 'Delete Workflow?',
-      message: isId
-          ? 'Workflow "${wf.title}" akan dihapus permanen. Lanjutkan?'
-          : 'Workflow "${wf.title}" will be permanently deleted. Continue?',
-      confirmLabel: isId ? 'Hapus' : 'Delete',
-      cancelLabel: isId ? 'Batal' : 'Cancel',
+      strings: s,
+      title: s.workflowDeleteTitle,
+      message: s.workflowDeleteMessage(wf.title),
+      confirmLabel: s.workflowDelete,
+      cancelLabel: s.workflowCancel,
     );
     if (!confirm) return;
     await WorkflowScheduler.cancel(wf);
@@ -377,6 +375,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
     final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(isId ? 'id' : 'en');
     final agents = ref.watch(agentListProvider);
 
     if (_selectedAgentId == null && agents.isNotEmpty) {
@@ -388,9 +387,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            _isEdit
-                ? (isId ? 'Edit Workflow' : 'Edit Workflow')
-                : (isId ? 'Buat Workflow' : 'New Workflow'),
+            _isEdit ? s.workflowEditTitle : s.workflowNewTitle,
           ),
           actions: [
             if (_isEdit)
@@ -399,8 +396,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   Icons.delete_outline_rounded,
                   color: Colors.redAccent,
                 ),
-                tooltip: isId ? 'Hapus' : 'Delete',
-                onPressed: () => _confirmDelete(isId),
+                tooltip: s.workflowDeleteTooltip,
+                onPressed: () => _confirmDelete(s),
               ),
           ],
         ),
@@ -415,49 +412,49 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (_steps.isEmpty) ...[
-                _sectionLabel(isId ? 'Agent' : 'Agent', cs),
+                _sectionLabel(s.workflowSectionAgent, cs),
                 const SizedBox(height: 8),
-                _buildAgentPicker(agents, isId),
+                _buildAgentPicker(agents, s),
               ] else ...[
-                _multiAgentInfoCard(cs, extras, isId),
+                _multiAgentInfoCard(cs, extras, s),
               ],
               const SizedBox(height: 20),
 
-              _sectionLabel(isId ? 'Judul' : 'Title', cs),
+              _sectionLabel(s.workflowSectionTitle, cs),
               const SizedBox(height: 8),
               _buildInput(
                 _titleCtrl,
-                isId ? 'Nama workflow' : 'Workflow name',
+                s.workflowTitleHint,
                 cs,
                 extras,
               ),
               const SizedBox(height: 20),
 
-              _sectionLabel(isId ? 'Trigger' : 'Trigger', cs),
+              _sectionLabel(s.workflowSectionTrigger, cs),
               const SizedBox(height: 8),
-              _buildTriggerSelector(cs, isId),
+              _buildTriggerSelector(cs, s),
               const SizedBox(height: 16),
 
               if (_triggerType == TriggerType.schedule) ...[
-                _buildTimePicker(cs, extras, isId),
+                _buildTimePicker(cs, extras, s),
                 const SizedBox(height: 12),
                 _buildDaySelector(cs, isId),
               ] else if (_triggerType == TriggerType.interval) ...[
                 _buildIntervalPicker(cs, isId),
               ] else ...[
-                _buildEventTriggerConfig(cs, extras, isId),
+                _buildEventTriggerConfig(cs, extras, s),
               ],
               const SizedBox(height: 24),
 
               // Mode toggle: single prompt vs chained steps.
               Row(
                 children: [
-                  _sectionLabel(isId ? 'Mode' : 'Mode', cs),
+                  _sectionLabel(s.workflowSectionMode, cs),
                   const Spacer(),
                   Text(
                     _steps.isEmpty
-                        ? (isId ? 'Single Prompt' : 'Single Prompt')
-                        : '${_steps.length} ${isId ? "langkah" : "steps"}',
+                        ? s.workflowSinglePrompt
+                        : s.workflowStepsCount(_steps.length),
                     style: TextStyle(
                       fontSize: 11,
                       color: cs.primary,
@@ -479,7 +476,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   cs,
                   extras,
                   maxLines: 4,
-                  isId: isId,
+                  s: s,
                 ),
                 const SizedBox(height: 12),
                 TextButton.icon(
@@ -492,35 +489,33 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   ),
                 ),
               ] else ...[
-                ..._buildStepList(cs, extras, isId, agents),
+                ..._buildStepList(cs, extras, s, agents),
                 const SizedBox(height: 8),
                 TextButton.icon(
                   onPressed: _addStep,
                   icon: const Icon(Icons.add_rounded, size: 16),
-                  label: Text(isId ? 'Tambah Langkah' : 'Add Step'),
+                  label: Text(s.workflowAddStep),
                 ),
               ],
               const SizedBox(height: 24),
 
               // ─── Variables (moved above Trigger) ───────────────────
-              _buildVariablesSection(cs, extras, isId),
+              _buildVariablesSection(cs, extras, s),
               const SizedBox(height: 24),
 
-              _buildAdvancedSettings(cs, extras, isId),
+              _buildAdvancedSettings(cs, extras, s),
               const SizedBox(height: 20),
 
               _buildToggle(
-                isId ? 'Kirim hasil ke chat' : 'Send result to chat',
+                s.workflowSendToChat,
                 _sendToChat,
                 (v) => setState(() => _sendToChat = v),
                 cs,
               ),
               const SizedBox(height: 14),
               _buildToggleWithDesc(
-                isId ? 'Izinkan Aksi Sensitif' : 'Allow Sensitive Actions',
-                isId
-                    ? 'Setujui otomatis aksi yang biasanya butuh konfirmasi.'
-                    : 'Auto-approve actions that normally require confirmation.',
+                s.workflowAllowSensitive,
+                s.wfAllowSensitiveDesc,
                 _allowSensitive,
                 (v) => setState(() => _allowSensitive = v),
                 cs,
@@ -540,9 +535,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                     ),
                   ),
                   child: Text(
-                    _isEdit
-                        ? (isId ? 'Simpan' : 'Save')
-                        : (isId ? 'Buat Workflow' : 'Create'),
+                    _isEdit ? s.workflowSave : s.workflowCreate,
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -554,7 +547,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return Container(
       decoration: BoxDecoration(
         color: extras.card,
@@ -576,7 +569,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      isId ? 'Pengaturan Lainnya' : 'More settings',
+                      s.workflowMoreSettings,
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -585,7 +578,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                     ),
                   ),
                   Text(
-                    '${_notifLabel(_notifStyle, isId)} · ${_priorityLabel(_priority, isId)} · ${_timeoutLabel(_timeoutSeconds)}',
+                    '${_notifLabel(_notifStyle, s)} · ${_priorityLabel(_priority, s)} · ${_timeoutLabel(_timeoutSeconds)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -618,17 +611,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 children: [
                   Divider(color: extras.subtleBorder, height: 1),
                   const SizedBox(height: 14),
-                  _sectionLabel(isId ? 'Notifikasi' : 'Notification', cs),
+                  _sectionLabel(s.workflowNotification, cs),
                   const SizedBox(height: 8),
-                  _buildNotifSelector(cs, isId),
+                  _buildNotifSelector(cs, s),
                   const SizedBox(height: 18),
-                  _sectionLabel(isId ? 'Prioritas' : 'Priority', cs),
+                  _sectionLabel(s.workflowPriority, cs),
                   const SizedBox(height: 8),
-                  _buildPrioritySelector(cs, isId),
+                  _buildPrioritySelector(cs, s),
                   const SizedBox(height: 18),
-                  _sectionLabel(isId ? 'Timeout' : 'Timeout', cs),
+                  _sectionLabel(s.workflowTimeout, cs),
                   const SizedBox(height: 8),
-                  _buildTimeoutSelector(cs, isId),
+                  _buildTimeoutSelector(cs, s),
                 ],
               ),
             ),
@@ -650,7 +643,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return '${seconds}s';
   }
 
-  Widget _multiAgentInfoCard(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _multiAgentInfoCard(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -668,7 +661,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isId ? 'Mode multi-agent' : 'Multi-agent mode',
+                  s.workflowMultiAgent,
                   style: TextStyle(
                     fontSize: 12,
                     color: cs.onSurface,
@@ -677,7 +670,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  isId
+                  s.isId
                       ? 'Setiap langkah wajib punya agent. Semua langkah otomatis memakai agent default dulu, lalu bisa diganti per langkah.'
                       : 'Each step requires an agent. Steps use the default agent first, then can be changed per step.',
                   style: TextStyle(
@@ -699,7 +692,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   List<Widget> _buildStepList(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
     List<AgentModel> agents,
   ) {
     return List.generate(_steps.length, (i) {
@@ -737,7 +730,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    isId ? 'Langkah ${i + 1}' : 'Step ${i + 1}',
+                    s.workflowStepLabel(i),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -757,18 +750,18 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            _buildStepAgentPicker(step, i, agents, isId),
+            _buildStepAgentPicker(step, i, agents, s),
             const SizedBox(height: 10),
             _buildVariableAwareInput(
               _stepPromptController(step),
-              isId
+              s.isId
                   ? 'Apa yang harus dilakukan di langkah ini?'
                   : 'What should happen in this step?',
               cs,
               extras,
               maxLines: 4,
               minLines: 3,
-              isId: isId,
+              s: s,
               onChanged: (v) {
                 _updateStep(
                   i,
@@ -787,7 +780,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             // Condition preset dropdown.
             if (i > 0) ...[
               Text(
-                isId
+                s.isId
                     ? 'Kapan langkah ini berjalan?'
                     : 'When does this step run?',
                 style: TextStyle(
@@ -797,13 +790,13 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              _buildConditionDropdown(step, i, cs, extras, isId),
+              _buildConditionDropdown(step, i, cs, extras, s),
               const SizedBox(height: 10),
             ],
             Row(
               children: [
                 Text(
-                  isId ? 'Jika gagal:' : 'On failure:',
+                  s.workflowOnFailure,
                   style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(width: 8),
@@ -839,7 +832,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           ),
                         ),
                         child: Text(
-                          _failureActionLabel(a, isId),
+                          _failureActionLabel(a, s),
                           style: TextStyle(
                             fontSize: 10,
                             color: step.onFailure == a
@@ -864,7 +857,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     WorkflowStep step,
     int index,
     List<AgentModel> agents,
-    bool isId,
+    AppStrings s,
   ) {
     final fallbackAgentId = _selectedAgentId ?? agents.firstOrNull?.id;
     final effectiveAgentId = step.agentId ?? fallbackAgentId;
@@ -890,22 +883,25 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return MeowDropdown<String>(
       value: effectiveAgentId,
       presentation: MeowDropdownPresentation.sheet,
-      sheetTitle: isId ? 'Pilih agent langkah' : 'Choose step agent',
-      sheetSubtitle: isId
+      sheetTitle: s.workflowChooseStepAgent,
+      sheetSubtitle: s.isId
           ? 'Langkah ini akan dijalankan oleh agent yang dipilih.'
           : 'This step will run using the selected agent.',
-      searchHint: isId ? 'Cari agent...' : 'Search agents...',
-      emptyText: isId ? 'Agent belum tersedia' : 'No agents available',
+      searchHint: s.workflowSearchAgent,
+      emptyText: s.workflowNoAgents,
       searchable: agents.length > 6,
       dense: true,
       options: agents
           .map(
             (agent) => MeowDropdownOption<String>(
               value: agent.id,
-              label: agent.name,
-              subtitle: isId
+              label: agent.name.trim().isEmpty
+                  ? s.workflowUntitledAgent
+                  : agent.name.trim(),
+              subtitle: s.isId
                   ? 'Agent untuk langkah ini'
                   : 'Agent for this step',
+              prefix: MeowAgentIcon(agent: agent),
               searchText: agent.name,
             ),
           )
@@ -927,14 +923,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _failureActionLabel(StepFailureAction a, bool isId) {
+  String _failureActionLabel(StepFailureAction a, AppStrings s) {
     switch (a) {
       case StepFailureAction.stop:
-        return isId ? 'Hentikan' : 'Stop';
+        return s.workflowFailureStop;
       case StepFailureAction.skip:
-        return isId ? 'Lewati' : 'Skip';
+        return s.workflowFailureSkip;
       case StepFailureAction.retry:
-        return isId ? 'Coba lagi' : 'Retry';
+        return s.workflowFailureRetry;
     }
   }
 
@@ -943,9 +939,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     int index,
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
-    final presets = _ConditionPreset.all(isId);
+    final presets = _ConditionPreset.all(s);
     final currentValue = step.condition;
     final selected = presets.firstWhere(
       (p) => p.value == currentValue,
@@ -980,8 +976,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Variables Section ──────────────────────────────────────────────────────
 
-  Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, bool isId) {
-    final langCode = isId ? 'id' : 'en';
+  Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, AppStrings s) {
+    final langCode = s.code;
     final visibleVars = _visibleBuiltIns();
     final previewVars = visibleVars.take(6).toList();
 
@@ -991,15 +987,15 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         Row(
           children: [
             _sectionLabel(
-              isId ? 'Variabel Built-in' : 'Built-in Variables',
+              s.workflowBuiltinVars,
               cs,
             ),
             const Spacer(),
             TextButton.icon(
-              onPressed: () => _showBuiltInVariableSheet(cs, extras, langCode),
+              onPressed: () => _showBuiltInVariableSheet(cs, extras, s),
               icon: const Icon(Icons.auto_awesome_rounded, size: 14),
               label: Text(
-                isId ? 'Lihat Semua' : 'View All',
+                s.workflowViewAll,
                 style: const TextStyle(fontSize: 12),
               ),
             ),
@@ -1007,7 +1003,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         ),
         const SizedBox(height: 4),
         Text(
-          isId
+          s.isId
               ? 'Tap variabel untuk menyisipkan ke prompt. Nilainya otomatis diisi saat workflow berjalan.'
               : 'Tap a variable to insert it. Values are filled automatically when the workflow runs.',
           style: TextStyle(
@@ -1036,7 +1032,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               if (visibleVars.length > previewVars.length) ...[
                 const SizedBox(height: 10),
                 InkWell(
-                  onTap: () => _showBuiltInVariableSheet(cs, extras, langCode),
+                  onTap: () => _showBuiltInVariableSheet(cs, extras, s),
                   borderRadius: BorderRadius.circular(12),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 2),
@@ -1049,7 +1045,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          isId
+                          s.isId
                               ? '+${visibleVars.length - previewVars.length} variabel lain'
                               : '+${visibleVars.length - previewVars.length} more variables',
                           style: TextStyle(
@@ -1090,6 +1086,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   _eventKind == EventTriggerKind.chargingStop);
         case BuiltInCategory.time:
         case BuiltInCategory.identity:
+        case BuiltInCategory.action:
           return true;
       }
     }).toList();
@@ -1146,7 +1143,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Future<void> _showBuiltInVariableSheet(
     ColorScheme cs,
     MeowExtras extras,
-    String langCode,
+    AppStrings s,
   ) async {
     final vars = _visibleBuiltIns();
     final grouped = <BuiltInCategory, List<BuiltInVariable>>{};
@@ -1154,95 +1151,205 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       grouped.putIfAbsent(v.category, () => []).add(v);
     }
 
+    if (!mounted) return;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: false,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(12),
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.78,
-          ),
-          decoration: BoxDecoration(
-            color: extras.card,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: extras.subtleBorder),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.28),
-                blurRadius: 28,
-                offset: const Offset(0, 18),
+      builder: (ctx) {
+        final media = MediaQuery.of(ctx);
+        final maxSheetHeight = media.size.height * 0.78;
+        final bottomPadding = media.viewPadding.bottom + 12;
+
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: Container(
+            width: double.infinity,
+            constraints: BoxConstraints(maxHeight: maxSheetHeight),
+            margin: const EdgeInsets.only(left: 10, right: 10),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
+              border: Border(top: BorderSide(color: extras.inputBorder)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  blurRadius: 30,
+                  spreadRadius: -14,
+                  offset: const Offset(0, -10),
                 ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
               ),
-              const SizedBox(height: 14),
-              Text(
-                langCode == 'id' ? 'Variabel Built-in' : 'Built-in Variables',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: cs.onSurface,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                langCode == 'id'
-                    ? 'Tap untuk menyisipkan ke prompt utama.'
-                    : 'Tap to insert into the main prompt.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.72),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: grouped.entries.map((entry) {
-                    return Theme(
-                      data: Theme.of(
-                        ctx,
-                      ).copyWith(dividerColor: Colors.transparent),
-                      child: ExpansionTile(
-                        initiallyExpanded: true,
-                        tilePadding: EdgeInsets.zero,
-                        childrenPadding: const EdgeInsets.only(bottom: 8),
-                        title: Text(
-                          entry.key.labelFor(langCode),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: cs.onSurface,
-                            fontWeight: FontWeight.w700,
-                          ),
+              child: Padding(
+                padding: EdgeInsets.only(bottom: bottomPadding),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Drag handle
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: cs.onSurfaceVariant.withValues(alpha: 0.24),
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                        children: entry.value
-                            .map((v) => _builtInSheetRow(v, cs, langCode))
-                            .toList(),
                       ),
-                    );
-                  }).toList(),
+                    ),
+
+                    // Header: title + subtitle + close
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 12, 18, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  s.workflowBuiltinVars,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: cs.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  s.isId
+                                      ? 'Tap untuk menyisipkan ke prompt utama.'
+                                      : 'Tap to insert into the main prompt.',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: cs.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Content
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                        children: [
+                          // ─── @api: row (same style as other vars) ──────────
+                          Padding(
+                            padding: const EdgeInsets.only(left: 4, top: 4, bottom: 8),
+                            child: Text(
+                              'API',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: cs.onSurface,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          InkWell(
+                            onTap: () {
+                              Navigator.of(ctx).pop();
+                              _insertBuiltInVariable('@api:');
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF06B6D4).withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                                    ),
+                                    child: const Text(
+                                      '@api:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: Color(0xFF06B6D4),
+                                        fontFamily: 'monospace',
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      s.isId
+                                          ? 'Panggil API tersimpan (ketik @api: lalu nama API)'
+                                          : 'Call stored API (type @api: then API name)',
+                                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+
+                          // ─── Built-in variable categories ───────────────────
+                          ...grouped.entries.map((entry) {
+                            return Theme(
+                              data: Theme.of(ctx).copyWith(
+                                dividerColor: Colors.transparent,
+                              ),
+                              child: ExpansionTile(
+                                initiallyExpanded: true,
+                                tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+                                childrenPadding: const EdgeInsets.only(
+                                  left: 4,
+                                  right: 4,
+                                  bottom: 8,
+                                ),
+                                title: Text(
+                                  entry.key.labelFor(s.code),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: cs.onSurface,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                children: entry.value
+                                    .map((v) => _builtInSheetRow(v, cs, s.code))
+                                    .toList(),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -1293,12 +1400,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Trigger Builders ───────────────────────────────────────────────────────
 
-  Widget _buildTriggerSelector(ColorScheme cs, bool isId) {
+  Widget _buildTriggerSelector(ColorScheme cs, AppStrings s) {
     return Wrap(
       spacing: 8,
       children: [
         _chip(
-          isId ? 'Jadwal' : 'Schedule',
+          s.workflowSchedule,
           _triggerType == TriggerType.schedule,
           () => setState(() => _triggerType = TriggerType.schedule),
           cs,
@@ -1310,7 +1417,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
           cs,
         ),
         _chip(
-          isId ? 'Event' : 'Event',
+          s.workflowEvent,
           _triggerType == TriggerType.event,
           () => setState(() => _triggerType = TriggerType.event),
           cs,
@@ -1322,30 +1429,30 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Widget _buildEventTriggerConfig(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionLabel(isId ? 'Jenis Event' : 'Event Type', cs),
+        _sectionLabel(s.workflowEventType, cs),
         const SizedBox(height: 8),
         MeowDropdown<EventTriggerKind>(
           value: _eventKind,
           presentation: MeowDropdownPresentation.sheet,
-          sheetTitle: isId ? 'Pilih jenis event' : 'Choose event type',
-          sheetSubtitle: isId
+          sheetTitle: s.workflowChooseEventType,
+          sheetSubtitle: s.isId
               ? 'Workflow akan berjalan otomatis saat event ini terjadi.'
               : 'Workflow runs automatically when this event happens.',
-          searchHint: isId ? 'Cari event...' : 'Search events...',
-          emptyText: isId ? 'Event tidak ditemukan' : 'No events found',
+          searchHint: s.workflowSearchEvent,
+          emptyText: s.workflowNoEvents,
           searchable: true,
           dense: true,
           options: EventTriggerKind.values
               .map(
                 (kind) => MeowDropdownOption<EventTriggerKind>(
                   value: kind,
-                  label: _eventKindLabel(kind, isId),
-                  subtitle: _eventKindSubtitle(kind, isId),
+                  label: _eventKindLabel(kind, s),
+                  subtitle: _eventKindSubtitle(kind, s),
                   searchText: _eventKindSearchText(kind),
                 ),
               )
@@ -1355,16 +1462,16 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         ),
         const SizedBox(height: 12),
         if (_eventKind == EventTriggerKind.notificationKeyword) ...[
-          _sectionLabel(isId ? 'Kata Kunci' : 'Keyword', cs),
+          _sectionLabel(s.workflowKeyword, cs),
           const SizedBox(height: 8),
           _buildInput(
             _keywordCtrl,
-            isId ? 'mis: urgent, meeting' : 'e.g. urgent, meeting',
+            s.workflowKeywordHint,
             cs,
             extras,
           ),
           const SizedBox(height: 10),
-          _notificationTriggerInfoCard(cs, extras, isId),
+          _notificationTriggerInfoCard(cs, extras, s),
         ],
       ],
     );
@@ -1373,7 +1480,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
   Widget _notificationTriggerInfoCard(
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     return Container(
       padding: const EdgeInsets.all(14),
@@ -1390,7 +1497,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
               Icon(Icons.info_outline_rounded, size: 16, color: cs.primary),
               const SizedBox(width: 8),
               Text(
-                isId ? 'Agar trigger berjalan' : 'Required for this trigger',
+                s.workflowTriggerRequired,
                 style: TextStyle(
                   fontSize: 12,
                   color: cs.onSurface,
@@ -1400,19 +1507,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          _infoBullet(
-            isId
-                ? 'Pastikan permission akses notifikasi sudah diizinkan.'
-                : 'Make sure notification access permission is allowed.',
-            cs,
-          ),
+          _infoBullet(s.wfNotifyPermRequired, cs),
           const SizedBox(height: 7),
-          _infoBullet(
-            isId
-                ? 'Pastikan module Notifikasi aktif di halaman Modules.'
-                : 'Make sure the Notification module is enabled in Modules.',
-            cs,
-          ),
+          _infoBullet(s.wfModuleDisabled, cs),
         ],
       ),
     );
@@ -1446,67 +1543,49 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _eventKindLabel(EventTriggerKind k, bool isId) {
+  String _eventKindLabel(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return isId ? '🔋 Baterai dibawah 50%' : '🔋 Battery below 50%';
+        return s.wfEventBatteryLow;
       case EventTriggerKind.batteryAbove:
-        return isId ? '🔋 Baterai diatas 50%' : '🔋 Battery above 50%';
+        return s.wfEventBatteryHigh;
       case EventTriggerKind.batteryFull:
-        return isId ? '🔋 Baterai Penuh' : '🔋 Battery Full';
+        return s.wfEventBatteryFull;
       case EventTriggerKind.chargingStart:
-        return isId ? '🔌 Mulai Charging' : '🔌 Charging Start';
+        return s.wfEventChargingStart;
       case EventTriggerKind.chargingStop:
-        return isId ? '🔌 Berhenti Charging' : '🔌 Charging Stop';
+        return s.wfEventChargingStop;
       case EventTriggerKind.notificationKeyword:
-        return isId ? '🔔 Notifikasi (Keyword)' : '🔔 Notification (Keyword)';
+        return s.wfEventNotifKeyword;
       case EventTriggerKind.appOpened:
-        return isId ? '📱 Aplikasi Dibuka' : '📱 App Opened';
+        return s.wfEventAppOpened;
       case EventTriggerKind.wifiConnected:
-        return isId ? '📶 WiFi Terhubung' : '📶 WiFi Connected';
+        return s.wfEventWifiConnected;
       case EventTriggerKind.wifiDisconnected:
-        return isId ? '📶 WiFi Terputus' : '📶 WiFi Disconnected';
+        return s.wfEventWifiDisconnected;
     }
   }
 
-  String _eventKindSubtitle(EventTriggerKind k, bool isId) {
+  String _eventKindSubtitle(EventTriggerKind k, AppStrings s) {
     switch (k) {
       case EventTriggerKind.batteryLow:
-        return isId
-            ? 'Jalan saat baterai turun melewati 50%.'
-            : 'Runs when battery drops past 50%.';
+        return s.wfEventBatteryLowSub;
       case EventTriggerKind.batteryAbove:
-        return isId
-            ? 'Jalan saat baterai naik melewati 50%.'
-            : 'Runs when battery rises past 50%.';
+        return s.wfEventBatteryHighSub;
       case EventTriggerKind.batteryFull:
-        return isId
-            ? 'Jalan saat baterai mencapai 100%.'
-            : 'Runs when battery reaches 100%.';
+        return s.wfEventBatteryFullSub;
       case EventTriggerKind.chargingStart:
-        return isId
-            ? 'Jalan saat perangkat mulai di-charge.'
-            : 'Runs when device starts charging.';
+        return s.wfEventChargingStartSub;
       case EventTriggerKind.chargingStop:
-        return isId
-            ? 'Jalan saat perangkat berhenti di-charge.'
-            : 'Runs when device stops charging.';
+        return s.wfEventChargingStopSub;
       case EventTriggerKind.notificationKeyword:
-        return isId
-            ? 'Jalan saat notifikasi mengandung kata kunci.'
-            : 'Runs when a notification contains a keyword.';
+        return s.wfEventNotifKeywordSub;
       case EventTriggerKind.appOpened:
-        return isId
-            ? 'Jalan saat aplikasi tertentu dibuka.'
-            : 'Runs when a specific app is opened.';
+        return s.wfEventAppOpenedSub;
       case EventTriggerKind.wifiConnected:
-        return isId
-            ? 'Jalan saat WiFi tersambung.'
-            : 'Runs when WiFi connects.';
+        return s.wfEventWifiConnectedSub;
       case EventTriggerKind.wifiDisconnected:
-        return isId
-            ? 'Jalan saat WiFi terputus.'
-            : 'Runs when WiFi disconnects.';
+        return s.wfEventWifiDisconnectedSub;
     }
   }
 
@@ -1533,12 +1612,12 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     }
   }
 
-  Widget _buildPrioritySelector(ColorScheme cs, bool isId) {
+  Widget _buildPrioritySelector(ColorScheme cs, AppStrings s) {
     return Wrap(
       spacing: 8,
       children: WorkflowPriority.values.map((p) {
         return _chip(
-          _priorityLabel(p, isId),
+          _priorityLabel(p, s),
           _priority == p,
           () => setState(() => _priority = p),
           cs,
@@ -1547,20 +1626,20 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _priorityLabel(WorkflowPriority p, bool isId) {
+  String _priorityLabel(WorkflowPriority p, AppStrings s) {
     switch (p) {
       case WorkflowPriority.low:
-        return isId ? 'Rendah' : 'Low';
+        return s.workflowPriorityLow;
       case WorkflowPriority.normal:
         return 'Normal';
       case WorkflowPriority.high:
-        return isId ? 'Tinggi' : 'High';
+        return s.workflowPriorityHigh;
       case WorkflowPriority.critical:
-        return isId ? 'Kritis' : 'Critical';
+        return s.workflowPriorityCritical;
     }
   }
 
-  Widget _buildTimeoutSelector(ColorScheme cs, bool isId) {
+  Widget _buildTimeoutSelector(ColorScheme cs, AppStrings s) {
     final options = [180, 300, 600, 900];
     final labels = ['3m', '5m', '10m', '15m'];
     return Wrap(
@@ -1626,23 +1705,35 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     int maxLines = 1,
     int? minLines,
     ValueChanged<String>? onChanged,
-    required bool isId,
+    required AppStrings s,
   }) {
-    final langCode = isId ? 'id' : 'en';
+    final langCode = s.code;
 
     return StatefulBuilder(
       builder: (context, localSetState) {
         final trigger = _activeVariableTrigger(ctrl);
+        final isApiQuery = trigger != null && trigger.query.startsWith('api:');
         final suggestions = trigger == null
             ? const <BuiltInVariable>[]
-            : _visibleBuiltIns()
-                  .where(
-                    (v) => v.key.toLowerCase().contains(
-                      trigger.query.toLowerCase(),
-                    ),
-                  )
-                  .take(6)
-                  .toList();
+            : isApiQuery
+                ? const <BuiltInVariable>[]
+                : _visibleBuiltIns()
+                      .where(
+                        (v) => v.key.toLowerCase().contains(
+                          trigger.query.toLowerCase(),
+                        ),
+                      )
+                      .take(6)
+                      .toList();
+
+        // API suggestions when user types @api: or @api
+        final showApiHint = trigger != null &&
+            !isApiQuery &&
+            'api'.contains(trigger.query.toLowerCase()) &&
+            trigger.query.isNotEmpty;
+        final apiSuggestions = isApiQuery
+            ? _getApiSuggestions(trigger.query.substring(4))
+            : const <ApiConfig>[];
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1706,7 +1797,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isId ? 'Sisipkan variabel' : 'Insert variable',
+                      s.workflowInsertVariable,
                       style: TextStyle(
                         fontSize: 11,
                         color: cs.onSurfaceVariant,
@@ -1723,10 +1814,6 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           child: InkWell(
                             onTap: () {
                               _replaceVariableTrigger(ctrl, trigger, v.key);
-                              // Programmatic controller edits don't fire
-                              // TextField.onChanged, so step prompts (which
-                              // persist via onChanged) would otherwise save the
-                              // half-typed token. Propagate the final text.
                               onChanged?.call(ctrl.text);
                               localSetState(() {});
                             },
@@ -1778,10 +1865,183 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 ),
               ),
             ],
+
+            // Show @api: hint when user types @a, @ap, @api
+            if (showApiHint) ...[
+              const SizedBox(height: 8),
+              InkWell(
+                onTap: () {
+                  _replaceVariableTriggerRaw(ctrl, trigger, 'api:');
+                  localSetState(() {});
+                },
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF06B6D4).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.24)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.cloud_rounded, size: 12, color: Color(0xFF06B6D4)),
+                      const SizedBox(width: 5),
+                      Text(
+                        '@api:',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: const Color(0xFF06B6D4),
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        s.wfApiCallLabel,
+                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // API suggestions when query starts with api:
+            if (isApiQuery && apiSuggestions.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: extras.card,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      s.wfApiSelectLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...apiSuggestions.map((api) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: InkWell(
+                          onTap: () {
+                            final safeName = api.name.replaceAll(RegExp(r'\s+'), '_');
+                            _replaceVariableTrigger(ctrl, trigger, 'api:$safeName');
+                            onChanged?.call(ctrl.text);
+                            localSetState(() {});
+                          },
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF06B6D4).withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.15)),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: _methodColor(api.method).withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    api.method,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: _methodColor(api.method),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    api.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: cs.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
           ],
         );
       },
     );
+  }
+
+  static Color _methodColor(String method) {
+    switch (method.toUpperCase()) {
+      case 'GET': return const Color(0xFF22C55E);
+      case 'POST': return const Color(0xFF3B82F6);
+      case 'PUT': return const Color(0xFFF59E0B);
+      case 'PATCH': return const Color(0xFF8B5CF6);
+      case 'DELETE': return const Color(0xFFEF4444);
+      default: return const Color(0xFF64748B);
+    }
+  }
+
+  List<ApiConfig> _cachedApis = [];
+  DateTime? _lastApiLoad;
+
+  List<ApiConfig> _getApiSuggestions(String query) {
+    // Refresh cache every 5 seconds
+    final now = DateTime.now();
+    if (_lastApiLoad == null || now.difference(_lastApiLoad!).inSeconds > 5) {
+      _lastApiLoad = now;
+      ApiStoreRepository.instance.list().then((apis) {
+        _cachedApis = apis.toList();
+      });
+    }
+    if (query.isEmpty) return _cachedApis.take(8).toList();
+    return _cachedApis
+        .where((a) => a.name.toLowerCase().contains(query.toLowerCase()))
+        .take(8)
+        .toList();
+  }
+
+  /// Like _replaceVariableTrigger but doesn't add a trailing space (for @api: prefix).
+  void _replaceVariableTriggerRaw(
+    TextEditingController ctrl,
+    _VariableTrigger trigger,
+    String key,
+  ) {
+    final text = ctrl.text;
+    final end = trigger.end.clamp(0, text.length);
+    final replacement = '@$key';
+    ctrl.text = text.replaceRange(trigger.start, end, replacement);
+    final pos = trigger.start + replacement.length;
+    ctrl.selection = TextSelection.collapsed(offset: pos);
   }
 
   _VariableTrigger? _activeVariableTrigger(TextEditingController ctrl) {
@@ -1799,9 +2059,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       if (RegExp(r'[\w@]').hasMatch(prev)) return null;
     }
     final query = before.substring(at + 1);
-    // Stop suggestions if the user already typed a non-word character (space,
-    // newline, punctuation) — they've moved on from the placeholder.
-    if (query.isNotEmpty && RegExp(r'[^\w]').hasMatch(query)) return null;
+    // Allow colon in the query only when it's the 'api:' prefix pattern.
+    // Stop suggestions if the user typed another non-word character.
+    if (query.isNotEmpty) {
+      final cleaned = query.startsWith('api:') ? query.substring(4) : query;
+      if (cleaned.isNotEmpty && RegExp(r'[^\w]').hasMatch(cleaned)) return null;
+      // Also reject if colon appears but doesn't form 'api:'
+      if (query.contains(':') && !query.startsWith('api:')) return null;
+    }
     return _VariableTrigger(at, cursor, query);
   }
 
@@ -1861,7 +2126,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAgentPicker(List<AgentModel> agents, bool isId) {
+  Widget _buildAgentPicker(List<AgentModel> agents, AppStrings s) {
     final selectedValue = agents.any((a) => a.id == _selectedAgentId)
         ? _selectedAgentId
         : null;
@@ -1870,17 +2135,17 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       value: selectedValue,
       enabled: agents.isNotEmpty,
       hint: agents.isEmpty
-          ? (isId ? 'Belum ada agen' : 'No agents yet')
-          : (isId ? 'Pilih agen' : 'Choose agent'),
-      sheetTitle: isId ? 'Pilih Agen' : 'Choose Agent',
-      searchHint: isId ? 'Cari agen' : 'Search agents',
-      emptyText: isId ? 'Agen tidak ditemukan' : 'No agents found',
+          ? s.workflowNoAgentsYet
+          : s.workflowChooseAgent,
+      sheetTitle: s.workflowChooseAgentTitle,
+      searchHint: s.workflowSearchAgentsLong,
+      emptyText: s.workflowNoAgentsFound,
       options: agents
           .map(
             (agent) => MeowDropdownOption<String>(
               value: agent.id,
               label: agent.name.trim().isEmpty
-                  ? (isId ? 'Agen tanpa nama' : 'Untitled agent')
+                  ? s.workflowUntitledAgent
                   : agent.name.trim(),
               prefix: MeowAgentIcon(agent: agent),
               searchText: '${agent.providerId} ${agent.maxContextLength}',
@@ -1894,7 +2159,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildTimePicker(ColorScheme cs, MeowExtras extras, bool isId) {
+  Widget _buildTimePicker(ColorScheme cs, MeowExtras extras, AppStrings s) {
     return GestureDetector(
       onTap: _pickTime,
       child: Container(
@@ -1914,7 +2179,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
             ),
             const Spacer(),
             Text(
-              isId ? 'Ubah' : 'Change',
+              s.workflowChange,
               style: TextStyle(fontSize: 12, color: cs.primary),
             ),
           ],
@@ -2008,10 +2273,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  String _notifLabel(NotifStyle style, bool isId) {
+  String _notifLabel(NotifStyle style, AppStrings s) {
     switch (style) {
       case NotifStyle.silent:
-        return isId ? 'Senyap' : 'Silent';
+        return s.workflowSilent;
       case NotifStyle.normal:
         return 'Normal';
       case NotifStyle.alarm:
@@ -2019,11 +2284,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     }
   }
 
-  Widget _buildNotifSelector(ColorScheme cs, bool isId) {
+  Widget _buildNotifSelector(ColorScheme cs, AppStrings s) {
     return Row(
       children: [
         _chip(
-          isId ? 'Senyap' : 'Silent',
+          s.workflowSilent,
           _notifStyle == NotifStyle.silent,
           () => setState(() => _notifStyle = NotifStyle.silent),
           cs,
@@ -2151,46 +2416,34 @@ class _ConditionPreset {
   final String label;
   final String? value;
 
-  static List<_ConditionPreset> all(bool isId) {
+  static List<_ConditionPreset> all(AppStrings s) {
     return [
       _ConditionPreset(
-        label: isId ? 'Selalu jalan' : 'Always run',
+        label: s.workflowAlwaysRun,
         value: null,
       ),
       _ConditionPreset(
-        label: isId
-            ? 'Hanya jika langkah sebelumnya berhasil'
-            : 'Only if previous step succeeded',
+        label: s.wfConditionOnlyIfPrevSuccess,
         value: 'prev.isNotEmpty',
       ),
       _ConditionPreset(
-        label: isId
-            ? 'Hanya jika langkah sebelumnya kosong'
-            : 'Only if previous step is empty',
+        label: s.wfConditionOnlyIfPrevEmpty,
         value: 'prev.isEmpty',
       ),
       _ConditionPreset(
-        label: isId
-            ? 'Jika hasil sebelumnya pendek (< 50 karakter)'
-            : 'If previous result is short (< 50 chars)',
+        label: s.wfConditionIfPrevShort,
         value: 'prev.length < 50',
       ),
       _ConditionPreset(
-        label: isId
-            ? 'Jika hasil sebelumnya panjang (> 200 karakter)'
-            : 'If previous result is long (> 200 chars)',
+        label: s.wfConditionIfPrevLong,
         value: 'prev.length > 200',
       ),
       _ConditionPreset(
-        label: isId
-            ? "Jika hasil mengandung 'sukses'"
-            : "If result contains 'success'",
+        label: s.wfConditionIfContainsSukses,
         value: "prev.contains('sukses')",
       ),
       _ConditionPreset(
-        label: isId
-            ? "Jika hasil mengandung 'error'"
-            : "If result contains 'error'",
+        label: s.wfConditionIfContainsError,
         value: "prev.contains('error')",
       ),
     ];
@@ -2215,9 +2468,8 @@ class _VariableTrigger {
 class _VariableTextEditingController extends TextEditingController {
   _VariableTextEditingController({super.text});
 
-  // Match @key tokens with a left-side word boundary so emails (foo@bar.com)
-  // and double-@ chains never get rewritten.
-  static final _pattern = RegExp(r'(?<![\w@])@(\w+)');
+  // Match @key tokens AND @api:name tokens with a left-side word boundary.
+  static final _pattern = RegExp(r'(?<![\w@])@(\w+(?::\w+)?)');
 
   @override
   TextSpan buildTextSpan({

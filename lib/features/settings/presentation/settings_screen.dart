@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,17 +11,52 @@ import '../../../app/theme_mode_provider.dart';
 import '../../../app/widgets/widgets.dart';
 import '../data/app_language_provider.dart';
 import '../data/llm_debug_provider.dart';
+import '../data/notification_sound_provider.dart';
+import '../data/profile_backup_service.dart';
+import '../../chat/data/chat_notification_service.dart';
 
 import '../../providers/data/provider_repository.dart';
+import '../../agents/data/agent_repository.dart';
+import 'profile_import_sheet.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _exporting = false;
+  bool _importing = false;
+  int _mascotTapCount = 0;
+  static const int _mascotTapTarget = 10;
+
+  void _onMascotTapped() {
+    setState(() {
+      _mascotTapCount++;
+    });
+
+    if (_mascotTapCount >= _mascotTapTarget) {
+      ref.read(hiddenSettingsRevealedProvider.notifier).reveal();
+      _mascotTapCount = 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Hidden settings unlocked!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
-    final isDark = ref.watch(themeModeProvider) == ThemeMode.dark;
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = themeMode == ThemeMode.dark ||
+        (themeMode == ThemeMode.system &&
+            MediaQuery.platformBrightnessOf(context) == Brightness.dark);
     final appLanguage = ref.watch(appLanguageProvider);
     final strings = AppStrings(resolveLanguageCode(appLanguage));
 
@@ -74,6 +112,54 @@ class SettingsScreen extends ConsumerWidget {
                   onTap: () =>
                       _showLanguageSheet(context, ref, appLanguage, strings),
                 ),
+                _SettingsTile(
+                  icon: Icons.volume_up_rounded,
+                  label: strings.notificationSound,
+                  trailing: Text(
+                    ref.watch(notificationSoundProvider).label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: cs.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onTap: () =>
+                      _showSoundSheet(context, ref, strings),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 28),
+
+            // ─── PROFILE (backup & restore) ─────────────────────
+            _SectionHeader(label: strings.profileSection),
+            const SizedBox(height: 10),
+            _SettingsGroup(
+              children: [
+                _SettingsTile(
+                  icon: Icons.upload_rounded,
+                  label: strings.exportProfile,
+                  trailing: _exporting
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _exporting ? null : () => _handleExport(strings),
+                ),
+                _SettingsTile(
+                  icon: Icons.download_rounded,
+                  label: strings.importProfile,
+                  trailing: _importing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : null,
+                  onTap: _importing ? null : () => _handleImport(strings),
+                ),
               ],
             ),
 
@@ -84,14 +170,16 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
-                _SettingsToggleTile(
-                  icon: Icons.bug_report_outlined,
-                  label: strings.llmDebugging,
-                  value: ref.watch(llmDebugModeProvider),
-                  onChanged: (v) {
-                    ref.read(llmDebugModeProvider.notifier).toggle(v);
-                  },
-                ),
+                if (ref.watch(hiddenSettingsRevealedProvider)) ...[
+                  _SettingsToggleTile(
+                    icon: Icons.bug_report_outlined,
+                    label: strings.llmDebugging,
+                    value: ref.watch(llmDebugModeProvider),
+                    onChanged: (v) {
+                      ref.read(llmDebugModeProvider.notifier).toggle(v);
+                    },
+                  ),
+                ],
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
                   label: strings.aboutApp,
@@ -99,8 +187,44 @@ class SettingsScreen extends ConsumerWidget {
                     showDialog(
                       context: context,
                       builder: (dialogCtx) => AlertDialog(
-                        title: const Text('Meow Agent'),
-                        content: Text(strings.aboutBody),
+                        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: _onMascotTapped,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Image.asset(
+                                  'assets/images/meow.png',
+                                  width: 64,
+                                  height: 64,
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            Text(
+                              strings.aboutTitle,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              strings.aboutBody,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(dialogCtx)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                                height: 1.5,
+                              ),
+                            ),
+                          ],
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(dialogCtx),
@@ -145,6 +269,169 @@ class SettingsScreen extends ConsumerWidget {
 
     if (selected != null) {
       await ref.read(appLanguageProvider.notifier).set(selected);
+    }
+  }
+
+  Future<void> _showSoundSheet(
+    BuildContext context,
+    WidgetRef ref,
+    AppStrings strings,
+  ) async {
+    final current = ref.read(notificationSoundProvider);
+    final selected = await MeowDropdown.showSheet<NotificationSound>(
+      context,
+      title: strings.notificationSound,
+      subtitle: strings.notificationSoundDesc,
+      selectedValue: current,
+      searchable: false,
+      useRootNavigator: true,
+      options: NotificationSound.values
+          .map(
+            (sound) => MeowDropdownOption<NotificationSound>(
+              value: sound,
+              label: sound.label,
+              prefix: Icon(
+                sound == NotificationSound.cat
+                    ? Icons.pets_rounded
+                    : Icons.notifications_rounded,
+                size: 18,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              suffix: IconButton(
+                icon: Icon(
+                  Icons.play_circle_outline_rounded,
+                  size: 22,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                onPressed: () => _previewSound(sound),
+                tooltip: 'Preview',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ),
+          )
+          .toList(),
+    );
+
+    if (selected != null) {
+      await ref.read(notificationSoundProvider.notifier).set(selected);
+    }
+  }
+
+  Future<void> _previewSound(NotificationSound sound) async {
+    await ChatNotificationService.instance.show(
+      agentId: '__preview__',
+      agentName: 'Meow Agent',
+      preview: sound == NotificationSound.cat
+          ? 'Meow! \u{1F431}'
+          : 'This is a notification preview.',
+      soundFileName: sound.fileName,
+    );
+  }
+
+  // ─── Profile Export ──────────────────────────────────────────────────────
+
+  Future<void> _handleExport(AppStrings s) async {
+    setState(() => _exporting = true);
+    try {
+      final service = ref.read(profileBackupServiceProvider);
+      final snapshot = await service.buildSnapshot();
+      final jsonStr = ProfileBackupService.encodeSnapshot(snapshot);
+      final bytes = utf8.encode(jsonStr);
+
+      final now = DateTime.now();
+      final datePart =
+          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: s.exportProfile,
+        fileName: 'meow-profile-$datePart.json',
+        bytes: bytes,
+      );
+
+      if (!mounted) return;
+      if (result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileExportSuccess)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileExportFailed)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  // ─── Profile Import ──────────────────────────────────────────────────────
+
+  Future<void> _handleImport(AppStrings s) async {
+    setState(() => _importing = true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final bytes = picked.files.first.bytes;
+      if (bytes == null) return;
+      final jsonStr = utf8.decode(bytes);
+      final snapshot = ProfileBackupService.decodeSnapshot(jsonStr);
+      if (snapshot == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.profileImportInvalidFile)),
+          );
+        }
+        return;
+      }
+
+      final service = ref.read(profileBackupServiceProvider);
+      final preview = await service.validate(snapshot);
+      if (!preview.isValid) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(s.profileImportInvalidFile)),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      final mode = await ProfileImportSheet.show(
+        context,
+        preview: preview,
+        strings: s,
+      );
+      if (mode == null) return; // User dismissed.
+
+      final stats = await service.apply(snapshot, mode: mode);
+
+      // Refresh providers and agent lists.
+      await ref.read(providerListProvider.notifier).load();
+      await ref.read(agentListProvider.notifier).reload();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              s.profileImportSuccess(stats.agentsAdded, stats.providersAdded),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(s.profileImportInvalidFile)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
     }
   }
 }

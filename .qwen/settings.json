@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dart *)",
+      "Bash(powershell *)",
+      "Bash(flutter *)",
+      "Bash(del *)",
+      "Bash(git show *)"
+    ]
+  },
+  "$version": 4
+}

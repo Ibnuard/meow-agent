@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,13 +7,22 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../../services/permission/permission_manager.dart';
+import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import '../calendar/calendar_screen.dart';
+import '../db/presentation/db_manager_screen.dart';
 import '../data/clipboard_service_controller.dart';
 import '../data/module_model.dart';
 import '../data/module_repository.dart';
+import '../vm/vm_runtime_screen.dart';
+import '../web/presentation/api_store_screen.dart';
 import '../workflows/workflow_list_screen.dart';
 import 'module_visuals.dart';
+import 'mixins/device_context_handler.dart';
+import 'mixins/communication_handler.dart';
+import 'mixins/notification_intelligence_handler.dart';
+import 'mixins/permission_gated_toggle_handler.dart';
 
 /// Detail screen for an installed module with toggle settings.
 class ModuleDetailScreen extends ConsumerStatefulWidget {
@@ -24,17 +35,46 @@ class ModuleDetailScreen extends ConsumerStatefulWidget {
 }
 
 class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
-    with WidgetsBindingObserver {
+    with
+        SingleTickerProviderStateMixin,
+        WidgetsBindingObserver,
+        DeviceContextHandlerMixin,
+        CommunicationHandlerMixin,
+        NotificationIntelligenceHandlerMixin,
+        PermissionGatedToggleHandlerMixin {
   ModuleModel? _module;
+  bool _moduleLoaded = false;
+  bool _installingMissingModule = false;
+  AnimationController? _promptBorderController;
+  bool _promptBorderBoosted = false;
+  // Manual offset added when the user taps "Shuffle" on the Today Prompt card.
+  // The base index rotates deterministically every 6 hours; shuffle just nudges
+  // it forward within the current module's prompt list.
+  int _promptShuffleOffset = 0;
 
+  @override
+  ModuleModel? get module => _module;
+
+  @override
   AppStrings get s {
     final langPref = ref.read(appLanguageProvider);
     return AppStrings(resolveLanguageCode(langPref));
   }
 
   @override
+  PermissionManager get permissionManager =>
+      ref.read(permissionManagerProvider);
+
+  void onModuleUpdated(ModuleModel updated) {
+    if (mounted) {
+      setState(() => _module = updated);
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    _ensurePromptBorderController();
     WidgetsBinding.instance.addObserver(this);
     _loadModule();
   }
@@ -42,306 +82,106 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _promptBorderController?.dispose();
     super.dispose();
+  }
+
+  AnimationController _ensurePromptBorderController() {
+    return _promptBorderController ??= (AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat());
+  }
+
+  void _setPromptBorderBoosted(bool boosted) {
+    if (!mounted || _promptBorderBoosted == boosted) return;
+    final controller = _ensurePromptBorderController();
+    final value = controller.value;
+    controller
+      ..stop()
+      ..duration = boosted
+          ? const Duration(milliseconds: 3600)
+          : const Duration(seconds: 10)
+      ..value = value
+      ..repeat();
+    setState(() => _promptBorderBoosted = boosted);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-check overlay permission when user returns from settings.
+    // Re-check permissions when user returns from settings.
     if (state == AppLifecycleState.resumed) {
-      _syncBubbleState();
+      _loadModule();
     }
   }
 
   Future<void> _loadModule() async {
     final modules = await ref.read(moduleRepositoryProvider).getInstalled();
     final found = modules.where((m) => m.id == widget.moduleId).firstOrNull;
-    if (mounted && found != null) {
-      setState(() => _module = found);
+    if (!mounted) return;
+    setState(() {
+      _module = found;
+      _moduleLoaded = true;
+    });
+    if (found != null) {
+      await _syncLoadedModuleState();
     }
   }
 
-  /// If user enabled floating_bubble but overlay permission was just granted,
-  /// start the service automatically.
-  Future<void> _syncBubbleState() async {
-    if (_module == null || _module!.id != 'clipboard_ai') return;
-    final wantsBubble = _module!.settings['floating_bubble'] ?? false;
-    if (!wantsBubble) return;
+  Future<void> _syncLoadedModuleState() async {
+    _syncCommunicationState();
+  }
 
-    final controller = ref.read(clipboardServiceControllerProvider);
-    final canDraw = await controller.canDrawOverlays();
-    final running = await controller.isBubbleServiceRunning();
-    if (canDraw && !running) {
-      await controller.startBubbleService();
+  ModuleModel? _availableModuleSpec() {
+    return ModuleRegistry.available
+        .where((m) => m.id == widget.moduleId)
+        .firstOrNull;
+  }
+
+  Future<void> _installMissingModule(ModuleModel spec) async {
+    if (_installingMissingModule) return;
+    setState(() => _installingMissingModule = true);
+    try {
+      await ref.read(moduleRepositoryProvider).install(spec);
+      ref.invalidate(installedModulesProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(s.moduleInstalled(spec.name)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      await _loadModule();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.failedLoadModules)));
+    } finally {
+      if (mounted) {
+        setState(() => _installingMissingModule = false);
+      }
     }
+  }
+
+  /// Sync communication module state when returning from settings.
+  Future<void> _syncCommunicationState() async {
+    if (_module == null || _module!.id != 'communication') return;
+    // No WA/Telegram state to sync anymore — call/sms/contacts
+    // permissions are handled inline on toggle.
   }
 
   Future<void> _toggleSetting(String key, bool value) async {
     if (_module == null) return;
 
-    if (_module!.id == 'clipboard_ai') {
-      final controller = ref.read(clipboardServiceControllerProvider);
+    final permitted = await handlePermissionGatedToggle(key, value);
+    if (!permitted) return;
 
-      if (key == 'persistent_notification') {
-        if (value) {
-          final granted = await controller.requestNotificationPermission();
-          if (!granted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notification permission required.'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-            return;
-          }
-          await controller.startNotificationService();
-        } else {
-          await controller.stopNotificationService();
-        }
-      }
-
-      if (key == 'floating_bubble') {
-        if (value) {
-          // Need POST_NOTIFICATIONS for the foreground service notification.
-          final notifGranted = await controller.requestNotificationPermission();
-          if (!notifGranted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Notification permission required.'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-            }
-            return;
-          }
-          // Need SYSTEM_ALERT_WINDOW to draw the bubble overlay.
-          final canDraw = await controller.canDrawOverlays();
-          if (!canDraw) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Allow "Display over other apps" to use the bubble.',
-                  ),
-                  duration: Duration(seconds: 3),
-                ),
-              );
-            }
-            await controller.requestOverlayPermission();
-            // Don't toggle yet — will sync on resume.
-            return;
-          }
-          await controller.startBubbleService();
-        } else {
-          await controller.stopBubbleService();
-        }
-      }
-    }
-
-    // App Control — settings are purely preference toggles, no native service.
-    // The runtime engine reads these before executing app control tools.
-    if (_module!.id == 'app_control') {
-      // No native service to start/stop — just persist the toggle.
-      if (value && key == 'allow_url_intents') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('URL intents enabled. AI can now open URLs.'),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-
-      // Background launch needs SYSTEM_ALERT_WINDOW. Without it Android 10+
-      // will silently drop activity launches when Meow Agent is backgrounded.
-      if (value && key == 'allow_background_launch') {
-        final controller = ref.read(clipboardServiceControllerProvider);
-        final canDraw = await controller.canDrawOverlays();
-        if (!canDraw) {
-          if (mounted) {
-            final goSettings = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: Text(s.permissionRequired),
-                content: Text(
-                  s.isId
-                      ? 'Untuk membuka aplikasi saat Meow Agent di latar belakang, '
-                            'Android membutuhkan izin "Tampilkan di atas aplikasi lain".\n\n'
-                            'Tap "${s.openSettings}" untuk mengaktifkan, lalu kembali.'
-                      : 'To open apps while Meow Agent is in the background, '
-                            'Android requires the "Display over other apps" permission.\n\n'
-                            'Tap "Open Settings" to enable it, then come back.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: Text(s.cancel),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(s.openSettings),
-                  ),
-                ],
-              ),
-            );
-            if (goSettings != true) return;
-            await controller.requestOverlayPermission();
-            // Don't toggle yet — wait for user to grant and return.
-            // Re-check on the next interaction; user can tap again.
-            return;
-          }
-        }
-      }
-    }
-
-    // Device Context — foreground app needs PACKAGE_USAGE_STATS permission.
-    if (_module!.id == 'device_context' &&
-        key == 'allow_foreground_app' &&
-        value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Deteksi aplikasi aktif membutuhkan izin "Akses Penggunaan".\n\n'
-                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Foreground app detection requires the "Usage Access" '
-                        'permission.\n\n'
-                        'Tap "Open Settings" to grant it, then come back.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.cancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings != true) return;
-        // Open Usage Access settings screen.
-        await const MethodChannel(
-          'com.meowagent/app_control',
-        ).invokeMethod<bool>('openSettings', {
-          'action': 'android.settings.USAGE_ACCESS_SETTINGS',
-        });
-        // Fall through — save toggle as true so it reflects user intent.
-        // If permission wasn't granted, the tool returns available:false gracefully.
-      }
-    }
-
-    // Device Context — Bluetooth needs BLUETOOTH_CONNECT on Android 12+.
-    if (_module!.id == 'device_context' && key == 'allow_bluetooth' && value) {
-      try {
-        await const MethodChannel(
-          'com.meowagent/services',
-        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
-          'permissions': ['android.permission.BLUETOOTH_CONNECT'],
-        });
-      } catch (_) {
-        // If denied or error, toggle still saves; tools degrade gracefully.
-      }
-    }
-
-    // Device Context — DND needs notification policy access.
-    if (_module!.id == 'device_context' && key == 'allow_dnd' && value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Membaca status Jangan Ganggu membutuhkan izin "Akses Do Not Disturb".\n\n'
-                        'Tap "${s.openSettings}" untuk memberikan izin, lalu kembali.'
-                  : 'Reading Do Not Disturb status requires '
-                        '"Do Not Disturb access" permission.\n\n'
-                        'Tap "Open Settings" to grant it, then come back.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.cancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings != true) return;
-        await const MethodChannel(
-          'com.meowagent/app_control',
-        ).invokeMethod<bool>('openSettings', {
-          'action': 'android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS',
-        });
-      }
-    }
-
-    // Device Context — Network Info needs Location (WiFi SSID) + Phone (cellular type) on Android 10+.
-    if (_module!.id == 'device_context' && key == 'allow_network' && value) {
-      try {
-        await const MethodChannel(
-          'com.meowagent/services',
-        ).invokeMethod<Map<dynamic, dynamic>>('requestRuntimePermissions', {
-          'permissions': [
-            'android.permission.ACCESS_FINE_LOCATION',
-            'android.permission.READ_PHONE_STATE',
-          ],
-        });
-      } catch (_) {
-        // If denied or error, toggle still saves; tools degrade gracefully.
-      }
-    }
-
-    // Notification Intelligence — needs Notification access (Special Access).
-    // Cannot be granted via runtime dialog — must redirect to settings.
-    if (_module!.id == 'notification_intelligence' &&
-        key == 'allow_read' &&
-        value) {
-      if (mounted) {
-        final goSettings = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(s.permissionRequired),
-            content: Text(
-              s.isId
-                  ? 'Membaca notifikasi membutuhkan izin "Akses Notifikasi".\n\n'
-                        'Tap "${s.openSettings}", cari "Meow Agent" di daftar, dan aktifkan akses.\n\n'
-                        'Kamu bisa lewati ini — toggle akan tersimpan, tapi agen tidak bisa membaca notifikasi sampai akses diberikan.'
-                  : 'Reading notifications requires "Notification access" permission.\n\n'
-                        'Tap "Open Settings", find "Meow Agent" in the list, and enable access.\n\n'
-                        'You can skip this — the toggle will save, but the agent will not be able to read notifications until access is granted.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(s.skip),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: Text(s.openSettings),
-              ),
-            ],
-          ),
-        );
-        if (goSettings == true) {
-          await const MethodChannel(
-            'com.meowagent/notifications',
-          ).invokeMethod<bool>('openNotificationAccessSettings');
-        }
-      }
-    }
+    await handleDeviceContextToggle(key, value);
+    await handleCommunicationToggle(key, value);
+    final shouldContinueNotification =
+        await handleNotificationIntelligenceToggle(key, value);
+    if (!shouldContinueNotification) return;
 
     final updated = _module!.copyWith(
       settings: {..._module!.settings, key: value},
@@ -361,13 +201,9 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              s.isId
-                  ? 'Izinkan "Alarm & Pengingat" di pengaturan untuk mengaktifkan Workflow.'
-                  : 'Grant "Alarms & Reminders" permission in settings to enable Workflows.',
-            ),
+            content: Text(s.alarmsPermissionRequired),
             action: SnackBarAction(
-              label: s.isId ? 'Buka' : 'Open',
+              label: s.openLabel,
               onPressed: _openAlarmSettings,
             ),
           ),
@@ -384,41 +220,30 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   /// Check if SCHEDULE_EXACT_ALARM permission is granted.
   Future<bool> _checkAlarmPermission() async {
-    try {
-      const channel = MethodChannel('com.meowagent/alarm_permission');
-      final result = await channel.invokeMethod<bool>('canScheduleExactAlarms');
-      return result ?? false;
-    } catch (_) {
-      // If check fails (older Android), assume granted.
-      return true;
-    }
+    final result = await permissionManager.check(
+      PermissionType.scheduleExactAlarm,
+    );
+    return result == PermissionResult.granted;
   }
 
   /// Open system alarm permission settings.
   Future<void> _openAlarmSettings() async {
-    try {
-      const channel = MethodChannel('com.meowagent/alarm_permission');
-      await channel.invokeMethod('openAlarmSettings');
-    } catch (_) {
-      // Fallback: do nothing.
-    }
+    await permissionManager.openAlarmSettings();
   }
 
   Future<void> _uninstall() async {
-    if (_module?.id == 'clipboard_ai') {
-      final controller = ref.read(clipboardServiceControllerProvider);
-      await controller.stopNotificationService();
-      await controller.stopBubbleService();
+    if (_module?.id == 'notification_intelligence') {
+      await ref
+          .read(clipboardServiceControllerProvider)
+          .stopNotificationService();
     }
 
     if (!mounted) return;
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: s.isId,
+      strings: s,
       title: s.uninstallModule,
-      message: s.isId
-          ? 'Hapus ${_module?.name ?? 'modul ini'}? Pengaturan dan izin akan dilepas.'
-          : 'Remove ${_module?.name ?? 'this module'}? Settings and permissions will be detached.',
+      message: s.moduleUninstallDialog(_module?.name ?? 'modul ini'),
       confirmLabel: s.uninstall,
       cancelLabel: s.cancel,
     );
@@ -436,17 +261,23 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (_module == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      if (!_moduleLoaded) {
+        return Scaffold(
+          appBar: AppBar(),
+          body: const Center(child: CircularProgressIndicator()),
+        );
+      }
+      return _buildMissingModuleScreen(cs: cs, isDark: isDark);
     }
 
     final module = _module!;
     final languagePref = ref.watch(appLanguageProvider);
     final langCode = resolveLanguageCode(languagePref);
-    final isId = langCode == 'id';
-    final settingLabels = _settingLabels(module.id, isId: isId);
+    final s = AppStrings(langCode);
+    final settingLabels = _settingLabels(module.id, strings: s);
+    final visibleSettingEntries = module.settings.entries
+        .where((entry) => _settingVisible(module, entry))
+        .toList(growable: false);
 
     return Scaffold(
       backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
@@ -455,7 +286,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
         actions: [
           IconButton(
             icon: Icon(Icons.delete_outline_rounded, color: cs.error),
-            tooltip: isId ? 'Hapus modul' : 'Uninstall',
+            tooltip: s.uninstallTooltip,
             onPressed: _uninstall,
           ),
         ],
@@ -504,7 +335,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                       ),
                       const SizedBox(height: 7),
                       Text(
-                        _moduleDescription(module, isId: isId),
+                        _moduleDescription(module, strings: s),
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -532,7 +363,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             child: SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(
-                isId ? 'Modul Aktif' : 'Module Enabled',
+                s.moduleEnabled,
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
@@ -540,9 +371,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                 ),
               ),
               subtitle: Text(
-                isId
-                    ? 'Nyalakan untuk mengaktifkan modul ini.'
-                    : 'Turn on to activate this module.',
+                s.moduleEnabledDesc,
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
               ),
               value: module.enabled,
@@ -553,6 +382,10 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
               onChanged: _toggleEnabled,
             ),
           ),
+
+          const SizedBox(height: 20),
+
+          _buildTodayPromptCard(module: module, cs: cs, extras: extras),
 
           const SizedBox(height: 20),
 
@@ -577,7 +410,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     Icon(Icons.note_outlined, size: 18, color: cs.primary),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Catatan' : 'Open Notes',
+                      s.openNotes,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -619,7 +452,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Kalender' : 'Open Calendar',
+                      s.openCalendar,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -657,7 +490,7 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
                     Icon(Icons.schedule_rounded, size: 18, color: cs.primary),
                     const SizedBox(width: 8),
                     Text(
-                      isId ? 'Buka Workflows' : 'Open Workflows',
+                      s.openWorkflows,
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -671,56 +504,197 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
             const SizedBox(height: 20),
           ],
 
-          if (module.enabled) ...[
-            Text(
-              isId ? 'Fitur & Izin Agen' : 'Feature & Permission',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: cs.onSurface,
+          // Web/API module: show "Open API Store" button when enabled.
+          if (module.id == 'web' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ApiStoreScreen()),
               ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              decoration: BoxDecoration(
-                color: extras.card,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: extras.subtleBorder),
-              ),
-              child: Column(
-                children: module.settings.entries.map((entry) {
-                  final label = settingLabels[entry.key];
-                  return SwitchListTile(
-                    title: Text(
-                      label?.$1 ?? entry.key,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openApiStore,
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        color: cs.onSurface,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
                       ),
                     ),
-                    subtitle: label != null
-                        ? Text(
-                            label.$2,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: cs.onSurfaceVariant,
-                            ),
-                          )
-                        : null,
-                    value: entry.value,
-                    activeTrackColor: cs.primary.withValues(alpha: 0.82),
-                    activeThumbColor: Colors.white,
-                    inactiveTrackColor: cs.onSurfaceVariant.withValues(
-                      alpha: 0.22,
-                    ),
-                    inactiveThumbColor: cs.onSurfaceVariant.withValues(
-                      alpha: 0.72,
-                    ),
-                    onChanged: (v) => _toggleSetting(entry.key, v),
-                  );
-                }).toList(),
+                  ],
+                ),
               ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Database module: show "Open Database Manager" button when enabled.
+          if (module.id == 'database' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DbManagerScreen()),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.storage_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openDatabaseManager,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Mini App module: show "Open Mini App Dashboard" button when enabled.
+          if (module.id == 'miniapp' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => context.push('/miniapp'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.widgets_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openMiniApp,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Skills module: show "Open Skills" button when enabled.
+          if (module.id == 'skills' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => context.push('/skills'),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.psychology_outlined, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openSkills,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // VM Runtime module: show "Open VM Runtime" button when enabled.
+          if (module.id == 'vm' && module.enabled) ...[
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const VmRuntimeScreen()),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  vertical: 14,
+                  horizontal: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.terminal_rounded, size: 18, color: cs.primary),
+                    const SizedBox(width: 8),
+                    Text(
+                      s.openVmRuntime,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: cs.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          if (module.enabled && visibleSettingEntries.isNotEmpty) ...[
+            _buildSettingsSection(
+              module: module,
+              entries: visibleSettingEntries,
+              settingLabels: settingLabels,
+              cs: cs,
+              extras: extras,
             ),
           ],
         ],
@@ -728,25 +702,559 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
     );
   }
 
-  String _moduleDescription(ModuleModel module, {required bool isId}) {
-    if (!isId) return module.description;
+  Widget _buildMissingModuleScreen({
+    required ColorScheme cs,
+    required bool isDark,
+  }) {
+    final spec = _availableModuleSpec();
+    final title = spec == null
+        ? s.moduleUnknownTitle
+        : s.moduleMissingTitle(spec.name);
+    final body = spec == null
+        ? s.moduleUnknownBody
+        : s.moduleMissingBody(spec.name);
+
+    return Scaffold(
+      backgroundColor: isDark ? cs.surface : const Color(0xFFFBFCFE),
+      appBar: AppBar(title: Text(s.modules)),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(18),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: MeowCard(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (spec != null)
+                      ModuleIconBadge(
+                        moduleId: spec.id,
+                        size: 62,
+                        iconSize: 28,
+                        radius: 22,
+                      )
+                    else
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(22),
+                          border: Border.all(
+                            color: cs.primary.withValues(alpha: 0.20),
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.extension_off_rounded,
+                          size: 29,
+                          color: cs.primary,
+                        ),
+                      ),
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: cs.onSurface,
+                        height: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      body,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: cs.onSurfaceVariant,
+                        height: 1.42,
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    if (spec != null) ...[
+                      MeowPrimaryButton(
+                        label: s.installModuleAction(spec.name),
+                        icon: Icons.add_rounded,
+                        loading: _installingMissingModule,
+                        onPressed: _installingMissingModule
+                            ? null
+                            : () => _installMissingModule(spec),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    MeowSecondaryButton(
+                      label: s.moduleStore,
+                      icon: Icons.view_module_rounded,
+                      onPressed: () => context.push('/modules/store'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _settingVisible(ModuleModel module, MapEntry<String, bool> entry) =>
+      true;
+
+  Widget _buildSettingsSection({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          s.featurePermission,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (module.id == 'device_context')
+          _buildGroupedSettings(
+            module: module,
+            entries: entries,
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          )
+        else
+          _buildFlatSettingsCard(
+            module: module,
+            entries: entries,
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildFlatSettingsCard({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        children: [
+          for (final entry in entries)
+            _buildSettingSwitch(
+              entry: entry,
+              label: settingLabels[entry.key],
+              cs: cs,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupedSettings({
+    required ModuleModel module,
+    required List<MapEntry<String, bool>> entries,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    final groups = _settingGroupsFor(module, entries);
+    return Column(
+      children: [
+        for (var i = 0; i < groups.length; i++) ...[
+          _buildSettingGroupCard(
+            group: groups[i],
+            settingLabels: settingLabels,
+            cs: cs,
+            extras: extras,
+          ),
+          if (i != groups.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildSettingGroupCard({
+    required _ModuleSettingGroup group,
+    required Map<String, (String, String)> settingLabels,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    return Container(
+      padding: const EdgeInsets.only(top: 14, bottom: 8),
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: extras.card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: extras.subtleBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: cs.primary.withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(group.icon, size: 18, color: cs.primary),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        group.title,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                      ),
+                      if (group.description.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          group.description,
+                          style: TextStyle(
+                            fontSize: 11,
+                            height: 1.25,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in group.entries)
+            _buildSettingSwitch(
+              entry: entry,
+              label: settingLabels[entry.key],
+              cs: cs,
+            ),
+        ],
+      ),
+    );
+  }
+
+  List<_ModuleSettingGroup> _settingGroupsFor(
+    ModuleModel module,
+    List<MapEntry<String, bool>> entries,
+  ) {
+    if (module.id != 'device_context') {
+      return [
+        _ModuleSettingGroup(
+          title: s.featurePermission,
+          description: '',
+          icon: Icons.tune_rounded,
+          entries: entries,
+        ),
+      ];
+    }
+
+    final grouped = <String, List<MapEntry<String, bool>>>{};
+    for (final entry in entries) {
+      grouped
+          .putIfAbsent(_deviceContextGroupKey(entry.key), () => [])
+          .add(entry);
+    }
+
+    const order = ['power', 'connectivity', 'apps', 'system', 'clipboard'];
+    return [
+      for (final key in order)
+        if ((grouped[key] ?? const <MapEntry<String, bool>>[]).isNotEmpty)
+          _ModuleSettingGroup(
+            title: s.moduleSettingGroupTitle(module.id, key),
+            description: s.moduleSettingGroupDescription(module.id, key),
+            icon: _deviceContextGroupIcon(key),
+            entries: grouped[key]!,
+          ),
+    ];
+  }
+
+  String _deviceContextGroupKey(String settingKey) {
+    return switch (settingKey) {
+      'allow_battery' || 'allow_charging' => 'power',
+      'allow_network' || 'allow_bluetooth' => 'connectivity',
+      'allow_foreground_app' ||
+      'allow_open_apps' ||
+      'allow_background_launch' => 'apps',
+      'allow_storage' || 'allow_time_locale' || 'allow_dnd' => 'system',
+      'allow_clipboard_read' || 'allow_clipboard_write' => 'clipboard',
+      _ => 'system',
+    };
+  }
+
+  IconData _deviceContextGroupIcon(String groupKey) {
+    return switch (groupKey) {
+      'power' => Icons.battery_charging_full_rounded,
+      'connectivity' => Icons.hub_rounded,
+      'apps' => Icons.apps_rounded,
+      'clipboard' => Icons.content_paste_rounded,
+      _ => Icons.memory_rounded,
+    };
+  }
+
+  Widget _buildSettingSwitch({
+    required MapEntry<String, bool> entry,
+    required (String, String)? label,
+    required ColorScheme cs,
+  }) {
+    return SwitchListTile(
+      title: Text(
+        label?.$1 ?? entry.key,
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+          color: cs.onSurface,
+        ),
+      ),
+      subtitle: label != null
+          ? Text(
+              label.$2,
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+            )
+          : null,
+      value: entry.value,
+      activeTrackColor: cs.primary.withValues(alpha: 0.82),
+      activeThumbColor: Colors.white,
+      inactiveTrackColor: cs.onSurfaceVariant.withValues(alpha: 0.22),
+      inactiveThumbColor: cs.onSurfaceVariant.withValues(alpha: 0.72),
+      onChanged: (v) => _toggleSetting(entry.key, v),
+    );
+  }
+
+  /// Picks the index of today's prompt. Rotates deterministically every 6
+  /// hours based on the wall clock, so all entry points agree without storage.
+  /// The shuffle offset nudges it forward within the module's prompt list.
+  int _todayPromptIndex(int promptCount) {
+    if (promptCount <= 0) return 0;
+    final now = DateTime.now();
+    // Number of 6-hour slots since epoch — changes 4 times a day.
+    final slot = now.millisecondsSinceEpoch ~/ (6 * 60 * 60 * 1000);
+    return (slot + _promptShuffleOffset) % promptCount;
+  }
+
+  Future<void> _copyTodayPrompt(String prompt) async {
+    await Clipboard.setData(ClipboardData(text: prompt));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(s.todayPromptCopied),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _copyTodayPromptWithFeedback(String prompt) async {
+    _setPromptBorderBoosted(true);
+    await _copyTodayPrompt(prompt);
+    await Future<void>.delayed(const Duration(milliseconds: 1800));
+    _setPromptBorderBoosted(false);
+  }
+
+  Future<void> _sendTodayPromptToChat(String prompt) async {
+    await ref.read(agentListProvider.notifier).ready;
+    final agents = ref.read(agentListProvider);
+    if (agents.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(s.workflowNoAgentsYet)));
+      return;
+    }
+
+    if (!mounted) return;
+    final pickedAgentId = await MeowDropdown.showSheet<String>(
+      context,
+      title: s.workflowChooseAgentTitle,
+      searchHint: s.workflowSearchAgentsLong,
+      emptyText: s.clipboardAgentNotFound,
+      strings: s,
+      options: [
+        for (final agent in agents)
+          MeowDropdownOption<String>(
+            value: agent.id,
+            label: agent.name.trim().isEmpty
+                ? s.workflowUntitledAgent
+                : agent.name.trim(),
+            prefix: MeowAgentIcon(agent: agent),
+            searchText: '${agent.providerId} ${agent.model}',
+          ),
+      ],
+    );
+    if (pickedAgentId == null || !mounted) return;
+
+    final encoded = Uri.encodeComponent(prompt);
+    context.go('/agents/$pickedAgentId/chat?initialText=$encoded');
+  }
+
+  Widget _buildTodayPromptCard({
+    required ModuleModel module,
+    required ColorScheme cs,
+    required MeowExtras extras,
+  }) {
+    final prompts = s.modulePrompts(module.id);
+    if (prompts.isEmpty) return const SizedBox.shrink();
+    final prompt = prompts[_todayPromptIndex(prompts.length)];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: cs.primary.withValues(alpha: 0.14)),
+                ),
+                child: Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 17,
+                  color: cs.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  s.todayPromptTitle,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                    height: 1.2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildPromptHeaderAction(
+                tooltip: s.clipboardActionSendToChat,
+                icon: Icons.chat_bubble_outline_rounded,
+                cs: cs,
+                onPressed: () => _sendTodayPromptToChat(prompt),
+              ),
+              const SizedBox(width: 8),
+              _buildPromptHeaderAction(
+                tooltip: s.todayPromptShuffle,
+                icon: Icons.shuffle_rounded,
+                cs: cs,
+                onPressed: () {
+                  setState(() => _promptShuffleOffset++);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _AnimatedPromptBox(
+            animation: _ensurePromptBorderController(),
+            extras: extras,
+            boosted: _promptBorderBoosted,
+            onTap: () => _copyTodayPromptWithFeedback(prompt),
+            onTapDown: () => _setPromptBorderBoosted(true),
+            onTapCancel: () => _setPromptBorderBoosted(false),
+            child: Text(
+              prompt,
+              style: TextStyle(
+                fontSize: 14,
+                height: 1.45,
+                color: cs.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            s.todayPromptSubtitle,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.35,
+              color: cs.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPromptHeaderAction({
+    required String tooltip,
+    required IconData icon,
+    required ColorScheme cs,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18),
+      color: cs.primary,
+      style: IconButton.styleFrom(
+        backgroundColor: cs.primary.withValues(alpha: 0.08),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        fixedSize: const Size(36, 36),
+        minimumSize: const Size(36, 36),
+        padding: EdgeInsets.zero,
+      ),
+    );
+  }
+
+  String _moduleDescription(ModuleModel module, {required AppStrings strings}) {
+    final s = strings;
     switch (module.id) {
-      case 'clipboard_ai':
-        return 'Biarkan agen memproses teks dari clipboard dan menu Share Android.';
-      case 'app_control':
-        return 'Biarkan agen membuka aplikasi, URL, dan halaman pengaturan tertentu dengan kontrol izin.';
       case 'device_context':
-        return 'Biarkan agen membaca konteks perangkat seperti baterai, jaringan, penyimpanan, waktu, DND, dan Bluetooth.';
+        return s.moduleDescDeviceContext;
       case 'notification_intelligence':
-        return 'Biarkan agen membaca dan merangkum notifikasi Android. Hanya baca — tidak membalas otomatis atau menghapus notifikasi.';
+        return s.moduleDescNotification;
       case 'notes':
-        return 'Buat dan kelola catatan markdown untuk kamu dan agenmu. Lapisan memori lokal yang persisten.';
+        return s.moduleDescNotes;
       case 'files':
-        return 'Buat, baca, edit, hapus, dan kelola file di workspace agen. Terbatas hanya di direktori workspace.';
+        return s.moduleDescFiles;
       case 'calendar':
-        return 'Kalender lokal untuk menjadwalkan event dan pengingat. Agen dapat membuat dan mengelola jadwalmu.';
+        return s.moduleDescCalendar;
       case 'workflows':
-        return 'Jadwalkan tugas otomatis agent dengan notifikasi. Buat workflow yang menjalankan prompt di waktu tertentu atau berkala.';
+        return s.moduleDescWorkflows;
+      case 'web':
+        return s.moduleDescWeb;
+      case 'vm':
+        return s.moduleDescVm;
       default:
         return module.description;
     }
@@ -754,401 +1262,125 @@ class _ModuleDetailScreenState extends ConsumerState<ModuleDetailScreen>
 
   Map<String, (String, String)> _settingLabels(
     String moduleId, {
-    required bool isId,
+    required AppStrings strings,
   }) {
-    if (isId) return _settingLabelsId(moduleId);
-    return _settingLabelsEn(moduleId);
-  }
-
-  Map<String, (String, String)> _settingLabelsEn(String moduleId) {
-    switch (moduleId) {
-      case 'clipboard_ai':
-        return {
-          'share_intent': (
-            'Share Intent',
-            'Receive text via Android Share menu.',
-          ),
-          'persistent_notification': (
-            'Persistent Notification',
-            'Show a notification to quickly process clipboard.',
-          ),
-          'floating_bubble': (
-            'Floating Bubble',
-            'Draggable bubble overlay on top of all apps.',
-          ),
-        };
-      case 'app_control':
-        return {
-          'require_confirmation': (
-            'Require Confirmation',
-            'Ask before opening apps or URLs.',
-          ),
-          'allow_system_settings': (
-            'Allow System Settings',
-            'AI can open Android system settings screens.',
-          ),
-          'allow_url_intents': (
-            'Allow URL Intents',
-            'AI can open URLs in the browser.',
-          ),
-          'allow_background_launch': (
-            'Allow Background Launch',
-            'Required for workflows to open apps when Meow Agent is in the background. Needs "Display over other apps" permission.',
-          ),
-          'show_execution_toast': (
-            'Show Execution Toast',
-            'Show a brief notification when an action runs.',
-          ),
-        };
-      case 'device_context':
-        return {
-          'allow_battery': (
-            'Battery Info',
-            'Agent can read battery level and charging status.',
-          ),
-          'allow_network': (
-            'Network Info',
-            'Agent can read connection type (WiFi, cellular, etc.). Optional: Location & Phone permissions enable WiFi SSID and 4G/5G detection.',
-          ),
-          'allow_storage': (
-            'Storage Info',
-            'Agent can read internal storage usage.',
-          ),
-          'allow_time_locale': (
-            'Time & Locale',
-            'Agent can read local time, timezone, and language.',
-          ),
-          'allow_foreground_app': (
-            'Foreground App Detection',
-            'Agent can detect which app is currently active. Requires Usage Stats permission.',
-          ),
-          'allow_charging': (
-            'Charging Info',
-            'Agent can read charging state and plug type.',
-          ),
-          'allow_dnd': (
-            'Do Not Disturb Status',
-            'Agent can read DND mode. Requires notification policy access.',
-          ),
-          'allow_bluetooth': (
-            'Bluetooth Status',
-            'Agent can read Bluetooth state and connected devices. Requires Nearby Devices permission.',
-          ),
-          'show_logs': (
-            'Show in Runtime Logs',
-            'Include device data in agent debug logs.',
-          ),
-        };
-      case 'notification_intelligence':
-        return {
-          'allow_read': (
-            'Allow Read Notifications',
-            'Agent can read recent notifications. Requires Notification access permission.',
-          ),
-          'allow_summary': (
-            'Allow Notification Summaries',
-            'Agent can group and summarize recent notifications.',
-          ),
-          'allow_classify': (
-            'Allow Importance Detection',
-            'Agent can flag urgent or important notifications.',
-          ),
-          'allow_reply_suggestion': (
-            'Allow Reply Suggestions',
-            'Agent can suggest replies. Will NOT auto-send.',
-          ),
-          'allow_open_source_app': (
-            'Allow Open Source App',
-            'Agent can open the app that sent a notification.',
-          ),
-          'show_logs': (
-            'Show Notification Data in Logs',
-            'Include notification content in runtime logs (privacy off by default).',
-          ),
-        };
-      case 'notes':
-        return {
-          'allow_create': ('Allow Create Notes', 'Agent can create new notes.'),
-          'allow_read': ('Allow Read Notes', 'Agent can read and list notes.'),
-          'allow_search': (
-            'Allow Search Notes',
-            'Agent can search notes by keyword.',
-          ),
-          'allow_export': (
-            'Allow Export Notes',
-            'Agent can export notes as markdown files to the workspace.',
-          ),
-          'require_confirm_update': (
-            'Confirm Before Update',
-            'Require user confirmation before overwriting note content.',
-          ),
-          'require_confirm_delete': (
-            'Confirm Before Delete',
-            'Require user confirmation before deleting a note.',
-          ),
-        };
-      case 'files':
-        return {
-          'allow_create': (
-            'Allow Create Files',
-            'Agent can create new files and directories in workspace.',
-          ),
-          'allow_read': (
-            'Allow Read Files',
-            'Agent can read file contents and list directories.',
-          ),
-          'allow_write': (
-            'Allow Write Files',
-            'Agent can edit and overwrite existing files.',
-          ),
-          'allow_delete': (
-            'Allow Delete Files',
-            'Agent can delete files and directories. Requires confirmation.',
-          ),
-          'allow_organize': (
-            'Allow Organize Files',
-            'Agent can move and rename files within workspace.',
-          ),
-        };
-      case 'calendar':
-        return {
-          'allow_create': (
-            'Allow Create Events',
-            'Agent can create new calendar events.',
-          ),
-          'allow_read': (
-            'Allow Read Events',
-            'Agent can read and list calendar events.',
-          ),
-          'allow_update': (
-            'Allow Update Events',
-            'Agent can modify existing calendar events.',
-          ),
-          'allow_delete': (
-            'Allow Delete Events',
-            'Agent can delete calendar events. Requires confirmation.',
-          ),
-        };
-      case 'workflows':
-        return {
-          'allow_create': (
-            'Allow Create Workflows',
-            'Agent can create new scheduled workflows.',
-          ),
-          'allow_read': (
-            'Allow Read Workflows',
-            'Agent can list and view workflow details.',
-          ),
-          'allow_update': (
-            'Allow Update Workflows',
-            'Agent can modify existing workflows.',
-          ),
-          'allow_delete': (
-            'Allow Delete Workflows',
-            'Agent can delete workflows. Requires confirmation.',
-          ),
-        };
-      default:
-        return {};
+    final s = strings;
+    final labels = <String, (String, String)>{};
+    for (final entry in _module!.settings.entries) {
+      labels[entry.key] = s.moduleSetting(moduleId, entry.key);
     }
+    return labels;
   }
+}
 
-  Map<String, (String, String)> _settingLabelsId(String moduleId) {
-    switch (moduleId) {
-      case 'clipboard_ai':
-        return {
-          'share_intent': (
-            'Menu Share Android',
-            'Terima teks dari menu Share Android.',
+class _AnimatedPromptBox extends StatelessWidget {
+  const _AnimatedPromptBox({
+    required this.animation,
+    required this.extras,
+    required this.boosted,
+    required this.onTap,
+    required this.onTapDown,
+    required this.onTapCancel,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final MeowExtras extras;
+  final bool boosted;
+  final VoidCallback onTap;
+  final VoidCallback onTapDown;
+  final VoidCallback onTapCancel;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        final alpha = boosted ? 0.95 : 0.68;
+        final saturationBoost = boosted ? 0.16 : 0.0;
+        return Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(boosted ? 2.0 : 1.4),
+          decoration: BoxDecoration(
+            gradient: SweepGradient(
+              colors: [
+                HSVColor.fromAHSV(
+                  alpha,
+                  214,
+                  0.70 + saturationBoost,
+                  0.95,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  285,
+                  0.56 + saturationBoost,
+                  0.96,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  330,
+                  0.58 + saturationBoost,
+                  0.98,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  42,
+                  0.68 + saturationBoost,
+                  0.98,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  155,
+                  0.64 + saturationBoost,
+                  0.86,
+                ).toColor(),
+                HSVColor.fromAHSV(
+                  alpha,
+                  214,
+                  0.70 + saturationBoost,
+                  0.95,
+                ).toColor(),
+              ],
+              transform: GradientRotation(animation.value * math.pi * 2),
+            ),
+            borderRadius: BorderRadius.circular(18),
           ),
-          'persistent_notification': (
-            'Notifikasi Persisten',
-            'Tampilkan notifikasi untuk memproses clipboard dengan cepat.',
+          child: Material(
+            color: extras.inputFill,
+            borderRadius: BorderRadius.circular(17),
+            child: InkWell(
+              onTap: onTap,
+              onTapDown: (_) => onTapDown(),
+              onTapCancel: onTapCancel,
+              borderRadius: BorderRadius.circular(17),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: child,
+              ),
+            ),
           ),
-          'floating_bubble': (
-            'Bubble Mengambang',
-            'Bubble yang bisa digeser di atas aplikasi lain.',
-          ),
-        };
-      case 'app_control':
-        return {
-          'require_confirmation': (
-            'Wajib Konfirmasi',
-            'Minta konfirmasi sebelum membuka aplikasi atau URL.',
-          ),
-          'allow_system_settings': (
-            'Izinkan Pengaturan Sistem',
-            'AI dapat membuka halaman pengaturan sistem Android.',
-          ),
-          'allow_url_intents': (
-            'Izinkan Buka URL',
-            'AI dapat membuka URL di browser.',
-          ),
-          'allow_background_launch': (
-            'Izinkan Buka di Latar Belakang',
-            'Wajib aktif agar workflow dapat membuka aplikasi saat Meow Agent tidak terlihat. Memerlukan izin "Tampilkan di atas aplikasi lain".',
-          ),
-          'show_execution_toast': (
-            'Tampilkan Toast Eksekusi',
-            'Tampilkan notifikasi singkat saat aksi dijalankan.',
-          ),
-        };
-      case 'device_context':
-        return {
-          'allow_battery': (
-            'Info Baterai',
-            'Agen dapat membaca level baterai dan status pengisian.',
-          ),
-          'allow_network': (
-            'Info Jaringan',
-            'Agen dapat membaca tipe koneksi. Opsional: izin Lokasi & Telepon mengaktifkan SSID WiFi dan deteksi 4G/5G.',
-          ),
-          'allow_storage': (
-            'Info Penyimpanan',
-            'Agen dapat membaca penggunaan penyimpanan internal.',
-          ),
-          'allow_time_locale': (
-            'Waktu & Lokal',
-            'Agen dapat membaca waktu lokal, zona waktu, dan bahasa.',
-          ),
-          'allow_foreground_app': (
-            'Deteksi Aplikasi Aktif',
-            'Agen dapat mendeteksi aplikasi yang sedang aktif. Membutuhkan izin Usage Stats.',
-          ),
-          'allow_charging': (
-            'Info Pengisian Daya',
-            'Agen dapat membaca status pengisian daya dan tipe charger.',
-          ),
-          'allow_dnd': (
-            'Status Jangan Ganggu',
-            'Agen dapat membaca mode Do Not Disturb. Membutuhkan akses kebijakan notifikasi.',
-          ),
-          'allow_bluetooth': (
-            'Status Bluetooth',
-            'Agen dapat membaca status Bluetooth dan perangkat yang tersambung. Membutuhkan izin Nearby Devices.',
-          ),
-          'show_logs': (
-            'Tampilkan di Log Runtime',
-            'Sertakan data perangkat di log debug agen.',
-          ),
-        };
-      case 'notification_intelligence':
-        return {
-          'allow_read': (
-            'Izinkan Baca Notifikasi',
-            'Agen dapat membaca notifikasi terbaru. Membutuhkan izin akses Notifikasi.',
-          ),
-          'allow_summary': (
-            'Izinkan Ringkasan Notifikasi',
-            'Agen dapat mengelompokkan dan merangkum notifikasi terbaru.',
-          ),
-          'allow_classify': (
-            'Izinkan Deteksi Penting',
-            'Agen dapat menandai notifikasi yang terlihat mendesak atau penting.',
-          ),
-          'allow_reply_suggestion': (
-            'Izinkan Saran Balasan',
-            'Agen dapat menyarankan balasan. Tidak akan mengirim otomatis.',
-          ),
-          'allow_open_source_app': (
-            'Izinkan Buka Aplikasi Sumber',
-            'Agen dapat membuka aplikasi yang mengirim notifikasi.',
-          ),
-          'show_logs': (
-            'Tampilkan Data Notifikasi di Log',
-            'Sertakan konten notifikasi di log runtime (default mati untuk privasi).',
-          ),
-        };
-      case 'notes':
-        return {
-          'allow_create': (
-            'Izinkan Buat Note',
-            'Agen dapat membuat catatan baru.',
-          ),
-          'allow_read': (
-            'Izinkan Baca Note',
-            'Agen dapat membaca dan melihat daftar catatan.',
-          ),
-          'allow_search': (
-            'Izinkan Cari Note',
-            'Agen dapat mencari catatan berdasarkan kata kunci.',
-          ),
-          'allow_export': (
-            'Izinkan Export Note',
-            'Agen dapat mengekspor catatan sebagai file markdown ke workspace.',
-          ),
-          'require_confirm_update': (
-            'Konfirmasi Sebelum Update',
-            'Wajib konfirmasi pengguna sebelum menimpa konten catatan.',
-          ),
-          'require_confirm_delete': (
-            'Konfirmasi Sebelum Hapus',
-            'Wajib konfirmasi pengguna sebelum menghapus catatan.',
-          ),
-        };
-      case 'files':
-        return {
-          'allow_create': (
-            'Izinkan Buat File',
-            'Agen dapat membuat file dan direktori baru di workspace.',
-          ),
-          'allow_read': (
-            'Izinkan Baca File',
-            'Agen dapat membaca isi file dan melihat daftar direktori.',
-          ),
-          'allow_write': (
-            'Izinkan Tulis File',
-            'Agen dapat mengedit dan menimpa file yang ada.',
-          ),
-          'allow_delete': (
-            'Izinkan Hapus File',
-            'Agen dapat menghapus file dan direktori. Perlu konfirmasi.',
-          ),
-          'allow_organize': (
-            'Izinkan Organisasi File',
-            'Agen dapat memindahkan dan mengganti nama file di workspace.',
-          ),
-        };
-      case 'calendar':
-        return {
-          'allow_create': (
-            'Izinkan Buat Event',
-            'Agen dapat membuat event kalender baru.',
-          ),
-          'allow_read': (
-            'Izinkan Baca Event',
-            'Agen dapat membaca dan melihat daftar event.',
-          ),
-          'allow_update': (
-            'Izinkan Update Event',
-            'Agen dapat mengubah event kalender yang ada.',
-          ),
-          'allow_delete': (
-            'Izinkan Hapus Event',
-            'Agen dapat menghapus event kalender. Perlu konfirmasi.',
-          ),
-        };
-      case 'workflows':
-        return {
-          'allow_create': (
-            'Izinkan Buat Workflow',
-            'Agen dapat membuat workflow terjadwal baru.',
-          ),
-          'allow_read': (
-            'Izinkan Baca Workflow',
-            'Agen dapat melihat daftar dan detail workflow.',
-          ),
-          'allow_update': (
-            'Izinkan Update Workflow',
-            'Agen dapat mengubah workflow yang ada.',
-          ),
-          'allow_delete': (
-            'Izinkan Hapus Workflow',
-            'Agen dapat menghapus workflow. Perlu konfirmasi.',
-          ),
-        };
-      default:
-        return {};
-    }
+        );
+      },
+      child: child,
+    );
   }
+}
+
+class _ModuleSettingGroup {
+  const _ModuleSettingGroup({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.entries,
+  });
+
+  final String title;
+  final String description;
+  final IconData icon;
+  final List<MapEntry<String, bool>> entries;
 }

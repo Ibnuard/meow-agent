@@ -1,50 +1,31 @@
-import 'dart:io';
-
-import '../workspace/workspace_file_service.dart';
 import '../workspace/workspace_paths.dart';
 import 'runtime_models.dart';
 
-/// Loads and manages agent workspace files from external Documents storage.
+/// Manages workspace folder access for agent runtime.
 ///
-/// Reads from: /Documents/MeowAgent/Agents/{AgentName}/
-///   - SOUL.md
-///   - MEMORY.md
-///   - SKILLS.md
-///   - HEARTBEAT.md
-///
-/// Files are re-read on every runtime session start (no aggressive caching)
-/// to support external edits from file managers.
+/// Phase 7 architecture: SOUL/MEMORY/SKILLS/HEARTBEAT data lives in
+/// `meow_core.db` (tables: `agent_soul`, `agent_memory`, `agent_events`).
+/// The workspace folder is for user-uploaded files only. This class retains
+/// the public API surface expected by the runtime engine but all file-based
+/// identity/memory operations are now no-ops — the engine reads context
+/// from SQLite repositories directly.
 class WorkspaceLoader {
-  /// Load workspace for a given agent by name.
+  /// Load workspace context for a given agent.
+  ///
+  /// Returns an empty workspace. The runtime engine builds LLM context from
+  /// the DB repos directly via `_buildWorkspace`.
   Future<AgentWorkspace> load(String agentName) async {
-    return AgentWorkspace(
-      soul: await WorkspaceFileService.readFile(agentName, 'SOUL.md'),
-      memory: await WorkspaceFileService.readFile(agentName, 'MEMORY.md'),
-      skills: await WorkspaceFileService.readFile(agentName, 'SKILLS.md'),
-      heartbeat: await WorkspaceFileService.readFile(agentName, 'HEARTBEAT.md'),
-    );
+    return const AgentWorkspace(soul: '', memory: '', skills: '', heartbeat: '');
   }
 
-  /// Legacy load by agentId — resolves to name-based path.
-  /// Used during migration period; prefer [load] with agent name.
+  /// Legacy load by agentId — no longer reads from filesystem.
   Future<AgentWorkspace> loadById(String agentId, {String? agentName}) async {
-    if (agentName != null && agentName.isNotEmpty) {
-      return load(agentName);
-    }
-    // Fallback: try legacy internal path.
-    final legacyDir = await WorkspacePaths.getLegacyWorkspaceDir(agentId);
-    if (await legacyDir.exists()) {
-      return AgentWorkspace(
-        soul: await _readFile(legacyDir, 'SOUL.md'),
-        memory: await _readFile(legacyDir, 'MEMORY.md'),
-        skills: await _readFile(legacyDir, 'SKILLS.md'),
-        heartbeat: await _readFile(legacyDir, 'HEARTBEAT.md'),
-      );
-    }
-    return AgentWorkspace(soul: '', memory: '', skills: '', heartbeat: '');
+    return const AgentWorkspace(soul: '', memory: '', skills: '', heartbeat: '');
   }
 
-  /// Update HEARTBEAT.md with current runtime state.
+  /// No-op. Heartbeat data is recorded via `AgentEventRepository` in the
+  /// runtime engine. This method is retained so existing call sites compile
+  /// without changes; a follow-up can remove them incrementally.
   Future<void> updateHeartbeat(
     String agentName, {
     required String state,
@@ -53,87 +34,44 @@ class WorkspaceLoader {
     String? lastResult,
     String? lastError,
   }) async {
-    final content =
-        '''# Heartbeat
-
-Current state: $state
-Current task: $task
-Last tool: ${lastTool ?? 'none'}
-Last result: ${lastResult ?? 'none'}
-Last error: ${lastError ?? 'none'}
-Updated at: ${DateTime.now().toIso8601String()}
-''';
-    await WorkspaceFileService.writeFile(agentName, 'HEARTBEAT.md', content);
+    // No-op: heartbeat state lives in agent_events table.
   }
 
-  /// Ensure workspace directory exists with default files.
+  /// Ensure the agent workspace directory exists.
+  ///
+  /// The directory is still created lazily so the `files.*` tools have a
+  /// place to read/write user-requested files (e.g. when the user drops a
+  /// PDF in there and asks the agent to read it). Best-effort — never throws.
   Future<void> ensureWorkspace(
     String agentName, {
     String languageCode = 'id',
   }) async {
-    final dir = await WorkspacePaths.getAgentWorkspace(agentName);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-
-    await _ensureFile(dir, 'SOUL.md', _defaultSoul(agentName, languageCode));
-    await _ensureFile(dir, 'MEMORY.md', _defaultMemory);
-    await _ensureFile(dir, 'SKILLS.md', _defaultSkills);
-    await _ensureFile(dir, 'HEARTBEAT.md', _defaultHeartbeat);
-  }
-
-  Future<String> _readFile(Directory dir, String filename) async {
-    final file = File('${dir.path}/$filename');
     try {
-      if (await file.exists()) {
-        return file.readAsString();
+      final dir = await WorkspacePaths.getAgentWorkspace(agentName);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
       }
     } catch (_) {
-      // Corrupted — return empty.
-    }
-    return '';
-  }
-
-  Future<void> _ensureFile(
-    Directory dir,
-    String filename,
-    String defaultContent,
-  ) async {
-    final file = File('${dir.path}/$filename');
-    if (!await file.exists()) {
-      await file.writeAsString(defaultContent);
+      // Non-fatal: the runtime works entirely from SQLite. The folder is
+      // only needed if the user explicitly invokes a `files.*` tool.
     }
   }
 
-  /// Silently fill the User Identity > Preferred Language line if it is
-  /// still a placeholder. Called by the runtime once per turn after the
-  /// user's language is detected, so the field self-heals without forcing
-  /// a tool round-trip.
-  ///
-  /// No-op when the field is already a real value.
+  /// No-op. Preferred language is managed via `AgentSoulRepository.updateField`
+  /// triggered by `system.profile.update`. The runtime auto-detects the user's
+  /// language and writes it to the `agent_soul.preferred_language` column.
   Future<void> maybeFillPreferredLanguage(
     String agentName,
     String languageLabel,
   ) async {
-    if (languageLabel.isEmpty) return;
-    final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
-    if (soul.isEmpty) return;
-    // Match the row regardless of bracket placeholder text.
-    final regex = RegExp(
-      r'^Preferred Language:\s*(\[[^\]\n]*\]|)\s*$',
-      multiLine: true,
-    );
-    if (!regex.hasMatch(soul)) return;
-    final updated = soul.replaceFirst(
-      regex,
-      'Preferred Language: $languageLabel',
-    );
-    if (updated == soul) return;
-    await WorkspaceFileService.writeFile(agentName, 'SOUL.md', updated);
+    // No-op: canonical preferred-language lives in agent_soul table.
   }
 
-  /// True if User Identity > Name is still a placeholder (e.g. "[Your Name]"
-  /// or empty). Drives the introduction gate in [AgentRuntimeEngine.run].
+  /// True if the user hasn't introduced themselves yet.
+  ///
+  /// Checks the formatted soul content (markdown-shaped string rendered from
+  /// `AgentSoul`) for a missing or placeholder Name field. This drives the
+  /// introduction gate in `AgentRuntimeEngine.run`.
   static bool isUserNameMissing(String soulContent) {
     if (soulContent.trim().isEmpty) return true;
     // Find the User Identity section.
@@ -154,62 +92,4 @@ Updated at: ${DateTime.now().toIso8601String()}
     if (RegExp(r'^\[.*\]$').hasMatch(value)) return true;
     return false;
   }
-
-  static String _defaultSoul(String name, String lang) =>
-      '''# SOUL.md
-
-## Agent Identity
-
-Name: $name
-Role: Android-native personal AI assistant.
-Personality: Calm, helpful, practical, friendly.
-
----
-
-## User Identity
-
-Name: [Your Name]
-Nickname: [Optional Nickname]
-Preferred Language: [Not set]
-Timezone: [Your Timezone]
-''';
-
-  static const _defaultMemory = '''# MEMORY.md
-
-No memories recorded yet.
-''';
-
-  static const _defaultSkills = '''# SKILLS.md
-
-## Overview
-
-This file describes how this agent should approach using its available tools.
-The actual list of runtime tools is system-managed and injected automatically.
-
----
-
-## Tool Usage Preferences
-
-- Prefer reading state before performing sensitive actions.
-- Always confirm with the user before destructive operations.
-- Avoid spamming notifications or system toggles.
-
----
-
-## Constraints
-
-- Respect the safety mode defined in SOUL.md.
-- Never call sensitive tools without an explicit user request.
-- Stop and ask if a tool fails or requires permission.
-''';
-
-  static const _defaultHeartbeat = '''# HEARTBEAT.md
-
-Current state: idle
-Current task: none
-Last tool: none
-Last result: none
-Last error: none
-Updated at: never
-''';
 }

@@ -136,7 +136,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'New Agent',
+                                s.setupNewAgent,
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -171,7 +171,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       MeowInput(
                         controller: _baseUrlController,
                         label: s.baseUrl,
-                        hint: 'https://api.openai.com/v1',
+                        hint: s.setupApiBaseUrlHint,
                         keyboardType: TextInputType.url,
                         validator: (v) {
                           final value = v?.trim() ?? '';
@@ -187,7 +187,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       MeowInput(
                         controller: _apiKeyController,
                         label: s.apiKey,
-                        hint: 'sk-...',
+                        hint: s.setupApiKeyHint,
                         obscureText: _obscureKey,
                         helper: s.apiKeyHelper,
                         suffixIcon: IconButton(
@@ -211,7 +211,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen> {
                       MeowInput(
                         controller: _modelController,
                         label: s.model,
-                        hint: 'gpt-4.1-mini',
+                        hint: s.setupModelHint,
                         validator: (v) {
                           if ((v ?? '').trim().isEmpty) {
                             return s.modelRequired;

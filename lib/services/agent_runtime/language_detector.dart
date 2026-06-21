@@ -1,10 +1,20 @@
 /// Per-turn language detection for the runtime.
 ///
 /// Drives every user-facing string in the runtime via [ToolVerbalizer].
-/// Detection is heuristic-only (no LLM call) to keep this phase fast:
-///   1. Unicode script detection (Han/Hiragana/Hangul/Cyrillic/Arabic/Thai/Devanagari/Hebrew).
-///   2. For Latin script: ID vs EN word probe.
-///   3. Fallback to caller-provided code when ambiguous (typically the user's app setting).
+/// This is a fast, heuristic BOOTSTRAP only:
+///   1. Unicode script detection (Han/Hiragana/Hangul/Cyrillic/Arabic/Thai/Devanagari/Hebrew)
+///      → high-confidence language mapping, available instantly before any LLM call.
+///   2. For Latin script: heuristic word-probing across the many Latin
+///      languages is unreliable and privileges whichever languages have a
+///      hardcoded word list, so we DO NOT guess here. We return the caller's
+///      [fallbackCode] (the user's app setting) as a provisional, low-confidence
+///      value.
+///
+/// The AUTHORITATIVE per-turn language comes from the analyzer LLM, which
+/// natively knows the user's language. The engine refines [DetectedLanguage]
+/// from the analyzer's `detected_language` field after analysis (see
+/// [DetectedLanguage.fromAnalyzerCode]). This file stays language-agnostic: no
+/// per-language word lists, no Indonesian special casing.
 ///
 /// Cache is per-instance, keyed by message hash. Cleared when the engine resets.
 class DetectedLanguage {
@@ -28,6 +38,20 @@ class DetectedLanguage {
   final double confidence;
 
   bool get isHighConfidence => confidence >= 0.7;
+
+  /// Build an authoritative [DetectedLanguage] from an ISO code the analyzer
+  /// reported. Used by the engine to override the heuristic bootstrap once the
+  /// analyzer has classified the turn's language. Unknown codes keep the
+  /// provided [code] with an English label fallback.
+  factory DetectedLanguage.fromAnalyzerCode(String code) {
+    final normalized = code.trim().toLowerCase();
+    return DetectedLanguage(
+      code: normalized,
+      label: LanguageDetector.labelForCode(normalized),
+      script: 'Latin',
+      confidence: 0.9,
+    );
+  }
 }
 
 class LanguageDetector {
@@ -39,8 +63,8 @@ class LanguageDetector {
 
   /// Detect the language of [userMessage].
   ///
-  /// [fallbackCode] is used when detection is ambiguous (typically
-  /// the user's app language setting).
+  /// [fallbackCode] is used for Latin-script text and when detection is
+  /// ambiguous (typically the user's app language setting).
   DetectedLanguage detect({
     required String userMessage,
     required String fallbackCode,
@@ -66,8 +90,12 @@ class LanguageDetector {
       return _scriptToLanguage(script);
     }
 
-    // Latin: ID vs EN word probe.
-    return _latinProbe(text, fallbackCode);
+    // Latin script: do NOT guess between Latin languages here. Word-probe
+    // heuristics privilege whichever languages have a hardcoded list and
+    // mis-detect the rest. Return the caller's fallback (app setting) as a
+    // low-confidence provisional value; the analyzer's `detected_language`
+    // refines it authoritatively for this turn.
+    return _fallback(fallbackCode);
   }
 
   /// Walks runes once, picks the dominant non-Latin script if present.
@@ -178,52 +206,6 @@ class LanguageDetector {
     };
   }
 
-  /// Latin script: count language-specific markers.
-  /// Tie or zero hits → caller's fallback.
-  DetectedLanguage _latinProbe(String text, String fallbackCode) {
-    final lower = text.toLowerCase();
-    final tokens = lower
-        .split(RegExp(r'[^\w\u00C0-\u024F]+'))
-        .where((t) => t.isNotEmpty)
-        .toSet();
-
-    var idScore = 0;
-    var enScore = 0;
-    for (final w in _idMarkers) {
-      if (tokens.contains(w)) idScore++;
-    }
-    for (final w in _enMarkers) {
-      if (tokens.contains(w)) enScore++;
-    }
-
-    // Phrase markers (multi-word).
-    for (final p in _idPhrases) {
-      if (lower.contains(p)) idScore++;
-    }
-    for (final p in _enPhrases) {
-      if (lower.contains(p)) enScore++;
-    }
-
-    if (idScore == 0 && enScore == 0) {
-      return _fallback(fallbackCode);
-    }
-    if (idScore == enScore) {
-      return _fallback(fallbackCode);
-    }
-
-    final winner = idScore > enScore ? 'id' : 'en';
-    final winnerScore = idScore > enScore ? idScore : enScore;
-    final total = idScore + enScore;
-    final conf = (winnerScore / total).clamp(0.55, 0.95).toDouble();
-
-    return DetectedLanguage(
-      code: winner,
-      label: winner == 'id' ? 'Indonesian' : 'English',
-      script: 'Latin',
-      confidence: conf,
-    );
-  }
-
   DetectedLanguage _fallback(String code) {
     return DetectedLanguage(
       code: code,
@@ -254,166 +236,5 @@ class LanguageDetector {
     'ms' => 'Malay',
     'he' => 'Hebrew',
     _ => 'English',
-  };
-
-  // Indonesian function-word and pronoun markers — high specificity.
-  static const _idMarkers = {
-    'saya',
-    'aku',
-    'kamu',
-    'gue',
-    'gw',
-    'gua',
-    'lo',
-    'lu',
-    'yang',
-    'ini',
-    'itu',
-    'tidak',
-    'ga',
-    'gak',
-    'nggak',
-    'enggak',
-    'belum',
-    'sudah',
-    'udah',
-    'buat',
-    'dengan',
-    'untuk',
-    'akan',
-    'sama',
-    'atau',
-    'tapi',
-    'kalau',
-    'kalo',
-    'bisa',
-    'mau',
-    'pakai',
-    'pake',
-    'apa',
-    'kenapa',
-    'bagaimana',
-    'gimana',
-    'dimana',
-    'kapan',
-    'tolong',
-    'mohon',
-    'minta',
-    'banget',
-    'aja',
-    'dong',
-    'sih',
-    'kok',
-    'deh',
-    'nih',
-    'ada',
-    'jangan',
-    'jadi',
-    'juga',
-    'lagi',
-    'cuma',
-    'hanya',
-    'bikin',
-    'bikinin',
-    'tuh',
-    'yaa',
-    'yaaa',
-    'agen',
-    'modul',
-  };
-
-  static const _enMarkers = {
-    'the',
-    'is',
-    'are',
-    'was',
-    'were',
-    'be',
-    'been',
-    'being',
-    'have',
-    'has',
-    'had',
-    'do',
-    'does',
-    'did',
-    'will',
-    'would',
-    'could',
-    'should',
-    'might',
-    'must',
-    'shall',
-    'this',
-    'that',
-    'these',
-    'those',
-    'you',
-    'your',
-    'yours',
-    'me',
-    'my',
-    'mine',
-    'we',
-    'our',
-    'us',
-    'they',
-    'their',
-    'them',
-    'and',
-    'but',
-    'because',
-    'if',
-    'when',
-    'what',
-    'why',
-    'how',
-    'where',
-    'please',
-    'thanks',
-    'thank',
-    'with',
-    'from',
-    'about',
-    'into',
-    'onto',
-    'something',
-    'someone',
-    'anything',
-    'everything',
-    'agent',
-    'module',
-  };
-
-  static const _idPhrases = {
-    'saya mau',
-    'saya ingin',
-    'aku mau',
-    'gue mau',
-    'tolong buatkan',
-    'tolong buat',
-    'tolong bantu',
-    'apakah kamu',
-    'kamu bisa',
-    'jangan lupa',
-    'jadwalkan',
-  };
-
-  static const _enPhrases = {
-    "i'd like",
-    "i want",
-    'i need',
-    'can you',
-    'could you',
-    'would you',
-    'please help',
-    'help me',
-    'tell me',
-    'show me',
-    "don't",
-    "doesn't",
-    "won't",
-    "can't",
-    "i'm",
   };
 }

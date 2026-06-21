@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -106,7 +106,7 @@ class _ClipboardProcessScreenState
         .firstOrNull;
     if (agent == null || provider == null || !provider.isComplete) {
       setState(() {
-        _result = '⚠️ Provider not configured for selected agent.';
+        _result = s.clipboardNoProvider;
         _processing = false;
       });
       return;
@@ -176,9 +176,7 @@ class _ClipboardProcessScreenState
 
     if (agents.isEmpty || _selectedAgentId == null) {
       setState(() {
-        _result =
-            '⚠️ No agent configured. '
-            'Please set up an agent with a provider first.';
+        _result = s.clipboardNoAgentConf;
         _processing = false;
       });
       return;
@@ -187,7 +185,7 @@ class _ClipboardProcessScreenState
     final agent = agents.where((a) => a.id == _selectedAgentId).firstOrNull;
     if (agent == null) {
       setState(() {
-        _result = '⚠️ Selected agent not found.';
+        _result = s.clipboardProcessAgentNotFound;
         _processing = false;
       });
       return;
@@ -546,20 +544,12 @@ class _ClipboardProcessScreenState
                                 ],
                               ),
                               const SizedBox(height: 10),
-                              MarkdownBody(
-                                data: _result!,
-                                selectable: true,
-                                shrinkWrap: true,
-                                styleSheet: MarkdownStyleSheet(
-                                  p: TextStyle(
-                                    color: cs.onSurface,
-                                    fontSize: 14,
-                                    height: 1.5,
-                                  ),
-                                  strong: TextStyle(
-                                    color: cs.onSurface,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              GptMarkdown(
+                                _result!,
+                                style: TextStyle(
+                                  color: cs.onSurface,
+                                  fontSize: 14,
+                                  height: 1.5,
                                 ),
                               ),
                             ],

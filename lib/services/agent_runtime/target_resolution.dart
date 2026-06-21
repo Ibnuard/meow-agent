@@ -277,6 +277,7 @@ class TargetResolver {
             'Runtime removed impacts that were not linked to eligible targets.',
         ].where((s) => s.trim().isNotEmpty).join(' '),
         narrative: expanded.narrative,
+        nextNarrative: expanded.nextNarrative,
         degraded: expanded.degraded,
       ),
     );
@@ -343,6 +344,105 @@ class TargetResolver {
     final match = selector['match']?.toString().toLowerCase() ?? '';
     if (match == 'all' || match == 'every') return true;
     return false;
+  }
+
+  /// True when the selector declares a structured, language-agnostic predicate
+  /// over an entity field. The reflector emits this for requests like
+  /// "delete agents ending with Don" (in ANY language) instead of enumerating
+  /// names itself:
+  ///
+  ///   {"scope":"predicate","field":"name","op":"ends_with",
+  ///    "value":"Don","case_sensitive":false}
+  ///
+  /// The RUNTIME (not the LLM) evaluates the predicate against live snapshot
+  /// state, so it can never invent a non-existent entity — the model only
+  /// supplies the pattern.
+  static bool _isPredicateSelector(Map<String, dynamic> selector) {
+    if (selector.isEmpty) return false;
+    final scope = selector['scope']?.toString().toLowerCase() ?? '';
+    if (scope != 'predicate' && scope != 'filter_by') return false;
+    final op = _predicateOp(selector);
+    return op.isNotEmpty;
+  }
+
+  /// Supported predicate operators (language-agnostic, structural).
+  static const Set<String> _predicateOps = {
+    'ends_with',
+    'starts_with',
+    'contains',
+    'equals',
+    'regex',
+  };
+
+  static String _predicateOp(Map<String, dynamic> selector) {
+    final raw = (selector['op'] ?? selector['operator'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_');
+    // Normalize a few common synonyms the model might emit.
+    const synonyms = {
+      'endswith': 'ends_with',
+      'suffix': 'ends_with',
+      'startswith': 'starts_with',
+      'prefix': 'starts_with',
+      'includes': 'contains',
+      'has': 'contains',
+      'eq': 'equals',
+      'is': 'equals',
+      'matches': 'regex',
+      'pattern': 'regex',
+    };
+    final normalized = synonyms[raw] ?? raw;
+    return _predicateOps.contains(normalized) ? normalized : '';
+  }
+
+  /// Evaluate a predicate selector against a single entity.
+  ///
+  /// Resolves [selector.field] against [entity.metadata] first (per-entity-type
+  /// extended fields like workflow.agent_name or module.enabled), then against
+  /// [entity.id] (for field == "id"), and finally against [entity.label]
+  /// (the human-readable name/title). This is fully generic — adding metadata
+  /// to [_entities] for a new entity type is all that's needed.
+  static bool _matchesPredicate(
+    Map<String, dynamic> selector,
+    _EntityMatch entity,
+  ) {
+    final op = _predicateOp(selector);
+    if (op.isEmpty) return false;
+    final value = (selector['value'] ?? selector['pattern'] ?? '').toString();
+    if (value.isEmpty) return false;
+
+    final field = (selector['field'] ?? 'name').toString().toLowerCase();
+    final subject = entity.metadata.containsKey(field)
+        ? (entity.metadata[field]?.toString() ?? '')
+        : (field == 'id')
+        ? entity.id
+        : entity.label;
+
+    final caseSensitive = selector['case_sensitive'] == true;
+    final a = caseSensitive ? subject : subject.toLowerCase();
+    final b = caseSensitive ? value : value.toLowerCase();
+
+    switch (op) {
+      case 'ends_with':
+        return a.endsWith(b);
+      case 'starts_with':
+        return a.startsWith(b);
+      case 'contains':
+        return a.contains(b);
+      case 'equals':
+        return a == b;
+      case 'regex':
+        try {
+          return RegExp(value, caseSensitive: caseSensitive).hasMatch(subject);
+        } catch (_) {
+          return false; // Invalid regex never matches — fail safe.
+        }
+      default:
+        return false;
+    }
   }
 
   /// Operations that may target an existing entity collection in bulk. Create
@@ -425,6 +525,7 @@ class TargetResolver {
         'Runtime fanned out bulk selector targets from snapshot.',
       ].where((s) => s.trim().isNotEmpty).join(' '),
       narrative: reflection.narrative,
+      nextNarrative: reflection.nextNarrative,
       degraded: reflection.degraded,
     );
   }
@@ -444,11 +545,26 @@ class TargetResolver {
     // Already concrete (snapshot id known) — nothing to expand.
     if (seed.entityId.trim().isNotEmpty) return null;
 
+    final isPredicate = _isPredicateSelector(seed.selector);
     final isBulk =
-        _isBulkLabel(seed.entityLabel) || _isBulkSelector(seed.selector);
+        _isBulkLabel(seed.entityLabel) ||
+        _isBulkSelector(seed.selector) ||
+        isPredicate;
     if (!isBulk) return null;
 
-    final entities = _entities(snapshot, entityType);
+    final allEntities = _entities(snapshot, entityType);
+    if (allEntities.isEmpty) return null;
+
+    // Predicate selectors fan out only to entities the structured predicate
+    // matches (evaluated by the runtime against live snapshot state — the LLM
+    // never enumerates names). A predicate that matches nothing yields no
+    // targets, so the caller surfaces an honest empty-result rather than
+    // acting on a guessed entity.
+    final entities = isPredicate
+        ? allEntities
+              .where((e) => _matchesPredicate(seed.selector, e))
+              .toList(growable: false)
+        : allEntities;
     if (entities.isEmpty) return null;
 
     final originId = seed.subgoalId.isEmpty ? '__bulk_$index' : seed.subgoalId;
@@ -510,10 +626,28 @@ class TargetResolver {
       final seed = seedTargets[i];
       final entityType = _entityTypeForSeed(seed);
       final operation = _operationForSeed(seed, entityType);
+      final activeAgentId = current == null || current.id.isEmpty
+          ? request.agentId
+          : current.id;
+      final activeAgentLabel = current == null || current.name.isEmpty
+          ? request.agentName
+          : current.name;
+      var entityId = seed.entityId;
+      var entityLabel = seed.entityLabel;
+      var selector = seed.selector;
+      final referencesCurrentAgent =
+          entityType == 'agent' &&
+          (TargetReferenceUtils.isCurrentAgentReference(entityId) ||
+              TargetReferenceUtils.isCurrentAgentReference(entityLabel));
+      if (referencesCurrentAgent) {
+        if (activeAgentId.isNotEmpty) entityId = activeAgentId;
+        if (activeAgentLabel.isNotEmpty) entityLabel = activeAgentLabel;
+        selector = {...selector, 'resolved_reference': 'current_agent'};
+      }
       final match = _matchEntity(
         entityType: entityType,
-        entityId: seed.entityId,
-        entityLabel: seed.entityLabel,
+        entityId: entityId,
+        entityLabel: entityLabel,
         snapshot: snapshot,
       );
       var resolved = ResolvedTarget(
@@ -522,8 +656,8 @@ class TargetResolver {
         operation: operation.isEmpty ? 'unknown' : operation,
         entityType: entityType.isEmpty ? match.entityType : entityType,
         entityId: match.id,
-        entityLabel: match.label.isNotEmpty ? match.label : seed.entityLabel,
-        selector: seed.selector,
+        entityLabel: match.label.isNotEmpty ? match.label : entityLabel,
+        selector: selector,
       );
 
       resolved = _resolvePeerAgentPathTarget(
@@ -532,13 +666,19 @@ class TargetResolver {
         request: request,
       );
 
+      resolved = _guardAgentReadTarget(
+        resolved: resolved,
+        request: request,
+        activeAgentId: activeAgentId,
+      );
+
       if (_requiresSnapshotTarget(entityType, operation) &&
           resolved.entityId.isEmpty) {
         final nearMatch = SnapshotTargetResolver.resolve(
           snapshot: snapshot,
           entityType: entityType,
-          entityLabel: seed.entityLabel.isNotEmpty
-              ? seed.entityLabel
+          entityLabel: entityLabel.isNotEmpty
+              ? entityLabel
               : resolved.entityLabel,
         );
         resolved = !nearMatch.isAmbiguous
@@ -640,6 +780,71 @@ class TargetResolver {
       status: ResolvedTargetStatus.missing,
       reason: 'agent_path_target_not_found',
       selector: selector,
+    );
+  }
+
+  /// Guard non-destructive agent READ targets against silent cross-turn bleed.
+  ///
+  /// The reflector can emit an agent label that leaked from a PRIOR turn (e.g.
+  /// the user deleted "agent C" and listed peers last turn, then asks "what is
+  /// your personality?" this turn). An exact snapshot match on that stale label
+  /// fills [resolved.entityId] and short-circuits every downstream safety net,
+  /// silently answering about the wrong agent.
+  ///
+  /// Scope is deliberately narrow — this only touches the SILENT path:
+  /// - Read-only ops only (read/get/list). Destructive ops (delete/update/...)
+  ///   already pass through a user confirmation gate, so a wrong target there
+  ///   is visible and correctable; we must not downgrade a legitimately
+  ///   reflector-resolved delete.
+  /// - Bulk/predicate targets are skipped — those are fanned out by the runtime
+  ///   from live snapshot state, not from a model-supplied label, so they are
+  ///   trustworthy.
+  ///
+  /// When a read target is NOT the active agent and the literal user message
+  /// does NOT name it, the label leaked from history → rebind to the active
+  /// agent (a pronoun/self question like "your personality" is about the
+  /// current agent). This mirrors the proven check already used for
+  /// peer-agent FILE paths in [_resolvePeerAgentPathTarget].
+  static ResolvedTarget _guardAgentReadTarget({
+    required ResolvedTarget resolved,
+    required AgentRuntimeRequest request,
+    required String activeAgentId,
+  }) {
+    if (resolved.entityType != 'agent') return resolved;
+    if (resolved.entityId.isEmpty) return resolved;
+    if (!resolved.isEligible) return resolved;
+    // Only the silent read path is guarded — see doc above.
+    if (!_isReadOnlyOperation(resolved.operation)) return resolved;
+    // Runtime-fanned bulk/predicate targets are trustworthy, not leaked labels.
+    if (_isBulkSelector(resolved.selector) ||
+        _isPredicateSelector(resolved.selector)) {
+      return resolved;
+    }
+    // Already pinned to the active agent upstream — nothing to guard.
+    if (resolved.selector['resolved_reference'] == 'current_agent') {
+      return resolved;
+    }
+    if (activeAgentId.isEmpty) return resolved;
+    if (resolved.entityId == activeAgentId) return resolved;
+
+    final userNamedExactAgent = TargetReferenceUtils.messageMentionsExactAgent(
+      request.userMessage,
+      resolved.entityLabel,
+    );
+    if (userNamedExactAgent) return resolved;
+
+    // A self-ish read with a target the user did not name this turn → the
+    // label leaked from history. Bind to the active agent.
+    return resolved.copyWith(
+      entityId: activeAgentId,
+      entityLabel: request.agentName.isNotEmpty
+          ? request.agentName
+          : resolved.entityLabel,
+      selector: {
+        ...resolved.selector,
+        'resolved_reference': 'current_agent',
+        'rebound_from': resolved.entityLabel,
+      },
     );
   }
 
@@ -882,7 +1087,16 @@ class TargetResolver {
       case 'agent':
         return [
           for (final agent in snapshot.agents)
-            _EntityMatch(entityType: 'agent', id: agent.id, label: agent.name),
+            _EntityMatch(
+              entityType: 'agent',
+              id: agent.id,
+              label: agent.name,
+              metadata: {
+                'provider': agent.providerNickname,
+                'provider_nickname': agent.providerNickname,
+                'used_by_workflows': agent.usedByWorkflows,
+              },
+            ),
         ];
       case 'workflow':
         return [
@@ -891,6 +1105,13 @@ class TargetResolver {
               entityType: 'workflow',
               id: workflow.id,
               label: workflow.title,
+              metadata: {
+                'agent': workflow.agentName,
+                'agent_name': workflow.agentName,
+                'agent_id': workflow.agentId,
+                'trigger': workflow.triggerSummary,
+                'enabled': workflow.enabled,
+              },
             ),
         ];
       case 'provider':
@@ -900,12 +1121,18 @@ class TargetResolver {
               entityType: 'provider',
               id: provider.id,
               label: provider.nickname,
+              metadata: {'nickname': provider.nickname},
             ),
         ];
       case 'module':
         return [
           for (final module in snapshot.modules)
-            _EntityMatch(entityType: 'module', id: module.id, label: module.id),
+            _EntityMatch(
+              entityType: 'module',
+              id: module.id,
+              label: module.id,
+              metadata: {'enabled': module.enabled},
+            ),
         ];
       default:
         return const [];
@@ -1133,11 +1360,22 @@ class _EntityMatch {
     required this.entityType,
     required this.id,
     required this.label,
+    this.metadata = const {},
   });
 
   final String entityType;
   final String id;
   final String label;
+
+  /// Per-entity-type extended fields for predicate matching.
+  ///
+  /// Populated at snapshot-read time so `_matchesPredicate` can generically
+  /// resolve `selector.field` without a per-entity-type switch. Examples:
+  /// - workflow: {agent, agent_name, agent_id, trigger, enabled}
+  /// - agent:    {provider, provider_nickname}
+  /// - module:   {enabled}
+  /// - provider: {nickname}
+  final Map<String, dynamic> metadata;
 }
 
 class _BulkExpansion {

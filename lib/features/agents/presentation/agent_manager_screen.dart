@@ -12,6 +12,7 @@ import '../data/agent_appearance.dart';
 import '../data/agent_model.dart';
 import '../data/agent_repository.dart';
 import '../data/workspace_service.dart';
+import 'agent_profile_editor.dart';
 import 'workspace_directory_screen.dart';
 
 /// Screen to add or edit an agent.
@@ -32,8 +33,10 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   final _nameController = TextEditingController();
   final _contextLengthController = TextEditingController(text: '8191');
   String? _selectedProviderId;
+  String? _selectedModel;
   String _iconKey = kDefaultAgentIconKey;
   String _colorKey = kDefaultAgentColorKey;
+  bool _autoCompact = true;
   bool _saving = false;
   String? _existingId;
   String? _workspacePath;
@@ -58,9 +61,11 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       _existingId = existing.id;
       _nameController.text = existing.name;
       _selectedProviderId = existing.providerId;
+      _selectedModel = existing.model.isEmpty ? null : existing.model;
       _contextLengthController.text = existing.maxContextLength.toString();
       _iconKey = existing.iconKey;
       _colorKey = existing.colorKey;
+      _autoCompact = existing.autoCompact;
       _loadWorkspacePath(existing.id, agentName: existing.name);
     }
   }
@@ -94,7 +99,11 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
         id: _existingId,
         name: _nameController.text.trim(),
         providerId: _selectedProviderId!,
+        model: _resolvedSelectedModel(
+          ref.read(providerListProvider).value ?? [],
+        ),
         maxContextLength: maxCtx.clamp(512, 1000000),
+        autoCompact: _autoCompact,
         iconKey: _iconKey,
         colorKey: _colorKey,
       );
@@ -113,15 +122,54 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
   Future<void> _goAddProvider() async {
     final result = await context.push<String>(AppRoutes.addProvider);
     if (result != null && mounted) {
-      setState(() => _selectedProviderId = result);
+      final providers = ref.read(providerListProvider).value ?? [];
+      final selectedProvider = providers
+          .where((p) => p.id == result)
+          .firstOrNull;
+      setState(() {
+        _selectedProviderId = selectedProvider != null ? result : _selectedProviderId;
+        _selectedModel = selectedProvider?.models.firstOrNull;
+      });
     }
   }
 
+  String? _selectedModelFor(List<ProviderConfig> providers) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return null;
+    final selected = (_selectedModel ?? '').trim();
+    if (selected.isNotEmpty && provider.models.contains(selected)) {
+      return selected;
+    }
+    return null;
+  }
+
+  List<MeowDropdownOption<String>> _modelOptionsFor(
+    List<ProviderConfig> providers,
+  ) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return const [];
+    return provider.models
+        .map((model) => MeowDropdownOption<String>(value: model, label: model))
+        .toList();
+  }
+
+  String _resolvedSelectedModel(List<ProviderConfig> providers) {
+    final provider = providers
+        .where((p) => p.id == _selectedProviderId)
+        .firstOrNull;
+    if (provider == null) return _selectedModel ?? '';
+    final selected = (_selectedModel ?? '').trim();
+    return provider.models.contains(selected) ? selected : '';
+  }
+
   Future<void> _confirmDelete() async {
-    final isId = resolveLanguageCode(ref.read(appLanguageProvider)) == 'id';
     final confirmed = await showMeowConfirmDialog(
       context,
-      isId: isId,
+      strings: s,
       title: s.deleteAgent,
       message: s.deleteAgentBody,
       confirmLabel: s.delete,
@@ -162,7 +210,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
       body: SafeArea(
         child: providersAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Error: $e')),
+          error: (e, _) => Center(child: Text(s.errorWithMessage('$e'))),
           data: (providers) => _buildForm(context, providers),
         ),
       ),
@@ -264,6 +312,16 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+
+              // Agent profile section (Soul/Memory/Heartbeat).
+              _AgentProfileSection(
+                agentId: widget.agentId!,
+                agentName: _nameController.text.isNotEmpty
+                    ? _nameController.text
+                    : 'Agent',
+                strings: s,
+              ),
               const SizedBox(height: 24),
             ],
 
@@ -287,7 +345,7 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
             _AppearanceSection(
               iconKey: _iconKey,
               colorKey: _colorKey,
-              isId: s.isId,
+              strings: s,
               onIconChanged: (k) => setState(() => _iconKey = k),
               onColorChanged: (k) => setState(() => _colorKey = k),
             ),
@@ -350,100 +408,43 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                             (p) => MeowDropdownOption<String>(
                               value: p.id,
                               label: p.nickname,
-                              subtitle: p.model,
+                              subtitle: s.providerModelsCount(p.models.length),
                             ),
                           )
                           .toList(),
-                      onChanged: (v) => setState(() => _selectedProviderId = v),
+                      onChanged: (v) {
+                        final selectedProvider = providers
+                            .where((p) => p.id == v)
+                            .firstOrNull;
+                        setState(() {
+                          _selectedProviderId = v;
+                          _selectedModel = selectedProvider?.models.firstOrNull;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    MeowDropdown<String>(
+                      label: s.model,
+                      hint: s.chooseModel,
+                      sheetTitle: s.model,
+                      value: _selectedModelFor(providers),
+                      options: _modelOptionsFor(providers),
+                      onChanged: (v) => setState(() => _selectedModel = v),
                     ),
                   ],
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
-            // Max Context Length section.
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    s.isId ? 'Konteks Maksimum' : 'Max Context Length',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: cs.onSurface,
-                      letterSpacing: -0.3,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    s.isId
-                        ? 'Batas token konteks untuk model ini. Sesuaikan dengan spesifikasi model yang dipakai.'
-                        : 'Token context limit for this model. Adjust based on your model specs.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w400,
-                      color: cs.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Single-source-of-border: TextFormField uses theme decoration only.
-                  TextFormField(
-                    controller: _contextLengthController,
-                    keyboardType: TextInputType.number,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: cs.onSurface,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: '8191',
-                      hintStyle: TextStyle(
-                        color: extras.subtleText,
-                        fontSize: 15,
-                      ),
-                      suffixText: 'tokens',
-                      suffixStyle: TextStyle(
-                        fontSize: 13,
-                        color: cs.onSurfaceVariant,
-                      ),
-                      filled: true,
-                      fillColor: extras.inputFill,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputBorder),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputBorder),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: extras.inputFocusBorder),
-                      ),
-                    ),
-                    validator: (v) {
-                      final n = int.tryParse(v ?? '');
-                      if (n == null || n < 512) {
-                        return s.isId
-                            ? 'Minimal 512 tokens'
-                            : 'Minimum 512 tokens';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-              ),
+            // Advanced settings stay collapsed so the core setup flow breathes.
+            _AdvancedAgentSettings(
+              contextLengthController: _contextLengthController,
+              autoCompact: _autoCompact,
+              strings: s,
+              onAutoCompactChanged: (v) => setState(() => _autoCompact = v),
             ),
-
-            const SizedBox(height: 32),
+            const SizedBox(height: 20),
 
             // Save button.
             Padding(
@@ -595,22 +596,248 @@ class _ProviderEmptyState extends StatelessWidget {
   }
 }
 
-/// Collapsible "Personalize Agent" card — keeps the form clean by hiding
-/// the icon/color picker behind a tap-to-expand affordance. The header
-/// always shows the live avatar so the user sees their current selection
-/// without expanding.
+class _AdvancedAgentSettings extends StatefulWidget {
+  const _AdvancedAgentSettings({
+    required this.contextLengthController,
+    required this.autoCompact,
+    required this.strings,
+    required this.onAutoCompactChanged,
+  });
+
+  final TextEditingController contextLengthController;
+  final bool autoCompact;
+  final AppStrings strings;
+  final ValueChanged<bool> onAutoCompactChanged;
+
+  @override
+  State<_AdvancedAgentSettings> createState() => _AdvancedAgentSettingsState();
+}
+
+class _AdvancedAgentSettingsState extends State<_AdvancedAgentSettings> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    final cs = context.cs;
+    final extras = context.extras;
+    final title = s.advanced;
+    final subtitle = s.advancedSubtitle(
+      widget.contextLengthController.text,
+      widget.autoCompact,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          Icons.tune_rounded,
+                          size: 18,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Divider(height: 1, color: extras.subtleBorder),
+                          const SizedBox(height: 16),
+                          _AdvancedLabel(
+                            title: s.maxContextLength,
+                            subtitle: s.tokenLimitHint,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: widget.contextLengthController,
+                            keyboardType: TextInputType.number,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: cs.onSurface,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: '8191',
+                              suffixText: 'tokens',
+                              filled: true,
+                              fillColor: extras.inputFill,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 13,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputBorder,
+                                ),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputBorder,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(16),
+                                borderSide: BorderSide(
+                                  color: extras.inputFocusBorder,
+                                ),
+                              ),
+                            ),
+                            validator: (v) {
+                              final n = int.tryParse(v ?? '');
+                              if (n == null || n < 512) {
+                                return s.minTokens;
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _AdvancedLabel(
+                                  title: s.autoCompactContext,
+                                  subtitle: s.autoCompactContextDesc,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Switch(
+                                value: widget.autoCompact,
+                                onChanged: widget.onAutoCompactChanged,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdvancedLabel extends StatelessWidget {
+  const _AdvancedLabel({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          subtitle,
+          style: TextStyle(
+            fontSize: 12,
+            color: cs.onSurfaceVariant,
+            height: 1.35,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Collapsible "Personalize Agent" card keeps the form clean by hiding the
+/// icon/color picker behind a tap-to-expand affordance.
 class _AppearanceSection extends StatefulWidget {
   const _AppearanceSection({
     required this.iconKey,
     required this.colorKey,
-    required this.isId,
+    required this.strings,
     required this.onIconChanged,
     required this.onColorChanged,
   });
 
   final String iconKey;
   final String colorKey;
-  final bool isId;
+  final AppStrings strings;
   final ValueChanged<String> onIconChanged;
   final ValueChanged<String> onColorChanged;
 
@@ -623,6 +850,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
   @override
   Widget build(BuildContext context) {
+    final s = widget.strings;
     final cs = context.cs;
     final extras = context.extras;
     final selectedColor = resolveAgentColor(widget.colorKey);
@@ -671,9 +899,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              widget.isId
-                                  ? 'Personalisasi Agent'
-                                  : 'Personalize Agent',
+                              s.personalizeAgent,
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
@@ -683,9 +909,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              widget.isId
-                                  ? 'Pilih ikon dan warna'
-                                  : 'Choose icon and color',
+                              s.chooseIconAndColor,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w400,
@@ -725,7 +949,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
                           // Icon picker.
                           _PickerLabel(
-                            label: widget.isId ? 'Ikon' : 'Icon',
+                            label: s.iconLabel,
                             cs: cs,
                           ),
                           const SizedBox(height: 8),
@@ -778,7 +1002,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
 
                           // Color picker — no glow; selection ring only.
                           _PickerLabel(
-                            label: widget.isId ? 'Warna' : 'Color',
+                            label: s.colorLabel,
                             cs: cs,
                           ),
                           const SizedBox(height: 8),
@@ -795,8 +1019,7 @@ class _AppearanceSectionState extends State<_AppearanceSection> {
                                 return GestureDetector(
                                   onTap: () => widget.onColorChanged(opt.key),
                                   child: AnimatedContainer(
-                                    duration:
-                                        const Duration(milliseconds: 150),
+                                    duration: const Duration(milliseconds: 150),
                                     width: 40,
                                     height: 40,
                                     alignment: Alignment.center,
@@ -850,6 +1073,267 @@ class _PickerLabel extends StatelessWidget {
         fontWeight: FontWeight.w600,
         color: cs.onSurfaceVariant,
         letterSpacing: 0.4,
+      ),
+    );
+  }
+}
+
+/// Collapsible "Agent Profile" section in agent edit screen.
+/// Shows profile tiles backed by SQLite repositories.
+class _AgentProfileSection extends ConsumerStatefulWidget {
+  const _AgentProfileSection({
+    required this.agentId,
+    required this.agentName,
+    required this.strings,
+  });
+
+  final String agentId;
+  final String agentName;
+  final AppStrings strings;
+
+  @override
+  ConsumerState<_AgentProfileSection> createState() =>
+      _AgentProfileSectionState();
+}
+
+class _AgentProfileSectionState extends ConsumerState<_AgentProfileSection> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.strings;
+    final cs = context.cs;
+    final extras = context.extras;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: extras.card,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: extras.subtleBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Tappable header.
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(18),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(18),
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 13, 14, 13),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: cs.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: Icon(
+                          Icons.psychology_rounded,
+                          size: 18,
+                          color: cs.primary,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              s.agentProfileSection,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              s.agentProfileSectionDesc,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: cs.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      AnimatedRotation(
+                        turns: _expanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Expandable body.
+            AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                      child: Column(
+                        children: [
+                          Divider(height: 1, color: extras.subtleBorder),
+                          const SizedBox(height: 12),
+                          _ProfileTile(
+                            icon: Icons.face_rounded,
+                            title: s.agentSoulTitle,
+                            subtitle: s.agentSoulDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentSoulEditorScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _ProfileTile(
+                            icon: Icons.memory_rounded,
+                            title: s.agentMemoryTitle,
+                            subtitle: s.agentMemoryDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentMemoryEditorScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _ProfileTile(
+                            icon: Icons.monitor_heart_outlined,
+                            title: s.agentHeartbeatTitle,
+                            subtitle: s.agentHeartbeatDesc,
+                            cs: cs,
+                            extras: extras,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => AgentHeartbeatScreen(
+                                  agentId: widget.agentId,
+                                  agentName: widget.agentName,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Individual clickable row tile within the Agent Profile section.
+class _ProfileTile extends StatelessWidget {
+  const _ProfileTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.cs,
+    required this.extras,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final ColorScheme cs;
+  final MeowExtras extras;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: extras.subtleBorder),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: cs.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 17, color: cs.primary),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: cs.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

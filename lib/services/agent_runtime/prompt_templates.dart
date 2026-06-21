@@ -1,4 +1,5 @@
 import '../../features/settings/data/app_language_provider.dart';
+import 'action_map.dart';
 import 'goal_tree.dart';
 import 'pending_action.dart';
 import 'prompt_constants.dart';
@@ -17,6 +18,8 @@ class PromptTemplates {
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     String activeTaskContext = '',
+    String agentName = '',
+    String agentId = '',
   }) {
     final historyBlock = recentMessages.isNotEmpty
         ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
@@ -56,15 +59,23 @@ class PromptTemplates {
 
     final language = languageLabelFromCode(languageCode);
 
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
+
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
+
     return '''${PromptConstants.analyzeIntro}
 
 ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
 ${PromptConstants.systemMarkdownMap}
-
-Identity context (from SOUL.md — user-editable):
+$selfIdentityBlock$vmBlock
+Identity context (user profile stored in database):
 ${workspace.soul}
-
+${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
 Available tools:
 ${availableTools.join('\n')}
 
@@ -74,7 +85,11 @@ $pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
 
 User message: "$userMessage"
 
+${PromptConstants.policyAsk}
+
 ${PromptConstants.analyzeRequiresToolsRules}
+
+${PromptConstants.analyzeCrossDomainAmbiguityRule}
 
 ${PromptConstants.analyzeExamples}
 
@@ -85,12 +100,27 @@ ${PromptConstants.analyzeResponseFormat}''';
   static String planPrompt({
     required Map<String, dynamic> analysis,
     required List<String> availableTools,
+    List<String> resolvedTargetLabels = const [],
   }) {
+    final resolvedBlock = resolvedTargetLabels.isEmpty
+        ? ''
+        : '\nResolved targets (snapshot-matched, authoritative):\n'
+              '${resolvedTargetLabels.map((l) => '- $l').join('\n')}\n'
+              'Emit ONE subgoal per resolved target above. Use these labels '
+              'verbatim. Do NOT invent additional targets.\n';
+    // VM workflow rules (ext4 vs FUSE, scaffolder cwd) — the planner builds the
+    // goal tree and must know that scaffold/install/serve steps belong inside
+    // agent_workspace_dir, not /root or files.create. Without this the plan can
+    // route a "build a Vite project" task through the wrong filesystem and the
+    // executor can't recover.
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
     return '''${PromptConstants.planIntro}
-
+$vmBlock
 Analysis result:
 ${_jsonString(analysis)}
-
+$resolvedBlock
 Available tools:
 ${availableTools.join('\n')}
 
@@ -103,10 +133,13 @@ ${PromptConstants.planResponseFormat}''';
     required int currentStep,
     required List<Map<String, dynamic>> previousResults,
     required List<String> availableTools,
+    String userMessage = '',
     String recentToolMemory = '',
     bool isWorkflowAutoExecute = false,
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) {
     final memoryBlock = recentToolMemory.isNotEmpty
         ? '\n${PromptConstants.selectToolMemoryHeader}\n$recentToolMemory\n'
@@ -133,9 +166,9 @@ ${PromptConstants.planResponseFormat}''';
     // but wrong content.
     final historyBlock = recentMessages.isEmpty
         ? ''
-        : '\nConversation history (authoritative data — use it when an '
-              'instruction refers to "the result", "this", "it", or the '
-              'previous step output):\n'
+        : '\nConversation history (CONTEXT ONLY — does NOT prove this task '
+              'was executed; use it for argument values like names, content, '
+              'or references to "the result", "this", "it"):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n'
               'When filling a tool argument that carries content (message '
               'body, note text, file body): if the instruction is to '
@@ -145,8 +178,26 @@ ${PromptConstants.planResponseFormat}''';
               'original text that builds on the history (do not just resend '
               'it). In BOTH cases stay grounded — never invent items, names, '
               'numbers, or facts that are not present in the history above.\n';
+    // The literal current instruction is the authoritative source of intent.
+    // The execution plan and history below are DERIVED and may paraphrase or
+    // carry entities from prior turns. When they conflict with the words the
+    // user actually just typed, the literal instruction wins — this is what
+    // keeps the selector pinned to the current request instead of drifting to
+    // a prior-turn entity/goal.
+    final literalInstructionBlock = userMessage.trim().isEmpty
+        ? ''
+        : '\nLITERAL CURRENT INSTRUCTION (authoritative — this is exactly what '
+              'the user just asked; prefer the entities, target, and intent '
+              'named HERE over anything in the plan, history, or memory below '
+              'when they conflict):\n"$userMessage"\n';
+    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
+        ? '\n${PromptConstants.vmWorkflowRules}\n'
+        : '';
     return '''${PromptConstants.selectToolIntro}
-
+${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
+${PromptConstants.policyMinimal}
+$literalInstructionBlock$vmBlock
+${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
 
@@ -166,10 +217,16 @@ ${PromptConstants.selectToolResponseFormat}''';
     required Map<String, dynamic> plan,
     required int currentStep,
     required String userMessage,
+    List<Map<String, dynamic>> previousResults = const [],
     String language = 'English',
     GoalTree? goalTree,
     List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
   }) {
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final goalBlock = goalTree == null || goalTree.isEmpty
         ? ''
         : '\nGoal tree state (BEFORE this review):\n${goalTree.toCompactString()}\n'
@@ -182,13 +239,21 @@ ${PromptConstants.selectToolResponseFormat}''';
               'final_response or summary, ground it strictly on this; do NOT '
               'invent items, names, numbers, or jokes not present here):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
+    final previousResultsBlock = '\nPrevious results (this turn):\n'
+        '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
     return '''${PromptConstants.reviewIntro}
+$selfIdentityBlock
+${PromptConstants.policyGround}
+
+${PromptConstants.policyRecover}
+
+${PromptConstants.policyVoice}
 
 Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
-$historyBlock$goalBlock
+$previousResultsBlock$historyBlock$goalBlock
 Current step: $currentStep
 
 Tool result:
@@ -209,5 +274,34 @@ ${PromptConstants.reviewResponseFormat}''';
 
   static String _jsonString(Map<String, dynamic> json) {
     return json.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+  }
+
+  /// Render the canonical action map block, filtered to only the domains
+  /// represented in [availableTools]. Empty string when no relevant entries
+  /// — caller must handle the empty case (the prompt context handles it
+  /// gracefully because the policy text refers to "below" but renders nothing).
+  ///
+  /// Domain is derived from the tool name prefix before the first `.`. Tool
+  /// definitions in [availableTools] arrive as multiline strings starting
+  /// with the tool name on the first non-empty line.
+  static String _actionMapBlock(List<String> availableTools) {
+    final domains = <String>{};
+    for (final def in availableTools) {
+      final firstLine = def.split('\n').firstWhere(
+            (l) => l.trim().isNotEmpty,
+            orElse: () => '',
+          );
+      // Tool names look like "system.config.patch" or "app_agent.click".
+      // Extract the leading token before the first dot.
+      final match = RegExp(r'([a-z_]+)\.').firstMatch(firstLine);
+      if (match != null) {
+        var domain = match.group(1)!;
+        if (domain == 'db') domain = 'database';
+        if (domain == 'sqlite') domain = 'system';
+        domains.add(domain);
+      }
+    }
+    if (domains.isEmpty) return '';
+    return renderForPrompt(domains.toList());
   }
 }

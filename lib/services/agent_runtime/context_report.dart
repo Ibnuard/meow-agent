@@ -1,9 +1,9 @@
+import '../../core/storage/agent_memory_repository.dart';
+import '../../core/storage/agent_soul_repository.dart';
 import '../../features/chat/data/chat_history_service.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../llm/openai_compatible_client.dart';
-import '../workspace/workspace_file_service.dart';
 import 'context_compactor.dart';
-import 'language_registry.dart';
 import 'prompt_constants.dart';
 import 'tool_catalog.dart';
 import 'tool_router.dart';
@@ -11,19 +11,21 @@ import 'tool_router.dart';
 /// Builds a human-readable summary of the agent's runtime context for the
 /// `/context` command.
 ///
-/// Designed to be approachable — no internal file names (SOUL.md etc.), no
-/// LLM call traces, no tool filter jargon. Just: how full is the agent's
-/// short-term memory, what does it know about you, and how much room is left.
+/// Clean, simple format — one glance shows context pressure and breakdown.
 class ContextReport {
   ContextReport._();
 
   static Future<String> build({
     required String agentName,
+    required String agentId,
     required String languageCode,
     required List<ChatMessage> messages,
     required int maxContextLength,
+    AgentSoulRepository? soulRepo,
+    AgentMemoryRepository? memoryRepo,
     String userMessageHint = '',
   }) async {
+    final isId = languageCode == 'id';
     final recentMessages = messages.length > 20
         ? messages.sublist(messages.length - 20)
         : messages;
@@ -43,35 +45,29 @@ class ContextReport {
       toolSelection.toolNames,
     );
 
-    final soul = await WorkspaceFileService.readFile(agentName, 'SOUL.md');
-    final memory = await WorkspaceFileService.readFile(agentName, 'MEMORY.md');
-    final skills = await WorkspaceFileService.readFile(agentName, 'SKILLS.md');
-    final heartbeat = await WorkspaceFileService.readFile(
-      agentName,
-      'HEARTBEAT.md',
-    );
+    // Phase 7: identity & memory live in the database, not in workspace
+    // markdown files. Read from the same repos the runtime engine uses so
+    // the token estimate matches what's actually injected into the prompt.
+    final soul = await soulRepo?.get(agentId);
+    final memoryEntries = await memoryRepo?.recent(agentId, limit: 30);
+    final identityText = _formatIdentity(agentName, soul);
+    final memoryText = _formatMemoryEntries(memoryEntries ?? const []);
 
-    // Aggregate token estimates by purpose, not by source file.
+    // Token estimates by category.
     final identityTokens =
-        OpenAiCompatibleClient.estimateTokens(soul) +
-        OpenAiCompatibleClient.estimateTokens(memory);
-    final knowledgeTokens =
-        OpenAiCompatibleClient.estimateTokens(skills) +
-        OpenAiCompatibleClient.estimateTokens(heartbeat) +
-        OpenAiCompatibleClient.estimateTokens(systemRules);
+        OpenAiCompatibleClient.estimateTokens(identityText) +
+        OpenAiCompatibleClient.estimateTokens(memoryText);
+    final knowledgeTokens = OpenAiCompatibleClient.estimateTokens(systemRules);
     final messagesText = recentMessages
         .map((m) => '${m.role}: ${m.content}')
         .join('\n');
     final messagesTokens = OpenAiCompatibleClient.estimateTokens(messagesText);
     final selectedToolsText = selectedTools.join('\n');
-    final allToolsText = allTools.join('\n');
     final selectedToolsTokens = OpenAiCompatibleClient.estimateTokens(
       selectedToolsText,
     );
-    final allToolsTokens = OpenAiCompatibleClient.estimateTokens(allToolsText);
 
-    // Prefer the actually-measured peak from recent LLM calls.
-    // Fall back to the synthesized estimate when no calls have happened yet.
+    // Prefer measured peak from recent LLM calls.
     final peakMeasured = ContextCompactor.peakRecentInputTokens();
     final synthesizedTotal =
         identityTokens + knowledgeTokens + messagesTokens + selectedToolsTokens;
@@ -82,72 +78,89 @@ class ContextReport {
         ? ((usedTokens / maxContextLength) * 100).clamp(0, 999).round()
         : 0;
 
-    final headlineKey = pct < 30
-        ? 'context_headline_low'
-        : pct < 60
-        ? 'context_headline_comfortable'
-        : pct < 80
-        ? 'context_headline_tight'
-        : 'context_headline_full';
-    final headline = LanguageRegistry.phrase(headlineKey, languageCode, {
-      'pct': pct.toString(),
-    });
-
-    final fullContextDelta = (allToolsTokens - selectedToolsTokens).clamp(
-      0,
-      1 << 30,
-    );
-
-    final buf = StringBuffer()
-      ..writeln(
-        LanguageRegistry.phrase('context_title', languageCode, {
-          'agent': agentName,
-        }),
-      )
-      ..writeln()
-      ..writeln('$headline.')
-      ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_capacity_line', languageCode, {
-          'max': maxContextLength.toString(),
-          'used': usedTokens.toString(),
-          'free': remainingTokens.toString(),
-        }),
-      )
-      ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_currently_holding', languageCode),
-      )
-      ..writeln()
-      ..writeln(
-        LanguageRegistry.phrase('context_item_identity', languageCode, {
-          'tokens': identityTokens.toString(),
-        }),
-      )
-      ..writeln(
-        LanguageRegistry.phrase('context_item_messages', languageCode, {
-          'count': recentMessages.length.toString(),
-          'tokens': messagesTokens.toString(),
-        }),
-      )
-      ..writeln(
-        LanguageRegistry.phrase('context_item_capabilities', languageCode, {
-          'used': selectedTools.length.toString(),
-          'total': allTools.length.toString(),
-          'tokens': selectedToolsTokens.toString(),
-        }),
-      );
-
-    if (fullContextDelta > 100) {
-      buf
-        ..writeln()
-        ..writeln(
-          LanguageRegistry.phrase('context_savings_note', languageCode, {
-            'delta': fullContextDelta.toString(),
-          }),
-        );
+    // Status indicator.
+    final String statusIcon;
+    final String statusLabel;
+    if (pct < 30) {
+      statusIcon = '\u{2705}';
+      statusLabel = isId ? 'Lega' : 'Comfortable';
+    } else if (pct < 60) {
+      statusIcon = '\u{1F7E1}';
+      statusLabel = isId ? 'Normal' : 'Normal';
+    } else if (pct < 80) {
+      statusIcon = '\u{1F7E0}';
+      statusLabel = isId ? 'Padat' : 'Getting tight';
+    } else {
+      statusIcon = '\u{1F534}';
+      statusLabel = isId ? 'Penuh' : 'Near limit';
     }
 
+    final buf = StringBuffer()
+      ..writeln('\u{1F4CA} Context \u{2014} $agentName')
+      ..writeln()
+      ..writeln('${isId ? 'Penggunaan' : 'Usage'}: $usedTokens / $maxContextLength ($pct%)')
+      ..writeln('Status: $statusIcon $statusLabel')
+      ..writeln()
+      ..writeln('${isId ? 'Rincian' : 'Breakdown'}:')
+      ..writeln('\u{2022} ${isId ? 'Identitas & memori' : 'Identity & memory'}: ~$identityTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Riwayat chat' : 'Chat history'} (${recentMessages.length} ${isId ? 'pesan' : 'msgs'}): ~$messagesTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Kemampuan' : 'Capabilities'} (${selectedTools.length}/${allTools.length}): ~$selectedToolsTokens tokens')
+      ..writeln('\u{2022} ${isId ? 'Pengetahuan & aturan' : 'Knowledge & rules'}: ~$knowledgeTokens tokens')
+      ..writeln()
+      ..writeln('$remainingTokens tokens ${isId ? 'tersisa' : 'remaining'}.');
+
     return buf.toString().trim();
+  }
+
+  // ─── Identity / memory formatting ──────────────────────────────────────────
+  //
+  // Mirrors `_formatSoul` / `_formatMemory` in [AgentRuntimeEngine] so the
+  // token estimate matches the bytes the runtime actually sends to the LLM.
+
+  static String _formatIdentity(String agentName, AgentSoul? soul) {
+    if (soul == null) return '';
+    final buf = StringBuffer()
+      ..writeln('# Soul — $agentName')
+      ..writeln()
+      ..writeln('## User Identity')
+      ..writeln('Name: ${soul.userName ?? '[Your Name]'}')
+      ..writeln('Nickname: ${soul.userNickname ?? ''}')
+      ..writeln('Preferred Language: ${soul.preferredLanguage ?? ''}')
+      ..writeln('Timezone: ${soul.timezone ?? ''}')
+      ..writeln()
+      ..writeln('## Profile')
+      ..writeln('Work Role: ${soul.workRole ?? ''}')
+      ..writeln('Main Project: ${soul.mainProject ?? ''}')
+      ..writeln('Communication Style: ${soul.communicationStyle ?? ''}')
+      ..writeln('Design Preference: ${soul.designPreference ?? ''}');
+    if ((soul.persona ?? '').isNotEmpty) {
+      buf
+        ..writeln()
+        ..writeln('## Persona')
+        ..writeln(soul.persona);
+    }
+    return buf.toString();
+  }
+
+  static String _formatMemoryEntries(List<AgentMemoryEntry> entries) {
+    if (entries.isEmpty) return '';
+    final buf = StringBuffer()
+      ..writeln('# Memory')
+      ..writeln();
+    final byCat = <String, List<AgentMemoryEntry>>{};
+    for (final e in entries) {
+      byCat.putIfAbsent(e.category, () => []).add(e);
+    }
+    for (final entry in byCat.entries) {
+      buf
+        ..writeln('## ${entry.key}')
+        ..writeln();
+      for (final m in entry.value) {
+        final date = m.createdAt.toIso8601String().split('T').first;
+        buf.writeln('- $date: ${m.content}');
+      }
+      buf.writeln();
+    }
+    return buf.toString();
   }
 }

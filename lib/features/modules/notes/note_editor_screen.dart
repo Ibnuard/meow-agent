@@ -24,6 +24,11 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   bool _saving = false;
   Note? _existing;
 
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
+
   bool get _isEditing => widget.noteId != null;
 
   @override
@@ -49,11 +54,9 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      final langPref = ref.read(appLanguageProvider);
-      final s = AppStrings(resolveLanguageCode(langPref));
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(s.isId ? 'Judul wajib diisi' : 'Title is required'),
+          content: Text(s.noteEditorTitleRequired),
         ),
       );
       return;
@@ -90,7 +93,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(s.errorWithMessage('$e'))),
         );
       }
     }
@@ -120,9 +123,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditing
-            ? (s.isId ? 'Edit Note' : 'Edit Note')
-            : (s.isId ? 'Note Baru' : 'New Note')),
+        title: Text(_isEditing ? s.noteEditorEditTitle : s.noteEditorNewTitle),
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
@@ -160,7 +161,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       color: cs.onSurface,
                     ),
                     decoration: InputDecoration(
-                      hintText: s.isId ? 'Judul note' : 'Note title',
+                      hintText: s.noteEditorTitleHint,
                       hintStyle: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -194,9 +195,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                     controller: _tagsController,
                     style: TextStyle(fontSize: 13, color: cs.onSurface),
                     decoration: InputDecoration(
-                      hintText: s.isId
-                          ? 'Tag (pisahkan dengan koma)'
-                          : 'Tags (comma separated)',
+                      hintText: s.noteEditorTagsHint,
                       hintStyle: TextStyle(
                         fontSize: 13,
                         color: cs.onSurfaceVariant.withValues(alpha: 0.5),
@@ -240,9 +239,7 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
                       height: 1.5,
                     ),
                     decoration: InputDecoration(
-                      hintText: s.isId
-                          ? 'Tulis konten markdown di sini...'
-                          : 'Write markdown content here...',
+                      hintText: s.noteEditorContentHint,
                       hintStyle: TextStyle(
                         fontSize: 14,
                         color: cs.onSurfaceVariant.withValues(alpha: 0.5),

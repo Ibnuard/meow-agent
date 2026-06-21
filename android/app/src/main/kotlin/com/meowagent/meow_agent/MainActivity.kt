@@ -1,8 +1,6 @@
 package com.meowagent.meow_agent
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,8 +10,6 @@ import android.os.Looper
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.util.Log
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -22,17 +18,8 @@ class MainActivity : FlutterActivity() {
     private val SHARE_CHANNEL = "com.meowagent/share"
     private val SERVICE_CHANNEL = "com.meowagent/services"
     private var sharedText: String? = null
-    private var pendingPermissionResult: MethodChannel.Result? = null
     private var shareChannel: MethodChannel? = null
     private val TAG = "MeowAgent"
-
-    companion object {
-        const val NOTIFICATION_PERMISSION_CODE = 1001
-        const val RUNTIME_PERMISSION_CODE = 1002
-    }
-
-    private var pendingRuntimePermissionResult: MethodChannel.Result? = null
-    private var pendingRuntimePermissions: Array<String> = emptyArray()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -64,43 +51,18 @@ class MainActivity : FlutterActivity() {
                     "isNotificationServiceRunning" -> {
                         result.success(isServiceRunning(ClipboardForegroundService::class.java))
                     }
-                    "requestNotificationPermission" -> {
-                        requestNotificationPermission(result)
-                    }
-                    "requestRuntimePermissions" -> {
-                        @Suppress("UNCHECKED_CAST")
-                        val perms = call.argument<List<String>>("permissions") ?: emptyList()
-                        requestRuntimePermissions(perms.toTypedArray(), result)
-                    }
-                    "checkRuntimePermissions" -> {
-                        @Suppress("UNCHECKED_CAST")
-                        val perms = call.argument<List<String>>("permissions") ?: emptyList()
-                        result.success(checkRuntimePermissions(perms.toTypedArray()))
-                    }
-                    "startBubbleService" -> {
-                        startBubbleService()
-                        result.success(true)
-                    }
-                    "stopBubbleService" -> {
-                        stopBubbleService()
-                        result.success(true)
-                    }
-                    "isBubbleServiceRunning" -> {
-                        result.success(isServiceRunning(FloatingBubbleService::class.java))
-                    }
-                    "canDrawOverlays" -> {
-                        result.success(canDrawOverlays())
-                    }
-                    "requestOverlayPermission" -> {
-                        requestOverlayPermission()
-                        result.success(true)
-                    }
                     else -> result.notImplemented()
                 }
             }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DeviceContextPlugin.CHANNEL)
             .setMethodCallHandler(DeviceContextPlugin(this))
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VmRuntimePlugin.CHANNEL)
+            .setMethodCallHandler(VmRuntimePlugin(applicationContext))
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CommunicationPlugin.CHANNEL)
+            .setMethodCallHandler(CommunicationPlugin(this))
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/app_control")
             .setMethodCallHandler { call, result ->
@@ -152,6 +114,19 @@ class MainActivity : FlutterActivity() {
                     val id = call.argument<String>("id") ?: ""
                     result.success(getNotificationById(id))
                 }
+                "replyToNotification" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    val message = call.argument<String>("message") ?: ""
+                    if (id.isEmpty() || message.isEmpty()) {
+                        result.success(mapOf("success" to false, "error" to "id and message are required"))
+                    } else {
+                        result.success(NotificationListener.replyToNotification(id, message))
+                    }
+                }
+                "hasReplyAction" -> {
+                    val id = call.argument<String>("id") ?: ""
+                    result.success(NotificationListener.hasReplyAction(id))
+                }
                 else -> result.notImplemented()
             }
         }
@@ -171,34 +146,6 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-
-        // Alarm permission channel — check/request SCHEDULE_EXACT_ALARM.
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/alarm_permission")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "canScheduleExactAlarms" -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            val alarmManager = getSystemService(android.app.AlarmManager::class.java)
-                            result.success(alarmManager.canScheduleExactAlarms())
-                        } else {
-                            // Below Android 12, exact alarms are always allowed.
-                            result.success(true)
-                        }
-                    }
-                    "openAlarmSettings" -> {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.parse("package:$packageName")
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            }
-                            startActivity(intent)
-                        }
-                        result.success(true)
-                    }
-                    else -> result.notImplemented()
-                }
-            }
-
         // Storage channel — workspace Documents path and folder opener.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent.meow_agent/storage")
             .setMethodCallHandler { call, result ->
@@ -212,6 +159,43 @@ class MainActivity : FlutterActivity() {
                     "openWorkspaceFolder" -> {
                         val path = call.argument<String>("path") ?: ""
                         result.success(openFolderInFileManager(path))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+
+        // Battery optimization channel — L4 keep-alive layer.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowagent/battery_optimization")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "isIgnoring" -> {
+                        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                        result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                    }
+                    "requestIgnore" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to request battery opt exclusion", e)
+                            result.success(false)
+                        }
+                    }
+                    "openBatterySettings" -> {
+                        try {
+                            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to open battery settings", e)
+                            result.success(false)
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -306,87 +290,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun requestNotificationPermission(result: MethodChannel.Result) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                == PackageManager.PERMISSION_GRANTED
-            ) {
-                result.success(true)
-            } else {
-                pendingPermissionResult = result
-                ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    NOTIFICATION_PERMISSION_CODE
-                )
-            }
-        } else {
-            result.success(true)
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == NOTIFICATION_PERMISSION_CODE) {
-            val granted = grantResults.isNotEmpty() &&
-                    grantResults[0] == PackageManager.PERMISSION_GRANTED
-            pendingPermissionResult?.success(granted)
-            pendingPermissionResult = null
-        } else if (requestCode == RUNTIME_PERMISSION_CODE) {
-            val resultMap = mutableMapOf<String, Boolean>()
-            permissions.forEachIndexed { index, perm ->
-                resultMap[perm] = grantResults.getOrNull(index) == PackageManager.PERMISSION_GRANTED
-            }
-            pendingRuntimePermissionResult?.success(resultMap)
-            pendingRuntimePermissionResult = null
-            pendingRuntimePermissions = emptyArray()
-        }
-    }
-
-    private fun requestRuntimePermissions(permissions: Array<String>, result: MethodChannel.Result) {
-        if (permissions.isEmpty()) {
-            result.success(emptyMap<String, Boolean>())
-            return
-        }
-
-        // On older Android versions, dangerous permissions are granted at install time.
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            val resultMap = permissions.associateWith { true }
-            result.success(resultMap)
-            return
-        }
-
-        // Filter out already-granted permissions.
-        val toRequest = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
-
-        if (toRequest.isEmpty()) {
-            val resultMap = permissions.associateWith { true }
-            result.success(resultMap)
-            return
-        }
-
-        if (pendingRuntimePermissionResult != null) {
-            result.error("PERMISSION_REQUEST_IN_PROGRESS", "Another permission request is in progress.", null)
-            return
-        }
-
-        pendingRuntimePermissionResult = result
-        pendingRuntimePermissions = toRequest
-        ActivityCompat.requestPermissions(this, toRequest, RUNTIME_PERMISSION_CODE)
-    }
-
-    private fun checkRuntimePermissions(permissions: Array<String>): Map<String, Boolean> {
-        return permissions.associateWith {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
     private fun startClipboardService() {
         val serviceIntent = Intent(this, ClipboardForegroundService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -398,31 +301,6 @@ class MainActivity : FlutterActivity() {
 
     private fun stopClipboardService() {
         stopService(Intent(this, ClipboardForegroundService::class.java))
-    }
-
-    private fun startBubbleService() {
-        val serviceIntent = Intent(this, FloatingBubbleService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-    }
-
-    private fun stopBubbleService() {
-        stopService(Intent(this, FloatingBubbleService::class.java))
-    }
-
-    private fun canDrawOverlays(): Boolean {
-        return Settings.canDrawOverlays(this)
-    }
-
-    private fun requestOverlayPermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-            Uri.parse("package:$packageName")
-        ).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
-        startActivity(intent)
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {
@@ -485,14 +363,21 @@ class MainActivity : FlutterActivity() {
     private fun openSystemSettings(action: String) {
         try {
             val intent = Intent(action).apply {
+                if (action == Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION) {
+                    data = Uri.parse("package:$packageName")
+                }
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
             startActivity(intent)
             Log.d(TAG, "Opened settings: $action")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open settings: $action", e)
-            // Fallback to main settings.
-            startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+            val fallbackAction = if (action == Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION) {
+                Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+            } else {
+                Settings.ACTION_SETTINGS
+            }
+            startActivity(Intent(fallbackAction).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             })
         }

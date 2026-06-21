@@ -14,6 +14,19 @@ class ContextCompactor {
   /// Compaction trigger threshold (fraction of max context length).
   static const double _compactionThreshold = 0.80;
 
+  /// Persisted peak input tokens loaded from DB on chat open.
+  /// Used as fallback when no in-memory LLM records exist (cold start).
+  static int _persistedPeak = 0;
+
+  /// Set the persisted peak from DB (called on chat screen init).
+  static void setPersistedPeak(int peak) {
+    _persistedPeak = peak;
+  }
+
+  static void clearPersistedPeak() {
+    _persistedPeak = 0;
+  }
+
   /// Rough token estimation: ~3.2 chars per token for mixed EN/ID content.
   /// This is a conservative estimate to avoid exceeding limits.
   static int estimateTokens(String text) {
@@ -62,16 +75,22 @@ class ContextCompactor {
     return peak;
   }
 
+  /// Best available peak: live > persisted > 0.
+  static int _effectivePeak() {
+    final live = peakRecentInputTokens();
+    if (live > 0) return live;
+    return _persistedPeak;
+  }
+
   /// Check if context needs compaction.
   ///
-  /// Prefers the measured peak from recent LLM calls (real payload size).
-  /// Falls back to chat history estimation for cold start (no calls yet).
+  /// Priority: live peak > persisted peak > chat history estimate.
   static bool needsCompaction({
     required List<ChatMessage> messages,
     required int maxContextLength,
     double threshold = _compactionThreshold,
   }) {
-    final peak = peakRecentInputTokens();
+    final peak = _effectivePeak();
     final estimated = peak > 0 ? peak : estimateChatTokens(messages);
     return estimated >= (maxContextLength * threshold).toInt();
   }
@@ -108,7 +127,7 @@ class ContextCompactor {
     // Create compacted list: summary + recent messages.
     final summaryMessage = ChatMessage(
       role: 'assistant',
-      content: '📋 *Ringkasan percakapan sebelumnya:*\n$summary',
+      content: '\u{1F4CB} *Ringkasan percakapan sebelumnya:*\n$summary',
     );
 
     return [summaryMessage, ...recentMessages];
@@ -117,10 +136,10 @@ class ContextCompactor {
   /// Get context usage info.
   ///
   /// Returns:
-  /// - `estimated`: best available estimate (measured peak or chat fallback)
+  /// - `estimated`: best available estimate (live peak > persisted peak > chat fallback)
   /// - `chatTokens`: chat-history-only estimate (for reference)
   /// - `peakMeasured`: peak inputTokens from recent LLM calls (0 if none yet)
-  /// - `source`: 'measured' if a real LLM call drives the number, else 'estimated'
+  /// - `source`: 'measured' if live LLM peak, 'persisted' if DB peak, else 'estimated'
   /// - `max`, `percentage`, `needsCompact`: derived from `estimated`.
   static ({
     int estimated,
@@ -136,16 +155,22 @@ class ContextCompactor {
     required int maxContextLength,
   }) {
     final chatTokens = estimateChatTokens(messages);
-    final peakMeasured = peakRecentInputTokens();
-    final estimated = peakMeasured > 0 ? peakMeasured : chatTokens;
+    final livePeak = peakRecentInputTokens();
+    final effectivePeak = _effectivePeak();
+    final estimated = effectivePeak > 0 ? effectivePeak : chatTokens;
+    final source = livePeak > 0
+        ? 'measured'
+        : _persistedPeak > 0
+        ? 'persisted'
+        : 'estimated';
     final percentage = maxContextLength > 0
         ? (estimated / maxContextLength * 100)
         : 0.0;
     return (
       estimated: estimated,
       chatTokens: chatTokens,
-      peakMeasured: peakMeasured,
-      source: peakMeasured > 0 ? 'measured' : 'estimated',
+      peakMeasured: livePeak,
+      source: source,
       max: maxContextLength,
       percentage: percentage,
       needsCompact:

@@ -125,6 +125,9 @@ class GoalTree {
   bool get isEmpty => subgoals.isEmpty;
   bool get isNotEmpty => subgoals.isNotEmpty;
 
+  /// True when the tree has exactly one subgoal — a trivial single-action task.
+  bool get isSingleAction => subgoals.length == 1;
+
   bool get isComplete =>
       subgoals.isNotEmpty &&
       subgoals.every((s) => s.status == SubgoalStatus.done);
@@ -230,8 +233,21 @@ class StuckDetector {
 
   /// Returns true when the same key has been observed [threshold] times in
   /// a row. The caller should reset after a successful re-plan.
-  bool observe({required String toolName, required Map<String, dynamic> args}) {
-    final key = _key(toolName, args);
+  ///
+  /// When [target] is provided, detection is SEMANTIC: it keys on
+  /// (tool + target) rather than the full arg map. This catches a selector
+  /// that loops on the same tool against the same entity while tweaking
+  /// incidental args (a different query string, a retry flag) each pass —
+  /// byte-identical arg matching would miss that and only the adaptive step
+  /// budget would (eventually) bound it.
+  bool observe({
+    required String toolName,
+    required Map<String, dynamic> args,
+    String? target,
+  }) {
+    final key = (target != null && target.trim().isNotEmpty)
+        ? '$toolName|@${target.trim().toLowerCase()}'
+        : _key(toolName, args);
     if (key == _lastKey) {
       _counts[key] = (_counts[key] ?? 1) + 1;
     } else {

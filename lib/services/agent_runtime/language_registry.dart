@@ -83,8 +83,16 @@ class LanguageRegistry {
           'Aku belum bisa {action} karena {module} dimatikan. Aktifkan dulu pengaturan {setting} ya.',
       'permission_denied_no_setting':
           'Aku belum bisa {action} karena {module} dimatikan.',
+      'permission_module_missing':
+          'Aku belum bisa {action} karena {module} belum terpasang.',
       'permission_module_default': 'modul terkait',
       'permission_action_default': 'menjalankan aksi itu',
+      'action_install_module': 'Pasang {module}',
+      'action_open_module': 'Buka {module}',
+      'action_open_accessibility':
+          'Buka Pengaturan Aksesibilitas',
+      'accessibility_not_connected':
+          'Layanan aksesibilitas Meow Agent belum aktif. Aktifkan dulu agar aku bisa mengontrol layar aplikasi lain.',
       'task_aborted_heads_up':
           'Tugas sebelumnya ("{previous}") aku tunda dulu — kita lanjut yang baru.',
       'task_aborted_heads_up_unknown':
@@ -99,6 +107,52 @@ class LanguageRegistry {
       'recovery_reason_verification_unverified': 'hasil belum terverifikasi',
       'recovery_reason_stuck_loop': 'aku berulang di langkah yang sama',
       'recovery_reason_unknown': 'belum ketemu jalannya',
+      'runtime_capability_not_found':
+          'Maaf, aku belum punya kemampuan untuk melakukan itu. Tidak ada tool yang sesuai untuk permintaan tersebut.',
+      'runtime_vision_model_unsupported':
+          'Model yang aktif belum mendukung input gambar. Silakan ganti agent ke model yang support vision, lalu coba lagi.',
+      'runtime_task_completed': 'Tugas selesai.',
+      'runtime_need_more_information': 'Aku perlu informasi tambahan.',
+      'runtime_tool_selection_missing':
+          'Pemilihan tool tidak mengembalikan data tool.',
+      'runtime_permission_denied': 'Izin ditolak.',
+      'runtime_failed': 'Runtime gagal.',
+      'runtime_review_failed': 'Tahap review gagal.',
+      'runtime_unrecoverable_error':
+          'Terjadi kesalahan yang tidak bisa dipulihkan.',
+      'runtime_max_steps': 'Batas langkah runtime tercapai tanpa penyelesaian.',
+      'runtime_empty_files': 'Tidak ada file yang cocok dengan kriteria itu.',
+      'runtime_empty_notes':
+          'Tidak ada catatan yang cocok dengan kriteria itu.',
+      'runtime_empty_calendar':
+          'Tidak ada acara yang cocok dengan kriteria itu.',
+      'runtime_empty_results': 'Tidak ada hasil yang cocok.',
+      'runtime_provider_auth_failed':
+          'Tidak bisa menyambung ke provider AI — API key sepertinya tidak valid atau sudah dicabut. Buka pengaturan Provider untuk memperbarui API key, lalu coba lagi.',
+      'runtime_provider_forbidden':
+          'Akses ke provider AI ditolak. Pastikan API key kamu masih punya akses ke model ini, lalu coba lagi.',
+      'runtime_provider_rate_limited':
+          'Provider AI sedang membatasi permintaan (terlalu banyak panggilan dalam waktu singkat). Tunggu sebentar lalu coba lagi.',
+      'runtime_provider_server_error':
+          'Server provider AI sedang bermasalah. Coba lagi sebentar — kalau masih gagal, mungkin layanannya sedang down.',
+      'runtime_provider_bad_request':
+          'Permintaan ke provider AI ditolak. Periksa konfigurasi model di pengaturan Provider.',
+      'runtime_provider_model_not_found':
+          'Model AI yang dipilih tidak ditemukan di provider ini. Buka pengaturan Provider untuk memilih model lain.',
+      'runtime_provider_timeout':
+          'Provider AI tidak merespons tepat waktu. Cek koneksi internet kamu atau coba lagi sebentar.',
+      'runtime_provider_network_error':
+          'Tidak bisa menghubungi provider AI. Cek koneksi internet kamu lalu coba lagi.',
+      'runtime_provider_cancelled':
+          'Permintaan ke provider AI dibatalkan.',
+      'runtime_provider_unknown_error':
+          'Ada masalah saat menghubungi provider AI. Coba lagi sebentar — kalau terus terjadi, cek pengaturan Provider.',
+      'app_agent_reading_screen': 'Membaca layar aplikasi...',
+      'app_agent_tapping': 'Mengetuk kontrol yang dipilih...',
+      'app_agent_typing': 'Mengetik ke kolom aplikasi...',
+      'app_agent_scrolling': 'Menggeser layar aplikasi...',
+      'app_agent_checking_result': 'Mengecek hasilnya...',
+      'app_agent_action_failed': 'Aksi aplikasi belum berhasil.',
       'context_title': '🧠 Memori {agent}',
       'context_headline_low': 'masih sangat lega, baru terpakai {pct}%',
       'context_headline_comfortable': 'masih nyaman, sekitar {pct}% terpakai',
@@ -137,8 +191,16 @@ class LanguageRegistry {
           "I can't {action} because {module} is off. Please enable {setting} first.",
       'permission_denied_no_setting':
           "I can't {action} because {module} is off.",
+      'permission_module_missing':
+          "I can't {action} because {module} is not installed yet.",
       'permission_module_default': 'the required module',
       'permission_action_default': 'do that',
+      'action_install_module': 'Install {module}',
+      'action_open_module': 'Open {module}',
+      'action_open_accessibility':
+          'Open Accessibility Settings',
+      'accessibility_not_connected':
+          'Meow Agent accessibility service is not active. Enable it first so I can control other app screens.',
       'task_aborted_heads_up':
           'Set the previous task ("{previous}") aside — moving on to the new one.',
       'task_aborted_heads_up_unknown':
@@ -153,6 +215,48 @@ class LanguageRegistry {
       'recovery_reason_verification_unverified': 'the result is not verified',
       'recovery_reason_stuck_loop': 'I was looping on the same step',
       'recovery_reason_unknown': "I couldn't find a path forward",
+      'runtime_capability_not_found':
+          "Sorry, I don't have the capability to do that. No tool is available for this request.",
+      'runtime_vision_model_unsupported':
+          'The active model does not support image input. Switch this agent to a vision-capable model, then try again.',
+      'runtime_task_completed': 'Task completed.',
+      'runtime_need_more_information': 'Need more information.',
+      'runtime_tool_selection_missing': 'Tool selection returned no tool data.',
+      'runtime_permission_denied': 'Permission denied.',
+      'runtime_failed': 'Runtime failed.',
+      'runtime_review_failed': 'Review phase failed.',
+      'runtime_unrecoverable_error': 'Unrecoverable error.',
+      'runtime_max_steps': 'Maximum runtime steps reached without completion.',
+      'runtime_empty_files': 'No files match that criteria.',
+      'runtime_empty_notes': 'No notes match that criteria.',
+      'runtime_empty_calendar': 'No events match that criteria.',
+      'runtime_empty_results': 'No results match.',
+      'runtime_provider_auth_failed':
+          "I couldn't reach the AI provider — the API key looks invalid or revoked. Open Provider settings to refresh the key, then try again.",
+      'runtime_provider_forbidden':
+          'The AI provider rejected access. Make sure your API key still has access to this model, then try again.',
+      'runtime_provider_rate_limited':
+          "The AI provider is rate-limiting requests right now. Wait a moment, then try again.",
+      'runtime_provider_server_error':
+          'The AI provider is having trouble on their end. Try again shortly — if it keeps failing, the service may be down.',
+      'runtime_provider_bad_request':
+          'The AI provider rejected the request. Check your model configuration in Provider settings.',
+      'runtime_provider_model_not_found':
+          "The selected AI model wasn't found on this provider. Open Provider settings to pick a different model.",
+      'runtime_provider_timeout':
+          "The AI provider didn't respond in time. Check your internet connection or try again shortly.",
+      'runtime_provider_network_error':
+          "Couldn't reach the AI provider. Check your internet connection and try again.",
+      'runtime_provider_cancelled':
+          'The request to the AI provider was cancelled.',
+      'runtime_provider_unknown_error':
+          "Something went wrong talking to the AI provider. Try again shortly — if it keeps happening, double-check Provider settings.",
+      'app_agent_reading_screen': 'Reading the app screen...',
+      'app_agent_tapping': 'Tapping the selected control...',
+      'app_agent_typing': 'Typing into the app field...',
+      'app_agent_scrolling': 'Scrolling the app screen...',
+      'app_agent_checking_result': 'Checking the result...',
+      'app_agent_action_failed': 'The app action did not work yet.',
       'context_title': '🧠 {agent}’s Memory',
       'context_headline_low': 'plenty of room, only {pct}% used',
       'context_headline_comfortable': 'comfortable, around {pct}% used',

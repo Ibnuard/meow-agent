@@ -1,31 +1,39 @@
+import 'prompt_analyze.dart';
+import 'prompt_context.dart';
+import 'prompt_execute.dart';
+import 'prompt_plan.dart';
+import 'prompt_policy.dart';
+import 'prompt_reflect.dart';
+import 'prompt_system.dart';
+import 'prompt_workflow.dart';
+
 /// Centralized prompt constants for the Meow Agent runtime.
 ///
-/// All LLM prompt strings live here for easy discovery and editing.
-/// Avoid hardcoding prompt text in service/UI files — reference this class instead.
+/// All LLM prompt strings live in per-phase files for easy discovery.
+/// This class provides backward-compatible static accessors that delegate
+/// to the split files.
+///
+/// Phase files:
+/// - [prompt_system.dart]  — system-level rules & intro gate
+/// - [prompt_analyze.dart] — analyzer (intent, language, tool groups)
+/// - [prompt_reflect.dart] — reflector (strategy, goal tree, targets)
+/// - [prompt_plan.dart]    — planner (goal tree building)
+/// - [prompt_execute.dart] — tool selector & reviewer
+/// - [prompt_context.dart] — chat, compactor, repair, pending, memory
 class PromptConstants {
   PromptConstants._();
 
-  // ─── System-level ──────────────────────────────────────────────────────────
+  /// Bump when prompt semantics change materially. Logged with each LLM
+  /// decision for A/B traceability across deployments.
+  static const String promptVersion = '2026-06-v3';
 
-  /// JSON-only system message used by planner and executor.
-  static const jsonOnlySystem =
-      'You are a JSON-only responder. Never use markdown.';
+  // ─── System-level (logic with caching stays here) ──────────────────────────
 
   /// Cache for systemRules — keyed by `language|isWorkflowAutoExecute`.
-  /// The string content is identical across turns for the same key, so
-  /// rebuilding it repeatedly is wasted work.
   static final Map<String, String> _systemRulesCache = {};
 
-  /// System rules always enforced regardless of SOUL.md content.
-  /// Use [language] placeholder for the resolved language label.
-  /// When [isWorkflowAutoExecute] is true, the run is a background scheduled
-  /// workflow with no user reading the message and pre-approved sensitive
-  /// actions — the rules are reworded to make the LLM execute directly.
-
-  static String systemRules(
-    String language, {
-    bool isWorkflowAutoExecute = false,
-  }) {
+  /// System rules always enforced regardless of agent persona content.
+  static String systemRules(String language, {bool isWorkflowAutoExecute = false}) {
     final cacheKey = '$language|$isWorkflowAutoExecute';
     final cached = _systemRulesCache[cacheKey];
     if (cached != null) return cached;
@@ -34,489 +42,167 @@ class PromptConstants {
     return built;
   }
 
+  /// Rules identical across interactive and workflow runs. Extracted once to
+  /// avoid drift between the two systemRules variants (was duplicated prose).
+  static const String _sharedSystemRules =
+      '''- Respect enabled permissions and modules. Do not assume capabilities.
+- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
+- CONFIG ARCHITECTURE: Configurational state (modules, active selections, user preferences) is managed through the config tool — read config then patch it. Agent and provider CRUD uses dedicated domain tools (agent.create/delete/update, provider.create/delete/update). Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.
+- MINI APPS POLICY: When creating, listing, or updating Mini Apps, present them as native-like custom applications. NEVER mention to the user that they are coded/built using HTML, CSS, JS, or WebViews. Keep the experience and your responses feeling native. Do not use terms like "source code", "web", or "HTML/CSS/JS" when talking to the user. Mini Apps run inside a WebView container on the device and can interact directly with the device features and the User Database (meow_user.db) through the window.meow SDK.
+When generating Mini App code:
+  * For styling, ALWAYS use Tailwind CSS by including `<script src="https://cdn.tailwindcss.com"></script>` in the `<head>`. Create beautiful, modern UI elements that prioritize the user's design preference (found under Design Preference in the Soul section of their profile); if none is specified, default to a glassmorphism style. The UI elements should match the Meow Agent aesthetic (rounded corners, soft shadows, slate/indigo/cyan/violet/rose color palettes). The host application supports dark mode: you MUST ensure that every Mini App design fully supports dark mode (either by using Tailwind's `dark:` selectors/classes or by implementing a sleek, dark-themed interface by default so that it looks stunning and remains perfectly readable in both light and dark modes).
+  * AVOID calling native dialogs or native picker components (such as browser `alert()`, `confirm()`, native `<input type="date">`, or `<input type="time">`). Instead, ALWAYS build custom, highly-polished inline components using Tailwind CSS:
+    - Custom styled HTML modal dialogs/banners for alerts and confirmations.
+    - Custom inline dropdowns/selection sheets.
+    - Custom Tailwind-based date pickers and time pickers.
+    This guarantees that the styling, transitions, and theme (dark mode, colors, typography) are completely unified and feel premium without popping up disjointed OS-level prompt dialogs.
+  * Utilize the following window.meow JavaScript SDK interfaces to integrate with native features and persist user data:
+    * window.meow.db.query(sql, params) -> Promise for custom database SELECT queries.
+    * window.meow.db.insert(table, data) -> Promise to insert an object key-value map.
+    * window.meow.db.update(table, data, where, whereArgs) -> Promise to update rows.
+    * window.meow.db.delete(table, where, whereArgs) -> Promise to delete rows.
+    * window.meow.db.execute(sql, params) -> Promise to execute raw SQL (e.g. CREATE TABLE IF NOT EXISTS).
+    * window.meow.notes.create(title, content, tags), list(limit), get(id) -> Promise to access notes.
+    * window.meow.api.call(apiId, params) -> Promise to invoke registered API Store config.
+    * window.meow.haptics.vibrate() -> Trigger light haptic vibration.
+    * window.meow.navigation.pop(), push(route) -> Manage screens.
+To edit or revise a Mini App, NEVER ask the user to provide the full code or try to write/create it all from scratch. Instead: (1) read the Mini App using `miniapp.read` in range chunks (e.g. lines 1-700, then 701-1400) to locate the target block of interest, (2) analyze the sliced code range, (3) call `miniapp.patch` to replace only the specific line range that needs modification by providing targetContent and replacementContent. This allows editing large codebases incrementally without truncation.''';
+
   static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {
       return '''SYSTEM RULES (always enforced):
 - This run is a scheduled WORKFLOW execution. There is NO user reading this message in real-time.
 - Sensitive actions are PRE-APPROVED for this run. Do NOT ask for confirmation; execute the appropriate tool directly.
 - Default language: $language. Be concise and practical.
-- Respect enabled permissions and modules. Do not assume capabilities.
+$_sharedSystemRules
 - If a tool fails or requires permission, stop and report the error clearly. Do not turn it into a question.
 - If a module permission blocks an action, report the disabled module/toggle exactly and do not attempt a workaround.
-- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
 - AMBIGUITY: If a required detail is missing, fail with a clear error message. Do NOT ask the user — there is no user.''';
     }
     return '''SYSTEM RULES (always enforced):
 - Default response language: $language. Match the user's language; do not switch unless they ask.
 - Be concise and practical. Avoid exaggerated or futuristic language.
-- For sensitive or destructive actions, CALL the appropriate tool directly. The runtime will automatically render a confirmation card with approve/cancel buttons. NEVER reply with a confirmation question as plain text — the user has no button to press.
-- Respect enabled permissions and modules. Do not assume capabilities.
+$_sharedSystemRules
 - If a tool fails or requires permission, stop and inform the user clearly.
 - If a module permission blocks an action, report the disabled module/toggle exactly and ask the user to enable it first.
-- CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist. When listing what you can do, ONLY mention actions backed by real tools in your schema.
-- When user provides identity info, update only the relevant SOUL.md field — never overwrite unrelated sections.
-- AMBIGUITY: Before calling any tool, if a required detail is missing or ambiguous (e.g. time without AM/PM, vague title, unclear target), ASK the user a short clarifying question first. Do not guess defaults silently.''';
+- ASK vs CONFIRM: a missing/ambiguous required detail → ask one short question in plain text BEFORE any tool (see POLICY.ASK). A complete-but-sensitive action → call the tool directly; the runtime renders the approve/cancel card. Never use a plain-text "are you sure?" for a sensitive action — it leaves no button to press.
+- When user provides identity info, update only the relevant identity field — never overwrite unrelated sections.''';
   }
 
-  /// Appended to the system prompt when the user has not introduced themselves
-  /// yet (User Identity > Name in SOUL.md is still a placeholder). Replaces
-  /// the old hardcoded "first introduction rule" that lived in chat_screen.
-  static const introductionGateRule = '''INTRODUCTION GATE:
-- The user has not introduced themselves yet. Their User Identity > Name is empty or a placeholder.
-- Before doing the user's task, gently and briefly ask for their preferred name or nickname so future replies can be personal.
-- Ask in the user's detected language. Keep it natural, one short sentence, and offer to skip if they prefer.
-- Once they answer, call system.profile.update(field: "name", value: "...") to persist it. If they also share a preferred language explicitly, update that too via system.profile.update(field: "preferred_language", value: "..."). Otherwise, do NOT ask about language — the runtime captures it automatically.
-- If the user clearly wants to continue without introducing themselves, stop asking and proceed with the task.''';
+  // ─── System-level constants (delegated to prompt_system.dart) ──────────────
 
-  // ─── Reflector (mandatory deep-thinking phase) ────────────────────────────
+  static const jsonOnlySystem = promptJsonOnlySystem;
+  static const introductionGateRule = promptIntroductionGateRule;
+  static const vmWorkflowRules = promptVmWorkflowRules;
 
-  static const reflectIntro =
-      'You are an AI agent reflector. Your job is to think carefully BEFORE the agent acts.';
-
-  static String reflectRules(String language) =>
-      '''CORE RESPONSIBILITY:
-For every non-trivial request you must decide a strategy that maximizes user trust:
-- direct_execute: request is unambiguous and safe. Loop runs without preamble.
-- clarify: at least one required slot is missing OR a per-target detail is missing for multi-target tasks OR the target referenced by the user does not exactly match an existing entity (typo). Ask ONE short question covering all gaps.
-- auto_resolve: ecosystem impacts exist but can be resolved silently first (e.g. reassign workflow before deleting agent). Emit prep steps.
-- block: action is destructive, unresolvable, and would surprise the user.
-
-SLOT EXTRACTION RULES (apply to every tool, not just agents):
-- Read each tool's description and arg schema. Identify the slots that materially shape user-visible outcome (persona/role for agent.create, title/body for note.create, trigger/prompt for workflow.create, etc.).
-- For multi-target requests, treat per-target detail as a slot. Example: "create 3 agents Coder, Writer, Researcher" — names are filled but persona/role are missing PER TARGET. Strategy must be clarify with one combined question.
-- Do NOT invent defaults. Do NOT copy persona/style/configuration from prior turns unless the user explicitly references it ("like before", "same as the previous one"). Otherwise list the slot in missing_slots.
-- A slot is "filled" only when the user gave it explicitly OR there is a sensible non-creative default the tool itself documents (e.g. notification.style defaults to "normal").
-
-EXISTENCE & TYPO RULES (CRITICAL — prevents post-confirmation "target not found" errors):
-- For operations that target an EXISTING snapshot-backed entity (agents, workflows, providers, modules), the target name in the user's request MUST exactly match an entity in the ecosystem snapshot before execution.
-- If no exact match exists, do NOT pick the closest one silently. Instead:
-  * If a near-match is plausible (e.g. minor typo, 1-2 character difference like "treaearcher" vs "researcher"), strategy=clarify and ask: did you mean <suggested>?
-  * If no plausible near-match exists, strategy=block and list the available targets so the user can choose.
-- Treat case-insensitive equality as exact match. Trim whitespace before comparing.
-- File paths (e.g. Agents/Mars/SOUL.md), notes, calendar items, and app/package targets are NOT ecosystem snapshot entities. Do not block them just because they are absent from the ecosystem snapshot; let the appropriate tool validate path/id/package existence.
-- If a target string looks like a workspace path, URL, Android package, note id, notification id, or calendar id, preserve it as that domain target. Do not reinterpret it as an agent/provider/workflow just because it contains a known entity name.
-- Never assume a typo means the user wanted to CREATE a new entity. Creation is only when the user explicitly asks to create.
-
-ECOSYSTEM AWARENESS:
-- Use the snapshot to detect cross-references. Example: deleting an agent that is referenced by a workflow — emit auto_resolve with a reassign step OR clarify if no substitute exists.
-- Renaming or deleting providers, modules, or workflows must surface the same impact analysis.
-- Read-only operations (read, list, get, open, search) must NOT emit destructive/update impacts. Reading an agent profile or file does not affect workflows.
-- Severity: high if delete/destructive on referenced entity, medium if rename/edit on referenced entity, low otherwise.
-
-OUTPUT LANGUAGE:
-- All user-visible strings (clarify_questions, block_reason) MUST be in $language. Match the user's tone.
-- reasoning is internal — keep it short and English.
-
-GOAL TREE:
-- Always produce goal_tree with subgoals. Multi-target = one subgoal per target.
-- If the user asks a question that requires fetched data, split it into evidence + answer outcomes (for example: validate/read the source, then answer the user's question from that result). A retrieval tool succeeding is not the final answer by itself.
-- For the answer-only outcome, set required_slots {"_operation":"respond"} so the runtime knows no extra tool is needed.
-- For each subgoal, fill required_slots with what is known and missing_slots with what is still needed for that specific subgoal.
-- Status defaults to "pending".
-
-BULK SELECTOR PROTOCOL (CRITICAL — generic across every entity type):
-- When the user uses a bulk quantifier (English: all/every/each/any; Indonesian: semua/setiap/seluruh/tiap/segala; wildcard: *) on an existing entity collection (agents, workflows, providers, modules, notes, etc.), DO NOT try to invent or enumerate the entity names yourself.
-- Emit ONE seed target with operation set to the user's verb (delete/update/toggle/...), entity_type set to the entity collection, entity_label = "all", and selector = {"scope": "all"}.
-- Emit ONE matching subgoal whose label describes the bulk action (e.g. "update all workflows to agent X"). Put SHARED slots (the target agent, the new value, etc.) in required_slots so they apply to every fanned-out child.
-- The runtime will deterministically expand this seed into one concrete subgoal+target per matching entity from the live snapshot. You do not need to do it yourself.
-- This rule is INDEPENDENT of how many entities exist. Even if the snapshot only has one workflow today, still emit the bulk shape; the expander handles N=0,1,many uniformly.
-- Bulk selectors NEVER apply to create. If the user says "create all X" treat it as ambiguous and clarify the count or list.
-
-TARGET GRAPH:
-- Also emit `targets`: one machine-readable target per subgoal when the action acts on a concrete entity.
-- operation MUST be an English enum: create, delete, update, rename, toggle, read, list, open, unknown.
-- entity_type MUST be an English enum: agent, workflow, provider, module, note, file, calendar_event, app, unknown.
-- For existing entities, copy entity_id and entity_label exactly from the ecosystem snapshot when available.
-- For BULK SELECTOR targets (per the protocol above), leave entity_id empty, set entity_label="all", and set selector={"scope":"all"}. The runtime will fan it out from snapshot.
-- Path-like targets (for example Agents/Mars/SOUL.md) MUST use entity_type "file" even when the path contains an agent name.
-- If a peer-agent path is derived from a human agent name (Agents/<Name>/...), the <Name> segment must be validated against the agent snapshot. Do not silently turn a partial name, nickname, or typo into a different full agent name; clarify first.
-- URL/package/note/calendar/notification targets should keep their own domain entity type and should not be forced into ecosystem snapshot matching.
-- If a target is selected by a semantic bulk selector, follow the BULK SELECTOR PROTOCOL above instead of pre-enumerating.
-- Every impact MUST include source_target_id pointing to the target/subgoal that causes it. If an impact cannot be tied to a target, omit it.''';
-
-  static const reflectResponseFormat =
-      '''Respond with ONLY valid JSON, no markdown, no explanation:
-
-{
-  "strategy": "direct_execute | clarify | auto_resolve | block",
-  "goal_tree": {
-    "main_goal": "single sentence summary",
-    "completion_criteria": ["observable condition 1", "..."],
-    "subgoals": [
-      {
-        "id": "sg1",
-        "label": "user-visible outcome",
-        "required_slots": {"slotKey": "value or null"},
-        "missing_slots": ["slotKey"],
-        "status": "pending"
-      }
-    ]
-  },
-  "targets": [
-    {
-      "subgoal_id": "sg1",
-      "operation": "create | delete | update | rename | toggle | read | list | open | unknown",
-      "entity_type": "agent | workflow | provider | module | note | file | calendar_event | app | unknown",
-      "entity_id": "exact snapshot id when existing target is known",
-      "entity_label": "human-readable target name",
-      "selector": {"optional": "selector evidence"}
+  /// True when the available-tools list includes any VM module tool, so the
+  /// VM workflow rules are worth injecting (they cost ~400 tokens).
+  static bool toolsIncludeVm(List<String> availableTools) {
+    for (final def in availableTools) {
+      if (def.contains('vm.')) return true;
     }
-  ],
-  "impacts": [
-    {
-      "entity_type": "agent | workflow | provider | module",
-      "entity_id": "...",
-      "entity_label": "human-readable name",
-      "source_target_id": "subgoal/target id that causes this impact",
-      "relation": "short description of why it's affected",
-      "severity": "low | medium | high",
-      "auto_resolvable": true,
-      "resolution_hint": "short hint, e.g. reassign to Agent A"
-    }
-  ],
-  "clarify_questions": ["one combined question that covers all missing slots"],
-  "block_reason": "string, only when strategy=block",
-  "reasoning": "1-2 sentences in English describing why you picked this strategy",
-  "narrative": "ONE short, casual, POV-AI, present-progressive sentence in the user's language describing what you're thinking about RIGHT NOW (e.g. 'Aku lagi mikirin, kalau Writer dihapus ada workflow yang masih make dia.' or 'Checking what depends on this agent first...')"
-}
+    return false;
+  }
 
-Rules:
-- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly question in the user's language that covers ALL missing slots across all subgoals.
-- If strategy=block, block_reason MUST be filled with a clear, polite explanation in the user's language.
-- impacts may be empty when nothing in the ecosystem is affected.
-- narrative MUST be present, in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or other internal jargon. Speak as if thinking out loud to the user.
-- Never include backticks or markdown fences.''';
+  // ─── Policy blocks (delegated to prompt_policy.dart) ───────────────────────
 
-  // ─── Chat (legacy direct LLM path) ────────────────────────────────────────
+  static const policyAsk = promptPolicyAsk;
+  static const policyGround = promptPolicyGround;
+  static const policyMinimal = promptPolicyMinimal;
+  static const policyRecover = promptPolicyRecover;
+  static const policyVoice = promptPolicyVoice;
 
-  /// Base system prompt for the legacy chat path.
-  static String chatSystemPrompt(String agentName) =>
-      '''You are $agentName, an Android-native AI assistant.
-Be concise and helpful.
-Match the user's language; do not switch unless they ask.
+  // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
 
-Behavior rules:
-- Keep responses concise and practical.
-- Avoid exaggerated futuristic language.
-- Ask before sensitive actions.''';
+  static const analyzeIntro = promptAnalyzeIntro;
+  static const systemMarkdownMap = promptSystemMarkdownMap;
+  static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
+  static const analyzeCrossDomainAmbiguityRule = promptAnalyzeCrossDomainAmbiguityRule;
+  static const analyzeExamples = promptAnalyzeExamples;
+  static const analyzeResponseFormat = promptAnalyzeResponseFormat;
 
-  /// First-chat introduction rule appended when user has no prior messages.
-  static const firstIntroductionRule = '''FIRST INTRODUCTION RULE:
-This is the user's first message. Before handling their request, politely ask what name or nickname they'd like to be called. Keep it natural and brief. Reply in the user's language.''';
+  // ─── Reflector (delegated to prompt_reflect.dart) ──────────────────────────
 
-  // ─── Analyzer ──────────────────────────────────────────────────────────────
+  static const reflectIntro = promptReflectIntro;
+  static String reflectRules(String language) => promptReflectRules(language);
+  static const reflectResponseFormat = promptReflectResponseFormat;
 
-  static const analyzeIntro =
-      'You are an AI agent runtime analyzer running on an Android device.';
+  // ─── Planner (delegated to prompt_plan.dart) ───────────────────────────────
 
-  static const systemMarkdownMap = '''Meow Agent markdown model:
-- System markdown = global standard/base schema used for all agents. It is read-only runtime guidance, not per-agent memory.
-- Agent markdown = mutable files inside the current agent workspace: Documents/MeowAgent/Agents/{AgentName}/.
-- SOUL.md stores agent identity, User Identity, profile fields, durable response/style preferences.
-- MEMORY.md stores long-term facts, learned preferences, bookmarks, and concise persistent context.
-- SKILLS.md stores per-agent tool-use preferences; the real tool registry is injected by the runtime.
-- HEARTBEAT.md stores runtime status and must not be used for user profile or memory.
-- If the user provides their name, nickname, timezone, preferred language, role, or communication style, update the current agent workspace SOUL.md via system.profile.update.
-- If the user asks you to remember a fact/preference, append it to the current agent workspace MEMORY.md via system.memory.append.
-- Never update system markdown/base docs for user-specific memory.
+  static const planIntro = promptPlanIntro;
+  static const planResponseFormat = promptPlanResponseFormat;
 
-World model (files.* tools):
-- The MeowAgent root (Documents/MeowAgent/) is the file sandbox. The calling agent's own workspace (Documents/MeowAgent/Agents/{ThisAgent}/) is the default scope.
-- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/Penulis/SOUL.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
-- Use this for tasks that span peer agents: swapping personalities, syncing memory snippets, copying files between agent workspaces, etc.
-- DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.''';
+  // ─── Tool Selector (delegated to prompt_execute.dart) ──────────────────────
 
-  static const analyzeRequiresToolsRules = '''Rules for requires_tools:
-- Set true if user wants to: open an app, open a URL, read/write clipboard, open settings, list apps, create/edit/delete notes/events/files, inspect Meow Agent system state, list agents/providers/modules/tools, create/delete agents, or update agent profile/memory
-- Set true for phrases like: "open [app]", "launch [app]", "go to [url]"
-- Set true for identity/profile phrases like: "my name is ...", "call me ...", "my timezone is ...", "remember my name is ...". Use system.profile.update for SOUL.md User Identity.
-- Set true for durable memory phrases like: "remember that ...", "save this preference ...". Use system.memory.append for MEMORY.md.
-- Set true for system questions like: "how many modules?", "list agents", "what providers do I have?", "what tools do you have?", "where is your workspace?"
-- Set true when the user asks about another agent's profile/personality/configuration, or about content inside an agent workspace file. That information must be validated/read with tools before answering.
-- Set false if user is chatting, asking questions, or requesting information only
-- Set FALSE if the request is AMBIGUOUS or MISSING required details. In that case, populate missing_info with the questions to ask. Do NOT guess defaults.
-- When in doubt and a tool exists that matches the request, set true ONLY if all required details are clear.
+  static const selectToolIntro = promptSelectToolIntro;
+  static const selectToolResponseFormat = promptSelectToolResponseFormat;
+  static const selectToolMemoryHeader = promptSelectToolMemoryHeader;
 
-Conversation continuity rules:
-- Recent conversation is authoritative context, especially the immediately previous assistant question and current user reply.
-- If the previous assistant message asked clarifying questions, treat the current user message as answers to those questions.
-- Merge the current user answers with the original request from recent conversation before deciding intent, goal, missing_info, and requires_tools.
-- Do NOT ask again for information that the user already answered, even if the answer is short or informal.
-- If the user answers multiple pending questions in one message, extract all answered details and only ask for truly missing details.
-- Example: original request "create a workflow at 1:15 AM ...", assistant asks "what message? which contact?", user replies "1 AM, message: workflow result to agent" → keep workflow context and only ask the still-missing contact if needed.
+  // ─── Reviewer (delegated to prompt_execute.dart) ───────────────────────────
 
-Ambiguity examples (must set requires_tools=false and populate missing_info — ALWAYS ask in the user's language):
-- "schedule at 8" → missing_info: ["8 AM or 8 PM?"]
-- "at 10 I want to game with friends" → missing_info: ["10 AM or 10 PM?"]
-- "create a note" without subject → missing_info: ["what title and body for the note?"]
-- "remind me about the meeting tomorrow" → missing_info: ["what time is the meeting?"]
-- "delete that" with no clear target → missing_info: ["which one do you want to delete?"]
+  static const reviewIntro = promptReviewIntro;
+  static String reviewRulesFor(String language) => promptReviewRulesFor(language);
+  static const reviewResponseFormat = promptReviewResponseFormat;
 
-Multi-target enumeration rule (CRITICAL):
-- When the user mentions multiple targets (numerals like "3 agents", lists separated by comma/and/or, or "each"), enumerate each target as its own subgoal_seed entry.
-- Do NOT collapse multi-target requests into a single goal. Example: "create 3 agents Coder, Writer, Researcher" → 3 subgoal_seeds.
-- A subgoal_seed is a short label describing one user-visible outcome (e.g. "create agent Coder").
-- If the request is single-target, return a single-element subgoal_seeds array.
-- subgoal_seeds is OPTIONAL when the task has no enumerable targets at all (pure question, casual chat).
+  // ─── Context / misc (delegated to prompt_context.dart) ─────────────────────
 
-Bulk-selector rule (applies to ANY entity type — agents, workflows, providers, modules, notes, files):
-- The words "all / every / each / any" (English) and "semua / setiap / seluruh / tiap / segala" (Indonesian), or "*" as a wildcard, are BULK SELECTORS. They mean "every existing entity of this type that the user can see".
-- A bulk selector ALWAYS produces a multi-target intent even though the user did not type out the names. Examples:
-  * "hapus semua workflow"          → multi-target delete on workflows
-  * "set semua workflow ke agen A"  → multi-target update on workflows (shared slot: target agent = A)
-  * "matikan semua agen kecuali X"  → multi-target toggle on agents minus X
-  * "delete every note"             → multi-target delete on notes
-- For bulk requests, set requires_tools=true and emit a SINGLE subgoal_seed describing the bulk intent (e.g. "update all workflows assigned-agent"). The runtime fans this out to one subgoal per matching entity from the live snapshot — do NOT try to enumerate names yourself if you do not know them.
-- Set bulk_selector=true at the top level when the request matches this pattern, otherwise omit it.
-- Bulk selectors NEVER apply to create operations. "create all X" is ambiguous — set requires_tools=false and ask for the count or list.''';
+  static String chatSystemPrompt(String agentName) => promptChatSystemPrompt(agentName);
+  static const firstIntroductionRule = promptFirstIntroductionRule;
+  static String selfIdentity({required String agentName, required String agentId}) =>
+      promptSelfIdentity(agentName: agentName, agentId: agentId);
+  static const narrativeFieldRule = promptNarrativeFieldRule;
+  static const nextNarrativeFieldRule = promptNextNarrativeFieldRule;
+  static String taskSummaryPrompt({
+    required String mainGoal,
+    required String subgoalsBlock,
+    required String languageLabel,
+    required String languageCode,
+  }) => promptTaskSummary(
+    mainGoal: mainGoal,
+    subgoalsBlock: subgoalsBlock,
+    languageLabel: languageLabel,
+    languageCode: languageCode,
+  );
+  static const toolResultTrust = promptToolResultTrust;
+  static const compactorSystemPrompt = promptCompactorSystemPrompt;
+  static const jsonRepairIntro = promptJsonRepairIntro;
+  static const pendingActionInstructions = promptPendingActionInstructions;
+  static const memoryInstructions = promptMemoryInstructions;
+  static const memoryHeader = promptMemoryHeader;
+  static const memoryExtractionSystem = promptMemoryExtractionSystem;
+  static String memoryExtractionUser({required String userMessage, required String toolBlock}) =>
+      promptMemoryExtractionUser(userMessage: userMessage, toolBlock: toolBlock);
+  static const sessionSummarySystem = promptSessionSummarySystem;
+  static String sessionSummaryUser(String transcript) => promptSessionSummaryUser(transcript);
 
-  static const analyzeExamples =
-      '''Examples that require tools (intent shown in English; user phrasing may be in any language):
-- "open whatsapp" → app.resolve("whatsapp") then app.open(packageName)
-- "open youtube" → app.resolve("youtube") then app.open(packageName)
-- "open google.com" → intent.open_url
-- "read clipboard" → clipboard.read
-- "write to clipboard" → clipboard.write
-- "open wifi settings" → settings.open
-- "what apps are installed" → app.list_installed
-- "my name is Budi" → system.profile.update(field: "name", value: "Budi")
-- "call me Di" → system.profile.update(field: "nickname", value: "Di")
-- "remember I prefer short answers" → system.memory.append(category: "preference", content: "User prefers short answers")
-- "how many modules do I have?" → system.modules.list
-- "where is your workspace?" → system.self
-- "create a new agent named Coder" → system.agents.create(name: "Coder"), subgoal_seeds: ["create agent Coder"]
-- "create a new agent Momo, personality skillful coder" → system.agents.create(name: "Momo", role: "Skillful coder agent", persona: "...", communicationStyle: "concise, technical")
-- "create agent Bob who is a friendly writing assistant" → system.agents.create(name: "Bob", role: "Friendly writing assistant", persona: "...")
+  static String selectRelevantSkills({
+    required String userMessage,
+    required String skillsListBlock,
+  }) =>
+      promptSelectRelevantSkills(
+        userMessage: userMessage,
+        skillsListBlock: skillsListBlock,
+      );
 
-Multi-target examples (subgoal_seeds MUST list each target):
-- "create 3 new agents: Coder, Writer, Researcher" → subgoal_seeds: ["create agent Coder", "create agent Writer", "create agent Researcher"]
-- "create 3 different agents A, B, and C" → subgoal_seeds: ["create agent A", "create agent B", "create agent C"]
-- "make 5 notes titled A, B, C, D, E" → subgoal_seeds: ["create note A", "create note B", "create note C", "create note D", "create note E"]
-- "delete agent X and Y" → subgoal_seeds: ["delete agent X", "delete agent Y"]
+  // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 
-IMPORTANT: For opening apps, ALWAYS use app.resolve FIRST to convert friendly names to package names, THEN use app.open with the resolved package.''';
+  static String workflowApiContext(List<String> apiNames) => promptWorkflowApiContext(apiNames);
 
-  static const analyzeResponseFormat =
-      '''Respond with ONLY valid JSON, no markdown, no explanation:
+  // ─── Workflow Runner Prompts (delegated to prompt_workflow.dart) ──────────
 
-{
-  "intent": "short.intent.name",
-  "goal": "one sentence describing what user wants",
-  "requires_tools": true/false,
-  "risk": "safe/sensitive/dangerous",
-  "missing_info": ["clarifying question 1", "clarifying question 2"],
-  "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
-  "bulk_selector": true,
-  "task_relation": "none | continuation | revision | new_task",
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language saying what you understood from their request (e.g. 'Aku coba paham nih, kamu mau hapus 3 agen sekaligus.' / 'Got it \u2014 you want to open WhatsApp.')"
-}
+  static String workflowChainedUserMessage({
+    required int stepIndex,
+    required int totalSteps,
+    required String userInstruction,
+  }) => promptChainedUserMessage(
+    stepIndex: stepIndex,
+    totalSteps: totalSteps,
+    userInstruction: userInstruction,
+  );
 
-Rules:
-- If missing_info has items, requires_tools MUST be false.
-- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs. Speak as if you're recapping what you understood.
-- task_relation classifies the new message against the ACTIVE TASK CONTEXT (when one is provided in the prompt):
-  * "none"          -> no active task context provided, OR the new message clearly stands on its own and has nothing to do with the active task.
-  * "continuation"  -> user is just nudging/answering inside the active task (e.g. "ok lanjut", "yes", short answer to a clarify). Treat as same task.
-  * "revision"      -> user is editing/adjusting parameters of the active task (changing a name, slot, or scope of the same goal).
-  * "new_task"      -> user is asking for something different and unrelated; the active task should be considered abandoned.
-- When ACTIVE TASK CONTEXT is absent, task_relation MUST be "none".''';
+  static String workflowPreviousStepMarker(int stepIndex) => promptPreviousStepMarker(stepIndex);
 
-  // ─── Planner ───────────────────────────────────────────────────────────────
+  static String workflowEarlierStepMarker(int stepNumber) => promptEarlierStepMarker(stepNumber);
 
-  static const planIntro = 'You are an AI agent planner.';
-
-  static const planResponseFormat =
-      '''Build a goal tree (NOT a flat step list). Respond with ONLY valid JSON, no markdown, no explanation:
-
-{
-  "main_goal": "single sentence summarizing the user's overall goal",
-  "completion_criteria": [
-    "observable condition 1 that must be true at the end",
-    "observable condition 2"
-  ],
-  "subgoals": [
-    {
-      "id": "sg1",
-      "label": "one user-visible outcome",
-      "required_slots": {"name": "...", "persona": "..."},
-      "missing_slots": ["persona"],
-      "status": "pending"
-    }
-  ],
-  "narrative": "ONE short, casual, POV-AI sentence in the user's language describing the plan in human terms (e.g. 'Aku bagi jadi 3 langkah: hapus dulu, lalu buat baru, terakhir update.' / 'Breaking this into a few simple steps now.')"
-}
-
-Rules:
-- One subgoal per user-visible outcome. Multi-target requests (e.g. "buat 3 agen X, Y, Z") MUST emit one subgoal per target.
-- For existing-entity work, include a validation/list/resolve subgoal before acting when the user gave a partial name, nickname, typo, or ambiguous target. Do not construct a peer workspace path from an unvalidated agent nickname.
-- For information requests that need a tool, include both the retrieval/validation outcome and the final answer outcome. The task is not complete until the user receives the answer based on retrieved data.
-- For the final answer outcome, set required_slots {"_operation":"respond"} (or {"tool":"none"}) and leave missing_slots empty.
-- ids must be short, stable, unique within the tree (e.g. sg1, sg2, sg_create_X).
-- required_slots is what the subgoal needs to be executable. Leave empty when not applicable.
-- missing_slots lists slot keys still unknown. Empty means subgoal is ready to execute.
-- Use status="pending" for all subgoals at planning time.
-- completion_criteria are short, verifiable conditions — the reviewer uses them to confirm the task is fully done before returning final.
-- narrative MUST be in the user's language, first-person, 1 short sentence, NO tool names, NO IDs, NO mention of "goal tree" or "subgoals". Use everyday words.''';
-
-  // ─── Tool Selector ─────────────────────────────────────────────────────────
-
-  static const selectToolIntro = 'You are an AI agent tool selector.';
-
-  static const selectToolResponseFormat =
-      '''Decide the next action. Respond with ONLY valid JSON, no markdown, no explanation.
-
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you're about to do or have decided. NO tool names, NO IDs, NO internal jargon. First-person, present-progressive (e.g. 'Sebentar, aku mau hapus agen yang kamu sebut.' / 'Picking the right step for this now.').
-
-If a tool is needed:
-{
-  "status": "tool_required",
-  "tool": {
-    "name": "tool.name",
-    "args": {},
-    "risk": "safe/sensitive",
-    "requires_confirmation": true/false
-  },
-  "reason": "why this tool is needed",
-  "narrative": ""
-}
-
-If the task is complete and you can give a final answer:
-{
-  "status": "done",
-  "final_response": "your response to the user",
-  "narrative": ""
-}
-
-If you need more info from the user:
-{
-  "status": "ask_user",
-  "question": "what you need to know",
-  "narrative": ""
-}
-
-CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
-- If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
-- When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
-- ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
-- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
-
-  // ─── Reviewer ──────────────────────────────────────────────────────────────
-
-  static const reviewIntro = 'You are an AI agent reviewer.';
-
-  static String reviewRulesFor(String language) =>
-      '''CRITICAL RULES for final_response:
-- Reply in $language. Match the user's language exactly. Never switch languages.
-- NEVER use technical phrasing like "Step 1 completed", "execution plan", "tool executed", "with ID xxx".
-- NEVER mention internal tool names (e.g. "notes.create", "clipboard.write").
-- NEVER include internal IDs in the reply (e.g. "note_13ff8f68").
-- Speak as a helpful assistant who just did the task naturally.
-- Be concise (1–2 short sentences).
-- If success, confirm what was done in human terms (e.g. "Sudah saya buatkan catatan tentang AI.").
-- If the successful tool only retrieved information (read/list/search/status), answer the user's actual question using the tool result. Do NOT say only that the file/list/status was opened or read.
-- For read-file results, synthesize the relevant content into a direct answer unless the user explicitly asked for raw file contents.
-- If failed, explain what went wrong in plain language and suggest a next step.
-- If failed because a module, permission, or feature toggle is disabled, say exactly which module/toggle blocks it and ask the user to enable it first. Do not retry.
-
-CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
-- A tool that ran SUCCESSFULLY but returned zero matches (e.g. count: 0, empty list, no rows) IS the answer. It is NOT a failure. Return status="done" and tell the user the answer is "none / not found / nothing matches" in their language.
-- Do NOT loop searching with slightly different keywords or args hoping for a different result. The user can refine the query themselves if they want.
-- Do NOT switch to another tool unless a DIFFERENT tool is genuinely more likely to find what was missed (e.g. switching from notes.search to files.search when the user mentioned a file path). When in doubt, return done with the empty result.
-- Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
-- Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.''';
-
-  /// Backward-compat stub. Prefer reviewRulesFor(language).
-  static const reviewRules = '''CRITICAL RULES for final_response:
-- Reply in the SAME language as the user's original request (Indonesian if they used Indonesian).
-- NEVER mention internal tool names like "clipboard.write", "app.open", "intent.open_url".
-- NEVER say "the X tool executed successfully" or similar technical phrasing.
-- Speak naturally as a helpful assistant who just did the task.
-- Be concise (1-2 short sentences).
-- If the tool succeeded, confirm what was done in human terms.
-- If it failed, explain what went wrong in plain language and suggest a next step.''';
-
-  static const reviewResponseFormat =
-      '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.
-
-ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:
-  "subgoal_update": {"id": "sg1", "status": "done|in_progress|failed|skipped", "notes": "optional short note"}
-
-ALL response shapes MUST include a `narrative` field: ONE short, casual, POV-AI sentence in the user's language describing what you observed and what's next (e.g. 'Beres! Sekarang lanjut bikin agen kedua.' / 'That worked, moving on to the next step.'). NO tool names, NO IDs, NO mention of "subgoal" or other jargon.
-
-If the active subgoal succeeded but other subgoals are still pending: status=continue.
-Only return status=done when ALL subgoals (including the active one) are terminal AND every completion_criterion is satisfied.
-
-If task is complete:
-{
-  "status": "done",
-  "final_response": "natural human reply, no tool names",
-  "subgoal_update": {"id": "sgX", "status": "done"},
-  "narrative": ""
-}
-
-If more subgoals remain:
-{
-  "status": "continue",
-  "reason": "why we need to continue",
-  "subgoal_update": {"id": "sgX", "status": "done"},
-  "narrative": ""
-}
-
-If tool failed and should retry:
-{
-  "status": "retry",
-  "reason": "why retry might work",
-  "subgoal_update": {"id": "sgX", "status": "in_progress"},
-  "narrative": ""
-}
-
-If you need user input:
-{
-  "status": "ask_user",
-  "question": "what you need",
-  "subgoal_update": {"id": "sgX", "status": "in_progress"},
-  "narrative": ""
-}
-
-If unrecoverable:
-{
-  "status": "failed",
-  "error": "what went wrong",
-  "subgoal_update": {"id": "sgX", "status": "failed"},
-  "narrative": ""
-}''';
-
-  // ─── Context Compactor ─────────────────────────────────────────────────────
-
-  static const compactorSystemPrompt =
-      'You are a conversation summarizer. Summarize the following conversation history '
-      'into a concise paragraph that preserves: key facts, user preferences, names mentioned, '
-      'decisions made, and important context. Keep it under 200 words. '
-      'Write in the same language as the conversation (Indonesian/English).';
-
-  // ─── JSON Repair ───────────────────────────────────────────────────────────
-
-  static const jsonRepairIntro =
-      'The following text was supposed to be valid JSON but has errors.\n'
-      'Fix it and return ONLY the corrected valid JSON, nothing else:';
-
-  // ─── Pending Action Context ─────────────────────────────────────────
-
-  static const pendingActionInstructions =
-      '''If the user refers to "the result", "that", "the previous one", "this" — they mean this pending action.
-If user asks to preview, show, or just see the result — set requires_tools to false and answer using the preview.
-If user rejects — set requires_tools to false.
-If user confirms — set requires_tools to true.''';
-
-  // ─── Memory Context ─────────────────────────────────────────────────────
-
-  static const memoryInstructions =
-      'When the user references something ambiguous, prefer matching against the LAST relevant entry above. '
-      'Reuse IDs (noteId, package, notificationId, etc.) from these results instead of asking again.';
-
-  static const memoryHeader =
-      'Recent tool results (from prior turns, oldest first — use these to resolve references like "that one", "the previous one", "the last note", "use the previous id"):';
-
-  static const selectToolMemoryHeader =
-      'Recent tool results from prior turns (use these IDs/values when the user references "the previous one", "that", "last note"):';
+  static const workflowTriggerContextWrapper = promptTriggerContextWrapper;
 }

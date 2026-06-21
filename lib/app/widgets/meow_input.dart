@@ -10,7 +10,7 @@ import '../theme.dart';
 /// - Subtle border change on focus (no glow).
 /// - Helper text below.
 class MeowInput extends StatefulWidget {
-  const MeowInput({
+const MeowInput({
     super.key,
     this.controller,
     this.label,
@@ -21,9 +21,16 @@ class MeowInput extends StatefulWidget {
     this.textInputAction,
     this.validator,
     this.onChanged,
+    this.onSubmitted,
     this.suffixIcon,
     this.maxLines = 1,
     this.autofocus = false,
+    this.errorText,
+    this.maxLength,
+    this.textCapitalization,
+    this.showCounter = false,
+    this.enabled = true,
+    this.readOnly = false,
   });
 
   final TextEditingController? controller;
@@ -35,9 +42,16 @@ class MeowInput extends StatefulWidget {
   final TextInputAction? textInputAction;
   final String? Function(String?)? validator;
   final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
   final Widget? suffixIcon;
   final int maxLines;
   final bool autofocus;
+  final String? errorText;
+  final int? maxLength;
+  final TextCapitalization? textCapitalization;
+  final bool showCounter;
+  final bool enabled;
+  final bool readOnly;
 
   @override
   State<MeowInput> createState() => _MeowInputState();
@@ -68,6 +82,9 @@ class _MeowInputState extends State<MeowInput> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final extras = context.extras;
+    final theme = Theme.of(context);
+    final errorStyle = theme.inputDecorationTheme.errorStyle ??
+        TextStyle(fontSize: 12, color: theme.colorScheme.error);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -93,8 +110,13 @@ class _MeowInputState extends State<MeowInput> {
           obscureText: widget.obscureText,
           keyboardType: widget.keyboardType,
           textInputAction: widget.textInputAction,
+          textCapitalization: widget.textCapitalization ?? TextCapitalization.none,
+          maxLength: widget.maxLength,
           validator: widget.validator,
+          enabled: widget.enabled,
+          readOnly: widget.readOnly,
           onChanged: widget.onChanged,
+          onFieldSubmitted: widget.onSubmitted,
           maxLines: widget.maxLines,
           autofocus: widget.autofocus,
           style: TextStyle(
@@ -103,11 +125,15 @@ class _MeowInputState extends State<MeowInput> {
             color: cs.onSurface,
             height: 1.4,
           ),
-          decoration: InputDecoration(
+decoration: InputDecoration(
             hintText: widget.hint,
             suffixIcon: widget.suffixIcon,
             filled: true,
             fillColor: extras.inputFill,
+            errorText: widget.errorText,
+            errorMaxLines: 2,
+            errorStyle: errorStyle,
+            counter: widget.showCounter ? null : const SizedBox.shrink(),
           ),
         ),
 

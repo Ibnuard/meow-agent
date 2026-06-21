@@ -25,6 +25,7 @@ class _WorkflowTemplatesScreenState
     final extras = context.extras;
     final langPref = ref.watch(appLanguageProvider);
     final isId = resolveLanguageCode(langPref) == 'id';
+    final s = AppStrings(isId ? 'id' : 'en');
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
 
     final templates = _selectedCategory == null
@@ -33,7 +34,7 @@ class _WorkflowTemplatesScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isId ? 'Template Workflow' : 'Workflow Templates'),
+        title: Text(s.wfTemplatesTitle),
       ),
       body: SafeArea(
         top: false,
@@ -50,9 +51,9 @@ class _WorkflowTemplatesScreenState
                   vertical: 8,
                 ),
                 children: [
-                  _categoryChip(null, isId ? 'Semua' : 'All', cs),
+                  _categoryChip(null, s.wfTemplatesAll, cs),
                   ...TemplateCategory.values.map(
-                    (c) => _categoryChip(c, _categoryLabel(c, isId), cs),
+                    (c) => _categoryChip(c, _categoryLabel(c, s), cs),
                   ),
                 ],
               ),
@@ -62,7 +63,7 @@ class _WorkflowTemplatesScreenState
                 padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + bottomInset),
                 itemCount: templates.length,
                 itemBuilder: (_, i) =>
-                    _templateCard(templates[i], cs, extras, isId),
+                    _templateCard(templates[i], cs, extras, s),
               ),
             ),
           ],
@@ -109,7 +110,7 @@ class _WorkflowTemplatesScreenState
     WorkflowTemplate tpl,
     ColorScheme cs,
     MeowExtras extras,
-    bool isId,
+    AppStrings s,
   ) {
     return GestureDetector(
       onTap: () async {
@@ -147,7 +148,7 @@ class _WorkflowTemplatesScreenState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isId ? tpl.titleId : tpl.title,
+                    s.isId ? tpl.titleId : tpl.title,
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -156,7 +157,7 @@ class _WorkflowTemplatesScreenState
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    isId ? tpl.descriptionId : tpl.description,
+                    s.isId ? tpl.descriptionId : tpl.description,
                     style: TextStyle(
                       fontSize: 12,
                       color: cs.onSurfaceVariant,
@@ -177,7 +178,7 @@ class _WorkflowTemplatesScreenState
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        '${tpl.defaultSteps.length} ${isId ? "langkah" : "steps"}',
+                        s.workflowStepsCount(tpl.defaultSteps.length),
                         style: TextStyle(
                           fontSize: 10,
                           color: cs.primary,
@@ -199,18 +200,18 @@ class _WorkflowTemplatesScreenState
     );
   }
 
-  String _categoryLabel(TemplateCategory c, bool isId) {
+  String _categoryLabel(TemplateCategory c, AppStrings s) {
     switch (c) {
       case TemplateCategory.productivity:
-        return isId ? 'Produktivitas' : 'Productivity';
+        return s.wfTemplatesProductivity;
       case TemplateCategory.monitoring:
-        return isId ? 'Monitoring' : 'Monitoring';
+        return s.wfTemplatesMonitoring;
       case TemplateCategory.communication:
-        return isId ? 'Komunikasi' : 'Communication';
+        return s.wfTemplatesCommunication;
       case TemplateCategory.automation:
-        return isId ? 'Otomatisasi' : 'Automation';
+        return s.wfTemplatesAutomation;
       case TemplateCategory.health:
-        return isId ? 'Kesehatan' : 'Health';
+        return s.wfTemplatesHealth;
     }
   }
 }

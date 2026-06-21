@@ -1,7 +1,7 @@
 name: meow_agent
 description: "Meow Agent - Android-native agentic AI app"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.11.0
@@ -31,8 +31,11 @@ dependencies:
   uuid: ^4.5.1
   google_fonts: ^6.2.1
   file_picker: ^8.1.6
-  flutter_markdown: ^0.7.6
+  gpt_markdown: ^1.1.7
   syncfusion_flutter_calendar: ^28.1.33
+
+  # WebView for sandbox apps
+  webview_flutter: ^4.10.0
 
   # Workflow scheduling & notifications
   flutter_local_notifications: ^18.0.1
@@ -44,7 +47,13 @@ dependencies:
   battery_plus: ^6.2.0
   connectivity_plus: ^6.1.0
 
+  # Permissions
+  permission_handler: ^11.3.1
+
+  flutter_launcher_icons: ^0.14.4
+
 dev_dependencies:
+  flutter_native_splash: ^2.4.6
   flutter_test:
     sdk: flutter
 
@@ -53,3 +62,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    - assets/images/
+
+flutter_native_splash:
+  color: "#FFFFFF"
+  image: assets/icon/launcher.png
+  android_12:
+    image: assets/icon/launcher.png
+    color: "#FFFFFF"

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../settings/data/app_language_provider.dart';
 import 'calendar_event_model.dart';
 import 'calendar_screen.dart';
 
@@ -31,6 +32,11 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
   late TimeOfDay _endTime;
   bool _allDay = false;
   bool _saving = false;
+
+  AppStrings get s {
+    final langPref = ref.read(appLanguageProvider);
+    return AppStrings(resolveLanguageCode(langPref));
+  }
 
   bool get _isEditing => widget.event != null;
 
@@ -109,7 +115,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Judul tidak boleh kosong')),
+        SnackBar(content: Text(s.calendarEventTitleRequired)),
       );
       return;
     }
@@ -149,7 +155,7 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text(s.errorWithMessage('$e'))),
         );
       }
     }
@@ -157,10 +163,12 @@ class _CalendarEventEditorState extends ConsumerState<CalendarEventEditor> {
 
   Future<void> _delete() async {
     if (!_isEditing) return;
+    final s = AppStrings(resolveLanguageCode(ref.read(appLanguageProvider)));
     final confirm = await showMeowConfirmDialog(
       context,
-      title: 'Hapus Event?',
-      message: 'Event ini akan dihapus permanen. Lanjutkan?',
+      strings: s,
+      title: s.calendarEventDeleteTitle,
+      message: s.calendarEventDeleteBody,
     );
     if (!confirm) return;
 
