@@ -1,11 +1,9 @@
-<h1 align="center">
+<p align="center">
   <img src="assets/images/meow.png" width="168" alt="Meow Agent mascot">
-</h1>
+</p>
 
 <p align="center">
-  <h1 style="background: linear-gradient(135deg, #A855F7 0%, #6366F1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-size: 2.5em; margin: 0; display: inline-block;">
-    <strong>Meow Agent</strong>
-  </h1>
+  <img src="assets/images/title.svg" alt="Meow Agent">
 </p>
 
 <p align="center">
