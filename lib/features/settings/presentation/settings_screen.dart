@@ -29,6 +29,25 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _exporting = false;
   bool _importing = false;
+  int _mascotTapCount = 0;
+  static const int _mascotTapTarget = 10;
+
+  void _onMascotTapped() {
+    setState(() {
+      _mascotTapCount++;
+    });
+
+    if (_mascotTapCount >= _mascotTapTarget) {
+      ref.read(hiddenSettingsRevealedProvider.notifier).reveal();
+      _mascotTapCount = 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Hidden settings unlocked!'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,14 +170,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: 10),
             _SettingsGroup(
               children: [
-                _SettingsToggleTile(
-                  icon: Icons.bug_report_outlined,
-                  label: strings.llmDebugging,
-                  value: ref.watch(llmDebugModeProvider),
-                  onChanged: (v) {
-                    ref.read(llmDebugModeProvider.notifier).toggle(v);
-                  },
-                ),
+                if (ref.watch(hiddenSettingsRevealedProvider)) ...[
+                  _SettingsToggleTile(
+                    icon: Icons.bug_report_outlined,
+                    label: strings.llmDebugging,
+                    value: ref.watch(llmDebugModeProvider),
+                    onChanged: (v) {
+                      ref.read(llmDebugModeProvider.notifier).toggle(v);
+                    },
+                  ),
+                ],
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
                   label: strings.aboutApp,
@@ -170,13 +191,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         content: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(18),
-                              child: Image.asset(
-                                'assets/images/meow.png',
-                                width: 64,
-                                height: 64,
-                                fit: BoxFit.cover,
+                            GestureDetector(
+                              onTap: _onMascotTapped,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(18),
+                                child: Image.asset(
+                                  'assets/images/meow.png',
+                                  width: 64,
+                                  height: 64,
+                                  fit: BoxFit.cover,
+                                ),
                               ),
                             ),
                             const SizedBox(height: 14),

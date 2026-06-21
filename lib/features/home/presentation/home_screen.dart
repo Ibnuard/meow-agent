@@ -31,20 +31,35 @@ class HomeScreen extends ConsumerWidget {
           ? context.cs.surface
           : const Color(0xFFFBFCFE),
       body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 104), // Clear floating dock
-          child: Column(
-            children: [
-              _LogoHeader(s: s),
-              if (hasAgents) ...[
-                _ModulesSection(s: s),
-                _MiniAppsHomeSection(s: s),
-              ] else
-                _SetupCallToAction(s: s),
-            ],
-          ),
-        ),
+        child: hasAgents
+            ? SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(
+                  bottom: 104,
+                ), // Clear floating dock
+                child: Column(
+                  children: [
+                    _LogoHeader(s: s),
+                    _ModulesSection(s: s),
+                    _MiniAppsHomeSection(s: s),
+                  ],
+                ),
+              )
+            : CustomScrollView(
+                physics: const BouncingScrollPhysics(),
+                slivers: [
+                  SliverToBoxAdapter(child: _LogoHeader(s: s)),
+                  SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: 104,
+                      ), // Clear floating dock
+                      child: _SetupCallToAction(s: s),
+                    ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -80,11 +95,7 @@ class _LogoHeader extends StatelessWidget {
             const SizedBox(height: 14),
             ShaderMask(
               shaderCallback: (bounds) => LinearGradient(
-                colors: [
-                  cs.primary,
-                  const Color(0xFF8B5CF6),
-                  cs.primary,
-                ],
+                colors: [cs.primary, const Color(0xFF8B5CF6), cs.primary],
                 begin: Alignment.centerLeft,
                 end: Alignment.centerRight,
               ).createShader(bounds),
@@ -362,7 +373,9 @@ class _MiniAppsHomeSection extends ConsumerWidget {
                           color: isDark ? extras.card : const Color(0xFFF4F7FB),
                           borderRadius: BorderRadius.circular(20),
                           border: Border.all(
-                            color: isDark ? extras.subtleBorder : const Color(0xFFEAF0F8),
+                            color: isDark
+                                ? extras.subtleBorder
+                                : const Color(0xFFEAF0F8),
                           ),
                         ),
                         child: Padding(

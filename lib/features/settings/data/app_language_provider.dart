@@ -851,6 +851,22 @@ class AppStrings {
                 'List all installed mini apps.',
                 'Create a monthly expense calculator that stores data in the database.',
               ];
+      case 'skills':
+        return isId
+            ? const [
+                'Daftar semua skill yang terpasang.',
+                'Aktifkan skill pencarian web.',
+                'Buat skill baru untuk menulis email formal.',
+                'Matikan skill notifikasi.',
+                'Skill apa saja yang bisa membantu produktivitasku?',
+              ]
+            : const [
+                'List all installed skills.',
+                'Enable the web search skill.',
+                'Create a new skill for writing formal emails.',
+                'Turn off the notification skill.',
+                'What skills can help boost my productivity?',
+              ];
       default:
         return isId
             ? const ['Apa yang bisa modul ini lakukan?']
