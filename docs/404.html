@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 — Meow Agent</title>
+  <link rel="icon" href="assets/meow.png" type="image/png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: {
+              800: '#0F0F14',
+              700: '#1A1A24',
+              600: '#23232F',
+              500: '#2D2D3A',
+            },
+            purple: {
+              500: '#A855F7',
+              600: '#9333EA',
+            },
+            indigo: {
+              500: '#6366F1',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'sans-serif'],
+          },
+          animation: {
+            'float': 'float 3s ease-in-out infinite',
+            'fade-in': 'fadeIn 0.8s ease-out forwards',
+          },
+          keyframes: {
+            float: {
+              '0%, 100%': { transform: 'translateY(0px)' },
+              '50%': { transform: 'translateY(-15px)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0', transform: 'translateY(20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    .gradient-text {
+      background: linear-gradient(135deg, #A855F7 0%, #6366F1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-glow {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(168, 85, 247, 0.2) 0%, transparent 70%);
+      border-radius: 50%;
+      filter: blur(80px);
+    }
+  </style>
+</head>
+<body class="bg-dark-800 text-white font-sans antialiased min-h-screen flex items-center justify-center">
+  <div class="relative">
+    <div class="hero-glow top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"></div>
+
+    <div class="relative z-10 text-center px-6 animate-fade-in">
+      <div class="text-8xl mb-8 animate-float">🐾</div>
+
+      <h1 class="text-8xl md:text-9xl font-black mb-6">
+        <span class="gradient-text">404</span>
+      </h1>
+
+      <p class="text-xl md:text-2xl text-zinc-400 mb-10 max-w-md mx-auto">
+        The Meow has been wandering elsewhere. This page doesn't exist.
+      </p>
+
+      <a href="/" class="inline-flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-2xl font-bold text-lg shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 transition-all duration-300 hover:scale-105">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+        </svg>
+        <span>Back to Home</span>
+      </a>
+    </div>
+  </div>
+</body>
+</html>
