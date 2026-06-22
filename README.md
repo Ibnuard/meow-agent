@@ -24,6 +24,7 @@
 
 <p align="center">
   <a href="#get-the-app">Download</a> ·
+  <a href="#demo">Demo</a> ·
   <a href="#why-meow">Why Meow?</a> ·
   <a href="#what-can-it-do">Features</a> ·
   <a href="#architecture">Architecture</a> ·
@@ -39,6 +40,23 @@
 </a>
 
 > Requires Android 8.0+ (API 26). Install only the modules you need and grant permissions one by one.
+
+## Demo
+
+<p align="center">
+  <a href="https://ibnuard.github.io/meow-agent/#demo">
+    <img src="docs/assets/demo-poster.jpg" width="720" alt="Watch the Meow Agent end-to-end runtime demo">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://ibnuard.github.io/meow-agent/#demo"><strong>▶ Watch the full demo on the project site</strong></a>
+  &nbsp;·&nbsp;
+  <a href="docs/assets/demo.mp4">Open MP4 directly</a>
+</p>
+
+The demo follows a real request from conversation through planning, tool
+execution, visible task progress, and the final grounded response.
 
 ## Screenshots
 
