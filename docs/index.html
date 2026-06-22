@@ -197,6 +197,79 @@
       animation: case-progress 6.2s linear forwards;
     }
 
+    .screen-rail {
+      display: flex;
+      gap: 1.5rem;
+      overflow-x: auto;
+      padding: 2rem max(1.5rem, calc((100vw - 80rem) / 2)) 3.5rem;
+      scroll-padding-inline: max(1.5rem, calc((100vw - 80rem) / 2));
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      overscroll-behavior-inline: contain;
+      cursor: grab;
+    }
+
+    .screen-rail:active {
+      cursor: grabbing;
+    }
+
+    .screen-rail::-webkit-scrollbar {
+      display: none;
+    }
+
+    .screen-card {
+      flex: 0 0 clamp(235px, 23vw, 300px);
+      scroll-snap-align: center;
+    }
+
+    .screen-device {
+      position: relative;
+      overflow: hidden;
+      padding: 6px;
+      border: 1px solid rgba(139, 160, 255, 0.28);
+      border-radius: 2.5rem;
+      background: linear-gradient(145deg, rgba(139, 160, 255, 0.22), rgba(8, 9, 18, 0.96) 24%);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255,255,255,0.12);
+      transform: rotate(var(--screen-tilt, 0deg));
+      transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1), border-color 400ms ease, box-shadow 400ms ease;
+    }
+
+    .screen-device::before {
+      content: '';
+      position: absolute;
+      z-index: 2;
+      top: 0.7rem;
+      left: 50%;
+      width: 28%;
+      height: 0.28rem;
+      border-radius: 999px;
+      background: rgba(4, 6, 15, 0.88);
+      transform: translateX(-50%);
+    }
+
+    .screen-device img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 720 / 1640;
+      object-fit: cover;
+      border-radius: 2.12rem;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .screen-card:hover .screen-device {
+      z-index: 3;
+      border-color: rgba(122, 240, 178, 0.45);
+      box-shadow: 0 38px 100px rgba(12, 20, 48, 0.65), 0 0 45px rgba(91, 140, 255, 0.14);
+      transform: translateY(-10px) rotate(0deg) scale(1.015);
+    }
+
+    @media (min-width: 768px) {
+      .screen-card:nth-child(even) {
+        padding-top: 3.5rem;
+      }
+    }
+
     @keyframes case-progress {
       from { transform: scaleX(0); opacity: 0.45; }
       to { transform: scaleX(1); opacity: 0.9; }
@@ -464,8 +537,9 @@
           <span class="text-lg font-medium tracking-[0.18em] uppercase gradient-text">Meow Agent</span>
         </a>
 
-        <div class="hidden md:flex items-center gap-8">
+        <div class="hidden lg:flex items-center gap-8">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors duration-300">Features</a>
+          <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors duration-300">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors duration-300">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors duration-300">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors duration-300">Setup</a>
@@ -474,7 +548,7 @@
           </a>
         </div>
 
-        <button id="mobile-menu-btn" class="md:hidden p-2">
+        <button id="mobile-menu-btn" class="lg:hidden p-2">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
@@ -482,9 +556,10 @@
       </div>
 
       <!-- Mobile Menu -->
-      <div id="mobile-menu" class="hidden md:hidden mt-4 pb-4 border-t border-dark-500/50 pt-4">
+      <div id="mobile-menu" class="hidden lg:hidden mt-4 pb-4 border-t border-dark-500/50 pt-4">
         <div class="flex flex-col gap-4">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors">Features</a>
+          <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors">Setup</a>
@@ -727,6 +802,80 @@
           <p class="text-zinc-400 text-sm leading-relaxed">Mutating tools use result data or state re-checks so the final answer is grounded in what the app can verify.</p>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- Screenshots Section -->
+  <section id="screenshots" class="py-32 relative overflow-hidden bg-dark-700/40">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,_rgba(91,140,255,0.12),_transparent_38%)]"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-6">
+      <div class="grid lg:grid-cols-[1fr_0.8fr] gap-10 items-end scroll-reveal">
+        <div>
+          <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#7FB2FF]/10 text-[#7FB2FF] text-sm font-bold mb-6">
+            <span class="w-2 h-2 rounded-full bg-[#7AF0B2]"></span>
+            Inside the app
+          </span>
+          <h2 class="display-title text-5xl md:text-7xl leading-[0.92]">
+            Built to feel calm.<br>
+            <span class="gradient-text">Built to do work.</span>
+          </h2>
+        </div>
+
+        <div class="lg:pb-1">
+          <p class="text-xl text-zinc-400 leading-relaxed mb-6">
+            One visual language from conversation to permission gates, agent setup, modules, and multi-step workflows.
+          </p>
+          <div class="flex items-center gap-3">
+            <button id="screens-prev" type="button" aria-label="Previous screenshot" class="w-12 h-12 rounded-full border border-indigo-300/20 bg-white/[0.04] hover:bg-white/[0.09] hover:border-indigo-300/40 transition-colors flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <button id="screens-next" type="button" aria-label="Next screenshot" class="w-12 h-12 rounded-full border border-indigo-300/20 bg-white/[0.04] hover:bg-white/[0.09] hover:border-indigo-300/40 transition-colors flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+            </button>
+            <span class="text-sm text-zinc-500 ml-2">Swipe or drag to explore</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="screen-rail" class="screen-rail mt-12 scroll-reveal">
+      <figure class="screen-card" style="--screen-tilt: -1.4deg;">
+        <div class="screen-device"><img src="pic/screenshot_2.png" alt="Meow Agent home screen with active modules" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">01</span><h3 class="font-bold mt-1">Home base</h3><p class="text-sm text-zinc-500 mt-1">Modules and chat, one tap away.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1deg;">
+        <div class="screen-device"><img src="pic/screenshot_10.png" alt="Meow Agent chat showing a completed multi-step task" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">02</span><h3 class="font-bold mt-1">Execution ledger</h3><p class="text-sm text-zinc-500 mt-1">See the plan and what completed.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -0.8deg;">
+        <div class="screen-device"><img src="pic/screenshot_1.png" alt="Meow Agent module store" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#C59BFF] text-xs font-bold tracking-[0.18em]">03</span><h3 class="font-bold mt-1">Module store</h3><p class="text-sm text-zinc-500 mt-1">Install only what the agent needs.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1.5deg;">
+        <div class="screen-device"><img src="pic/screenshot_3.png" alt="Workflow module permission controls" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">04</span><h3 class="font-bold mt-1">Permission controls</h3><p class="text-sm text-zinc-500 mt-1">Every sensitive capability stays explicit.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -1.2deg;">
+        <div class="screen-device"><img src="pic/screenshot_4.png" alt="Workflow template gallery" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">05</span><h3 class="font-bold mt-1">Workflow templates</h3><p class="text-sm text-zinc-500 mt-1">Start useful automations quickly.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 0.9deg;">
+        <div class="screen-device"><img src="pic/screenshot_11.png" alt="Multi-step workflow builder" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#C59BFF] text-xs font-bold tracking-[0.18em]">06</span><h3 class="font-bold mt-1">Workflow builder</h3><p class="text-sm text-zinc-500 mt-1">Chain agents, context, and failure rules.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -1deg;">
+        <div class="screen-device"><img src="pic/screenshot_5.png" alt="Agent profile configuration" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">07</span><h3 class="font-bold mt-1">Your agent</h3><p class="text-sm text-zinc-500 mt-1">Choose its model, profile, and workspace.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1.3deg;">
+        <div class="screen-device"><img src="pic/screenshot_6.png" alt="OpenAI-compatible provider configuration" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">08</span><h3 class="font-bold mt-1">Bring your provider</h3><p class="text-sm text-zinc-500 mt-1">Connect an OpenAI-compatible endpoint.</p></figcaption>
+      </figure>
     </div>
   </section>
 
@@ -1407,6 +1556,47 @@
     });
 
     scheduleCaseCycle();
+
+    // Screenshot rail controls: native swipe on touch, arrows and grab-drag on desktop.
+    const screenRail = document.getElementById('screen-rail');
+    const screensPrev = document.getElementById('screens-prev');
+    const screensNext = document.getElementById('screens-next');
+    let isDraggingScreens = false;
+    let screenDragStart = 0;
+    let screenScrollStart = 0;
+
+    function scrollScreens(direction) {
+      const card = screenRail.querySelector('.screen-card');
+      const distance = card ? card.getBoundingClientRect().width + 24 : 320;
+      screenRail.scrollBy({ left: direction * distance, behavior: 'smooth' });
+    }
+
+    screensPrev.addEventListener('click', () => scrollScreens(-1));
+    screensNext.addEventListener('click', () => scrollScreens(1));
+
+    screenRail.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'mouse') return;
+      isDraggingScreens = true;
+      screenDragStart = event.clientX;
+      screenScrollStart = screenRail.scrollLeft;
+      screenRail.setPointerCapture(event.pointerId);
+    });
+
+    screenRail.addEventListener('pointermove', event => {
+      if (!isDraggingScreens) return;
+      screenRail.scrollLeft = screenScrollStart - (event.clientX - screenDragStart);
+    });
+
+    function stopScreenDrag(event) {
+      if (!isDraggingScreens) return;
+      isDraggingScreens = false;
+      if (screenRail.hasPointerCapture(event.pointerId)) {
+        screenRail.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    screenRail.addEventListener('pointerup', stopScreenDrag);
+    screenRail.addEventListener('pointercancel', stopScreenDrag);
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
