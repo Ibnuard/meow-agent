@@ -8,7 +8,7 @@
   <link rel="icon" href="assets/meow.png" type="image/png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,600..900,70,1&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -35,7 +35,8 @@
             }
           },
           fontFamily: {
-            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            sans: ['Manrope', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            display: ['Fraunces', 'serif'],
           },
           animation: {
             'float': 'float 6s ease-in-out infinite',
@@ -95,11 +96,178 @@
     }
   </script>
   <style>
+    :root {
+      --meow-ink: #080912;
+      --meow-panel: rgba(18, 20, 34, 0.74);
+      --meow-blue: #5B8CFF;
+      --meow-violet: #9E5CFF;
+      --meow-mint: #7AF0B2;
+      --meow-cream: #F7EED7;
+      --meow-line: rgba(139, 160, 255, 0.22);
+    }
+
     .gradient-text {
-      background: linear-gradient(135deg, #A855F7 0%, #6366F1 50%, #818CF8 100%);
+      background: linear-gradient(135deg, #F7EED7 0%, #7FB2FF 42%, #9E5CFF 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+    }
+
+    .display-title {
+      font-family: 'Fraunces', serif;
+      font-variation-settings: 'SOFT' 70, 'WONK' 1;
+      letter-spacing: -0.055em;
+    }
+
+    .paw-grid {
+      background-image:
+        linear-gradient(rgba(123, 151, 255, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(123, 151, 255, 0.07) 1px, transparent 1px),
+        radial-gradient(circle at 22% 18%, rgba(122, 240, 178, 0.11), transparent 24%),
+        radial-gradient(circle at 80% 12%, rgba(91, 140, 255, 0.14), transparent 28%),
+        radial-gradient(circle at 50% 84%, rgba(158, 92, 255, 0.13), transparent 30%);
+      background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%, 100% 100%;
+    }
+
+    .cat-console {
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.10), transparent 24%),
+        linear-gradient(180deg, rgba(17, 20, 38, 0.92), rgba(9, 10, 20, 0.94));
+      border: 1px solid rgba(139, 160, 255, 0.28);
+      box-shadow: 0 34px 120px rgba(8, 11, 25, 0.70), inset 0 1px 0 rgba(255,255,255,0.08);
+    }
+
+    .whisker-line {
+      position: relative;
+    }
+    .whisker-line::before,
+    .whisker-line::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: min(18vw, 190px);
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(127,178,255,0.65));
+    }
+    .whisker-line::before { right: calc(100% + 22px); }
+    .whisker-line::after { left: calc(100% + 22px); transform: scaleX(-1); }
+
+    .signal-card {
+      background: linear-gradient(180deg, rgba(24, 27, 45, 0.72), rgba(12, 14, 27, 0.86));
+      border: 1px solid rgba(139, 160, 255, 0.18);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+
+    .agent-thread {
+      position: relative;
+    }
+    .agent-thread::before {
+      content: '';
+      position: absolute;
+      left: 1.35rem;
+      top: 4.2rem;
+      bottom: 2rem;
+      width: 1px;
+      background: linear-gradient(180deg, rgba(122,240,178,0.55), rgba(91,140,255,0.2), transparent);
+    }
+
+    .case-cycle {
+      transition: opacity 280ms ease, transform 280ms ease, filter 280ms ease;
+    }
+
+    .case-cycle.is-changing {
+      opacity: 0;
+      transform: translateY(8px);
+      filter: blur(4px);
+    }
+
+    .case-progress {
+      height: 2px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(139, 160, 255, 0.10);
+    }
+
+    .case-progress-bar {
+      display: block;
+      width: 100%;
+      height: 100%;
+      transform-origin: left;
+      background: linear-gradient(90deg, var(--meow-mint), var(--meow-blue), var(--meow-violet));
+      animation: case-progress 6.2s linear forwards;
+    }
+
+    @keyframes case-progress {
+      from { transform: scaleX(0); opacity: 0.45; }
+      to { transform: scaleX(1); opacity: 0.9; }
+    }
+
+    .meow-chip {
+      border: 1px solid rgba(139, 160, 255, 0.22);
+      background: rgba(255,255,255,0.045);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+
+    /* Mirrors MeowMascot's squash, jump, hang, fall, and elastic landing. */
+    .animate-meow-jump {
+      animation: meow-jump 3.6s linear infinite;
+      transform-origin: 50% 88%;
+      will-change: transform, filter;
+    }
+
+    @keyframes meow-jump {
+      0%, 28%, 100% {
+        transform: translateY(0) scale(1, 1);
+        filter: drop-shadow(0 0 18px rgba(91, 140, 255, 0.42));
+      }
+      2.8% {
+        transform: translateY(8px) scale(1.18, 0.86);
+        filter: drop-shadow(0 5px 12px rgba(91, 140, 255, 0.34));
+      }
+      6.7% {
+        transform: translateY(-25px) scale(1.01, 1.015);
+        filter: drop-shadow(0 18px 20px rgba(91, 140, 255, 0.28));
+      }
+      10.6% {
+        transform: translateY(-36px) scale(0.96, 1.06);
+        filter: drop-shadow(0 26px 24px rgba(91, 140, 255, 0.22));
+      }
+      13.4% {
+        transform: translateY(-32px) scale(1, 1);
+        filter: drop-shadow(0 24px 22px rgba(91, 140, 255, 0.24));
+      }
+      16.2% {
+        transform: translateY(-32px) scale(1.02, 0.98);
+        filter: drop-shadow(0 22px 20px rgba(91, 140, 255, 0.26));
+      }
+      21.3% {
+        transform: translateY(0) scale(1, 1);
+        filter: drop-shadow(0 1px 14px rgba(91, 140, 255, 0.46));
+      }
+      22.7% {
+        transform: translateY(10px) scale(1.14, 0.88);
+        filter: drop-shadow(0 0 22px rgba(91, 140, 255, 0.62));
+      }
+      24.1% {
+        transform: translateY(-3px) scale(0.98, 1.03);
+        filter: drop-shadow(0 5px 20px rgba(91, 140, 255, 0.50));
+      }
+      26% {
+        transform: translateY(2px) scale(1.02, 0.98);
+        filter: drop-shadow(0 1px 18px rgba(91, 140, 255, 0.46));
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .animate-meow-jump {
+        animation: none;
+      }
+      .case-cycle {
+        transition: none;
+      }
+      .case-progress-bar {
+        animation: none;
+      }
     }
 
     .glass {
@@ -258,7 +426,7 @@
     }
   </style>
 </head>
-<body class="bg-dark-800 text-white font-sans antialiased noise">
+<body class="bg-dark-800 text-white font-sans antialiased noise paw-grid">
   <!-- Animated Background with Paw Prints -->
   <div class="fixed inset-0 overflow-hidden pointer-events-none">
     <!-- Paw prints walking animation -->
@@ -301,7 +469,7 @@
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors duration-300">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors duration-300">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors duration-300">Setup</a>
-          <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic px-5 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl font-semibold text-sm shadow-lg shadow-purple-500/25 hover:shadow-purple-500/40">
+          <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic px-5 py-2.5 bg-gradient-to-r from-[#5B8CFF] to-[#9E5CFF] rounded-xl font-semibold text-sm shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40">
             Download APK
           </a>
         </div>
@@ -320,7 +488,7 @@
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors">Setup</a>
-          <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic px-5 py-2.5 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl font-semibold text-sm text-center">
+          <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic px-5 py-2.5 bg-gradient-to-r from-[#5B8CFF] to-[#9E5CFF] rounded-xl font-semibold text-sm text-center">
             Download APK
           </a>
         </div>
@@ -329,71 +497,129 @@
   </nav>
 
   <!-- Hero Section -->
-  <section class="relative min-h-screen flex items-center justify-center pt-28 pb-24 overflow-hidden">
-    <div class="relative z-10 text-center px-6 max-w-5xl mx-auto">
-      <!-- Mascot -->
-      <div class="flex justify-center mb-5 animate-[slideUp_0.8s_ease-out_forwards]">
-        <div class="relative">
-          <div class="absolute inset-4 rounded-full bg-purple-500/25 blur-3xl animate-pulse"></div>
-          <img src="assets/meow.png" alt="Meow Agent mascot" class="relative w-32 h-32 md:w-40 md:h-40 object-contain drop-shadow-[0_0_36px_rgba(99,102,241,0.50)] animate-float">
-        </div>
-      </div>
+  <section class="relative min-h-screen flex items-center pt-28 pb-24 overflow-hidden">
+    <div class="relative z-10 max-w-7xl mx-auto px-6 w-full">
+      <div class="grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-16 items-center">
+        <div class="text-left">
+          <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-dark-600/80 border border-indigo-400/20 shadow-lg shadow-indigo-500/10 mb-8 animate-[slideUp_0.8s_ease-out_forwards]">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+            </span>
+            <span class="text-sm text-zinc-300">Runtime v4 · Android-native agent · User-gated actions</span>
+          </div>
 
-      <!-- Badge -->
-      <div class="flex justify-center mb-7 animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.1s;">
-        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-dark-600/80 border border-dark-500 shadow-lg shadow-purple-500/10">
-          <span class="relative flex h-2 w-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-          </span>
-          <span class="text-sm text-zinc-300">Runtime v4 — Release Ready</span>
-        </div>
-      </div>
+          <h1 class="display-title text-6xl sm:text-7xl lg:text-8xl xl:text-9xl leading-[0.86] mb-8 animate-[blurIn_1s_ease-out_forwards]" style="animation-delay: 0.1s;">
+            A pocket agent<br>
+            with cat-like<br>
+            <span class="gradient-text">curiosity.</span>
+          </h1>
 
-      <!-- Title -->
-      <h1 class="text-3xl md:text-5xl lg:text-6xl font-light mb-7 tracking-[0.28em] uppercase animate-[blurIn_1s_ease-out_forwards]" style="animation-delay: 0.2s;">
-        <span class="gradient-text">Meow Agent</span>
-      </h1>
+          <p class="text-lg md:text-2xl text-zinc-300 max-w-2xl mb-8 leading-relaxed animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.25s;">
+            Meow Agent is not a decorative chatbot. It listens, reasons, checks permissions, uses registered Android tools, then reports what actually changed.
+          </p>
 
-      <!-- Subtitle -->
-      <p class="text-lg md:text-xl lg:text-2xl text-zinc-400 max-w-3xl mx-auto mb-12 leading-relaxed animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.4s;">
-        An AI companion for Android that can think, plan, and act through registered tools — helping you with notes, files, calendar, notifications, calls, reminders, and workflows — while keeping permissions and final control in your hands.
-      </p>
+          <div class="grid sm:grid-cols-3 gap-3 mb-10 animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.35s;">
+            <div class="signal-card rounded-2xl p-4">
+              <div class="text-sm font-bold text-[#7AF0B2]">01 · Think</div>
+              <div class="text-zinc-400 text-sm mt-1">Analyze, reflect, plan</div>
+            </div>
+            <div class="signal-card rounded-2xl p-4">
+              <div class="text-[#7FB2FF] text-sm font-bold">02 · Ask</div>
+              <div class="text-zinc-400 text-sm mt-1">Permission before risk</div>
+            </div>
+            <div class="signal-card rounded-2xl p-4">
+              <div class="text-[#C59BFF] text-sm font-bold">03 · Prove</div>
+              <div class="text-zinc-400 text-sm mt-1">Verify tool results</div>
+            </div>
+          </div>
 
-      <!-- CTA Buttons -->
-      <div class="flex flex-col sm:flex-row gap-4 justify-center animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.6s;">
-        <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic group inline-flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-500 rounded-2xl font-bold text-lg shadow-2xl shadow-purple-500/30 hover:shadow-purple-500/50">
-          <img src="assets/meow.png" alt="" class="w-6 h-6">
-          <span>Download APK</span>
-          <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
-          </svg>
-        </a>
-        <a href="https://github.com/Ibnuard/meow-agent" class="btn-magnetic inline-flex items-center justify-center gap-3 px-8 py-4 bg-dark-600/80 border border-dark-500 rounded-2xl font-bold text-lg hover:bg-dark-600 hover:border-dark-400">
-          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-          </svg>
-          <span>Star on GitHub</span>
-        </a>
-      </div>
+          <div class="flex flex-col sm:flex-row gap-4 animate-[slideUp_0.8s_ease-out_forwards]" style="animation-delay: 0.5s;">
+            <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic group inline-flex items-center justify-center gap-3 px-8 py-4 bg-gradient-to-r from-[#5B8CFF] via-[#7D6BFF] to-[#9E5CFF] rounded-2xl font-bold text-lg shadow-2xl shadow-indigo-500/30 hover:shadow-indigo-500/50">
+              <img src="assets/meow.png" alt="" class="w-6 h-6">
+              <span>Download APK</span>
+              <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/>
+              </svg>
+            </a>
+            <a href="https://github.com/Ibnuard/meow-agent" class="btn-magnetic inline-flex items-center justify-center gap-3 px-8 py-4 bg-dark-600/80 border border-indigo-400/20 rounded-2xl font-bold text-lg hover:bg-dark-600 hover:border-indigo-300/40">
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              <span>Star on GitHub</span>
+            </a>
+          </div>
+        </div>
 
-      <!-- Stats -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mt-20 animate-[fadeIn_0.8s_ease-out_forwards]" style="animation-delay: 0.8s;">
-        <div class="text-center">
-          <div class="text-3xl md:text-4xl font-bold gradient-text">16</div>
-          <div class="text-sm text-zinc-500 mt-1">Modules</div>
-        </div>
-        <div class="text-center">
-          <div class="text-3xl md:text-4xl font-bold gradient-text">v4</div>
-          <div class="text-sm text-zinc-500 mt-1">Runtime</div>
-        </div>
-        <div class="text-center">
-          <div class="text-3xl md:text-4xl font-bold gradient-text">7</div>
-          <div class="text-sm text-zinc-500 mt-1">Phases</div>
-        </div>
-        <div class="text-center">
-          <div class="text-3xl md:text-4xl font-bold gradient-text">2</div>
-          <div class="text-sm text-zinc-500 mt-1">Languages</div>
+        <div class="relative animate-[slideUp_0.9s_ease-out_forwards]" style="animation-delay: 0.25s;">
+          <div class="absolute -inset-10 bg-[radial-gradient(circle,_rgba(91,140,255,0.20),_transparent_62%)] blur-2xl"></div>
+          <div class="cat-console relative rounded-[2rem] p-5 md:p-6">
+            <div class="flex items-center justify-between mb-6">
+              <div class="flex items-center gap-3">
+                <div class="relative">
+                  <div class="absolute inset-1 rounded-full bg-indigo-500/30 blur-xl"></div>
+                  <img src="assets/meow.png" alt="Meow Agent mascot" class="relative w-16 h-16 object-contain animate-meow-jump">
+                </div>
+                <div>
+                  <div class="font-bold tracking-[0.18em] uppercase text-sm text-zinc-300">Meow Agent</div>
+                  <div class="text-xs text-zinc-500">Companion runtime online</div>
+                </div>
+              </div>
+              <div class="px-3 py-1 rounded-full bg-green-400/10 text-green-300 text-xs border border-green-300/20">verified</div>
+            </div>
+
+            <div id="case-cycle" class="agent-thread case-cycle space-y-4">
+              <div class="case-card flex gap-4 items-start">
+                <div class="w-11 h-11 rounded-2xl bg-[#7AF0B2]/12 border border-[#7AF0B2]/20 flex items-center justify-center text-[#7AF0B2] font-bold">?</div>
+                <div class="flex-1 md:min-h-[108px] rounded-2xl bg-white/[0.045] border border-white/10 p-4">
+                  <div class="text-xs uppercase tracking-[0.18em] text-zinc-500 mb-2">You</div>
+                  <p id="case-request" class="text-zinc-200">“Summarize notifications, add the important one to notes, remind me tonight.”</p>
+                </div>
+              </div>
+              <div class="case-card flex gap-4 items-start">
+                <div class="w-11 h-11 rounded-2xl bg-[#5B8CFF]/12 border border-[#5B8CFF]/25 flex items-center justify-center">
+                  <img src="assets/meow.png" alt="" class="w-7 h-7 object-contain">
+                </div>
+                <div class="flex-1 md:min-h-[150px] rounded-2xl bg-[#11162A]/80 border border-indigo-300/15 p-4">
+                  <div class="text-xs uppercase tracking-[0.18em] text-[#7FB2FF] mb-3">Runtime plan</div>
+                  <div class="grid gap-2 text-sm">
+                    <div class="case-plan-step flex items-center gap-2 text-zinc-300"><span class="w-2 h-2 rounded-full bg-[#7AF0B2]"></span><span id="case-plan-1">Read notification snapshot</span></div>
+                    <div class="case-plan-step flex items-center gap-2 text-zinc-300"><span class="w-2 h-2 rounded-full bg-[#7FB2FF]"></span><span id="case-plan-2">Ask before creating note</span></div>
+                    <div class="case-plan-step flex items-center gap-2 text-zinc-300"><span class="w-2 h-2 rounded-full bg-[#C59BFF]"></span><span id="case-plan-3">Verify note and reminder IDs</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="case-card flex gap-4 items-start">
+                <div class="w-11 h-11 rounded-2xl bg-[#9E5CFF]/12 border border-[#9E5CFF]/25 flex items-center justify-center text-[#C59BFF] font-bold">!</div>
+                <div class="flex-1 md:min-h-[110px] rounded-2xl bg-white/[0.045] border border-white/10 p-4">
+                  <div class="text-xs uppercase tracking-[0.18em] text-zinc-500 mb-2">Control gate</div>
+                  <p id="case-gate" class="text-zinc-300">“I need permission to create a note and reminder. Continue?”</p>
+                </div>
+              </div>
+              <div class="case-progress ml-[3.75rem]" aria-hidden="true">
+                <span id="case-progress-bar" class="case-progress-bar"></span>
+              </div>
+            </div>
+
+            <div class="mt-6 grid grid-cols-4 gap-3">
+              <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-3 text-center">
+                <div class="text-2xl font-black gradient-text">16</div>
+                <div class="text-[11px] text-zinc-500">modules</div>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-3 text-center">
+                <div class="text-2xl font-black gradient-text">7</div>
+                <div class="text-[11px] text-zinc-500">phases</div>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-3 text-center">
+                <div class="text-2xl font-black gradient-text">v4</div>
+                <div class="text-[11px] text-zinc-500">runtime</div>
+              </div>
+              <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-3 text-center">
+                <div class="text-2xl font-black gradient-text">2</div>
+                <div class="text-[11px] text-zinc-500">langs</div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -415,144 +641,90 @@
         <ellipse cx="46" cy="22" rx="8" ry="10" fill="#6366F1"/>
       </svg>
     </div>
-    <div class="absolute top-1/3 right-1/4 opacity-10 animate-float hidden lg:block">
-      <svg class="w-12 h-12" viewBox="0 0 64 64">
-        <ellipse cx="32" cy="44" rx="16" ry="18" fill="#818CF8"/>
-        <ellipse cx="18" cy="22" rx="8" ry="10" fill="#818CF8"/>
-        <ellipse cx="32" cy="14" rx="8" ry="10" fill="#818CF8"/>
-        <ellipse cx="46" cy="22" rx="8" ry="10" fill="#818CF8"/>
-      </svg>
-    </div>
   </section>
 
   <!-- Features Section -->
   <section id="features" class="py-32 relative">
     <div class="max-w-7xl mx-auto px-6">
-      <div class="text-center mb-20 scroll-reveal">
-        <span class="inline-block px-4 py-1.5 rounded-full bg-purple-500/10 text-purple-400 text-sm font-medium mb-6">Why Meow Agent?</span>
-        <h2 class="text-4xl md:text-5xl font-bold mb-6">
-          A calm, capable AI companion that
-          <span class="gradient-text">lives on your phone</span>
-        </h2>
-        <p class="text-xl text-zinc-400 max-w-2xl mx-auto">
-          Not just another chatbot. An agentic system that can be genuinely helpful while remaining legible, constrained, and accountable to you.
+      <div class="grid lg:grid-cols-[0.85fr_1.15fr] gap-12 items-end mb-16 scroll-reveal">
+        <div>
+          <span class="whisker-line inline-block px-4 py-1.5 rounded-full bg-[#7AF0B2]/10 text-[#7AF0B2] text-sm font-bold mb-6">What makes it Meow?</span>
+          <h2 class="display-title text-5xl md:text-7xl leading-[0.92] mb-6">
+            Cute face,<br>serious runtime.
+          </h2>
+        </div>
+        <p class="text-xl text-zinc-400 leading-relaxed max-w-2xl lg:ml-auto">
+          The character is not just the mascot. Meow Agent is designed like a careful companion: curious enough to help, restrained enough to ask, and honest enough to verify before saying it is done.
         </p>
       </div>
 
-      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Feature Card 1 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <img src="assets/meow.png" alt="" class="w-8 h-8 object-contain">
+      <div class="grid lg:grid-cols-3 gap-6 mb-10">
+        <div class="scroll-reveal cat-console rounded-[1.75rem] p-7 lg:col-span-1">
+          <div class="flex items-center gap-3 mb-8">
+            <img src="assets/meow.png" alt="" class="w-12 h-12 object-contain drop-shadow-[0_0_22px_rgba(91,140,255,0.55)]">
+            <div>
+              <div class="text-xs uppercase tracking-[0.2em] text-zinc-500">Companion layer</div>
+              <h3 class="text-2xl font-black">Understands the job</h3>
+            </div>
           </div>
-          <h3 class="text-xl font-bold mb-3">Your Own Model</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Connect your own OpenAI-compatible provider. Your API keys stay encrypted on-device, never touch our servers.
+          <p class="text-zinc-400 leading-relaxed mb-8">
+            A request becomes structured intent, selected tools, a plan, execution steps, and a final explanation. It is built to work through tasks, not only answer text.
           </p>
+          <div class="flex flex-wrap gap-2">
+            <span class="meow-chip rounded-full px-3 py-1.5 text-sm text-zinc-300">Analyze</span>
+            <span class="meow-chip rounded-full px-3 py-1.5 text-sm text-zinc-300">Reflect</span>
+            <span class="meow-chip rounded-full px-3 py-1.5 text-sm text-zinc-300">Plan</span>
+            <span class="meow-chip rounded-full px-3 py-1.5 text-sm text-zinc-300">Execute</span>
+          </div>
         </div>
 
-        <!-- Feature Card 2 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.1s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-            </svg>
+        <div class="scroll-reveal signal-card rounded-[1.75rem] p-7 lg:col-span-2" style="animation-delay: 0.1s;">
+          <div class="grid md:grid-cols-2 gap-6">
+            <div>
+              <div class="text-xs uppercase tracking-[0.2em] text-[#7AF0B2] mb-3">Control layer</div>
+              <h3 class="text-3xl font-black mb-4">Permission gates are part of the personality.</h3>
+              <p class="text-zinc-400 leading-relaxed">
+                Meow Agent does not pretend it can do everything. Sensitive actions are surfaced, Android permissions stay opt-in, and revoked permissions disable dependent behavior.
+              </p>
+            </div>
+            <div class="space-y-3">
+              <div class="rounded-2xl bg-black/20 border border-white/10 p-4 flex items-start gap-3">
+                <span class="mt-1 w-2.5 h-2.5 rounded-full bg-[#7AF0B2]"></span>
+                <div><div class="font-bold">Present</div><div class="text-sm text-zinc-500">Show what capability is needed.</div></div>
+              </div>
+              <div class="rounded-2xl bg-black/20 border border-white/10 p-4 flex items-start gap-3">
+                <span class="mt-1 w-2.5 h-2.5 rounded-full bg-[#7FB2FF]"></span>
+                <div><div class="font-bold">Explain</div><div class="text-sm text-zinc-500">Clarify why the action needs access.</div></div>
+              </div>
+              <div class="rounded-2xl bg-black/20 border border-white/10 p-4 flex items-start gap-3">
+                <span class="mt-1 w-2.5 h-2.5 rounded-full bg-[#C59BFF]"></span>
+                <div><div class="font-bold">Respect</div><div class="text-sm text-zinc-500">Denied permission is a real stop condition.</div></div>
+              </div>
+            </div>
           </div>
-          <h3 class="text-xl font-bold mb-3">Permission-Aware</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Every action requires explicit permission. Android permissions and sensitive capabilities remain opt-in and revocable.
-          </p>
         </div>
+      </div>
 
-        <!-- Feature Card 3 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.2s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Verification-First</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Mutating actions must be verified against tool results. You always know exactly what happened.
-          </p>
+      <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="card-hover scroll-reveal signal-card rounded-2xl p-6">
+          <div class="text-[#7FB2FF] text-sm font-bold mb-3">Device-aware</div>
+          <h3 class="text-xl font-black mb-3">Works through Android tools</h3>
+          <p class="text-zinc-400 text-sm leading-relaxed">Notes, files, calendar, notifications, calls, SMS, reminders, search, APIs, mini apps, and workflows are exposed as registered modules.</p>
         </div>
-
-        <!-- Feature Card 4 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.3s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Local-First Data</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            App state stays in SQLite on your device. Provider keys are stored separately in Android encrypted storage.
-          </p>
+        <div class="card-hover scroll-reveal signal-card rounded-2xl p-6" style="animation-delay: 0.1s;">
+          <div class="text-[#7AF0B2] text-sm font-bold mb-3">Local-first</div>
+          <h3 class="text-xl font-black mb-3">Keeps app state on-device</h3>
+          <p class="text-zinc-400 text-sm leading-relaxed">SQLite stores core app data locally, while provider keys live separately in encrypted Android storage.</p>
         </div>
-
-        <!-- Feature Card 5 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.4s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Conversational AI</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Chat naturally with your AI companion. It analyzes requests, forms plans, executes actions, and explains results.
-          </p>
+        <div class="card-hover scroll-reveal signal-card rounded-2xl p-6" style="animation-delay: 0.2s;">
+          <div class="text-[#C59BFF] text-sm font-bold mb-3">Bring your model</div>
+          <h3 class="text-xl font-black mb-3">OpenAI-compatible providers</h3>
+          <p class="text-zinc-400 text-sm leading-relaxed">Connect your own provider, model, persona, and agent profile instead of depending on a hosted Meow server.</p>
         </div>
-
-        <!-- Feature Card 6 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.5s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Workflows</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Automate repeating tasks with scheduled, interval-based, or event-driven workflows. Full execution logs included.
-          </p>
-        </div>
-
-        <!-- Feature Card 7 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.6s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Multi-Language</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            English and Indonesian UI localization, with runtime response language handled independently.
-          </p>
-        </div>
-
-        <!-- Feature Card 8 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.7s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">Android-Native</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Built with Flutter, running on Android 8.0+ (API 26). Integrates deeply with device features.
-          </p>
-        </div>
-
-        <!-- Feature Card 9 -->
-        <div class="card-hover scroll-reveal bg-dark-600/50 border border-dark-500 rounded-2xl p-8 cat-card" style="animation-delay: 0.8s;">
-          <div class="feature-icon w-14 h-14 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 rounded-2xl flex items-center justify-center mb-6">
-            <svg class="w-8 h-8 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-            </svg>
-          </div>
-          <h3 class="text-xl font-bold mb-3">User-Controlled</h3>
-          <p class="text-zinc-400 leading-relaxed">
-            Sensitive actions are surfaced clearly. Permissions remain revocable, and denial is always respected.
-          </p>
+        <div class="card-hover scroll-reveal signal-card rounded-2xl p-6" style="animation-delay: 0.3s;">
+          <div class="text-[#F7EED7] text-sm font-bold mb-3">Verification-first</div>
+          <h3 class="text-xl font-black mb-3">Done means checked</h3>
+          <p class="text-zinc-400 text-sm leading-relaxed">Mutating tools use result data or state re-checks so the final answer is grounded in what the app can verify.</p>
         </div>
       </div>
     </div>
@@ -932,7 +1104,7 @@
         <!-- Step 1 -->
         <div class="scroll-reveal flex gap-6">
           <div class="flex-shrink-0">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-purple-500/30">
+            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-indigo-500/30">
               1
             </div>
           </div>
@@ -953,7 +1125,7 @@
         <!-- Step 2 -->
         <div class="scroll-reveal flex gap-6">
           <div class="flex-shrink-0">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-purple-500/30">
+            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-indigo-500/30">
               2
             </div>
           </div>
@@ -969,7 +1141,7 @@
         <!-- Step 3 -->
         <div class="scroll-reveal flex gap-6">
           <div class="flex-shrink-0">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-purple-500/30">
+            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-indigo-500/30">
               3
             </div>
           </div>
@@ -985,7 +1157,7 @@
         <!-- Step 4 -->
         <div class="scroll-reveal flex gap-6">
           <div class="flex-shrink-0">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-purple-500/30">
+            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-indigo-500/30">
               4
             </div>
           </div>
@@ -1008,7 +1180,7 @@
         <!-- Step 5 -->
         <div class="scroll-reveal flex gap-6">
           <div class="flex-shrink-0">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-purple-500/30">
+            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-indigo-500 rounded-2xl flex items-center justify-center font-bold text-lg shadow-lg shadow-indigo-500/30">
               5
             </div>
           </div>
@@ -1034,7 +1206,7 @@
         <!-- Mascot -->
         <div class="relative inline-block mb-8">
           <div class="absolute inset-0 rounded-full bg-purple-500/20 blur-3xl animate-pulse"></div>
-          <img src="assets/meow.png" alt="Meow Agent mascot" class="relative w-28 h-28 object-contain mx-auto drop-shadow-[0_0_32px_rgba(168,85,247,0.45)] animate-float">
+          <img src="assets/meow.png" alt="Meow Agent mascot" class="relative w-28 h-28 object-contain mx-auto animate-meow-jump">
         </div>
 
         <h2 class="text-4xl md:text-5xl font-bold mb-6">
@@ -1044,7 +1216,7 @@
           Download the latest APK and start using Meow Agent on your Android device.
         </p>
 
-        <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-purple-500 via-purple-600 to-indigo-500 rounded-2xl font-bold text-lg shadow-2xl shadow-purple-500/30 hover:shadow-purple-500/50">
+        <a href="https://github.com/Ibnuard/meow-agent/releases" class="btn-magnetic inline-flex items-center gap-3 px-10 py-5 bg-gradient-to-r from-[#5B8CFF] via-[#7D6BFF] to-[#9E5CFF] rounded-2xl font-bold text-lg shadow-2xl shadow-indigo-500/30 hover:shadow-indigo-500/50">
           <img src="assets/meow.png" alt="" class="w-7 h-7">
           <span>Download APK</span>
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1075,9 +1247,7 @@
     <div class="max-w-7xl mx-auto px-6">
       <div class="flex flex-col md:flex-row items-center justify-between gap-6">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center overflow-hidden">
-            <img src="assets/meow.png" alt="Meow" class="w-7 h-7 object-contain">
-          </div>
+          <img src="assets/meow.png" alt="Meow" class="w-10 h-10 object-contain">
           <span class="font-medium tracking-[0.18em] uppercase gradient-text">Meow Agent</span>
         </div>
 
@@ -1129,6 +1299,114 @@
     document.querySelectorAll('.scroll-reveal').forEach(el => {
       observer.observe(el);
     });
+
+    // Cycle through real Meow Agent use cases as a complete request-plan-gate thread.
+    const agentCases = [
+      {
+        request: '“Summarize notifications, add the important one to notes, remind me tonight.”',
+        plan: [
+          'Read notification snapshot',
+          'Ask before creating note',
+          'Verify note and reminder IDs'
+        ],
+        gate: '“I need permission to create a note and reminder. Continue?”'
+      },
+      {
+        request: '“Find my latest invoice PDF and remind me to review it Friday.”',
+        plan: [
+          'Search matching local files',
+          'Prepare a Friday reminder',
+          'Verify file match and reminder ID'
+        ],
+        gate: '“I need access to files and permission to create a reminder. Continue?”'
+      },
+      {
+        request: '“Check tomorrow’s calendar and make a prep note for my first meeting.”',
+        plan: [
+          'Read tomorrow’s calendar events',
+          'Draft the meeting prep note',
+          'Verify event context and note ID'
+        ],
+        gate: '“I need calendar access and permission to create a note. Continue?”'
+      },
+      {
+        request: '“Every weekday at 8, summarize notifications into a note.”',
+        plan: [
+          'Validate notification and notes modules',
+          'Create the scheduled workflow',
+          'Verify the saved workflow record'
+        ],
+        gate: '“I need permission to create this workflow and read notifications. Continue?”'
+      }
+    ];
+
+    const caseCycle = document.getElementById('case-cycle');
+    const caseRequest = document.getElementById('case-request');
+    const caseGate = document.getElementById('case-gate');
+    const casePlan = [1, 2, 3].map(index => document.getElementById(`case-plan-${index}`));
+    const caseProgressBar = document.getElementById('case-progress-bar');
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let activeCase = 0;
+    let caseTimer;
+
+    function restartCaseProgress() {
+      caseProgressBar.classList.remove('case-progress-bar');
+      void caseProgressBar.offsetWidth;
+      caseProgressBar.classList.add('case-progress-bar');
+    }
+
+    function animateCaseContent() {
+      if (prefersReducedMotion.matches) return;
+      caseCycle.querySelectorAll('.case-card').forEach((card, index) => {
+        card.animate(
+          [
+            { opacity: 0, transform: 'translateY(12px)' },
+            { opacity: 1, transform: 'translateY(0)' }
+          ],
+          {
+            duration: 520,
+            delay: index * 90,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            fill: 'both'
+          }
+        );
+      });
+    }
+
+    function showNextCase() {
+      if (document.hidden) return;
+      caseCycle.classList.add('is-changing');
+
+      window.setTimeout(() => {
+        activeCase = (activeCase + 1) % agentCases.length;
+        const nextCase = agentCases[activeCase];
+        caseRequest.textContent = nextCase.request;
+        caseGate.textContent = nextCase.gate;
+        casePlan.forEach((line, index) => {
+          line.textContent = nextCase.plan[index];
+        });
+        caseCycle.classList.remove('is-changing');
+        restartCaseProgress();
+        animateCaseContent();
+        scheduleCaseCycle();
+      }, prefersReducedMotion.matches ? 0 : 280);
+    }
+
+    function scheduleCaseCycle() {
+      window.clearTimeout(caseTimer);
+      caseTimer = window.setTimeout(showNextCase, 6200);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        window.clearTimeout(caseTimer);
+      } else {
+        restartCaseProgress();
+        scheduleCaseCycle();
+      }
+    });
+
+    scheduleCaseCycle();
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
