@@ -209,6 +209,23 @@
       cursor: grab;
     }
 
+    .demo-stage {
+      position: relative;
+      padding: 8px;
+      border: 1px solid rgba(139, 160, 255, 0.26);
+      border-radius: 2rem;
+      background: linear-gradient(145deg, rgba(122, 240, 178, 0.13), rgba(91, 140, 255, 0.14) 38%, rgba(8, 9, 18, 0.95));
+      box-shadow: 0 40px 110px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.10);
+    }
+
+    .demo-stage video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+      border-radius: 1.55rem;
+      background: #050713;
+    }
+
     .screen-rail:active {
       cursor: grabbing;
     }
@@ -539,6 +556,7 @@
 
         <div class="hidden lg:flex items-center gap-8">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors duration-300">Features</a>
+          <a href="#demo" class="text-zinc-400 hover:text-white transition-colors duration-300">Demo</a>
           <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors duration-300">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors duration-300">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors duration-300">Modules</a>
@@ -559,6 +577,7 @@
       <div id="mobile-menu" class="hidden lg:hidden mt-4 pb-4 border-t border-dark-500/50 pt-4">
         <div class="flex flex-col gap-4">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors">Features</a>
+          <a href="#demo" class="text-zinc-400 hover:text-white transition-colors">Demo</a>
           <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors">Modules</a>
@@ -800,6 +819,57 @@
           <div class="text-[#F7EED7] text-sm font-bold mb-3">Verification-first</div>
           <h3 class="text-xl font-black mb-3">Done means checked</h3>
           <p class="text-zinc-400 text-sm leading-relaxed">Mutating tools use result data or state re-checks so the final answer is grounded in what the app can verify.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Demo Section -->
+  <section id="demo" class="py-32 relative overflow-hidden">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_72%_45%,_rgba(91,140,255,0.14),_transparent_34%),radial-gradient(circle_at_18%_55%,_rgba(122,240,178,0.07),_transparent_28%)]"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-6">
+      <div class="grid lg:grid-cols-[0.78fr_1.22fr] gap-12 lg:gap-20 items-center">
+        <div class="scroll-reveal">
+          <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#7AF0B2]/10 text-[#7AF0B2] text-sm font-bold mb-6">
+            <span class="w-2 h-2 rounded-full bg-[#7AF0B2]"></span>
+            Real runtime capture
+          </span>
+          <h2 class="display-title text-5xl md:text-7xl leading-[0.92] mb-7">
+            One request.<br>
+            <span class="gradient-text">The whole journey.</span>
+          </h2>
+          <p class="text-xl text-zinc-400 leading-relaxed mb-9">
+            Watch Meow Agent understand a request, build a task plan, work through registered tools, and expose progress instead of hiding it behind a typing indicator.
+          </p>
+
+          <div class="space-y-3">
+            <div class="signal-card rounded-2xl p-4 flex items-center gap-4">
+              <span class="w-9 h-9 rounded-xl bg-[#7AF0B2]/10 text-[#7AF0B2] flex items-center justify-center font-black text-sm">01</span>
+              <div><div class="font-bold">Ask naturally</div><div class="text-sm text-zinc-500">The runtime resolves intent and context.</div></div>
+            </div>
+            <div class="signal-card rounded-2xl p-4 flex items-center gap-4">
+              <span class="w-9 h-9 rounded-xl bg-[#7FB2FF]/10 text-[#7FB2FF] flex items-center justify-center font-black text-sm">02</span>
+              <div><div class="font-bold">Follow the plan</div><div class="text-sm text-zinc-500">Each step stays visible while tools run.</div></div>
+            </div>
+            <div class="signal-card rounded-2xl p-4 flex items-center gap-4">
+              <span class="w-9 h-9 rounded-xl bg-[#C59BFF]/10 text-[#C59BFF] flex items-center justify-center font-black text-sm">03</span>
+              <div><div class="font-bold">See grounded results</div><div class="text-sm text-zinc-500">Completion follows tool evidence and verification.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="scroll-reveal" style="animation-delay: 0.12s;">
+          <div class="demo-stage">
+            <video controls playsinline preload="metadata" poster="assets/demo-poster.jpg" aria-label="Meow Agent end-to-end runtime demo">
+              <source src="assets/demo.mp4" type="video/mp4">
+              Your browser does not support HTML video.
+            </video>
+          </div>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 px-2 text-sm text-zinc-500">
+            <span>01:06 · End-to-end Android capture</span>
+            <span>H.264 · 720 × 720</span>
+          </div>
         </div>
       </div>
     </div>
