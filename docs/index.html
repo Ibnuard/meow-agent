@@ -197,6 +197,79 @@
       animation: case-progress 6.2s linear forwards;
     }
 
+    .screen-rail {
+      display: flex;
+      gap: 1.5rem;
+      overflow-x: auto;
+      padding: 2rem max(1.5rem, calc((100vw - 80rem) / 2)) 3.5rem;
+      scroll-padding-inline: max(1.5rem, calc((100vw - 80rem) / 2));
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      overscroll-behavior-inline: contain;
+      cursor: grab;
+    }
+
+    .screen-rail:active {
+      cursor: grabbing;
+    }
+
+    .screen-rail::-webkit-scrollbar {
+      display: none;
+    }
+
+    .screen-card {
+      flex: 0 0 clamp(235px, 23vw, 300px);
+      scroll-snap-align: center;
+    }
+
+    .screen-device {
+      position: relative;
+      overflow: hidden;
+      padding: 6px;
+      border: 1px solid rgba(139, 160, 255, 0.28);
+      border-radius: 2.5rem;
+      background: linear-gradient(145deg, rgba(139, 160, 255, 0.22), rgba(8, 9, 18, 0.96) 24%);
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255,255,255,0.12);
+      transform: rotate(var(--screen-tilt, 0deg));
+      transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1), border-color 400ms ease, box-shadow 400ms ease;
+    }
+
+    .screen-device::before {
+      content: '';
+      position: absolute;
+      z-index: 2;
+      top: 0.7rem;
+      left: 50%;
+      width: 28%;
+      height: 0.28rem;
+      border-radius: 999px;
+      background: rgba(4, 6, 15, 0.88);
+      transform: translateX(-50%);
+    }
+
+    .screen-device img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 720 / 1640;
+      object-fit: cover;
+      border-radius: 2.12rem;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .screen-card:hover .screen-device {
+      z-index: 3;
+      border-color: rgba(122, 240, 178, 0.45);
+      box-shadow: 0 38px 100px rgba(12, 20, 48, 0.65), 0 0 45px rgba(91, 140, 255, 0.14);
+      transform: translateY(-10px) rotate(0deg) scale(1.015);
+    }
+
+    @media (min-width: 768px) {
+      .screen-card:nth-child(even) {
+        padding-top: 3.5rem;
+      }
+    }
+
     @keyframes case-progress {
       from { transform: scaleX(0); opacity: 0.45; }
       to { transform: scaleX(1); opacity: 0.9; }
@@ -464,8 +537,9 @@
           <span class="text-lg font-medium tracking-[0.18em] uppercase gradient-text">Meow Agent</span>
         </a>
 
-        <div class="hidden md:flex items-center gap-8">
+        <div class="hidden lg:flex items-center gap-8">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors duration-300">Features</a>
+          <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors duration-300">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors duration-300">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors duration-300">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors duration-300">Setup</a>
@@ -474,7 +548,7 @@
           </a>
         </div>
 
-        <button id="mobile-menu-btn" class="md:hidden p-2">
+        <button id="mobile-menu-btn" class="lg:hidden p-2">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
@@ -482,9 +556,10 @@
       </div>
 
       <!-- Mobile Menu -->
-      <div id="mobile-menu" class="hidden md:hidden mt-4 pb-4 border-t border-dark-500/50 pt-4">
+      <div id="mobile-menu" class="hidden lg:hidden mt-4 pb-4 border-t border-dark-500/50 pt-4">
         <div class="flex flex-col gap-4">
           <a href="#features" class="text-zinc-400 hover:text-white transition-colors">Features</a>
+          <a href="#screenshots" class="text-zinc-400 hover:text-white transition-colors">Screens</a>
           <a href="#architecture" class="text-zinc-400 hover:text-white transition-colors">Architecture</a>
           <a href="#modules" class="text-zinc-400 hover:text-white transition-colors">Modules</a>
           <a href="#setup" class="text-zinc-400 hover:text-white transition-colors">Setup</a>
@@ -730,181 +805,275 @@
     </div>
   </section>
 
+  <!-- Screenshots Section -->
+  <section id="screenshots" class="py-32 relative overflow-hidden bg-dark-700/40">
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,_rgba(91,140,255,0.12),_transparent_38%)]"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-6">
+      <div class="grid lg:grid-cols-[1fr_0.8fr] gap-10 items-end scroll-reveal">
+        <div>
+          <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#7FB2FF]/10 text-[#7FB2FF] text-sm font-bold mb-6">
+            <span class="w-2 h-2 rounded-full bg-[#7AF0B2]"></span>
+            Inside the app
+          </span>
+          <h2 class="display-title text-5xl md:text-7xl leading-[0.92]">
+            Built to feel calm.<br>
+            <span class="gradient-text">Built to do work.</span>
+          </h2>
+        </div>
+
+        <div class="lg:pb-1">
+          <p class="text-xl text-zinc-400 leading-relaxed mb-6">
+            One visual language from conversation to permission gates, agent setup, modules, and multi-step workflows.
+          </p>
+          <div class="flex items-center gap-3">
+            <button id="screens-prev" type="button" aria-label="Previous screenshot" class="w-12 h-12 rounded-full border border-indigo-300/20 bg-white/[0.04] hover:bg-white/[0.09] hover:border-indigo-300/40 transition-colors flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <button id="screens-next" type="button" aria-label="Next screenshot" class="w-12 h-12 rounded-full border border-indigo-300/20 bg-white/[0.04] hover:bg-white/[0.09] hover:border-indigo-300/40 transition-colors flex items-center justify-center">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+            </button>
+            <span class="text-sm text-zinc-500 ml-2">Swipe or drag to explore</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="screen-rail" class="screen-rail mt-12 scroll-reveal">
+      <figure class="screen-card" style="--screen-tilt: -1.4deg;">
+        <div class="screen-device"><img src="pic/screenshot_2.png" alt="Meow Agent home screen with active modules" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">01</span><h3 class="font-bold mt-1">Home base</h3><p class="text-sm text-zinc-500 mt-1">Modules and chat, one tap away.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1deg;">
+        <div class="screen-device"><img src="pic/screenshot_10.png" alt="Meow Agent chat showing a completed multi-step task" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">02</span><h3 class="font-bold mt-1">Execution ledger</h3><p class="text-sm text-zinc-500 mt-1">See the plan and what completed.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -0.8deg;">
+        <div class="screen-device"><img src="pic/screenshot_1.png" alt="Meow Agent module store" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#C59BFF] text-xs font-bold tracking-[0.18em]">03</span><h3 class="font-bold mt-1">Module store</h3><p class="text-sm text-zinc-500 mt-1">Install only what the agent needs.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1.5deg;">
+        <div class="screen-device"><img src="pic/screenshot_3.png" alt="Workflow module permission controls" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">04</span><h3 class="font-bold mt-1">Permission controls</h3><p class="text-sm text-zinc-500 mt-1">Every sensitive capability stays explicit.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -1.2deg;">
+        <div class="screen-device"><img src="pic/screenshot_4.png" alt="Workflow template gallery" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">05</span><h3 class="font-bold mt-1">Workflow templates</h3><p class="text-sm text-zinc-500 mt-1">Start useful automations quickly.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 0.9deg;">
+        <div class="screen-device"><img src="pic/screenshot_11.png" alt="Multi-step workflow builder" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#C59BFF] text-xs font-bold tracking-[0.18em]">06</span><h3 class="font-bold mt-1">Workflow builder</h3><p class="text-sm text-zinc-500 mt-1">Chain agents, context, and failure rules.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: -1deg;">
+        <div class="screen-device"><img src="pic/screenshot_5.png" alt="Agent profile configuration" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7AF0B2] text-xs font-bold tracking-[0.18em]">07</span><h3 class="font-bold mt-1">Your agent</h3><p class="text-sm text-zinc-500 mt-1">Choose its model, profile, and workspace.</p></figcaption>
+      </figure>
+      <figure class="screen-card" style="--screen-tilt: 1.3deg;">
+        <div class="screen-device"><img src="pic/screenshot_6.png" alt="OpenAI-compatible provider configuration" loading="lazy" decoding="async"></div>
+        <figcaption class="mt-5 px-2"><span class="text-[#7FB2FF] text-xs font-bold tracking-[0.18em]">08</span><h3 class="font-bold mt-1">Bring your provider</h3><p class="text-sm text-zinc-500 mt-1">Connect an OpenAI-compatible endpoint.</p></figcaption>
+      </figure>
+    </div>
+  </section>
+
   <!-- Architecture Section -->
   <section id="architecture" class="py-32 bg-dark-700/50 relative overflow-hidden">
-    <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-900/10 via-transparent to-transparent"></div>
+    <div class="absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,_rgba(122,240,178,0.07),_transparent_28%),radial-gradient(circle_at_82%_24%,_rgba(91,140,255,0.11),_transparent_30%)]"></div>
 
     <div class="max-w-7xl mx-auto px-6 relative z-10">
-      <div class="text-center mb-20 scroll-reveal">
-        <span class="inline-block px-4 py-1.5 rounded-full bg-purple-500/10 text-purple-400 text-sm font-medium mb-6">Technical Deep Dive</span>
-        <h2 class="text-4xl md:text-5xl font-bold mb-6">
-          Runtime <span class="gradient-text">Architecture</span>
-        </h2>
-        <p class="text-xl text-zinc-400 max-w-2xl mx-auto">
-          A multi-phase agentic system designed for reliability, control, and accountability.
+      <div class="grid lg:grid-cols-[0.8fr_1.2fr] gap-10 items-end mb-16">
+        <div>
+          <span class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#7AF0B2]/10 text-[#7AF0B2] text-sm font-bold mb-6">
+            Runtime, translated
+          </span>
+          <h2 class="display-title text-5xl md:text-7xl leading-[0.92]">
+            What happens<br>
+            <span class="gradient-text">under the paws.</span>
+          </h2>
+        </div>
+        <p class="text-xl text-zinc-400 leading-relaxed max-w-2xl lg:ml-auto">
+          Every visible response has an internal counterpart. The runtime understands, plans, acts through gated tools, verifies the result, then explains only what it can support.
         </p>
       </div>
 
-      <!-- Architecture Diagram -->
-      <div class="scroll-reveal bg-dark-600/50 border border-dark-500 rounded-3xl p-8 md:p-12 mb-16 overflow-x-auto">
-        <div class="min-w-[600px]">
-          <!-- Layer 1: UI -->
-          <div class="flex justify-center mb-8">
-            <div class="px-8 py-4 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 rounded-2xl border border-purple-500/30 flex items-center gap-3">
-              <img src="assets/meow.png" alt="" class="w-8 h-8">
-              <div class="text-center">
-                <div class="text-purple-400 font-bold mb-1">Flutter UI</div>
-                <div class="text-xs text-zinc-500">Riverpod — State Management</div>
+      <div class="rounded-[2rem] border border-indigo-300/15 bg-[#0B0D19]/75 overflow-hidden shadow-[0_35px_100px_rgba(0,0,0,0.34)]">
+        <div class="grid lg:grid-cols-[1fr_72px_1fr] border-b border-white/10">
+          <div class="px-6 md:px-8 py-6 bg-[#7AF0B2]/[0.035]">
+            <div class="text-xs uppercase tracking-[0.22em] text-[#7AF0B2] mb-2">Inside the runtime</div>
+            <h3 class="text-2xl font-black">The machinery</h3>
+          </div>
+          <div class="hidden lg:flex items-center justify-center border-x border-white/10 text-zinc-600">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14m-5-5 5 5-5 5"/>
+            </svg>
+          </div>
+          <div class="px-6 md:px-8 py-6 bg-[#5B8CFF]/[0.035]">
+            <div class="text-xs uppercase tracking-[0.22em] text-[#7FB2FF] mb-2">On the surface</div>
+            <h3 class="text-2xl font-black">What you experience</h3>
+          </div>
+        </div>
+
+        <!-- Pair 1 -->
+        <div class="grid lg:grid-cols-[1fr_72px_1fr] border-b border-white/10">
+          <div class="p-6 md:p-8 bg-[#7AF0B2]/[0.018]">
+            <div class="flex gap-5">
+              <div class="w-11 h-11 rounded-2xl border border-[#7AF0B2]/25 bg-[#7AF0B2]/10 text-[#7AF0B2] font-black flex items-center justify-center flex-shrink-0">01</div>
+              <div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#7AF0B2]">Analyze</span>
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#7AF0B2]">Reflect</span>
+                </div>
+                <h4 class="text-xl font-black mb-2">Understand the actual goal</h4>
+                <p class="text-zinc-400 text-sm leading-relaxed">Resolve intent, relevant tool groups, missing context, selectors, and possible impact before choosing an action.</p>
               </div>
             </div>
           </div>
-
-          <div class="flex justify-center mb-8">
-            <svg class="w-6 h-8 text-purple-500/50" viewBox="0 0 24 32" fill="none">
-              <path d="M12 0L12 28M12 28L4 20M12 28L20 20" stroke="currentColor" stroke-width="2"/>
-            </svg>
+          <div class="hidden lg:flex items-center justify-center border-x border-white/10">
+            <span class="w-2 h-2 rounded-full bg-[#7AF0B2]"></span>
           </div>
+          <div class="p-6 md:p-8 bg-[#5B8CFF]/[0.018]">
+            <div class="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+              <div class="flex items-center gap-3 mb-3">
+                <img src="assets/meow.png" alt="" class="w-8 h-8 object-contain">
+                <span class="text-xs uppercase tracking-[0.18em] text-[#7FB2FF]">Understanding</span>
+              </div>
+              <p class="text-zinc-300 italic">“Let me carefully understand the goal and available context first.”</p>
+            </div>
+          </div>
+        </div>
 
-          <!-- Layer 2: Engine -->
-          <div class="flex justify-center mb-8">
-            <div class="px-8 py-4 bg-gradient-to-r from-purple-500/30 to-indigo-500/30 rounded-2xl border border-purple-500/50 shadow-lg shadow-purple-500/10 flex items-center gap-3">
-              <img src="assets/meow.png" alt="" class="w-8 h-8">
-              <div class="text-center">
-                <div class="text-white font-bold text-lg mb-2">AgentRuntimeEngine</div>
-                <div class="flex flex-wrap justify-center gap-2">
-                  <span class="px-3 py-1 bg-purple-500/20 rounded-lg text-sm text-purple-300">Analyze</span>
-                  <span class="px-3 py-1 bg-indigo-500/20 rounded-lg text-sm text-indigo-300">Reflect</span>
-                  <span class="px-3 py-1 bg-purple-500/20 rounded-lg text-sm text-purple-300">Plan</span>
-                  <span class="px-3 py-1 bg-indigo-500/20 rounded-lg text-sm text-indigo-300">Execute</span>
-                  <span class="px-3 py-1 bg-purple-500/20 rounded-lg text-sm text-purple-300">Verify</span>
-                  <span class="px-3 py-1 bg-indigo-500/20 rounded-lg text-sm text-indigo-300">Review</span>
-                  <span class="px-3 py-1 bg-purple-500/20 rounded-lg text-sm text-purple-300">Verbalize</span>
+        <!-- Pair 2 -->
+        <div class="grid lg:grid-cols-[1fr_72px_1fr] border-b border-white/10">
+          <div class="p-6 md:p-8 bg-[#7AF0B2]/[0.018]">
+            <div class="flex gap-5">
+              <div class="w-11 h-11 rounded-2xl border border-[#7FB2FF]/25 bg-[#7FB2FF]/10 text-[#7FB2FF] font-black flex items-center justify-center flex-shrink-0">02</div>
+              <div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#7FB2FF]">Plan</span>
                 </div>
+                <h4 class="text-xl font-black mb-2">Turn intent into bounded steps</h4>
+                <p class="text-zinc-400 text-sm leading-relaxed">Build a concrete goal tree with ordered work, dependencies, confirmation boundaries, and completion criteria.</p>
               </div>
             </div>
           </div>
-
-          <div class="flex justify-center mb-8">
-            <svg class="w-6 h-8 text-purple-500/50" viewBox="0 0 24 32" fill="none">
-              <path d="M12 0L12 28M12 28L4 20M12 28L20 20" stroke="currentColor" stroke-width="2"/>
-            </svg>
+          <div class="hidden lg:flex items-center justify-center border-x border-white/10">
+            <span class="w-2 h-2 rounded-full bg-[#7FB2FF]"></span>
           </div>
-
-          <!-- Layer 3: Tools -->
-          <div class="flex justify-center mb-8">
-            <div class="flex flex-col md:flex-row gap-4">
-              <div class="px-6 py-4 bg-dark-500/80 rounded-xl border border-dark-400 flex items-center gap-3">
-                <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                </svg>
-                <div class="text-center">
-                  <div class="text-zinc-300 font-semibold">ToolRouter</div>
-                  <div class="text-xs text-zinc-500 mt-1">+ Permission Gates</div>
-                </div>
+          <div class="p-6 md:p-8 bg-[#5B8CFF]/[0.018]">
+            <div class="rounded-2xl border border-indigo-300/15 bg-[#10162A]/80 p-5">
+              <div class="flex items-center justify-between mb-4">
+                <span class="text-xs uppercase tracking-[0.18em] text-[#7FB2FF]">Task plan</span>
+                <span class="text-xs text-zinc-500">0 / 3</span>
               </div>
-              <div class="text-zinc-600 flex items-center">
-                <svg class="w-8 h-4" viewBox="0 0 32 16" fill="none">
-                  <path d="M0 8H28M28 8L22 2M28 8L22 14" stroke="currentColor"/>
-                </svg>
-              </div>
-              <div class="px-6 py-4 bg-dark-500/80 rounded-xl border border-dark-400 flex items-center gap-3">
-                <img src="assets/meow.png" alt="" class="w-6 h-6">
-                <div class="text-center">
-                  <div class="text-zinc-300 font-semibold">ModulePlugins</div>
-                  <div class="text-xs text-zinc-500 mt-1">16 Self-Registering Modules</div>
-                </div>
+              <div class="space-y-3 text-sm text-zinc-300">
+                <div class="flex items-center gap-3"><span class="w-5 h-5 rounded-md border border-[#7AF0B2]/40"></span>Read the relevant device state</div>
+                <div class="flex items-center gap-3"><span class="w-5 h-5 rounded-md border border-[#7FB2FF]/40"></span>Run the requested action</div>
+                <div class="flex items-center gap-3"><span class="w-5 h-5 rounded-md border border-[#C59BFF]/40"></span>Re-check the final state</div>
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="flex justify-center">
-            <svg class="w-6 h-8 text-purple-500/50" viewBox="0 0 24 32" fill="none">
-              <path d="M12 0L12 28M12 28L4 20M12 28L20 20" stroke="currentColor" stroke-width="2"/>
-            </svg>
+        <!-- Pair 3 -->
+        <div class="grid lg:grid-cols-[1fr_72px_1fr] border-b border-white/10">
+          <div class="p-6 md:p-8 bg-[#7AF0B2]/[0.018]">
+            <div class="flex gap-5">
+              <div class="w-11 h-11 rounded-2xl border border-[#C59BFF]/25 bg-[#C59BFF]/10 text-[#C59BFF] font-black flex items-center justify-center flex-shrink-0">03</div>
+              <div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#C59BFF]">Execute</span>
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#C59BFF]">Verify</span>
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#C59BFF]">Review</span>
+                </div>
+                <h4 class="text-xl font-black mb-2">Act through controlled tools</h4>
+                <p class="text-zinc-400 text-sm leading-relaxed">Registry-owned risk metadata selects permission gates. Mutations must pass a verification probe before completion.</p>
+              </div>
+            </div>
           </div>
+          <div class="hidden lg:flex items-center justify-center border-x border-white/10">
+            <span class="w-2 h-2 rounded-full bg-[#C59BFF]"></span>
+          </div>
+          <div class="p-6 md:p-8 bg-[#5B8CFF]/[0.018]">
+            <div class="grid sm:grid-cols-2 gap-3">
+              <div class="rounded-2xl border border-[#C59BFF]/20 bg-[#C59BFF]/[0.06] p-4">
+                <div class="text-xs uppercase tracking-[0.16em] text-[#C59BFF] mb-2">Permission gate</div>
+                <p class="text-sm text-zinc-300">“Allow Meow Agent to create this reminder?”</p>
+              </div>
+              <div class="rounded-2xl border border-[#7AF0B2]/20 bg-[#7AF0B2]/[0.05] p-4">
+                <div class="text-xs uppercase tracking-[0.16em] text-[#7AF0B2] mb-2">Verification</div>
+                <p class="text-sm text-zinc-300">Reminder ID returned and state re-read.</p>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <!-- Layer 4: Storage -->
-          <div class="flex justify-center mt-8">
-            <div class="flex flex-col md:flex-row gap-4">
-              <div class="px-6 py-4 bg-indigo-500/10 rounded-xl border border-indigo-500/30 flex items-center gap-3">
-                <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
-                </svg>
-                <div class="text-center">
-                  <div class="text-indigo-400 font-semibold">SQLite</div>
-                  <div class="text-xs text-zinc-500 mt-1">meow_core.db</div>
+        <!-- Pair 4 -->
+        <div class="grid lg:grid-cols-[1fr_72px_1fr]">
+          <div class="p-6 md:p-8 bg-[#7AF0B2]/[0.018]">
+            <div class="flex gap-5">
+              <div class="w-11 h-11 rounded-2xl border border-[#F7EED7]/20 bg-[#F7EED7]/[0.07] text-[#F7EED7] font-black flex items-center justify-center flex-shrink-0">04</div>
+              <div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <span class="meow-chip px-3 py-1 rounded-full text-xs text-[#F7EED7]">Verbalize</span>
                 </div>
+                <h4 class="text-xl font-black mb-2">Report only grounded results</h4>
+                <p class="text-zinc-400 text-sm leading-relaxed">Turn structured execution evidence into a concise response in the user’s language, without inventing success.</p>
               </div>
-              <div class="px-6 py-4 bg-purple-500/10 rounded-xl border border-purple-500/30 flex items-center gap-3">
-                <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
-                </svg>
-                <div class="text-center">
-                  <div class="text-purple-400 font-semibold">Secure Storage</div>
-                  <div class="text-xs text-zinc-500 mt-1">API Keys (Encrypted)</div>
-                </div>
+            </div>
+          </div>
+          <div class="hidden lg:flex items-center justify-center border-x border-white/10">
+            <span class="w-2 h-2 rounded-full bg-[#F7EED7]"></span>
+          </div>
+          <div class="p-6 md:p-8 bg-[#5B8CFF]/[0.018]">
+            <div class="rounded-2xl border border-white/10 bg-white/[0.035] p-5">
+              <div class="flex items-center gap-2 text-[#7AF0B2] text-xs uppercase tracking-[0.17em] mb-3">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 13 4 4L19 7"/></svg>
+                Verified result
               </div>
+              <p class="text-zinc-200">“Done. The reminder was created for Friday at 7 PM, and I confirmed it is in your reminder list.”</p>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Key Properties -->
-      <div class="grid md:grid-cols-2 gap-6 scroll-reveal">
-        <div class="p-6 bg-dark-600/50 border border-dark-500 rounded-2xl flex items-start gap-4">
-          <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-            </svg>
-          </div>
+      <!-- Runtime Foundation -->
+      <div class="mt-8 rounded-[2rem] border border-indigo-300/15 bg-dark-600/40 p-6 md:p-8">
+        <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-5 mb-7">
           <div>
-            <h4 class="font-bold mb-2">Deterministic Execution</h4>
-            <p class="text-zinc-400 text-sm leading-relaxed">
-              Bounded recovery, cancellation, task ledgers, and stuck-loop detection for reliable, predictable runs.
-            </p>
+            <div class="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-2">Shared foundation</div>
+            <h3 class="text-2xl font-black">The layers every phase relies on</h3>
+          </div>
+          <p class="text-sm text-zinc-500 max-w-xl">Flutter and Riverpod present state; the router, plugins, local database, and encrypted storage provide controlled capabilities underneath.</p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="rounded-2xl border border-white/10 bg-black/15 p-5">
+            <div class="text-[#7AF0B2] text-sm font-bold mb-2">ToolRouter</div>
+            <p class="text-sm text-zinc-500">Dispatch plus exact permission gates.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-black/15 p-5">
+            <div class="text-[#7FB2FF] text-sm font-bold mb-2">ModulePlugins</div>
+            <p class="text-sm text-zinc-500">16 self-registering capability modules.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-black/15 p-5">
+            <div class="text-[#C59BFF] text-sm font-bold mb-2">SQLite</div>
+            <p class="text-sm text-zinc-500">Local app state in meow_core.db.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-black/15 p-5">
+            <div class="text-[#F7EED7] text-sm font-bold mb-2">Secure Storage</div>
+            <p class="text-sm text-zinc-500">Provider credentials encrypted on-device.</p>
           </div>
         </div>
 
-        <div class="p-6 bg-dark-600/50 border border-dark-500 rounded-2xl flex items-start gap-4">
-          <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-            </svg>
-          </div>
-          <div>
-            <h4 class="font-bold mb-2">Tool Risk Metadata</h4>
-            <p class="text-zinc-400 text-sm leading-relaxed">
-              Tool risk and confirmation requirements come from ToolDefinition, never from model output.
-            </p>
-          </div>
-        </div>
-
-        <div class="p-6 bg-dark-600/50 border border-dark-500 rounded-2xl flex items-start gap-4">
-          <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-            </svg>
-          </div>
-          <div>
-            <h4 class="font-bold mb-2">Post-Execution Verification</h4>
-            <p class="text-zinc-400 text-sm leading-relaxed">
-              Verification probes ensure mutating tools prove their result, not just claim success.
-            </p>
-          </div>
-        </div>
-
-        <div class="p-6 bg-dark-600/50 border border-dark-500 rounded-2xl flex items-start gap-4">
-          <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-            </svg>
-          </div>
-          <div>
-            <h4 class="font-bold mb-2">LLM JSON Repair</h4>
-            <p class="text-zinc-400 text-sm leading-relaxed">
-              Shared LLM caller with one bounded repair attempt for robust JSON parsing.
-            </p>
-          </div>
+        <div class="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-500">
+          <span>Bounded recovery</span>
+          <span>Cancellation</span>
+          <span>Stuck-loop detection</span>
+          <span>One bounded JSON repair</span>
+          <span>Verification probes</span>
         </div>
       </div>
     </div>
@@ -1407,6 +1576,47 @@
     });
 
     scheduleCaseCycle();
+
+    // Screenshot rail controls: native swipe on touch, arrows and grab-drag on desktop.
+    const screenRail = document.getElementById('screen-rail');
+    const screensPrev = document.getElementById('screens-prev');
+    const screensNext = document.getElementById('screens-next');
+    let isDraggingScreens = false;
+    let screenDragStart = 0;
+    let screenScrollStart = 0;
+
+    function scrollScreens(direction) {
+      const card = screenRail.querySelector('.screen-card');
+      const distance = card ? card.getBoundingClientRect().width + 24 : 320;
+      screenRail.scrollBy({ left: direction * distance, behavior: 'smooth' });
+    }
+
+    screensPrev.addEventListener('click', () => scrollScreens(-1));
+    screensNext.addEventListener('click', () => scrollScreens(1));
+
+    screenRail.addEventListener('pointerdown', event => {
+      if (event.pointerType !== 'mouse') return;
+      isDraggingScreens = true;
+      screenDragStart = event.clientX;
+      screenScrollStart = screenRail.scrollLeft;
+      screenRail.setPointerCapture(event.pointerId);
+    });
+
+    screenRail.addEventListener('pointermove', event => {
+      if (!isDraggingScreens) return;
+      screenRail.scrollLeft = screenScrollStart - (event.clientX - screenDragStart);
+    });
+
+    function stopScreenDrag(event) {
+      if (!isDraggingScreens) return;
+      isDraggingScreens = false;
+      if (screenRail.hasPointerCapture(event.pointerId)) {
+        screenRail.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    screenRail.addEventListener('pointerup', stopScreenDrag);
+    screenRail.addEventListener('pointercancel', stopScreenDrag);
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
