@@ -2,11 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meow_agent/core/storage/agent_soul_repository.dart';
+import 'package:meow_agent/core/storage/meow_database.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/system_tools.dart';
 import 'package:meow_agent/services/agent_runtime/tool_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -14,6 +17,9 @@ void main() {
   late Directory docsDir;
 
   setUpAll(() async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
     docsDir = await Directory.systemTemp.createTemp('meow_system_tools_test_');
     const channel = MethodChannel('com.meowagent.meow_agent/storage');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -24,6 +30,7 @@ void main() {
   });
 
   tearDownAll(() async {
+    await MeowDatabase.instance.close();
     if (await docsDir.exists()) {
       await docsDir.delete(recursive: true);
     }
@@ -33,36 +40,42 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('profile update patches current agent workspace SOUL.md', () async {
-    final workspace = Directory('${docsDir.path}/MeowAgent/Agents/Current');
-    await workspace.create(recursive: true);
-    final soul = File('${workspace.path}/SOUL.md');
-    await soul.writeAsString('''# SOUL.md
+  test('profile update patches agent_soul SQLite table', () async {
+    final db = await MeowDatabase.instance.database;
+    await MeowDatabase.instance.resetForTesting();
 
-## Agent Identity
+    await db.insert('providers', {
+      'id': 'fake_provider',
+      'nickname': 'Fake',
+      'base_url': 'http://localhost',
+      'api_key_ref': 'fake_ref',
+      'model_default': 'gpt-4o-mini',
+      'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+    await db.insert('agents', {
+      'id': 'current',
+      'name': 'Current',
+      'provider_id': 'fake_provider',
+      'created_at': DateTime.now().toIso8601String(),
+      'updated_at': DateTime.now().toIso8601String(),
+    });
+    await db.insert('agent_soul', {
+      'agent_id': 'current',
+      'user_name': '[Your Name]',
+      'user_nickname': '[Optional Nickname]',
+      'preferred_language': 'Indonesian',
+      'timezone': '[Your Timezone]',
+      'updated_at': DateTime.now().toIso8601String(),
+    });
 
-Name: Current
-
----
-
-## User Identity
-
-Name: [Your Name]
-Nickname: [Optional Nickname]
-Preferred Language: Indonesian
-Timezone: [Your Timezone]
-
----
-
-## Design Preference
-
-Keep it concise.
-''');
+    final repo = AgentSoulRepository(MeowDatabase.instance);
 
     final tools = SystemTools(
       agentId: 'current',
       agentName: 'Current',
       moduleRepository: ModuleRepository(),
+      coreSoulRepo: repo,
     );
 
     final result = await tools.executeProfileUpdate({
@@ -71,10 +84,10 @@ Keep it concise.
     });
 
     expect(result.success, true);
-    final updated = await soul.readAsString();
-    expect(updated, contains('## Agent Identity\n\nName: Current'));
-    expect(updated, contains('## User Identity\n\nName: Budi'));
-    expect(updated, contains('Nickname: [Optional Nickname]'));
+    final soul = await repo.get('current');
+    expect(soul, isNotNull);
+    expect(soul!.userName, 'Budi');
+    expect(soul.userNickname, '[Optional Nickname]');
   });
 
   test('router registers core system tools', () {

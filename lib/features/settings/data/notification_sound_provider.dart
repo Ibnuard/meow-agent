@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../core/storage/local_storage_service.dart';
 
 /// Available notification sounds (mapped to res/raw/*.ogg files).
 enum NotificationSound {
@@ -20,17 +21,18 @@ const notificationSoundPreferenceKey = 'notification_sound';
 /// Riverpod provider for the selected notification sound.
 final notificationSoundProvider =
     StateNotifierProvider<NotificationSoundNotifier, NotificationSound>((ref) {
-  return NotificationSoundNotifier();
+  return NotificationSoundNotifier(ref.watch(localStorageProvider));
 });
 
 class NotificationSoundNotifier extends StateNotifier<NotificationSound> {
-  NotificationSoundNotifier() : super(NotificationSound.notification) {
+  NotificationSoundNotifier(this._storage) : super(NotificationSound.notification) {
     _load();
   }
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(notificationSoundPreferenceKey);
+  final LocalStorageService _storage;
+
+  void _load() {
+    final stored = _storage.readString(notificationSoundPreferenceKey);
     if (stored != null) {
       final match = NotificationSound.values
           .where((s) => s.fileName == stored)
@@ -41,8 +43,7 @@ class NotificationSoundNotifier extends StateNotifier<NotificationSound> {
 
   Future<void> set(NotificationSound sound) async {
     state = sound;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(notificationSoundPreferenceKey, sound.fileName);
+    await _storage.writeString(notificationSoundPreferenceKey, sound.fileName);
   }
 }
 

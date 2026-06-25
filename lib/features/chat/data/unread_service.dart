@@ -2,7 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../../core/storage/app_settings_repository.dart';
+import '../../../core/storage/meow_database.dart';
 
 /// Tracks unread message counts per agent.
 ///
@@ -14,7 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// - When an agent's chat screen is in the foreground (registered via
 ///   [setActive]), incoming messages do not bump the counter and any existing
 ///   count is cleared.
-/// - Counts persist across app restarts via SharedPreferences.
+/// - Counts persist across app restarts via SQLite.
 class UnreadService extends ChangeNotifier {
   UnreadService._();
 
@@ -26,20 +28,20 @@ class UnreadService extends ChangeNotifier {
   String? _activeAgentId;
   bool _initialized = false;
 
-  /// Hydrate from SharedPreferences. Idempotent.
+  /// Hydrate from SQLite. Idempotent.
   Future<void> ensureInit() async {
     if (_initialized) return;
     _initialized = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_prefKey);
+      final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+      final raw = await settingsRepo.get(_prefKey);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw) as Map<String, dynamic>;
         _counts = decoded.map((k, v) => MapEntry(k, (v as num).toInt()))
           ..removeWhere((_, v) => v <= 0);
       }
     } catch (_) {
-      // Corrupt prefs — start fresh.
+      // Corrupt database data — start fresh.
       _counts = {};
     }
     notifyListeners();
@@ -99,8 +101,8 @@ class UnreadService extends ChangeNotifier {
 
   Future<void> _persist() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefKey, jsonEncode(_counts));
+      final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+      await settingsRepo.set(_prefKey, jsonEncode(_counts));
     } catch (_) {
       // Best-effort persistence.
     }

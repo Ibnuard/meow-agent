@@ -57,9 +57,9 @@ class OpenAiCompatibleClient {
   /// slowly; connect/send are tighter since they should be near-instant.
   static Dio _defaultDio() => Dio(
         BaseOptions(
-          connectTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(seconds: 120),
-          sendTimeout: const Duration(seconds: 30),
+          connectTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 300),
+          sendTimeout: const Duration(seconds: 60),
         ),
       );
 

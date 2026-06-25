@@ -187,6 +187,7 @@ const promptAnalyzeResponseFormat =
   "requested_item_count": null,
   "bulk_selector": true,
   "task_relation": "none | continuation | revision | new_task",
+  "direct_response": "If requires_tools is false, write your friendly, natural, conversational final response to the user here, following POLICY.VOICE. If requires_tools is true, set this to null or empty string.",
   "narrative": "$promptNarrativeFieldRule Show only what you understood and your initial read.",
   "next_narrative": "$promptNextNarrativeFieldRule Describe the phase that should happen immediately after analysis. Example: 'Next I need to check whether anything depends on those agents before I touch them.'"
 }

@@ -2,8 +2,9 @@ import 'dart:typed_data';
 import 'dart:ui' show Color;
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/storage/app_settings_repository.dart';
+import '../../../core/storage/meow_database.dart';
 import '../../settings/data/notification_sound_provider.dart';
 
 /// Agent-initiated local notifications.
@@ -59,8 +60,8 @@ class AgentNotificationService {
   }
 
   static Future<String> _selectedSoundFileName() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(notificationSoundPreferenceKey);
+    final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+    final stored = await settingsRepo.get(notificationSoundPreferenceKey);
     if (stored != null && stored.isNotEmpty) return stored;
     return NotificationSound.notification.fileName;
   }

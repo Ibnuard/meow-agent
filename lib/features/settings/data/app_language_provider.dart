@@ -131,6 +131,26 @@ class AppStrings {
   String get aboutBody => isId
       ? 'AI companion Android-native dengan multi-agent, app automation, workflow otomatis, notifikasi cerdas, dan modular tools.\n\nVersi 1.0.0'
       : 'Android-native AI companion with multi-agent, app automation, automated workflows, smart notifications, and modular tools.\n\nVersion 1.0.0';
+  String get checkForUpdates => isId ? 'Periksa Pembaruan' : 'Check for Updates';
+  String get checkingForUpdates =>
+      isId ? 'Memeriksa pembaruan...' : 'Checking for updates...';
+  String get updateAvailable =>
+      isId ? 'Pembaruan Tersedia' : 'Update Available';
+  String get updateNotAvailable =>
+      isId ? 'Aplikasi Sudah Terbaru' : 'App is Up to Date';
+  String get updateFailed =>
+      isId ? 'Gagal memeriksa pembaruan' : 'Failed to check for updates';
+  String get download => isId ? 'Unduh' : 'Download';
+  String get later => isId ? 'Nanti' : 'Later';
+
+  String updateAvailableDesc(String version) => isId
+      ? 'Versi baru ($version) telah dirilis. Apakah Anda ingin mengunduhnya sekarang?'
+      : 'A new version ($version) is available. Do you want to download it now?';
+
+  String updateNotAvailableDesc(String version) => isId
+      ? 'Anda sudah menggunakan versi terbaru ($version).'
+      : 'You are already using the latest version ($version).';
+
   String get notificationSound =>
       isId ? 'Suara Notifikasi' : 'Notification Sound';
   String get notificationSoundDesc => isId

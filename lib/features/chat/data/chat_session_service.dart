@@ -1,7 +1,6 @@
 import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/storage/local_storage_service.dart';
 
@@ -13,17 +12,17 @@ import '../../../core/storage/local_storage_service.dart';
 /// create a new id; `/reset` keeps the id but clears persisted data for it;
 /// `/resume` points the agent back at an existing id.
 ///
-/// Backed by SharedPreferences (one key per agent). Reads are synchronous once
-/// SharedPreferences is resolved, so callers can fetch the current id inline.
+/// Backed by LocalStorageService (one key per agent). Reads are synchronous once
+/// LocalStorageService is resolved, so callers can fetch the current id inline.
 class ChatSessionService {
   ChatSessionService(
-    this._prefs, {
+    this._storage, {
     DateTime Function()? clock,
     Random? random,
   }) : _clock = clock ?? DateTime.now,
        _random = random ?? Random();
 
-  final SharedPreferences _prefs;
+  final LocalStorageService _storage;
   final DateTime Function() _clock;
   final Random _random;
 
@@ -33,25 +32,25 @@ class ChatSessionService {
   /// Current session id for an agent. Lazily creates one on first access so
   /// existing installs transparently get a session without a migration step.
   String currentSessionId(String agentId) {
-    final existing = _prefs.getString(_key(agentId));
+    final existing = _storage.readString(_key(agentId));
     if (existing != null && existing.isNotEmpty) return existing;
     final fresh = _generate();
     // Fire-and-forget persist; the value is returned immediately so the first
     // message of a brand-new agent still lands in a stable session.
-    _prefs.setString(_key(agentId), fresh);
+    _storage.writeString(_key(agentId), fresh);
     return fresh;
   }
 
   /// Begin a fresh session for an agent and return its id.
   Future<String> startNewSession(String agentId) async {
     final id = _generate();
-    await _prefs.setString(_key(agentId), id);
+    await _storage.writeString(_key(agentId), id);
     return id;
   }
 
   /// Point the agent at an existing session id (used by `/resume`).
   Future<void> setCurrentSession(String agentId, String sessionId) async {
-    await _prefs.setString(_key(agentId), sessionId);
+    await _storage.writeString(_key(agentId), sessionId);
   }
 
   /// Session id format: `MEOW-YYYYMMDD-XXXX-N`.
@@ -63,8 +62,8 @@ class ChatSessionService {
   /// - `N` is the persisted monotonic counter, kept so ids stay strictly
   ///   ordered across the whole app even across days/restarts.
   String _generate() {
-    final next = (_prefs.getInt(_counterKey) ?? 0) + 1;
-    _prefs.setInt(_counterKey, next);
+    final next = (_storage.readInt(_counterKey) ?? 0) + 1;
+    _storage.writeInt(_counterKey, next);
     final now = _clock();
     final ymd =
         '${now.year.toString().padLeft(4, '0')}'
@@ -76,5 +75,5 @@ class ChatSessionService {
 }
 
 final chatSessionServiceProvider = Provider<ChatSessionService>(
-  (ref) => ChatSessionService(ref.watch(sharedPreferencesProvider)),
+  (ref) => ChatSessionService(ref.watch(localStorageProvider)),
 );

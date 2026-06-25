@@ -61,7 +61,7 @@ class WorkflowRunner {
     _timer?.cancel();
     _scheduleNextCheck();
     // Also run immediately on start.
-    _checkAndRun();
+    checkAndRun();
   }
 
   /// Stop the runner.
@@ -69,6 +69,13 @@ class WorkflowRunner {
     _timer?.cancel();
     _timer = null;
     _executionQueue.clear();
+  }
+
+  /// Await execution queue drain and workflow completion.
+  Future<void> waitUntilIdle() async {
+    while (_processingQueue || _runningWorkflows.isNotEmpty || _executionQueue.isNotEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
   }
 
   /// Dynamic scheduling: calculate time until next due workflow.
@@ -95,13 +102,13 @@ class WorkflowRunner {
     }
 
     _timer = Timer(interval, () {
-      _checkAndRun();
+      checkAndRun();
       _scheduleNextCheck();
     });
   }
 
   /// Check all enabled workflows and enqueue any that are due.
-  Future<void> _checkAndRun() async {
+  Future<void> checkAndRun() async {
     final workflows = await _repo.listEnabledByPriority();
     final now = DateTime.now();
 

@@ -1,9 +1,11 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:meow_agent/core/storage/app_settings_repository.dart';
+import 'package:meow_agent/core/storage/local_storage_service.dart';
+import 'package:meow_agent/core/storage/meow_database.dart';
 import 'package:meow_agent/features/chat/data/chat_history_service.dart';
 import 'package:meow_agent/features/chat/data/chat_session_service.dart';
 
@@ -18,24 +20,32 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  late LocalStorageService storage;
+
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    final db = MeowDatabase.instance;
+    await db.resetForTesting();
+    final settingsRepo = AppSettingsRepository(db);
+    storage = LocalStorageService(settingsRepo, {});
+  });
+
+  tearDown(() async {
+    await storage.waitForPendingWrites;
   });
 
   // Frozen clock + deterministic RNG so the MEOW_YYYYMMDD_XXXX_N format is
   // exact-match testable. Production callers use the default DateTime.now /
   // Random.secure constructors.
-  ChatSessionService buildService(SharedPreferences prefs) =>
+  ChatSessionService buildService(LocalStorageService storage) =>
       ChatSessionService(
-        prefs,
+        storage,
         clock: () => DateTime(2026, 6, 9, 1, 6),
         random: Random(42),
       );
 
   group('ChatSessionService', () {
     test('lazily creates and persists a session per agent', () async {
-      final prefs = await SharedPreferences.getInstance();
-      final service = buildService(prefs);
+      final service = buildService(storage);
 
       final id1 = service.currentSessionId('agent-a');
       final id2 = service.currentSessionId('agent-a');
@@ -52,8 +62,7 @@ void main() {
     });
 
     test('startNewSession returns a fresh id and updates current', () async {
-      final prefs = await SharedPreferences.getInstance();
-      final service = buildService(prefs);
+      final service = buildService(storage);
 
       final initial = service.currentSessionId('agent-a');
       final fresh = await service.startNewSession('agent-a');
@@ -65,8 +74,7 @@ void main() {
     });
 
     test('setCurrentSession switches to an arbitrary id', () async {
-      final prefs = await SharedPreferences.getInstance();
-      final service = buildService(prefs);
+      final service = buildService(storage);
 
       await service.setCurrentSession('agent-a', 'ctx_external');
       expect(service.currentSessionId('agent-a'), 'ctx_external');

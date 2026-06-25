@@ -46,6 +46,8 @@ class ExecuteLoopRunner {
   final CompletionVerifier _completionVerifier;
   final RuntimeMemory _memory;
   final String _languageCode;
+  String? _overrideLanguageCode;
+  String get _effectiveLanguageCode => _overrideLanguageCode ?? _languageCode;
 
   static const int maxSteps = 5;
 
@@ -74,6 +76,7 @@ class ExecuteLoopRunner {
     int nullSelectionRecoveryCount = 0,
     bool fastPath = false,
   }) async {
+    _overrideLanguageCode = detectedLang.code;
     final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
     var currentStep = initialStep;
     var retryCount = 0;
@@ -1552,7 +1555,11 @@ class ExecuteLoopRunner {
     }
 
     await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-    return fail(_runtimePhrase('runtime_max_steps'), logger);
+    final lastFailure = _lastFailureCauseFrom(previousResults);
+    final finalError = lastFailure.isNotEmpty
+        ? lastFailure
+        : _runtimePhrase('runtime_max_steps');
+    return fail(finalError, logger);
   }
 
   // ---------------------------------------------------------------------------
@@ -1795,7 +1802,7 @@ class ExecuteLoopRunner {
       return null;
     }
 
-    final code = _languageCode;
+    final code = _effectiveLanguageCode;
     final reason = data['reason'] as String? ?? '';
     final moduleName = (data['moduleName'] as String? ?? '').trim();
     final module = moduleName.isEmpty
@@ -1840,7 +1847,7 @@ class ExecuteLoopRunner {
     final moduleId = (data['moduleId'] as String? ?? '').trim();
     if (moduleId.isEmpty) return const [];
 
-    final code = _languageCode;
+    final code = _effectiveLanguageCode;
     final moduleName = (data['moduleName'] as String? ?? '').trim();
     final module = moduleName.isEmpty ? moduleId : moduleName;
     final reason = data['reason'] as String? ?? '';
@@ -1964,7 +1971,7 @@ class ExecuteLoopRunner {
       agentId: request.agentId,
       source: LedgerSource.chat,
       mainGoal: goalTree.mainGoal,
-      languageCode: _languageCode,
+      languageCode: _effectiveLanguageCode,
       originalUserMessage: request.userMessage,
       goalTree: goalTree,
       status: goalTree.isComplete ? LedgerStatus.completed : LedgerStatus.active,
@@ -2233,9 +2240,9 @@ class ExecuteLoopRunner {
 
   /// User-facing message when no tool exists for the requested action.
   String _runtimePhrase(String key, [Map<String, String> params = const {}]) =>
-      LanguageRegistry.phrase(key, _languageCode, params);
+      LanguageRegistry.phrase(key, _effectiveLanguageCode, params);
 
-  DetectedLanguage _settingsLanguage() => DetectedLanguage.fromAnalyzerCode(_languageCode);
+  DetectedLanguage _settingsLanguage() => DetectedLanguage.fromAnalyzerCode(_effectiveLanguageCode);
 
   String _capabilityNotFoundMessage() => _runtimePhrase('runtime_capability_not_found');
 
@@ -2407,7 +2414,7 @@ class ExecuteLoopRunner {
   }
 
   String _emptyResultMessage(String toolName) {
-    return LanguageRegistry.phrase(_emptyResultPhraseKey(toolName), _languageCode);
+    return LanguageRegistry.phrase(_emptyResultPhraseKey(toolName), _effectiveLanguageCode);
   }
 
   bool _failedToolCanAskUser(ToolExecutionResult result) {

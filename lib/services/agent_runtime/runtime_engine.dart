@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -198,6 +199,8 @@ class AgentRuntimeEngine {
     if (activeSkills.isEmpty) return const [];
     if (userMessage.trim().isEmpty) return activeSkills;
     if (activeSkills.length <= 1) return activeSkills;
+    final totalLength = activeSkills.fold<int>(0, (sum, s) => sum + s.content.length);
+    if (totalLength < 2000) return activeSkills;
 
     try {
       final buffer = StringBuffer();
@@ -420,6 +423,17 @@ class AgentRuntimeEngine {
       onEvent?.call(event);
     }
 
+    var effectiveLang = languageCode.trim().isNotEmpty ? languageCode.trim() : 'en';
+    AgentSoul? activeSoul;
+    try {
+      activeSoul = await soulRepo?.get(request.agentId);
+      if (activeSoul?.preferredLanguage?.trim().isNotEmpty == true) {
+        effectiveLang = activeSoul!.preferredLanguage!.trim();
+      }
+    } catch (e) {
+      logger.logError('Failed to load agent soul early', e);
+    }
+
     final llmConfig = LlmProviderConfig(
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
@@ -427,11 +441,11 @@ class AgentRuntimeEngine {
       supportsFunctionCalling: provider.supportsFunctionCallingFor(provider.model),
     );
     final client = _client;
-    await _maybeSummarizeIdleSession(request: request, client: client, config: llmConfig);
+    unawaited(_maybeSummarizeIdleSession(request: request, client: client, config: llmConfig));
     final planner = Planner(
       client: client,
       config: llmConfig,
-      languageCode: languageCode,
+      languageCode: effectiveLang,
       cancelToken: cancelToken,
     );
     final executor = Executor(client: client, config: llmConfig, cancelToken: cancelToken);
@@ -439,7 +453,7 @@ class AgentRuntimeEngine {
     final isWorkflowAutoExecute = request.source == RequestSource.workflow && autoApproveSensitive;
     var detectedLang = _languageDetector.detect(
       userMessage: request.userMessage,
-      fallbackCode: languageCode,
+      fallbackCode: effectiveLang,
     );
     logger.logStateChange(
       AgentRuntimeState.analyzing,
@@ -549,9 +563,7 @@ class AgentRuntimeEngine {
         );
       };
       await workspaceFolder.ensureFolder(wsName);
-      // Phase 7: identity lives in agent_soul. Check the DB row directly to
-      // decide whether the introduction gate should fire.
-      final activeSoul = await soulRepo?.get(request.agentId);
+      // activeSoul is loaded early at the start of run()
       final allActiveSkills = skillsRepo != null
           ? await skillsRepo!.getActiveSkillsForAgent(request.agentId)
           : const <AgentSkill>[];
@@ -1068,43 +1080,52 @@ class AgentRuntimeEngine {
         if (logger.logPreActionNarrative('composing', takeNextNarrative('composing'))) {
           emit(logger.events.last);
         }
-        final selfIdentity = PromptConstants.selfIdentity(
-          agentName: wsName,
-          agentId: request.agentId,
-        );
-        final identityBlock =
-            'Identity context (user profile stored in database):\n${workspace.soul}'
-            '${workspace.skills.isEmpty ? '' : '\n\n${workspace.skills}'}';
-        final recentToolMemory = _memory.formatForPrompt(request.agentId);
-        final toolMemoryBlock = recentToolMemory.isEmpty
-            ? ''
-            : '\n\nRECENT TOOL RESULTS (source of truth):\n$recentToolMemory\n\nUse successful retrieval results (read/list/search/status) to answer follow-up questions. Never treat failed tool results or prior progress/narrative messages as evidence. If the relevant result failed or is missing, say you cannot verify it yet and ask for the exact target or next step.';
-        final worldModelBlock =
-            '\n\nMEOW AGENT WORLD MODEL:\nYou are an Android-native AI agent, NOT a generic LLM or terminal-based assistant. Your workspace is a sandbox at Documents/MeowAgent/, rooted at your agent folder.\n${PromptConstants.systemMarkdownMap}';
-        const capabilityDirectGuard =
-            '\n\nCAPABILITY ANSWER GUARD:\nIf the user asks what you can do, what tools you have, or what capabilities are available, answer ONLY from a fresh system.tools.list retrieval result in RECENT TOOL RESULTS. If that result is not present, say you need to check the current tool list first. Never list generic assistant abilities or actions not backed by registered tools.';
-        final baseSystem =
-            '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$selfIdentity\n\n$identityBlock$worldModelBlock$toolMemoryBlock$capabilityDirectGuard';
-        final systemContent = pending != null
-            ? '$baseSystem\n\nPENDING ACTION (user was asked to confirm):\nTool: ${pending.toolName}\nArgs: ${pending.toolArgs}\nSummary: ${pending.userFacingSummary}\nIf user asks about the result or preview, show them what the result would be.'
-            : baseSystem;
 
-        // Build image data URLs for any image attachments. The model receives
-        // them inline in the user message so it can see and reason about them
-        // directly without invoking a tool. Non-image attachments still go
-        // through tools (read_text, etc.) when the analyzer routes that way.
-        final imageDataUrls = await _buildImageDataUrls(request.attachments);
+        final analyzerDirectResponse = (analysis['direct_response'] ?? '').toString().trim();
+        String directResponse;
+        if (analyzerDirectResponse.isNotEmpty) {
+          directResponse = analyzerDirectResponse;
+          logger.logStateChange(state, 'Direct response retrieved from analyzer');
+          emit(logger.events.last);
+        } else {
+          final selfIdentity = PromptConstants.selfIdentity(
+            agentName: wsName,
+            agentId: request.agentId,
+          );
+          final identityBlock =
+              'Identity context (user profile stored in database):\n${workspace.soul}'
+              '${workspace.skills.isEmpty ? '' : '\n\n${workspace.skills}'}';
+          final recentToolMemory = _memory.formatForPrompt(request.agentId);
+          final toolMemoryBlock = recentToolMemory.isEmpty
+              ? ''
+              : '\n\nRECENT TOOL RESULTS (source of truth):\n$recentToolMemory\n\nUse successful retrieval results (read/list/search/status) to answer follow-up questions. Never treat failed tool results or prior progress/narrative messages as evidence. If the relevant result failed or is missing, say you cannot verify it yet and ask for the exact target or next step.';
+          final worldModelBlock =
+              '\n\nMEOW AGENT WORLD MODEL:\nYou are an Android-native AI agent, NOT a generic LLM or terminal-based assistant. Your workspace is a sandbox at Documents/MeowAgent/, rooted at your agent folder.\n${PromptConstants.systemMarkdownMap}';
+          const capabilityDirectGuard =
+              '\n\nCAPABILITY ANSWER GUARD:\nIf the user asks what you can do, what tools you have, or what capabilities are available, answer ONLY from a fresh system.tools.list retrieval result in RECENT TOOL RESULTS. If that result is not present, say you need to check the current tool list first. Never list generic assistant abilities or actions not backed by registered tools.';
+          final baseSystem =
+              '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$selfIdentity\n\n$identityBlock$worldModelBlock$toolMemoryBlock$capabilityDirectGuard';
+          final systemContent = pending != null
+              ? '$baseSystem\n\nPENDING ACTION (user was asked to confirm):\nTool: ${pending.toolName}\nArgs: ${pending.toolArgs}\nSummary: ${pending.userFacingSummary}\nIf user asks about the result or preview, show them what the result would be.'
+              : baseSystem;
 
-        final directResponse = await client.chat(
-          config: llmConfig,
-          phase: 'direct',
-          messages: [
-            {'role': 'system', 'content': systemContent},
-            ...recentMsgs,
-            {'role': 'user', 'content': effectiveUserMessage},
-          ],
-          imageDataUrls: imageDataUrls,
-        );
+          // Build image data URLs for any image attachments. The model receives
+          // them inline in the user message so it can see and reason about them
+          // directly without invoking a tool. Non-image attachments still go
+          // through tools (read_text, etc.) when the analyzer routes that way.
+          final imageDataUrls = await _buildImageDataUrls(request.attachments);
+
+          directResponse = await client.chat(
+            config: llmConfig,
+            phase: 'direct',
+            messages: [
+              {'role': 'system', 'content': systemContent},
+              ...recentMsgs,
+              {'role': 'user', 'content': effectiveUserMessage},
+            ],
+            imageDataUrls: imageDataUrls,
+          );
+        }
         if (pending != null) {
           _pendingActions.remove(request.agentId);
         }
@@ -1429,11 +1450,11 @@ class AgentRuntimeEngine {
       }
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, languageCode), logger);
+      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, effectiveLang), logger);
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, languageCode), logger);
+      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, effectiveLang), logger);
     }
   }
 
