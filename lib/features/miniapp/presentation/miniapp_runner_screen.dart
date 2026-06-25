@@ -26,6 +26,7 @@ class _MiniAppRunnerScreenState extends ConsumerState<MiniAppRunnerScreen> {
   MiniApp? _app;
   bool _loading = true;
   String? _error;
+  String? _lastThemeSignature;
 
   @override
   void initState() {
@@ -47,7 +48,6 @@ class _MiniAppRunnerScreenState extends ConsumerState<MiniAppRunnerScreen> {
       if (!mounted) return;
       final cs = context.cs;
       final extras = context.extras;
-      final isDark = cs.brightness == Brightness.dark;
       final themeCss = _getThemeCss(cs, extras);
 
       final repo = ref.read(miniAppRepositoryProvider);
@@ -61,7 +61,11 @@ class _MiniAppRunnerScreenState extends ConsumerState<MiniAppRunnerScreen> {
         return;
       }
 
-      final finalHtml = _injectBridge(app.codeHtml, themeCss, isDark);
+      final finalHtml = _injectBridge(
+        app.codeHtml,
+        themeCss,
+        _themePayload(cs, extras),
+      );
 
       await _controller.loadHtmlString(finalHtml);
 
@@ -91,6 +95,7 @@ class _MiniAppRunnerScreenState extends ConsumerState<MiniAppRunnerScreen> {
 
     return '''
       :root {
+        color-scheme: ${cs.brightness == Brightness.dark ? 'dark' : 'light'};
         --color-primary: $primary;
         --color-background: $background;
         --color-surface: $surface;
@@ -113,7 +118,40 @@ class _MiniAppRunnerScreenState extends ConsumerState<MiniAppRunnerScreen> {
     return '#${color.toARGB32().toRadixString(16).substring(2, 8)}';
   }
 
-  String _injectBridge(String originalHtml, String themeCss, bool isDark) {
+  Map<String, String> _themePayload(ColorScheme cs, MeowExtras extras) {
+    return {
+      'mode': cs.brightness == Brightness.dark ? 'dark' : 'light',
+      'primary': _colorToHex(cs.primary),
+      'background': _colorToHex(cs.surface),
+      'surface': _colorToHex(extras.card),
+      'onPrimary': _colorToHex(cs.onPrimary),
+      'onSurface': _colorToHex(cs.onSurface),
+      'onSurfaceVariant': _colorToHex(cs.onSurfaceVariant),
+      'error': _colorToHex(cs.error),
+      'text': _colorToHex(cs.onSurface),
+    };
+  }
+
+  Future<void> _syncThemeIfNeeded(ColorScheme cs, MeowExtras extras) async {
+    if (_loading || _error != null) return;
+    final payload = _themePayload(cs, extras);
+    final signature = jsonEncode(payload);
+    if (_lastThemeSignature == signature) return;
+    _lastThemeSignature = signature;
+    final script = 'window._meowApplyTheme && window._meowApplyTheme($signature);';
+    try {
+      await _controller.runJavaScript(script);
+    } catch (_) {
+      // The WebView may not have finished booting its injected bridge yet.
+    }
+  }
+
+  String _injectBridge(
+    String originalHtml,
+    String themeCss,
+    Map<String, String> theme,
+  ) {
+    final mode = theme['mode'] ?? 'light';
     final bridgeScript = '''
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <style>
@@ -135,9 +173,45 @@ html, body {
 </style>
 <script>
 (function() {
-  if ($isDark) {
-    document.documentElement.classList.add('dark');
+  function applyTheme(theme) {
+    const mode = theme && theme.mode === "dark" ? "dark" : "light";
+    const root = document.documentElement;
+    root.classList.toggle("dark", mode === "dark");
+    root.classList.toggle("light", mode !== "dark");
+    root.dataset.theme = mode;
+    root.style.colorScheme = mode;
+    const colors = theme && theme.colors ? theme.colors : {};
+    Object.keys(colors).forEach((key) => {
+      root.style.setProperty("--color-" + key, colors[key]);
+    });
+    window.meow = window.meow || {};
+    window.meow.theme = { mode, colors };
+    window.dispatchEvent(new CustomEvent("meow-theme-change", { detail: window.meow.theme }));
   }
+  window._meowApplyTheme = function(payload) {
+    const colors = {
+      primary: payload.primary,
+      background: payload.background,
+      surface: payload.surface,
+      "on-primary": payload.onPrimary,
+      "on-surface": payload.onSurface,
+      "on-surface-variant": payload.onSurfaceVariant,
+      error: payload.error,
+      text: payload.text
+    };
+    applyTheme({ mode: payload.mode, colors });
+  };
+  window._meowApplyTheme({
+    mode: "$mode",
+    primary: "${theme['primary']}",
+    background: "${theme['background']}",
+    surface: "${theme['surface']}",
+    onPrimary: "${theme['onPrimary']}",
+    onSurface: "${theme['onSurface']}",
+    onSurfaceVariant: "${theme['onSurfaceVariant']}",
+    error: "${theme['error']}",
+    text: "${theme['text']}"
+  });
   window._meowCallbacks = {};
   
   window._meowResolveCallback = function(id, success, data, error) {
@@ -167,6 +241,7 @@ html, body {
   }
 
   window.meow = {
+    theme: window.meow && window.meow.theme ? window.meow.theme : { mode: "$mode", colors: {} },
     db: {
       query: (sql, params) => callNative("db.query", { sql, params }),
       insert: (table, data) => callNative("db.insert", { table, data }),
@@ -409,6 +484,12 @@ html, body {
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
+    final extras = context.extras;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _syncThemeIfNeeded(cs, extras);
+      }
+    });
 
     if (_loading) {
       return Scaffold(

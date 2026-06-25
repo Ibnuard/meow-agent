@@ -369,6 +369,28 @@ class AgentRuntimeEngine {
   Map<String, PendingClarification> get _pendingClarifications =>
       _confirmation.pendingClarifications;
 
+  Future<List<Map<String, dynamic>>> _buildToolPreflight({
+    required Set<String> toolNames,
+  }) async {
+    final items = <Map<String, dynamic>>[];
+    final names = toolNames.toList()..sort();
+    for (final name in names) {
+      final def = toolRouter.getDefinition(name);
+      if (def == null || def.hiddenFromModel) continue;
+      final denied = await toolRouter.permissionDeniedResult(name);
+      items.add({
+        'tool': name,
+        'risk': def.risk,
+        'requiresConfirmation': def.requiresConfirmation,
+        'operation': def.operation,
+        'targetEntity': def.targetEntity,
+        'permission': denied == null ? 'allowed' : 'blocked',
+        if (denied?.data != null) 'block': denied!.data,
+      });
+    }
+    return items;
+  }
+
   PendingAction? getPendingAction(String agentId) => _confirmation.getPending(agentId);
   void clearPendingAction(String agentId) => _confirmation.clearPending(agentId);
   void clearPendingClarification(String agentId) => _confirmation.clearClarification(agentId);
@@ -918,6 +940,26 @@ class AgentRuntimeEngine {
         );
       }
       _pendingClarifications.remove(request.agentId);
+      if (analysis['requires_tools'] == true) {
+        final toolPreflight = await _buildToolPreflight(
+          toolNames: toolSelection.toolNames,
+        );
+        if (toolPreflight.isNotEmpty) {
+          logger.logLlmDecision('tool_preflight', {
+            'candidate_count': toolPreflight.length,
+            'candidates': toolPreflight,
+          });
+          emit(logger.events.last);
+          final allowedCount = toolPreflight
+              .where((tool) => tool['permission'] == 'allowed')
+              .length;
+          logger.logStateChange(
+            AgentRuntimeState.planning,
+            'Tool plan preflight: $allowedCount/${toolPreflight.length} candidate tools currently allowed',
+          );
+          emit(logger.events.last);
+        }
+      }
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
       var pendingNextNarrative = (analysis['next_narrative'] ?? '').toString().trim();

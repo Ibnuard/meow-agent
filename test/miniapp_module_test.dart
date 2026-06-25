@@ -109,6 +109,7 @@ void main() {
       expect(createRes.success, true);
       expect(createRes.data!['id'], appId);
       expect(createRes.data!['created'], true);
+      expect(createRes.data!['codeInspection'], isA<Map>());
 
       // 3. List should now have 1 item
       final listRes2 = await plugin.dispatch(
@@ -485,6 +486,50 @@ void main() {
         ctx,
       );
       expect(verify.data!['codeHtml'], 'original');
+    });
+
+    test('create reports database and theme integration signals', () async {
+      const code = '''
+<html>
+<head><script src="https://cdn.tailwindcss.com"></script></head>
+<body style="background: var(--color-background); color: var(--color-text);">
+<ul id="items"></ul>
+<script>
+async function init() {
+  await window.meow.db.execute("CREATE TABLE IF NOT EXISTS tracker (id INTEGER PRIMARY KEY, title TEXT)", []);
+  await window.meow.db.insert("tracker", { title: "first" });
+  const rows = await window.meow.db.query("SELECT * FROM tracker", []);
+  document.getElementById("items").textContent = rows.length;
+}
+init();
+</script>
+</body>
+</html>
+''';
+
+      final create = await plugin.dispatch(
+        const ToolCallRequest(
+          name: 'miniapp.create',
+          args: {
+            'id': 'integration_signal_test',
+            'name': 'Integration Signal Test',
+            'codeHtml': code,
+          },
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        ctx,
+      );
+
+      expect(create.success, true);
+      final inspection = (create.data!['codeInspection'] as Map).cast<String, Object?>();
+      expect(inspection['usesMeowSdk'], true);
+      expect(inspection['usesUserDatabase'], true);
+      expect(inspection['initializesTables'], true);
+      expect(inspection['readsDatabase'], true);
+      expect(inspection['writesDatabase'], true);
+      expect(inspection['usesThemeTokens'], true);
+      expect(inspection['warnings'], isEmpty);
     });
 
     test('automatically formats single-line HTML on read/create and updates database', () async {

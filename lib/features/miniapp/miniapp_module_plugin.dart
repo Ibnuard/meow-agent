@@ -34,7 +34,7 @@ class MiniAppModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'miniapp.create',
       description:
-          'Create a new custom local Mini App. This tool never overwrites an existing Mini App; use miniapp.patch for every edit or redesign.',
+          'Create a new custom local Mini App. This tool never overwrites an existing Mini App; use miniapp.patch for every edit or redesign. Durable Mini App data must use window.meow.db (shared User Database), and UI must adapt to host light/dark theme tokens rather than forcing dark mode.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -42,7 +42,7 @@ class MiniAppModulePlugin extends ModulePlugin {
         'name': 'string (required, user-facing title, e.g. Expense Tracker)',
         'icon': 'string (optional, icon asset or character code)',
         'codeHtml':
-            'string (required, full UI and logic definition containing window.meow SDK integration)',
+            'string (required, full UI and logic definition containing window.meow SDK integration; persistent apps should create/read/write user data through window.meow.db and style with injected theme variables or dark: selectors)',
       },
       operation: 'create',
       targetEntity: 'miniapp',
@@ -70,7 +70,7 @@ class MiniAppModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'miniapp.patch',
       description:
-          'Edit an installed Mini App after reading it. Prefer expectedRevision plus startLine/endLine for safe range replacement without echoing old code. targetContent remains available for small search-and-replace patches. Never use miniapp.create as an edit fallback.',
+          'Edit an installed Mini App after reading it. Prefer expectedRevision plus startLine/endLine for safe range replacement without echoing old code. targetContent remains available for small search-and-replace patches. Never use miniapp.create as an edit fallback. Preserve window.meow.db persistence and dynamic host theme support.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -235,6 +235,7 @@ class MiniAppModulePlugin extends ModulePlugin {
           }
 
           final formattedCode = _formatHtml(codeHtml);
+          final codeInspection = _inspectCode(formattedCode);
 
           final createdAt = DateTime.now().toIso8601String();
           await db.insert('miniapps', {
@@ -269,6 +270,7 @@ class MiniAppModulePlugin extends ModulePlugin {
               'created': true,
               'persisted': true,
               'revision': _revisionFor(formattedCode),
+              'codeInspection': codeInspection,
             },
             actions: [
               ResultAction(
@@ -397,6 +399,7 @@ class MiniAppModulePlugin extends ModulePlugin {
           final beforeLines = lines.sublist(0, startLine - 1);
           final afterLines = lines.sublist(endLine);
           final updatedCodeHtml = [...beforeLines, updatedBlock, ...afterLines].join('\n');
+          final codeInspection = _inspectCode(updatedCodeHtml);
 
           if (updatedCodeHtml.trim().isEmpty) {
             return ToolExecutionResult(
@@ -453,6 +456,7 @@ class MiniAppModulePlugin extends ModulePlugin {
               'revision': _revisionFor(updatedCodeHtml),
               'startLine': startLine,
               'endLine': endLine,
+              'codeInspection': codeInspection,
             },
           );
 
@@ -594,6 +598,49 @@ class MiniAppModulePlugin extends ModulePlugin {
       hash = (hash * prime) & mask;
     }
     return hash.toRadixString(16).padLeft(16, '0');
+  }
+
+  Map<String, Object> _inspectCode(String code) {
+    final lower = code.toLowerCase();
+    final usesMeowSdk = lower.contains('window.meow') || RegExp(r'\bmeow\.').hasMatch(code);
+    final usesUserDatabase = RegExp(r'\b(?:window\.)?meow\.db\.').hasMatch(code);
+    final initializesTables =
+        lower.contains('create table if not exists') || lower.contains('create table');
+    final readsDatabase = RegExp(r'\b(?:window\.)?meow\.db\.query\s*\(').hasMatch(code);
+    final writesDatabase = RegExp(
+      r'\b(?:window\.)?meow\.db\.(insert|update|delete|execute)\s*\(',
+    ).hasMatch(code);
+    final usesThemeTokens = code.contains('--color-') ||
+        lower.contains('meow.theme') ||
+        lower.contains('dark:') ||
+        lower.contains('classlist.add(\'dark\'') ||
+        lower.contains('classlist.add("dark"');
+    final warns = <String>[
+      if (!usesMeowSdk)
+        'No window.meow SDK usage detected. Device/data integration may not work.',
+      if (!usesUserDatabase)
+        'No window.meow.db usage detected. Durable user data may not persist in the shared database.',
+      if (usesUserDatabase && !initializesTables)
+        'Database usage detected but no CREATE TABLE setup was found.',
+      if (usesUserDatabase && !readsDatabase)
+        'Database usage detected but no startup query/read path was found.',
+      if (writesDatabase && !readsDatabase)
+        'Database writes detected without a read-back path to keep UI in sync.',
+      if (!usesThemeTokens)
+        'No dynamic theme integration detected. Use host CSS variables or Tailwind dark: selectors.',
+      if (lower.contains('localstorage') || lower.contains('sessionstorage'))
+        'Browser storage detected. Use window.meow.db for important durable data.',
+    ];
+
+    return {
+      'usesMeowSdk': usesMeowSdk,
+      'usesUserDatabase': usesUserDatabase,
+      'initializesTables': initializesTables,
+      'readsDatabase': readsDatabase,
+      'writesDatabase': writesDatabase,
+      'usesThemeTokens': usesThemeTokens,
+      'warnings': warns,
+    };
   }
 
   int _countOccurrences(String source, String target) {
