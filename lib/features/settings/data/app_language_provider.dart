@@ -210,6 +210,7 @@ class AppStrings {
   String providerModelsCount(int count) =>
       isId ? '$count model' : '$count models';
   String get chooseModel => isId ? 'Pilih model' : 'Choose model';
+  String get addOtherModel => isId ? 'Tambah model lain' : 'Add another model';
   String get advanced => isId ? 'Lanjutan' : 'Advanced';
   String advancedSubtitle(String tokens, bool autoCompact) => isId
       ? 'Konteks $tokens token, auto-compact ${autoCompact ? 'aktif' : 'mati'}'

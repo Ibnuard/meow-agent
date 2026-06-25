@@ -65,6 +65,16 @@ void main() {
       expect(keys.contains('prev'), true);
       expect(keys.contains('step_index'), false);
     });
+
+    test('notification context variables used by templates are registered', () {
+      final keys = kWorkflowBuiltInVariables.map((v) => v.key).toSet();
+      expect(keys.contains('notif'), true);
+      expect(keys.contains('notif_title'), true);
+      expect(keys.contains('notif_app'), true);
+      expect(keys.contains('notif_body'), true);
+      expect(keys.contains('notif_sender'), true);
+      expect(keys.contains('notif_keyword'), true);
+    });
   });
 
   group('substitute resolves dynamic step keys', () {

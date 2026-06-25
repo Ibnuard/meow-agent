@@ -56,6 +56,7 @@ class MeowDropdown<T> extends StatelessWidget {
     this.searchable = true,
     this.dense = false,
     this.strings,
+    this.footer,
     @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
     this.isId = true,
   });
@@ -77,6 +78,7 @@ class MeowDropdown<T> extends StatelessWidget {
   final bool enabled;
   final bool searchable;
   final bool dense;
+  final Widget? footer;
 
   /// Caller's resolved strings for default sheet copy (search hint / no
   /// results). Per AGENTS.md, the screen owns AppStrings resolution and passes
@@ -103,6 +105,7 @@ class MeowDropdown<T> extends StatelessWidget {
     bool searchable = true,
     bool useRootNavigator = false,
     AppStrings? strings,
+    Widget? footer,
     @Deprecated('Pass `strings: <AppStrings>` instead. See AGENTS.md §1.1.')
     bool isId = true,
   }) async {
@@ -118,6 +121,7 @@ class MeowDropdown<T> extends StatelessWidget {
       emptyText: emptyText ?? s.dropdownNoResults,
       searchable: searchable,
       useRootNavigator: useRootNavigator,
+      footer: footer,
     );
 
     return selection?.value;
@@ -133,6 +137,7 @@ class MeowDropdown<T> extends StatelessWidget {
     required String emptyText,
     required bool searchable,
     required bool useRootNavigator,
+    Widget? footer,
   }) {
     return showModalBottomSheet<_MeowDropdownSelection<T>>(
       context: context,
@@ -149,6 +154,7 @@ class MeowDropdown<T> extends StatelessWidget {
           options: options,
           selectedValue: selectedValue,
           searchable: searchable,
+          footer: footer,
         );
       },
     );
@@ -179,6 +185,7 @@ class MeowDropdown<T> extends StatelessWidget {
       selectedValue: selected?.value,
       searchable: searchable,
       useRootNavigator: false,
+      footer: footer,
     );
 
     if (picked != null) onChanged(picked.value);
@@ -416,6 +423,7 @@ class _MeowDropdownSheet<T> extends StatefulWidget {
     required this.options,
     required this.selectedValue,
     required this.searchable,
+    this.footer,
   });
 
   final String title;
@@ -425,6 +433,7 @@ class _MeowDropdownSheet<T> extends StatefulWidget {
   final List<MeowDropdownOption<T>> options;
   final T? selectedValue;
   final bool searchable;
+  final Widget? footer;
 
   @override
   State<_MeowDropdownSheet<T>> createState() => _MeowDropdownSheetState<T>();
@@ -472,6 +481,7 @@ class _MeowDropdownSheetState<T> extends State<_MeowDropdownSheet<T>> {
       subtitle: widget.subtitle,
       onClose: _dismiss,
       contentPadding: EdgeInsets.zero,
+      footer: widget.footer,
       children: [
         if (widget.searchable) ...[
           Padding(
