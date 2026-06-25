@@ -445,7 +445,7 @@ class AgentRuntimeEngine {
       onEvent?.call(event);
     }
 
-    var effectiveLang = languageCode.trim().isNotEmpty ? languageCode.trim() : 'en';
+    var effectiveLang = 'en';
     AgentSoul? activeSoul;
     try {
       activeSoul = await soulRepo?.get(request.agentId);
@@ -585,26 +585,6 @@ class AgentRuntimeEngine {
         );
       };
       await workspaceFolder.ensureFolder(wsName);
-      // activeSoul is loaded early at the start of run()
-      final allActiveSkills = skillsRepo != null
-          ? await skillsRepo!.getActiveSkillsForAgent(request.agentId)
-          : const <AgentSkill>[];
-
-      final filteredSkills = await _selectRelevantSkills(
-        activeSkills: allActiveSkills,
-        userMessage: request.userMessage,
-        config: llmConfig,
-        client: client,
-        logger: logger,
-      );
-
-      final workspace = await _buildWorkspace(
-        wsName,
-        request.agentId,
-        userMessage: request.userMessage,
-        preFilteredSkills: filteredSkills,
-      );
-      final userNotIntroduced = _isUserNameMissing(activeSoul);
       // Drop transient provider-error messages from history before slicing —
       // they describe past connection state, not real conversational context.
       // Without this filter the LLM sees its own "I can't connect" reply from
@@ -644,6 +624,94 @@ class AgentRuntimeEngine {
         activeTaskContext =
             'pending clarification for: ${pendingClarification.originalMessage} (questions: ${pendingClarification.questions.join('; ')})';
       }
+
+      final canTryChatRoute =
+          request.source == RequestSource.chat &&
+          !isWorkflowAutoExecute &&
+          pending == null &&
+          pendingClarification == null &&
+          activeLedger == null &&
+          restartFromOriginalMessage == null &&
+          request.attachments.isEmpty &&
+          request.userMessage.trim().isNotEmpty;
+      if (canTryChatRoute) {
+        logger.logStateChange(AgentRuntimeState.analyzing, 'Fast chat route check');
+        emit(logger.events.last);
+        final chatWorkspace = await _buildWorkspace(
+          wsName,
+          request.agentId,
+          userMessage: request.userMessage,
+          preFilteredSkills: const [],
+        );
+        final userNotIntroducedForChat = _isUserNameMissing(activeSoul);
+        final chatRoute = await _tryChatRoute(
+          planner: planner,
+          userMessage: request.userMessage,
+          soul: chatWorkspace.soul,
+          memory: chatWorkspace.memory,
+          userNotIntroduced: userNotIntroducedForChat,
+          logger: logger,
+          recentMessages: recentMsgs,
+          agentName: wsName,
+          agentId: request.agentId,
+        );
+        if (logger.events.isNotEmpty) emit(logger.events.last);
+        final route = (chatRoute?['route'] ?? '').toString().trim().toLowerCase();
+        final direct = (chatRoute?['direct_response'] ?? '').toString().trim();
+        final routeLang = (chatRoute?['detected_language'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
+        if (routeLang.isNotEmpty &&
+            routeLang != detectedLang.code &&
+            (!detectedLang.isHighConfidence || detectedLang.script == 'Latin')) {
+          detectedLang = DetectedLanguage.fromAnalyzerCode(routeLang);
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Language refined by fast chat route: ${detectedLang.code} (${detectedLang.label})',
+          );
+          emit(logger.events.last);
+        }
+        if (route == 'chat' && direct.isNotEmpty) {
+          logger.logStateChange(AgentRuntimeState.done, 'Fast chat response');
+          emit(logger.events.last);
+          logger.logFinalResponse(direct);
+          return AgentRuntimeResponse(
+            finalMessage: direct,
+            success: true,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+          );
+        }
+        if (route == 'agentic') {
+          logger.logStateChange(
+            AgentRuntimeState.analyzing,
+            'Fast chat route selected agentic runtime',
+          );
+          emit(logger.events.last);
+        }
+      }
+
+      // activeSoul is loaded early at the start of run()
+      final allActiveSkills = skillsRepo != null
+          ? await skillsRepo!.getActiveSkillsForAgent(request.agentId)
+          : const <AgentSkill>[];
+
+      final filteredSkills = await _selectRelevantSkills(
+        activeSkills: allActiveSkills,
+        userMessage: request.userMessage,
+        config: llmConfig,
+        client: client,
+        logger: logger,
+      );
+
+      final workspace = await _buildWorkspace(
+        wsName,
+        request.agentId,
+        userMessage: request.userMessage,
+        preFilteredSkills: filteredSkills,
+      );
+      final userNotIntroduced = _isUserNameMissing(activeSoul);
       final mergedUserMessage = pendingClarification != null
           ? pendingClarification.mergedWith(request.userMessage)
           : request.userMessage;
@@ -972,25 +1040,12 @@ class AgentRuntimeEngine {
       }
 
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
-
-      // Pre-check: if the task looks simple enough to fast-path, defer the
-      // expensive snapshot build. An empty snapshot makes
-      // isRelevantForReflection = false, which satisfies canSkipReflect's
-      // last condition without actual I/O.
-      final likelyFastPath =
-          analyzerSaysToolsForReflect &&
-          !isWorkflowAutoExecute &&
-          toolSelection.isHighConfidence &&
-          toolSelection.groups.length == 1 &&
-          missingInfo.isEmpty &&
-          analysis['bulk_selector'] != true &&
-          !_isDestructiveIntent(analysis);
-      if (analyzerSaysToolsForReflect && !likelyFastPath) {
+      if (analyzerSaysToolsForReflect && !isWorkflowAutoExecute) {
         if (logger.logPreActionNarrative('reflecting', takeNextNarrative('reflecting'))) {
           emit(logger.events.last);
         }
       }
-      final reflectSnapshot = (analyzerSaysToolsForReflect && !likelyFastPath)
+      final reflectSnapshot = (analyzerSaysToolsForReflect && !isWorkflowAutoExecute)
           ? await _buildSnapshot()
           : EcosystemSnapshot(
               agents: const [],
@@ -999,17 +1054,7 @@ class AgentRuntimeEngine {
               modules: const [],
               builtAt: DateTime.fromMillisecondsSinceEpoch(0),
             );
-      final canSkipReflect =
-          analyzerSaysToolsForReflect &&
-          !isWorkflowAutoExecute &&
-          toolSelection.isHighConfidence &&
-          toolSelection.groups.length == 1 &&
-          missingInfo.isEmpty &&
-          analysis['bulk_selector'] != true &&
-          !_isDestructiveIntent(analysis) &&
-          !reflectSnapshot.isRelevantForReflection;
-      final shouldReflect =
-          analyzerSaysToolsForReflect && !isWorkflowAutoExecute && !canSkipReflect;
+      final shouldReflect = analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
       if (shouldReflect) {
         state = AgentRuntimeState.analyzing;
         logger.logStateChange(state, 'Reflecting on impact and slot needs');
@@ -1179,136 +1224,100 @@ class AgentRuntimeEngine {
           events: logger.events,
         );
       }
-      final seeds = analysis['subgoal_seeds'];
-      final hasMultiSeed = seeds is List && seeds.length > 1;
-      final rawRequestedItemCount = analysis['requested_item_count'];
-      final requestedItemCount = rawRequestedItemCount is num
-          ? rawRequestedItemCount.toInt()
-          : int.tryParse(rawRequestedItemCount?.toString() ?? '');
-      final hasRequestedCollection = requestedItemCount != null && requestedItemCount > 1;
-      final analyzerBulk = analysis['bulk_selector'] == true;
-      final reflectorMultiSubgoal = reflection != null && reflection.goalTree.subgoals.length > 1;
-      final reflectorMultiTarget = reflection != null && reflection.targets.length > 1;
-      final resolvedMultiTarget = targetGraph != null && targetGraph.eligibleTargets.length > 1;
-      final hasMultiTarget =
-          hasMultiSeed ||
-          hasRequestedCollection ||
-          analyzerBulk ||
-          reflectorMultiSubgoal ||
-          reflectorMultiTarget ||
-          resolvedMultiTarget;
-      final canSkipPlanner =
-          pending == null &&
-          !isWorkflowAutoExecute &&
-          toolSelection.isHighConfidence &&
-          toolSelection.groups.length == 1 &&
-          missingInfo.isEmpty &&
-          !hasMultiTarget;
-      // Fast-path: skip both reflect and plan, hard-cap loop at 2 iterations.
-      // If exhausted, runtime falls back to normal mode automatically.
-      final isFastPath = canSkipPlanner && canSkipReflect;
-      Map<String, dynamic>? plan;
-      if (canSkipPlanner) {
-        state = AgentRuntimeState.planning;
-        logger.logStateChange(
-          state,
-          'Plan synthesized locally (group: ${toolSelection.groups.first})',
-        );
+      // Accuracy-first runtime: interactive tool tasks always pass through the
+      // planner so the ledger has explicit subgoals, slots, completion
+      // criteria, and a reviewable plan. Function-calling fast-path remains
+      // disabled from this entry point; it is only kept inside the loop runner
+      // for callers that explicitly opt into it later.
+      const isFastPath = false;
+      state = AgentRuntimeState.planning;
+      logger.logStateChange(state, 'Creating execution plan');
+      emit(logger.events.last);
+      if (logger.logPreActionNarrative('planning', takeNextNarrative('planning'))) {
         emit(logger.events.last);
-        plan = {
-          if (pendingNextNarrative.isNotEmpty) 'next_narrative': pendingNextNarrative,
-          'steps': [
-            {
-              'id': 1,
-              'description': analysis['goal'] as String? ?? 'Execute requested action',
-              'tool': null,
-            },
-          ],
-        };
-        pendingNextNarrative = '';
-      } else {
-        state = AgentRuntimeState.planning;
-        logger.logStateChange(state, 'Creating execution plan');
-        emit(logger.events.last);
-        if (logger.logPreActionNarrative('planning', takeNextNarrative('planning'))) {
-          emit(logger.events.last);
-        }
-        _logEvent(
-          agentId: request.agentId,
-          eventType: 'state_change',
-          state: state.name,
-          task: request.userMessage,
-        );
-        // Build resolved target labels for the planner so it can emit
-        // per-entity subgoals for bulk/fan-out operations.
-        //
-        // ONLY snapshot-backed entity types (agent/workflow/provider/module)
-        // are passed as authoritative resolved labels. Those are genuinely
-        // matched against live state, so they cannot carry prior-turn bleed.
-        //
-        // App/message/screen/etc. targets are NOT snapshot-validated — the
-        // reflector can (and did, in a context-bleed case) copy a PRIOR task's
-        // app target ("open LinkedIn") into a brand-new task ("open Facebook")
-        // because the prior turn is still in recentMessages. Feeding those as
-        // "use verbatim" labels forces the planner to build the wrong goal.
-        // For non-snapshot targets the analyzer's goal + subgoal_seeds (which
-        // reflect the CURRENT message) are authoritative, so we leave
-        // resolvedLabels empty and let the planner build from them.
-        final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
-            ? targetGraph.eligibleTargets
-                  .where((t) => _snapshotBackedEntities.contains(t.entityType.trim().toLowerCase()))
-                  .map(
-                    (t) =>
-                        '${t.operation} ${t.entityType}: ${t.entityLabel}'
-                        '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
-                  )
-                  .toList(growable: false)
-            : <String>[];
-        plan = await planner.plan(
+      }
+      _logEvent(
+        agentId: request.agentId,
+        eventType: 'state_change',
+        state: state.name,
+        task: request.userMessage,
+      );
+      // Build resolved target labels for the planner so it can emit
+      // per-entity subgoals for bulk/fan-out operations.
+      //
+      // ONLY snapshot-backed entity types (agent/workflow/provider/module)
+      // are passed as authoritative resolved labels. Those are genuinely
+      // matched against live state, so they cannot carry prior-turn bleed.
+      //
+      // App/message/screen/etc. targets are NOT snapshot-validated — the
+      // reflector can (and did, in a context-bleed case) copy a PRIOR task's
+      // app target ("open LinkedIn") into a brand-new task ("open Facebook")
+      // because the prior turn is still in recentMessages. Feeding those as
+      // "use verbatim" labels forces the planner to build the wrong goal.
+      // For non-snapshot targets the analyzer's goal + subgoal_seeds (which
+      // reflect the CURRENT message) are authoritative, so we leave
+      // resolvedLabels empty and let the planner build from them.
+      final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
+          ? targetGraph.eligibleTargets
+                .where((t) => _snapshotBackedEntities.contains(t.entityType.trim().toLowerCase()))
+                .map(
+                  (t) =>
+                      '${t.operation} ${t.entityType}: ${t.entityLabel}'
+                      '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
+                )
+                .toList(growable: false)
+          : <String>[];
+      var plan = await _tryCreatePlan(
+        planner: planner,
+        analysis: analysis,
+        availableTools: availableTools,
+        logger: logger,
+        resolvedTargetLabels: resolvedLabels,
+      );
+      emit(logger.events.last);
+      if (plan == null) {
+        logger.logError('Planner returned null on first attempt; retrying with broadened tools.');
+        final broadenedAnalyzer = toolRouter.buildAllAnalyzerToolDescriptions();
+        plan = await _tryCreatePlan(
+          planner: planner,
           analysis: analysis,
-          availableTools: availableTools,
+          availableTools: broadenedAnalyzer.isNotEmpty
+              ? broadenedAnalyzer
+              : toolRouter.buildAllToolDescriptions(),
           logger: logger,
           resolvedTargetLabels: resolvedLabels,
         );
         emit(logger.events.last);
-        if (plan == null) {
-          logger.logError('Planner returned null on first attempt; retrying with broadened tools.');
-          final broadenedAnalyzer = toolRouter.buildAllAnalyzerToolDescriptions();
-          plan = await planner.plan(
-            analysis: analysis,
-            availableTools: broadenedAnalyzer.isNotEmpty
-                ? broadenedAnalyzer
-                : toolRouter.buildAllToolDescriptions(),
-            logger: logger,
-            resolvedTargetLabels: resolvedLabels,
-          );
+      }
+      if (plan == null) {
+        logger.logError(
+          'Planner returned null after retry; synthesizing fallback plan from analyzer output.',
+        );
+        plan = _fallbackPlanFromAnalysis(
+          analysis: analysis,
+          userMessage: effectiveUserMessage,
+        );
+      }
+      final planEvidenceRef = 'runtime_event:${logger.events.last.id}';
+      final planNarrative = (plan['narrative'] ?? '').toString();
+      final planLabels = (plan['subgoals'] as List? ?? const [])
+          .whereType<Map>()
+          .map((subgoal) => (subgoal['label'] ?? '').toString().trim())
+          .where((label) => label.isNotEmpty)
+          .toList(growable: false);
+      final planBubble = [
+        if (planNarrative.trim().isNotEmpty) planNarrative.trim(),
+        if (planLabels.length > 1) planLabels.map((label) => '• $label').join('\n'),
+      ].join('\n\n');
+      if (planBubble.isNotEmpty) {
+        if (logger.logStreamBubble(
+          kind: 'plan_summary',
+          phase: 'plan',
+          message: planBubble,
+          evidenceRefs: [planEvidenceRef],
+          contextPolicy: 'exclude',
+        )) {
           emit(logger.events.last);
-        }
-        if (plan == null) {
-          await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-          return _loopRunner.fail('Failed to create execution plan.', logger);
-        }
-        final planEvidenceRef = 'runtime_event:${logger.events.last.id}';
-        final planNarrative = (plan['narrative'] ?? '').toString();
-        final planLabels = (plan['subgoals'] as List? ?? const [])
-            .whereType<Map>()
-            .map((subgoal) => (subgoal['label'] ?? '').toString().trim())
-            .where((label) => label.isNotEmpty)
-            .toList(growable: false);
-        final planBubble = [
-          if (planNarrative.trim().isNotEmpty) planNarrative.trim(),
-          if (planLabels.length > 1) planLabels.map((label) => '• $label').join('\n'),
-        ].join('\n\n');
-        if (planBubble.isNotEmpty) {
-          if (logger.logStreamBubble(
-            kind: 'plan_summary',
-            phase: 'plan',
-            message: planBubble,
-            evidenceRefs: [planEvidenceRef],
-            contextPolicy: 'exclude',
-          )) {
-            emit(logger.events.last);
-          }
         }
       }
       final plannerGoalTree = _buildGoalTree(
@@ -2026,19 +2035,124 @@ class AgentRuntimeEngine {
     return out;
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // _isDestructiveIntent — stays on engine (used in run(), not loop)
-  // ═══════════════════════════════════════════════════════════════
-
-  bool _isDestructiveIntent(Map<String, dynamic> analysis) {
-    final risk = (analysis['risk'] ?? '').toString().toLowerCase();
-    if (risk == 'sensitive' || risk == 'dangerous') return true;
-    final intent = (analysis['intent'] ?? '').toString().toLowerCase();
-    const destructiveOps = {'delete', 'remove', 'update', 'rename', 'toggle', 'overwrite', 'move'};
-    for (final op in destructiveOps) {
-      if (intent.contains(op)) return true;
+  Future<Map<String, dynamic>?> _tryCreatePlan({
+    required Planner planner,
+    required Map<String, dynamic> analysis,
+    required List<String> availableTools,
+    required RuntimeLogger logger,
+    required List<String> resolvedTargetLabels,
+  }) async {
+    try {
+      return await planner.plan(
+        analysis: analysis,
+        availableTools: availableTools,
+        logger: logger,
+        resolvedTargetLabels: resolvedTargetLabels,
+      );
+    } catch (e) {
+      logger.logError('Planner call failed', e);
+      return null;
     }
-    return false;
+  }
+
+  Future<Map<String, dynamic>?> _tryChatRoute({
+    required Planner planner,
+    required String userMessage,
+    required String soul,
+    required String memory,
+    required bool userNotIntroduced,
+    required RuntimeLogger logger,
+    required List<Map<String, String>> recentMessages,
+    required String agentName,
+    required String agentId,
+  }) async {
+    try {
+      return await planner.chatRoute(
+        userMessage: userMessage,
+        soul: soul,
+        memory: memory,
+        userNotIntroduced: userNotIntroduced,
+        logger: logger,
+        recentMessages: recentMessages,
+        agentName: agentName,
+        agentId: agentId,
+      );
+    } catch (e) {
+      logger.logError('Fast chat route failed; falling back to analyzer', e);
+      return null;
+    }
+  }
+
+  Map<String, dynamic> _fallbackPlanFromAnalysis({
+    required Map<String, dynamic> analysis,
+    required String userMessage,
+  }) {
+    final mainGoal = (analysis['goal'] ?? userMessage).toString();
+    final seeds = (analysis['subgoal_seeds'] as List?)
+        ?.map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList(growable: false);
+    final labels = seeds == null || seeds.isEmpty ? <String>[mainGoal] : seeds;
+    final operation = _operationFromAnalysis(analysis);
+    return {
+      'main_goal': mainGoal,
+      'completion_criteria': ['The requested outcome is completed and verified.'],
+      'subgoals': [
+        for (var i = 0; i < labels.length; i++)
+          {
+            'id': labels.length == 1 ? 'sg_main' : 'sg${i + 1}',
+            'label': labels[i],
+            'required_slots': {'_operation': operation},
+            'missing_slots': <String>[],
+            'status': 'pending',
+          },
+      ],
+      'narrative': '',
+    };
+  }
+
+  String _operationFromAnalysis(Map<String, dynamic> analysis) {
+    final text = [
+      analysis['intent'],
+      analysis['goal'],
+      ...(analysis['subgoal_seeds'] as List? ?? const []),
+    ].map((e) => e.toString().toLowerCase()).join(' ');
+    const ordered = <String>[
+      'delete',
+      'remove',
+      'update',
+      'patch',
+      'edit',
+      'rename',
+      'toggle',
+      'create',
+      'insert',
+      'add',
+      'open',
+      'launch',
+      'send',
+      'write',
+      'read',
+      'list',
+      'search',
+      'query',
+      'summarize',
+      'classify',
+      'status',
+      'get',
+    ];
+    for (final op in ordered) {
+      if (text.contains(op)) {
+        return switch (op) {
+          'remove' => 'delete',
+          'patch' || 'edit' => 'update',
+          'insert' || 'add' => 'create',
+          'launch' => 'open',
+          _ => op,
+        };
+      }
+    }
+    return 'execute';
   }
 
   /// Build a metadata-only context string describing attached files.

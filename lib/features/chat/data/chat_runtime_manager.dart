@@ -409,7 +409,7 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     if (provider == null || !provider.isComplete) {
       // Fallback: agent's provider disappeared mid-flight → surface with action.
-      final lang = _languageForUserMessage(userMessage);
+      final lang = await _languageForUserMessage(agentId, userMessage);
       final sentUserMsg = userMsg.copyWith(
         deliveryStatus: ChatMessageDeliveryStatus.sent,
         clearErrorMessage: true,
@@ -458,7 +458,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearLiveCheckpoints: true,
         narrativeMessage: NarrativeNarrator.narrate(
           'understanding',
-          _languageForUserMessage(userMessage),
+          await _languageForUserMessage(agentId, userMessage),
         ),
       ),
     );
@@ -844,7 +844,7 @@ class ChatRuntimeManager extends ChangeNotifier {
     final provider = await _resolveProvider(agentId);
     if (provider == null || !provider.isComplete) {
       // Fallback: provider disappeared after confirmation was requested.
-      final lang = engine.languageCode;
+      final lang = await _runtimeFallbackLanguage(agentId);
       final fallbackMsg = ChatMessage(
         role: 'assistant',
         content: I18nFallback.get('provider_unavailable', lang),
@@ -889,7 +889,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         clearLiveCheckpoints: true,
         narrativeMessage: NarrativeNarrator.narrate(
           'executing',
-          engine.languageCode,
+          await _runtimeFallbackLanguage(agentId),
         ),
       ),
     );
@@ -1213,16 +1213,31 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
-  /// Detect the user's language for narrative localization.
-  /// Falls back to the engine-level languageCode if detection is uncertain.
-  String _languageForUserMessage(String message) {
-    if (message.trim().isEmpty) return engine.languageCode;
+  /// Runtime fallback language for UI-side transient narrator text.
+  ///
+  /// Keep this aligned with [AgentRuntimeEngine.run]: fresh ambiguous runtime
+  /// copy defaults to English, while an explicit agent soul preference wins.
+  Future<String> _runtimeFallbackLanguage(String agentId) async {
+    try {
+      final preferred = (await engine.soulRepo?.get(agentId))?.preferredLanguage?.trim();
+      if (preferred != null && preferred.isNotEmpty) return preferred;
+    } catch (_) {
+      // Non-critical UI narrator fallback; the engine will log soul read errors.
+    }
+    return 'en';
+  }
+
+  /// Detect the user's language for narrator localization.
+  /// Falls back to runtime language priority if detection is uncertain.
+  Future<String> _languageForUserMessage(String agentId, String message) async {
+    final fallback = await _runtimeFallbackLanguage(agentId);
+    if (message.trim().isEmpty) return fallback;
     final detector = LanguageDetector();
     final detected = detector.detect(
       userMessage: message,
-      fallbackCode: engine.languageCode,
+      fallbackCode: fallback,
     );
-    return detected.confidence >= 0.5 ? detected.code : engine.languageCode;
+    return detected.confidence >= 0.5 ? detected.code : fallback;
   }
 
   /// Extract the deferred chat message content from a successful system.rtb

@@ -117,6 +117,9 @@ $_sharedSystemRules
   // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
 
   static const analyzeIntro = promptAnalyzeIntro;
+  static const chatRouteIntro = promptChatRouteIntro;
+  static const chatRouteRules = promptChatRouteRules;
+  static const chatRouteResponseFormat = promptChatRouteResponseFormat;
   static const systemMarkdownMap = promptSystemMarkdownMap;
   static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
   static const analyzeCrossDomainAmbiguityRule = promptAnalyzeCrossDomainAmbiguityRule;

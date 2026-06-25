@@ -48,17 +48,75 @@ void main() {
     required ScriptedLlmClient llm,
     required ScriptedToolRouter router,
     TaskLedgerDatabase? ledgerDb,
+    String languageCode = 'en',
   }) => AgentRuntimeEngine(
     workspaceFolder: FakeWorkspaceFolderService(),
     toolRouter: router,
     contextBuilder: ContextBuilder(),
-    languageCode: 'en',
+    languageCode: languageCode,
     llmClient: llm,
     ledgerDb: ledgerDb,
   );
 
   AgentRuntimeRequest req(String message, {String agentId = 'a1'}) =>
       AgentRuntimeRequest(agentId: agentId, agentName: 'TestAgent', userMessage: message);
+
+  test('S0 ordinary chat exits through fast chat route', () async {
+    final llm = ScriptedLlmClient({
+      'chat_route': [
+        '{"route":"chat","detected_language":"en",'
+            '"direct_response":"Hi! I am here with you. What name or nickname would you like me to use?",'
+            '"reason":"ordinary conversational message"}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('hey, can we just talk for a second?'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('here with you'));
+    expect(res.finalMessage.toLowerCase(), contains('name'));
+    expect(llm.phaseSequence, ['chat_route']);
+    expect(llm.callLog.single.lastUserContent, contains('# Soul'));
+    expect(llm.callLog.single.lastUserContent, contains('Memory context:'));
+    expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0 ambiguous fresh chat defaults to English before app language setting', () async {
+    final llm = ScriptedLlmClient({
+      'chat_route': [
+        '{"route":"chat","detected_language":"en",'
+            '"direct_response":"Hello! What name or nickname would you like me to use?",'
+            '"reason":"short ambiguous greeting uses default language"}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+      languageCode: 'id',
+    ).run(req('halo'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, startsWith('Hello'));
+    expect(llm.phaseSequence, ['chat_route']);
+    expect(llm.callLog.single.lastUserContent, contains('Default response language: English'));
+    expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
+    expect(
+      res.events.any(
+        (event) => event.message.contains('Language bootstrap: en'),
+      ),
+      true,
+    );
+    expect(router.dispatchSequence, isEmpty);
+  });
 
   // ── Scenario 1: simple read ────────────────────────────────────────────
   // BASELINE phases: [analyze, reflect, selectTool, review,
@@ -134,13 +192,19 @@ void main() {
       ),
       isTrue,
     );
-    // POST-STAGE-2: a trivial, high-confidence, single safe-tool read skips
-    // BOTH the redundant `review` (Stage 1) and the `reflect` (Stage 2) phases.
-    // Simple read went 5 → 3 LLM calls. Destructive/multi-entity turns still
-    // reflect (see S2, S5).
-    expect(llm.phaseSequence, ['analyze', 'selectTool', 'verbalize.answer_from_tool_result']);
+    // Accuracy-first runtime: even simple tool tasks run through reflection
+    // and planning so the ledger has explicit intent, impact, and criteria.
+    // Retrieval still skips redundant review.
+    expect(llm.phaseSequence, [
+      'chat_route',
+      'analyze',
+      'reflect',
+      'plan',
+      'selectTool',
+      'verbalize.answer_from_tool_result',
+    ]);
     expect(llm.countOf('review'), 0);
-    expect(llm.countOf('reflect'), 0);
+    expect(llm.countOf('reflect'), 1);
   });
 
   // ── Scenario 2: single sensitive tool + confirmation ───────────────────
@@ -282,7 +346,7 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('8'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['analyze']);
+    expect(llm.phaseSequence, ['chat_route', 'analyze']);
   });
 
   // ── Scenario 4: no capability → honest refusal ─────────────────────────
@@ -1043,7 +1107,7 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('full recognized set'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['analyze']);
+    expect(llm.phaseSequence, ['chat_route', 'analyze']);
   });
 
   test('S10 analyzer detected_language refines the reply language', () async {

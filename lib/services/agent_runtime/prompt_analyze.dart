@@ -9,6 +9,33 @@ import 'prompt_context.dart'
 const promptAnalyzeIntro =
     'You are an AI agent runtime analyzer running on an Android device.';
 
+const promptChatRouteIntro =
+    'You are a fast route for an Android AI chat agent.';
+
+const promptChatRouteRules = '''Decide whether the current user message can be answered immediately as ordinary chat, or must use the full agentic runtime.
+
+Use route="chat" only when the message is conversational, creative, explanatory, opinion-based, or a general knowledge question that does NOT require live app/device/system/database/file state and does NOT ask to mutate anything.
+
+Use route="agentic" when the user asks to do, change, create, delete, open, read, inspect, remember, store, schedule, send, fetch, list current local state, use an attachment, control an app/device, query a local database, inspect Meow Agent state, discuss current capabilities/tools/modules/providers/agents, or when the request is ambiguous and may require tools.
+
+If unsure, choose route="agentic". Do not guess that a tool is unnecessary.
+
+Language priority for route="chat":
+- If the current user message has a deterministic language, answer in that language.
+- If the current user message is too short or ambiguous, use recent conversation, memory, or identity/persona context when it clearly establishes a language.
+- If language is still ambiguous, use the default response language. Do not infer a language from a very short Latin greeting/token that is common across languages.
+
+For route="chat", write the final answer directly in the selected language. Keep it natural and concise. For route="agentic", direct_response must be empty.''';
+
+const promptChatRouteResponseFormat = '''Respond with ONLY valid JSON, no markdown:
+
+{
+  "route": "chat | agentic",
+  "detected_language": "ISO 639-1 code",
+  "direct_response": "filled only when route is chat",
+  "reason": "short English reason"
+}''';
+
 const promptSystemMarkdownMap = '''Meow Agent data model:
 - Identity data (user name, nickname, timezone, preferences) is stored in a local database and managed via system.profile.update.
 - Long-term memory (facts, preferences, bookmarks) is stored in a local database and managed via system.memory.append.

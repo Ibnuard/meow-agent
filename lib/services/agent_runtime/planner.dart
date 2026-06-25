@@ -25,6 +25,31 @@ class Planner {
   LlmJsonCaller get _caller =>
       LlmJsonCaller(client: client, config: config, cancelToken: cancelToken);
 
+  /// Fast ordinary-chat route. Returns parsed JSON or null on failure.
+  Future<Map<String, dynamic>?> chatRoute({
+    required String userMessage,
+    required String soul,
+    required String memory,
+    required bool userNotIntroduced,
+    required RuntimeLogger logger,
+    List<Map<String, String>> recentMessages = const [],
+    String agentName = '',
+    String agentId = '',
+  }) async {
+    final prompt = PromptTemplates.chatRoutePrompt(
+      userMessage: userMessage,
+      languageCode: languageCode,
+      soul: soul,
+      memory: memory,
+      userNotIntroduced: userNotIntroduced,
+      recentMessages: recentMessages,
+      agentName: agentName,
+      agentId: agentId,
+    );
+
+    return _caller.call(prompt, 'chat_route', logger);
+  }
+
   /// Analyze user intent. Returns parsed JSON or null on failure.
   Future<Map<String, dynamic>?> analyze({
     required String userMessage,

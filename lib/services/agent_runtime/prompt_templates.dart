@@ -7,6 +7,49 @@ import 'runtime_models.dart';
 
 /// Builds prompt strings for each phase of the runtime loop.
 class PromptTemplates {
+  /// Fast route for ordinary chat before the heavy analyzer/tool catalog path.
+  static String chatRoutePrompt({
+    required String userMessage,
+    required String languageCode,
+    required String soul,
+    required String memory,
+    required bool userNotIntroduced,
+    required List<Map<String, String>> recentMessages,
+    String agentName = '',
+    String agentId = '',
+  }) {
+    final language = languageLabelFromCode(languageCode);
+    final historyBlock = recentMessages.isNotEmpty
+        ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
+        : 'No prior conversation.';
+    final selfIdentityBlock = agentName.isEmpty
+        ? ''
+        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
+    final introGateBlock = userNotIntroduced
+        ? '\n${PromptConstants.introductionGateRule}\n'
+        : '';
+
+    return '''${PromptConstants.chatRouteIntro}
+
+Default response language: $language.
+$selfIdentityBlock
+Identity context:
+$soul
+
+Memory context:
+${memory.trim().isEmpty ? 'No relevant memory.' : memory}
+$introGateBlock
+Recent conversation:
+$historyBlock
+
+Current user message:
+"$userMessage"
+
+${PromptConstants.chatRouteRules}
+
+${PromptConstants.chatRouteResponseFormat}''';
+  }
+
   /// Analyze user intent.
   static String analyzePrompt({
     required String userMessage,
