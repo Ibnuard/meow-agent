@@ -32,6 +32,7 @@ import 'pending_clarification.dart';
 import 'planner.dart';
 import 'completion_verifier.dart';
 import 'confirmation_manager.dart';
+import 'predefined_skills/predefined_skills.dart';
 import 'preflight_checker.dart';
 import 'task_scope_manager.dart';
 import 'execute_loop_runner.dart';
@@ -60,7 +61,12 @@ typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 /// Only these may be passed to the planner as authoritative "resolved target"
 /// labels — non-snapshot targets (app/message/screen/etc.) are not validated
 /// and can carry prior-turn context bleed, so they are excluded.
-const Set<String> _snapshotBackedEntities = {'agent', 'workflow', 'provider', 'module'};
+const Set<String> _snapshotBackedEntities = {
+  'agent',
+  'workflow',
+  'provider',
+  'module',
+};
 
 /// The main agentic runtime engine.
 /// Stateful: maintains pending actions per agent.
@@ -82,7 +88,9 @@ class AgentRuntimeEngine {
   }) : ledgerDb = ledgerDb ?? TaskLedgerDatabase(),
        _client = llmClient ?? OpenAiCompatibleClient(),
        _snapshotOverride = snapshotOverride {
-    _preflight = PreflightChecker(snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot());
+    _preflight = PreflightChecker(
+      snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
+    );
     _completionVerifier = CompletionVerifier(
       agentLoader: agentLoader,
       snapshotBuilder: _snapshotOverride ?? () => _buildSnapshot(),
@@ -110,7 +118,8 @@ class AgentRuntimeEngine {
             logger: logger,
             emit: emit,
           ),
-      onFinishTaskScope: (request, terminal) => _taskScope.finishScopeForRequest(request, terminal),
+      onFinishTaskScope: (request, terminal) =>
+          _taskScope.finishScopeForRequest(request, terminal),
     );
     _taskScope.attachConfirmation(_confirmation);
     _loopRunner = ExecuteLoopRunner(
@@ -199,7 +208,10 @@ class AgentRuntimeEngine {
     if (activeSkills.isEmpty) return const [];
     if (userMessage.trim().isEmpty) return activeSkills;
     if (activeSkills.length <= 1) return activeSkills;
-    final totalLength = activeSkills.fold<int>(0, (sum, s) => sum + s.content.length);
+    final totalLength = activeSkills.fold<int>(
+      0,
+      (sum, s) => sum + s.content.length,
+    );
     if (totalLength < 2000) return activeSkills;
 
     try {
@@ -223,7 +235,9 @@ class AgentRuntimeEngine {
       final response = await caller.call(prompt, 'skills_selection', logger);
 
       if (response == null) {
-        logger.logError('Skills selector returned null, falling back to all active skills');
+        logger.logError(
+          'Skills selector returned null, falling back to all active skills',
+        );
         return activeSkills;
       }
 
@@ -232,14 +246,17 @@ class AgentRuntimeEngine {
           .toSet();
 
       if (relevantIdentifiers == null) {
-        logger.logError('Skills selector response format invalid, falling back to all active skills');
+        logger.logError(
+          'Skills selector response format invalid, falling back to all active skills',
+        );
         return activeSkills;
       }
 
       final matched = activeSkills.where((s) {
         final idLower = s.id.toLowerCase();
         final titleLower = s.title.toLowerCase();
-        return relevantIdentifiers.contains(idLower) || relevantIdentifiers.contains(titleLower);
+        return relevantIdentifiers.contains(idLower) ||
+            relevantIdentifiers.contains(titleLower);
       }).toList();
       logger.logStateChange(
         AgentRuntimeState.analyzing,
@@ -247,7 +264,10 @@ class AgentRuntimeEngine {
       );
       return matched;
     } catch (e) {
-      logger.logError('Failed to select relevant skills using LLM, falling back to all active skills', e);
+      logger.logError(
+        'Failed to select relevant skills using LLM, falling back to all active skills',
+        e,
+      );
       return activeSkills;
     }
   }
@@ -303,7 +323,11 @@ class AgentRuntimeEngine {
     if (toolResults.isEmpty) return;
 
     try {
-      await MemoryExtractor(client: client, config: config, memoryRepo: repo).extractAfterTask(
+      await MemoryExtractor(
+        client: client,
+        config: config,
+        memoryRepo: repo,
+      ).extractAfterTask(
         agentId: request.agentId,
         userMessage: request.userMessage,
         toolResults: toolResults,
@@ -339,13 +363,20 @@ class AgentRuntimeEngine {
         if (gap < const Duration(minutes: 5)) return;
       }
 
-      final recentSession = await memories.byCategory(request.agentId, 'session', limit: 1);
+      final recentSession = await memories.byCategory(
+        request.agentId,
+        'session',
+        limit: 1,
+      );
       if (recentSession.isNotEmpty) {
         final age = DateTime.now().difference(recentSession.first.createdAt);
         if (age < const Duration(minutes: 30)) return;
       }
 
-      final transcript = contextMessages.take(20).map((m) => '${m.role}: ${m.content}').join('\n');
+      final transcript = contextMessages
+          .take(20)
+          .map((m) => '${m.role}: ${m.content}')
+          .join('\n');
       if (transcript.trim().isEmpty) return;
 
       final response = await client.chat(
@@ -353,19 +384,27 @@ class AgentRuntimeEngine {
         phase: 'session_summary',
         messages: [
           {'role': 'system', 'content': PromptConstants.sessionSummarySystem},
-          {'role': 'user', 'content': PromptConstants.sessionSummaryUser(transcript)},
+          {
+            'role': 'user',
+            'content': PromptConstants.sessionSummaryUser(transcript),
+          },
         ],
       );
       final parsed = JsonUtils.tryParseObject(response);
       final summary = (parsed?['summary'] ?? '').toString().trim();
       if (summary.isEmpty || summary.length < 20) return;
-      await memories.append(agentId: request.agentId, content: summary, category: 'session');
+      await memories.append(
+        agentId: request.agentId,
+        content: summary,
+        category: 'session',
+      );
     } catch (_) {
       // Fire-and-forget.
     }
   }
 
-  Map<String, PendingAction> get _pendingActions => _confirmation.pendingActions;
+  Map<String, PendingAction> get _pendingActions =>
+      _confirmation.pendingActions;
   Map<String, PendingClarification> get _pendingClarifications =>
       _confirmation.pendingClarifications;
 
@@ -391,11 +430,16 @@ class AgentRuntimeEngine {
     return items;
   }
 
-  PendingAction? getPendingAction(String agentId) => _confirmation.getPending(agentId);
-  void clearPendingAction(String agentId) => _confirmation.clearPending(agentId);
-  void clearPendingClarification(String agentId) => _confirmation.clearClarification(agentId);
-  Future<void> abortActiveTask(String agentId, {RequestSource source = RequestSource.chat}) =>
-      _taskScope.abortActive(agentId, source: source);
+  PendingAction? getPendingAction(String agentId) =>
+      _confirmation.getPending(agentId);
+  void clearPendingAction(String agentId) =>
+      _confirmation.clearPending(agentId);
+  void clearPendingClarification(String agentId) =>
+      _confirmation.clearClarification(agentId);
+  Future<void> abortActiveTask(
+    String agentId, {
+    RequestSource source = RequestSource.chat,
+  }) => _taskScope.abortActive(agentId, source: source);
 
   /// Hard-wipe ALL runtime state for an agent: every persisted ledger (any
   /// status), the pending confirmation, the pending clarification, the
@@ -460,19 +504,36 @@ class AgentRuntimeEngine {
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
       model: provider.model,
-      supportsFunctionCalling: provider.supportsFunctionCallingFor(provider.model),
+      supportsFunctionCalling: provider.supportsFunctionCallingFor(
+        provider.model,
+      ),
     );
     final client = _client;
-    unawaited(_maybeSummarizeIdleSession(request: request, client: client, config: llmConfig));
+    unawaited(
+      _maybeSummarizeIdleSession(
+        request: request,
+        client: client,
+        config: llmConfig,
+      ),
+    );
     final planner = Planner(
       client: client,
       config: llmConfig,
       languageCode: effectiveLang,
       cancelToken: cancelToken,
     );
-    final executor = Executor(client: client, config: llmConfig, cancelToken: cancelToken);
-    final reflector = Reflector(client: client, config: llmConfig, cancelToken: cancelToken);
-    final isWorkflowAutoExecute = request.source == RequestSource.workflow && autoApproveSensitive;
+    final executor = Executor(
+      client: client,
+      config: llmConfig,
+      cancelToken: cancelToken,
+    );
+    final reflector = Reflector(
+      client: client,
+      config: llmConfig,
+      cancelToken: cancelToken,
+    );
+    final isWorkflowAutoExecute =
+        request.source == RequestSource.workflow && autoApproveSensitive;
     var detectedLang = _languageDetector.detect(
       userMessage: request.userMessage,
       fallbackCode: effectiveLang,
@@ -545,7 +606,9 @@ class AgentRuntimeEngine {
           if (pendingResponse != null) return pendingResponse;
         }
       }
-      final wsName = request.agentName.isNotEmpty ? request.agentName : request.agentId;
+      final wsName = request.agentName.isNotEmpty
+          ? request.agentName
+          : request.agentId;
       toolRouter.agentName = wsName;
       toolRouter.agentId = request.agentId;
       toolRouter.attachments = request.attachments;
@@ -558,7 +621,15 @@ class AgentRuntimeEngine {
         final dot = a.name.lastIndexOf('.');
         if (dot < 0) return false;
         final ext = a.name.substring(dot).toLowerCase();
-        return const {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'}.contains(ext);
+        return const {
+          '.png',
+          '.jpg',
+          '.jpeg',
+          '.webp',
+          '.gif',
+          '.bmp',
+          '.heic',
+        }.contains(ext);
       });
       if (hasImageAttachment) {
         // Default to vision-capable for any model with image attachments.
@@ -573,17 +644,18 @@ class AgentRuntimeEngine {
         toolRouter.modelSupportsVision = true;
       }
       toolRouter.currentUserMessage = request.userMessage;
-      toolRouter.describeImage = ({required AttachedFile image, required String prompt}) async {
-        final bytes = await File(image.path).readAsBytes();
-        final mime = _mimeTypeForImage(image.name);
-        final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
-        return client.chatWithImage(
-          config: llmConfig,
-          prompt: prompt,
-          imageDataUrl: dataUrl,
-          phase: 'attachment_vision',
-        );
-      };
+      toolRouter.describeImage =
+          ({required AttachedFile image, required String prompt}) async {
+            final bytes = await File(image.path).readAsBytes();
+            final mime = _mimeTypeForImage(image.name);
+            final dataUrl = 'data:$mime;base64,${base64Encode(bytes)}';
+            return client.chatWithImage(
+              config: llmConfig,
+              prompt: prompt,
+              imageDataUrl: dataUrl,
+              phase: 'attachment_vision',
+            );
+          };
       await workspaceFolder.ensureFolder(wsName);
       // Drop transient provider-error messages from history before slicing —
       // they describe past connection state, not real conversational context.
@@ -592,13 +664,17 @@ class AgentRuntimeEngine {
       // connection has recovered. See LlmErrorMapper.providerErrorSentinel.
       final sourceMessages = request.recentMessages
           .where(
-            (m) => m.includeInRuntimeContext && !LlmErrorMapper.isProviderErrorMessage(m.content),
+            (m) =>
+                m.includeInRuntimeContext &&
+                !LlmErrorMapper.isProviderErrorMessage(m.content),
           )
           .toList();
       final latestMessages = sourceMessages.length > 20
           ? sourceMessages.sublist(sourceMessages.length - 20)
           : sourceMessages;
-      final recentMsgs = latestMessages.map((m) => {'role': m.role, 'content': m.content}).toList();
+      final recentMsgs = latestMessages
+          .map((m) => {'role': m.role, 'content': m.content})
+          .toList();
       var pendingClarification = _pendingClarifications[request.agentId];
       if (pendingClarification != null && pendingClarification.isExpired) {
         _pendingClarifications.remove(request.agentId);
@@ -612,7 +688,9 @@ class AgentRuntimeEngine {
         // Age guard: a task parked for hours must not silently re-anchor an
         // unrelated new turn. Workflows run unattended on a schedule, so the
         // guard only applies to interactive chat ledgers.
-        maxAge: request.source == RequestSource.workflow ? null : const Duration(hours: 6),
+        maxAge: request.source == RequestSource.workflow
+            ? null
+            : const Duration(hours: 6),
       );
       String activeTaskContext = '';
       if (activeLedger != null) {
@@ -635,7 +713,10 @@ class AgentRuntimeEngine {
           request.attachments.isEmpty &&
           request.userMessage.trim().isNotEmpty;
       if (canTryChatRoute) {
-        logger.logStateChange(AgentRuntimeState.analyzing, 'Fast chat route check');
+        logger.logStateChange(
+          AgentRuntimeState.analyzing,
+          'Fast chat route check',
+        );
         emit(logger.events.last);
         final chatWorkspace = await _buildWorkspace(
           wsName,
@@ -656,7 +737,10 @@ class AgentRuntimeEngine {
           agentId: request.agentId,
         );
         if (logger.events.isNotEmpty) emit(logger.events.last);
-        final route = (chatRoute?['route'] ?? '').toString().trim().toLowerCase();
+        final route = (chatRoute?['route'] ?? '')
+            .toString()
+            .trim()
+            .toLowerCase();
         final direct = (chatRoute?['direct_response'] ?? '').toString().trim();
         final routeLang = (chatRoute?['detected_language'] ?? '')
             .toString()
@@ -664,7 +748,8 @@ class AgentRuntimeEngine {
             .toLowerCase();
         if (routeLang.isNotEmpty &&
             routeLang != detectedLang.code &&
-            (!detectedLang.isHighConfidence || detectedLang.script == 'Latin')) {
+            (!detectedLang.isHighConfidence ||
+                detectedLang.script == 'Latin')) {
           detectedLang = DetectedLanguage.fromAnalyzerCode(routeLang);
           logger.logStateChange(
             AgentRuntimeState.analyzing,
@@ -724,7 +809,9 @@ class AgentRuntimeEngine {
           ? (attachmentContext != null
                 ? '$attachmentContext\n\nUser message: ${request.userMessage}'
                 : request.userMessage)
-          : (pendingClarification != null ? mergedUserMessage : userMessageWithAttachments);
+          : (pendingClarification != null
+                ? mergedUserMessage
+                : userMessageWithAttachments);
       // App-automation restart-on-resume: re-plan from the ORIGINAL goal (e.g.
       // "buka facebook, cek 2 post, summarize"), not the bare "lanjutkan" turn,
       // so analyze/plan/loop rebuild the real task and re-open the app.
@@ -743,8 +830,12 @@ class AgentRuntimeEngine {
       // the tool set AFTER classification (below). This prevents the LLM from
       // hallucinating or picking irrelevant tools (e.g. app_agent) just because
       // a previous ledger exists on a simple "open app" request.
-      var analyzerTools = toolRouter.buildAnalyzerToolDescriptions(toolSelection.toolNames);
-      var availableTools = toolRouter.buildToolDescriptions(toolSelection.toolNames);
+      var analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+        toolSelection.toolNames,
+      );
+      var availableTools = toolRouter.buildToolDescriptions(
+        toolSelection.toolNames,
+      );
       if (availableTools.isEmpty) {
         analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
         availableTools = toolRouter.buildAllToolDescriptions();
@@ -823,16 +914,19 @@ class AgentRuntimeEngine {
         detectedLang = refined;
       }
       if (activeTaskContext.isEmpty) {
-        final groupsHint = (analysis['tool_groups'] as List?)?.map((e) => e.toString()).toList();
-        final narrowed = ToolCatalog.fromGroups(groupsHint);
-        final narrowedAvailable = toolRouter.buildToolDescriptions(narrowed.toolNames);
+        final narrowed = _toolSelectionFromAnalysis(analysis);
+        final narrowedAvailable = toolRouter.buildToolDescriptions(
+          narrowed.toolNames,
+        );
         if (narrowedAvailable.isNotEmpty) {
           toolSelection = narrowed;
-          analyzerTools = toolRouter.buildAnalyzerToolDescriptions(narrowed.toolNames);
+          analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+            narrowed.toolNames,
+          );
           availableTools = narrowedAvailable;
           logger.logStateChange(
             AgentRuntimeState.analyzing,
-            'Tool surface narrowed from analyzer tool_groups: ${narrowed.reason} (${availableTools.length} tools, confidence ${narrowed.confidence.toStringAsFixed(2)})',
+            'Tool surface narrowed from analyzer: ${narrowed.reason} (${availableTools.length} tools, confidence ${narrowed.confidence.toStringAsFixed(2)})',
           );
           emit(logger.events.last);
         }
@@ -852,7 +946,9 @@ class AgentRuntimeEngine {
           return false;
         }
 
-        availableTools = availableTools.where((t) => !shouldExclude(t)).toList();
+        availableTools = availableTools
+            .where((t) => !shouldExclude(t))
+            .toList();
         analyzerTools = analyzerTools.where((t) => !shouldExclude(t)).toList();
       }
       var relation = (analysis['task_relation'] as String? ?? 'none').trim();
@@ -893,12 +989,15 @@ class AgentRuntimeEngine {
           pendingClarification = null;
           effectiveUserMessage = userMessageWithAttachments;
           activeTaskContext = '';
-          final groupsHint = (analysis['tool_groups'] as List?)?.map((e) => e.toString()).toList();
-          final narrowed = ToolCatalog.fromGroups(groupsHint);
-          final narrowedAvailable = toolRouter.buildToolDescriptions(narrowed.toolNames);
+          final narrowed = _toolSelectionFromAnalysis(analysis);
+          final narrowedAvailable = toolRouter.buildToolDescriptions(
+            narrowed.toolNames,
+          );
           if (narrowedAvailable.isNotEmpty) {
             toolSelection = narrowed;
-            analyzerTools = toolRouter.buildAnalyzerToolDescriptions(narrowed.toolNames);
+            analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+              narrowed.toolNames,
+            );
             availableTools = narrowedAvailable;
           } else {
             analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
@@ -910,13 +1009,14 @@ class AgentRuntimeEngine {
           );
           logger.logStateChange(
             AgentRuntimeState.analyzing,
-            'Active task scope archived (aborted) due to new_task classification. Tools re-narrowed to ${availableTools.length} from analyzer tool_groups. Heads-up surfaced.',
+            'Active task scope archived (aborted) due to new_task classification. Tools re-narrowed to ${availableTools.length} from analyzer hints. Heads-up surfaced.',
           );
           emit(logger.events.last);
           if (logger.logNarrative('relation', headsUp)) {
             emit(logger.events.last);
           }
-        } else if (pendingClarification != null && effectiveUserMessage != mergedUserMessage) {
+        } else if (pendingClarification != null &&
+            effectiveUserMessage != mergedUserMessage) {
           effectiveUserMessage = mergedUserMessage;
           analysis = await planner.analyze(
             userMessage: effectiveUserMessage,
@@ -933,8 +1033,14 @@ class AgentRuntimeEngine {
           );
           emit(logger.events.last);
           if (analysis == null) {
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-            return _loopRunner.fail('Failed to analyze clarified request.', logger);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+            return _loopRunner.fail(
+              'Failed to analyze clarified request.',
+              logger,
+            );
           }
         }
       }
@@ -949,8 +1055,12 @@ class AgentRuntimeEngine {
             pendingLang == 'en' ||
             detectedLang.code == 'id' ||
             detectedLang.code == 'en';
-        if (!coveredByTier1 || pendingDecision == ConfirmationDecision.unclear) {
-          final classifier = ConfirmationClassifier(client: client, config: llmConfig);
+        if (!coveredByTier1 ||
+            pendingDecision == ConfirmationDecision.unclear) {
+          final classifier = ConfirmationClassifier(
+            client: client,
+            config: llmConfig,
+          );
           pendingDecision = await classifier.classify(
             userMessage: request.userMessage,
             pendingSummary: pending.userFacingSummary,
@@ -986,7 +1096,8 @@ class AgentRuntimeEngine {
             ? missingInfo.first
             : missingInfo.map((q) => '- $q').join('\n');
         _pendingClarifications[request.agentId] = PendingClarification(
-          originalMessage: pendingClarification?.originalMessage ?? request.userMessage,
+          originalMessage:
+              pendingClarification?.originalMessage ?? request.userMessage,
           questions: missingInfo,
           createdAt: DateTime.now(),
         );
@@ -1030,7 +1141,9 @@ class AgentRuntimeEngine {
       }
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
-      var pendingNextNarrative = (analysis['next_narrative'] ?? '').toString().trim();
+      var pendingNextNarrative = (analysis['next_narrative'] ?? '')
+          .toString()
+          .trim();
       String takeNextNarrative(String fallbackPhase) {
         final llmNarrative = pendingNextNarrative;
         pendingNextNarrative = '';
@@ -1041,11 +1154,15 @@ class AgentRuntimeEngine {
 
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
       if (analyzerSaysToolsForReflect && !isWorkflowAutoExecute) {
-        if (logger.logPreActionNarrative('reflecting', takeNextNarrative('reflecting'))) {
+        if (logger.logPreActionNarrative(
+          'reflecting',
+          takeNextNarrative('reflecting'),
+        )) {
           emit(logger.events.last);
         }
       }
-      final reflectSnapshot = (analyzerSaysToolsForReflect && !isWorkflowAutoExecute)
+      final reflectSnapshot =
+          (analyzerSaysToolsForReflect && !isWorkflowAutoExecute)
           ? await _buildSnapshot()
           : EcosystemSnapshot(
               agents: const [],
@@ -1054,7 +1171,8 @@ class AgentRuntimeEngine {
               modules: const [],
               builtAt: DateTime.fromMillisecondsSinceEpoch(0),
             );
-      final shouldReflect = analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
+      final shouldReflect =
+          analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
       if (shouldReflect) {
         state = AgentRuntimeState.analyzing;
         logger.logStateChange(state, 'Reflecting on impact and slot needs');
@@ -1088,10 +1206,16 @@ class AgentRuntimeEngine {
             'snapshot:${snapshot.builtAt.toIso8601String()}',
           ...reflection.impacts
               .where((impact) => impact.entityId.isNotEmpty)
-              .map((impact) => '${impact.entityType}:${impact.entityId}:${impact.relation}'),
+              .map(
+                (impact) =>
+                    '${impact.entityType}:${impact.entityId}:${impact.relation}',
+              ),
         ];
         if (targetResolution.graph.isNotEmpty) {
-          logger.logLlmDecision('target_resolution', targetResolution.graph.toJson());
+          logger.logLlmDecision(
+            'target_resolution',
+            targetResolution.graph.toJson(),
+          );
           emit(logger.events.last);
         }
         if (reflection.narrative.isNotEmpty) {
@@ -1108,11 +1232,15 @@ class AgentRuntimeEngine {
           }
           if (!reflection.degraded &&
               logger.logStreamBubble(
-                kind: reflection.impacts.isEmpty ? 'decision_summary' : 'impact',
+                kind: reflection.impacts.isEmpty
+                    ? 'decision_summary'
+                    : 'impact',
                 phase: 'reflect',
                 message: gatedReflect,
                 evidenceRefs: reflectionEvidenceRefs,
-                contextPolicy: reflection.impacts.isEmpty ? 'exclude' : 'include',
+                contextPolicy: reflection.impacts.isEmpty
+                    ? 'exclude'
+                    : 'include',
               )) {
             emit(logger.events.last);
           }
@@ -1164,15 +1292,23 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
         emit(logger.events.last);
-        if (logger.logPreActionNarrative('composing', takeNextNarrative('composing'))) {
+        if (logger.logPreActionNarrative(
+          'composing',
+          takeNextNarrative('composing'),
+        )) {
           emit(logger.events.last);
         }
 
-        final analyzerDirectResponse = (analysis['direct_response'] ?? '').toString().trim();
+        final analyzerDirectResponse = (analysis['direct_response'] ?? '')
+            .toString()
+            .trim();
         String directResponse;
         if (analyzerDirectResponse.isNotEmpty) {
           directResponse = analyzerDirectResponse;
-          logger.logStateChange(state, 'Direct response retrieved from analyzer');
+          logger.logStateChange(
+            state,
+            'Direct response retrieved from analyzer',
+          );
           emit(logger.events.last);
         } else {
           final selfIdentity = PromptConstants.selfIdentity(
@@ -1233,7 +1369,10 @@ class AgentRuntimeEngine {
       state = AgentRuntimeState.planning;
       logger.logStateChange(state, 'Creating execution plan');
       emit(logger.events.last);
-      if (logger.logPreActionNarrative('planning', takeNextNarrative('planning'))) {
+      if (logger.logPreActionNarrative(
+        'planning',
+        takeNextNarrative('planning'),
+      )) {
         emit(logger.events.last);
       }
       _logEvent(
@@ -1259,7 +1398,11 @@ class AgentRuntimeEngine {
       // resolvedLabels empty and let the planner build from them.
       final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
           ? targetGraph.eligibleTargets
-                .where((t) => _snapshotBackedEntities.contains(t.entityType.trim().toLowerCase()))
+                .where(
+                  (t) => _snapshotBackedEntities.contains(
+                    t.entityType.trim().toLowerCase(),
+                  ),
+                )
                 .map(
                   (t) =>
                       '${t.operation} ${t.entityType}: ${t.entityLabel}'
@@ -1276,7 +1419,9 @@ class AgentRuntimeEngine {
       );
       emit(logger.events.last);
       if (plan == null) {
-        logger.logError('Planner returned null on first attempt; retrying with broadened tools.');
+        logger.logError(
+          'Planner returned null on first attempt; retrying with broadened tools.',
+        );
         final broadenedAnalyzer = toolRouter.buildAllAnalyzerToolDescriptions();
         plan = await _tryCreatePlan(
           planner: planner,
@@ -1307,7 +1452,8 @@ class AgentRuntimeEngine {
           .toList(growable: false);
       final planBubble = [
         if (planNarrative.trim().isNotEmpty) planNarrative.trim(),
-        if (planLabels.length > 1) planLabels.map((label) => '• $label').join('\n'),
+        if (planLabels.length > 1)
+          planLabels.map((label) => '• $label').join('\n'),
       ].join('\n\n');
       if (planBubble.isNotEmpty) {
         if (logger.logStreamBubble(
@@ -1350,9 +1496,12 @@ class AgentRuntimeEngine {
               attachments: request.attachments,
             );
       final recovery = RecoveryCoordinator();
-      final validator = PostExecuteValidator(snapshotBuilder: () async => _buildSnapshot());
+      final validator = PostExecuteValidator(
+        snapshotBuilder: () async => _buildSnapshot(),
+      );
       final capturedAnalysis = Map<String, dynamic>.from(analysis);
-      Future<({Map<String, dynamic> plan, GoalTree goalTree})?> rethink() async {
+      Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
+      rethink() async {
         try {
           final freshSnapshot = await _buildSnapshot();
           final freshAnalysis = Map<String, dynamic>.from(capturedAnalysis);
@@ -1361,13 +1510,16 @@ class AgentRuntimeEngine {
             freshAnalysis['prior_attempts'] = priorContext;
           }
           final broadenedTools = toolRouter.buildAllToolDescriptions();
-          final broadenedAnalyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
+          final broadenedAnalyzerTools = toolRouter
+              .buildAllAnalyzerToolDescriptions();
           freshAnalysis['available_tools_broadened'] = true;
           final reReflection = await reflector.reflect(
             userMessage: effectiveUserMessage,
             analysis: freshAnalysis,
             snapshot: freshSnapshot,
-            availableTools: _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+            availableTools: _toolDefinitionsFor(
+              toolRouter.registeredTools.toSet(),
+            ),
             language: detectedLang,
             logger: logger,
             recentMessages: recentMsgs,
@@ -1390,7 +1542,9 @@ class AgentRuntimeEngine {
           final reResolvedLabels = reTargetGraph.isNotEmpty
               ? reTargetGraph.eligibleTargets
                     .where(
-                      (t) => _snapshotBackedEntities.contains(t.entityType.trim().toLowerCase()),
+                      (t) => _snapshotBackedEntities.contains(
+                        t.entityType.trim().toLowerCase(),
+                      ),
                     )
                     .map(
                       (t) =>
@@ -1491,7 +1645,10 @@ class AgentRuntimeEngine {
         // User cancelled mid-call. The chat manager already posted the
         // cancellation message and cleared the running state — return a silent
         // empty failure so we don't surface a duplicate error bubble.
-        logger.logStateChange(AgentRuntimeState.failed, 'Run cancelled by user');
+        logger.logStateChange(
+          AgentRuntimeState.failed,
+          'Run cancelled by user',
+        );
         await _taskScope.finishScopeForRequest(request, LedgerStatus.aborted);
         return AgentRuntimeResponse(
           finalMessage: '',
@@ -1501,11 +1658,17 @@ class AgentRuntimeEngine {
       }
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, effectiveLang), logger);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, effectiveLang),
+        logger,
+      );
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, effectiveLang), logger);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, effectiveLang),
+        logger,
+      );
     }
   }
 
@@ -1546,7 +1709,10 @@ class AgentRuntimeEngine {
   }) async {
     try {
       var state = AgentRuntimeState.executingTool;
-      logger.logStateChange(state, 'Executing confirmed tool: ${pending.toolName}');
+      logger.logStateChange(
+        state,
+        'Executing confirmed tool: ${pending.toolName}',
+      );
       emit(logger.events.last);
       final toolRequest = ToolCallRequest(
         name: pending.toolName,
@@ -1585,11 +1751,15 @@ class AgentRuntimeEngine {
           final treeJson = resume['goal_tree'] as Map<String, dynamic>?;
           final goalTree = treeJson != null
               ? GoalTree.fromJson(treeJson)
-              : GoalTree.singleSubgoal(mainGoal: pending.toolName, subgoalLabel: pending.toolName);
+              : GoalTree.singleSubgoal(
+                  mainGoal: pending.toolName,
+                  subgoalLabel: pending.toolName,
+                );
           final active = goalTree.nextActionable;
           if (active != null) {
             active.status = SubgoalStatus.done;
-            active.resultRef = 'confirmed:${pending.toolName}:${result.success}';
+            active.resultRef =
+                'confirmed:${pending.toolName}:${result.success}';
           }
           _memory.record(
             agentId: request.agentId,
@@ -1599,7 +1769,9 @@ class AgentRuntimeEngine {
             success: result.success,
             error: result.error,
           );
-          final plan = (resume['plan'] as Map?)?.cast<String, dynamic>() ?? {'steps': []};
+          final plan =
+              (resume['plan'] as Map?)?.cast<String, dynamic>() ??
+              {'steps': []};
           final previousResults =
               (resume['previous_results'] as List?)
                   ?.whereType<Map>()
@@ -1615,13 +1787,18 @@ class AgentRuntimeEngine {
             'confirmed': true,
           });
           final availableTools =
-              (resume['available_tools'] as List?)?.map((e) => e.toString()).toList() ??
+              (resume['available_tools'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
               const <String>[];
           final memorySnapshot = (resume['memory_snapshot'] as String?) ?? '';
-          final autoApproveSensitive = resume['auto_approve_sensitive'] as bool? ?? false;
-          final isWorkflowAutoExecute = resume['is_workflow_auto_execute'] as bool? ?? false;
+          final autoApproveSensitive =
+              resume['auto_approve_sensitive'] as bool? ?? false;
+          final isWorkflowAutoExecute =
+              resume['is_workflow_auto_execute'] as bool? ?? false;
           final currentStep = (resume['current_step'] as int? ?? 1) + 1;
-          final userMessage = (resume['user_message'] as String?) ?? request.userMessage;
+          final userMessage =
+              (resume['user_message'] as String?) ?? request.userMessage;
           final resumedRequest = AgentRuntimeRequest(
             agentId: request.agentId,
             agentName: request.agentName,
@@ -1630,33 +1807,34 @@ class AgentRuntimeEngine {
             source: request.source,
           );
           if (goalTree.isComplete) {
-            final verificationBlocker = await _completionVerifier.blockIfUnverified(
-              request: resumedRequest,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: previousResults,
-              currentStep: currentStep,
-              availableTools: availableTools,
-              memorySnapshot: memorySnapshot,
-              detectedLang: detectedLang,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              logger: logger,
-              parkTask: (questions) => _taskScope.parkForUserInput(
-                request: resumedRequest,
-                plan: plan,
-                goalTree: goalTree,
-                previousResults: previousResults,
-                currentStep: currentStep,
-                availableTools: availableTools,
-                memorySnapshot: memorySnapshot,
-                detectedLangCode: detectedLang.code,
-                autoApproveSensitive: autoApproveSensitive,
-                isWorkflowAutoExecute: isWorkflowAutoExecute,
-                questions: questions,
-              ),
-              lastToolName: pending.toolName,
-            );
+            final verificationBlocker = await _completionVerifier
+                .blockIfUnverified(
+                  request: resumedRequest,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLang: detectedLang,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  logger: logger,
+                  parkTask: (questions) => _taskScope.parkForUserInput(
+                    request: resumedRequest,
+                    plan: plan,
+                    goalTree: goalTree,
+                    previousResults: previousResults,
+                    currentStep: currentStep,
+                    availableTools: availableTools,
+                    memorySnapshot: memorySnapshot,
+                    detectedLangCode: detectedLang.code,
+                    autoApproveSensitive: autoApproveSensitive,
+                    isWorkflowAutoExecute: isWorkflowAutoExecute,
+                    questions: questions,
+                  ),
+                  lastToolName: pending.toolName,
+                );
             if (verificationBlocker != null) return verificationBlocker;
             final successMsg =
                 _loopRunner.shouldAnswerFromToolResult(
@@ -1676,10 +1854,14 @@ class AgentRuntimeEngine {
                     fallbackResult: result,
                     verbalizer: verbalizer,
                     language: detectedLang,
-                    targetGraph: (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
+                    targetGraph: (plan['runtime_target_graph'] as Map?)
+                        ?.cast<String, dynamic>(),
                   );
             logger.logFinalResponse(successMsg);
-            await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+            await _taskScope.archiveLedgerForRequest(
+              request,
+              LedgerStatus.completed,
+            );
             _logEvent(
               agentId: request.agentId,
               eventType: 'turn_complete',
@@ -1729,7 +1911,11 @@ class AgentRuntimeEngine {
                 result: result,
                 language: detectedLang,
               )
-            : await verbalizer.success(tool: toolRequest, result: result, language: detectedLang);
+            : await verbalizer.success(
+                tool: toolRequest,
+                result: result,
+                language: detectedLang,
+              );
         logger.logFinalResponse(successMsg);
         return AgentRuntimeResponse(
           finalMessage: successMsg,
@@ -1752,7 +1938,10 @@ class AgentRuntimeEngine {
         final treeJson = failureResume['goal_tree'] as Map<String, dynamic>?;
         final goalTree = treeJson != null
             ? GoalTree.fromJson(treeJson)
-            : GoalTree.singleSubgoal(mainGoal: pending.toolName, subgoalLabel: pending.toolName);
+            : GoalTree.singleSubgoal(
+                mainGoal: pending.toolName,
+                subgoalLabel: pending.toolName,
+              );
         // Keep the active subgoal open — the action did not complete. The
         // selector/reviewer will drive the corrective step and retry.
         final active = goalTree.nextActionable;
@@ -1768,7 +1957,9 @@ class AgentRuntimeEngine {
           success: result.success,
           error: result.error,
         );
-        final plan = (failureResume['plan'] as Map?)?.cast<String, dynamic>() ?? {'steps': []};
+        final plan =
+            (failureResume['plan'] as Map?)?.cast<String, dynamic>() ??
+            {'steps': []};
         final previousResults =
             (failureResume['previous_results'] as List?)
                 ?.whereType<Map>()
@@ -1787,13 +1978,19 @@ class AgentRuntimeEngine {
           'confirmed': true,
         });
         final availableTools =
-            (failureResume['available_tools'] as List?)?.map((e) => e.toString()).toList() ??
+            (failureResume['available_tools'] as List?)
+                ?.map((e) => e.toString())
+                .toList() ??
             const <String>[];
-        final memorySnapshot = (failureResume['memory_snapshot'] as String?) ?? '';
-        final autoApproveSensitive = failureResume['auto_approve_sensitive'] as bool? ?? false;
-        final isWorkflowAutoExecute = failureResume['is_workflow_auto_execute'] as bool? ?? false;
+        final memorySnapshot =
+            (failureResume['memory_snapshot'] as String?) ?? '';
+        final autoApproveSensitive =
+            failureResume['auto_approve_sensitive'] as bool? ?? false;
+        final isWorkflowAutoExecute =
+            failureResume['is_workflow_auto_execute'] as bool? ?? false;
         final currentStep = (failureResume['current_step'] as int? ?? 1) + 1;
-        final userMessage = (failureResume['user_message'] as String?) ?? request.userMessage;
+        final userMessage =
+            (failureResume['user_message'] as String?) ?? request.userMessage;
         final resumedRequest = AgentRuntimeRequest(
           agentId: request.agentId,
           agentName: request.agentName,
@@ -1830,7 +2027,10 @@ class AgentRuntimeEngine {
       final rawCause = ExecuteLoopRunner.extractFailureCause(result);
       final fallbackMsg = rawCause.isNotEmpty
           ? rawCause
-          : await verbalizer.abort(reason: result.error ?? 'tool failed', language: detectedLang);
+          : await verbalizer.abort(
+              reason: result.error ?? 'tool failed',
+              language: detectedLang,
+            );
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
       logger.logFinalResponse(fallbackMsg);
       return AgentRuntimeResponse(
@@ -1842,7 +2042,10 @@ class AgentRuntimeEngine {
     } catch (e) {
       logger.logError('Runtime exception', e);
       await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-      return _loopRunner.fail(LlmErrorMapper.friendlyMessage(e, languageCode), logger);
+      return _loopRunner.fail(
+        LlmErrorMapper.friendlyMessage(e, languageCode),
+        logger,
+      );
     }
   }
 
@@ -1856,7 +2059,10 @@ class AgentRuntimeEngine {
     required String userMessage,
     List<ResolvedTarget>? resolvedTargets,
   }) {
-    final mainGoal = (plan['main_goal'] as String?) ?? (analysis['goal'] as String?) ?? userMessage;
+    final mainGoal =
+        (plan['main_goal'] as String?) ??
+        (analysis['goal'] as String?) ??
+        userMessage;
     final seeds = analysis['subgoal_seeds'];
     // The analyzer's explicit enumeration is a lower-bound invariant. If the
     // planner collapses eight requested rows into one coarse "populate" goal,
@@ -1866,7 +2072,9 @@ class AgentRuntimeEngine {
         seeds is List &&
         seeds.length > 1 &&
         (subgoalsJson is! List || subgoalsJson.length < seeds.length);
-    if (!plannerCollapsedEnumeration && subgoalsJson is List && subgoalsJson.isNotEmpty) {
+    if (!plannerCollapsedEnumeration &&
+        subgoalsJson is List &&
+        subgoalsJson.isNotEmpty) {
       try {
         final tree = GoalTree.fromJson({
           'main_goal': mainGoal,
@@ -1879,7 +2087,9 @@ class AgentRuntimeEngine {
     // Fallback when the planner LLM was skipped/failed but the resolver fanned
     // out concrete per-entity targets: synthesize one subgoal per eligible
     // target so bulk operations keep their full breakdown.
-    final eligibleTargets = resolvedTargets?.where((t) => t.isEligible).toList(growable: false);
+    final eligibleTargets = resolvedTargets
+        ?.where((t) => t.isEligible)
+        .toList(growable: false);
     if (eligibleTargets != null && eligibleTargets.length > 1) {
       return GoalTree(
         mainGoal: mainGoal,
@@ -1968,7 +2178,10 @@ class AgentRuntimeEngine {
     return toolRouter.getDefinition(intent) == null ? '' : intent;
   }
 
-  GoalTree _withStructuralAnalysisMetadata(GoalTree tree, Map<String, dynamic> analysis) {
+  GoalTree _withStructuralAnalysisMetadata(
+    GoalTree tree,
+    Map<String, dynamic> analysis,
+  ) {
     final inferredOperation = _structuralOperationFromAnalysis(analysis);
     final inferredTool = _structuralToolFromAnalysis(analysis);
     if (inferredOperation.isEmpty && inferredTool.isEmpty) return tree;
@@ -1983,7 +2196,8 @@ class AgentRuntimeEngine {
             label: subgoal.label,
             requiredSlots: {
               ...subgoal.requiredSlots,
-              if (!subgoal.requiredSlots.containsKey('_operation') && inferredOperation.isNotEmpty)
+              if (!subgoal.requiredSlots.containsKey('_operation') &&
+                  inferredOperation.isNotEmpty)
                 '_operation': inferredOperation,
               if (!subgoal.requiredSlots.containsKey('tool') &&
                   !subgoal.requiredSlots.containsKey('tool_name') &&
@@ -2096,7 +2310,9 @@ class AgentRuntimeEngine {
     final operation = _operationFromAnalysis(analysis);
     return {
       'main_goal': mainGoal,
-      'completion_criteria': ['The requested outcome is completed and verified.'],
+      'completion_criteria': [
+        'The requested outcome is completed and verified.',
+      ],
       'subgoals': [
         for (var i = 0; i < labels.length; i++)
           {
@@ -2155,11 +2371,46 @@ class AgentRuntimeEngine {
     return 'execute';
   }
 
+  ToolCatalogSelection _toolSelectionFromAnalysis(
+    Map<String, dynamic> analysis,
+  ) {
+    final rawSkillIds = analysis['selected_skill_ids'];
+    final skillIds = rawSkillIds is List
+        ? PredefinedSkillRegistry.normalizeSkillIds(rawSkillIds)
+        : <String>[];
+
+    if (skillIds.isNotEmpty) {
+      final toolNames = PredefinedSkillRegistry.toolNamesForSkillIds(skillIds);
+      if (toolNames.isNotEmpty) {
+        final groups = PredefinedSkillRegistry.toolGroupsForSkillIds(skillIds);
+        return ToolCatalogSelection(
+          toolNames: toolNames,
+          groups: groups,
+          confidence: skillIds.length == 1 ? 0.85 : 0.7,
+          reason: 'analyzer selected_skill_ids: ${skillIds.join(', ')}',
+        );
+      }
+    }
+
+    final groupsHint = (analysis['tool_groups'] as List?)
+        ?.map((e) => e.toString())
+        .toList();
+    return ToolCatalog.fromGroups(groupsHint);
+  }
+
   /// Build a metadata-only context string describing attached files.
   /// Contents are intentionally read only through attachment.* tools.
   String? _buildAttachmentContext(List<AttachedFile> attachments) {
     if (attachments.isEmpty) return null;
-    const imageExts = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'};
+    const imageExts = {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
     bool isImage(String name) {
       final dot = name.lastIndexOf('.');
       if (dot < 0) return false;
@@ -2169,7 +2420,9 @@ class AgentRuntimeEngine {
     final hasImage = attachments.any((a) => isImage(a.name));
     final buf = StringBuffer()
       ..writeln('[ATTACHED FILES — CURRENT TURN]')
-      ..writeln('The user attached ${attachments.length} file(s) to THIS message (current turn).');
+      ..writeln(
+        'The user attached ${attachments.length} file(s) to THIS message (current turn).',
+      );
 
     if (hasImage) {
       buf.writeln(
@@ -2213,9 +2466,19 @@ class AgentRuntimeEngine {
   /// Encode image attachments as base64 data URLs for inline vision input.
   /// Non-image attachments are skipped. Unreadable files are also skipped
   /// (graceful degradation — the rest of the request still proceeds).
-  Future<List<String>> _buildImageDataUrls(List<AttachedFile> attachments) async {
+  Future<List<String>> _buildImageDataUrls(
+    List<AttachedFile> attachments,
+  ) async {
     if (attachments.isEmpty) return const [];
-    const imageExts = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.heic'};
+    const imageExts = {
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.webp',
+      '.gif',
+      '.bmp',
+      '.heic',
+    };
     final out = <String>[];
     for (final a in attachments) {
       final dot = a.name.lastIndexOf('.');

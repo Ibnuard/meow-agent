@@ -12,7 +12,8 @@ const promptAnalyzeIntro =
 const promptChatRouteIntro =
     'You are a fast route for an Android AI chat agent.';
 
-const promptChatRouteRules = '''Decide whether the current user message can be answered immediately as ordinary chat, or must use the full agentic runtime.
+const promptChatRouteRules =
+    '''Decide whether the current user message can be answered immediately as ordinary chat, or must use the full agentic runtime.
 
 Use route="chat" only when the message is conversational, creative, explanatory, opinion-based, or a general knowledge question that does NOT require live app/device/system/database/file state and does NOT ask to mutate anything.
 
@@ -27,7 +28,8 @@ Language priority for route="chat":
 
 For route="chat", write the final answer directly in the selected language. Keep it natural and concise. For route="agentic", direct_response must be empty.''';
 
-const promptChatRouteResponseFormat = '''Respond with ONLY valid JSON, no markdown:
+const promptChatRouteResponseFormat =
+    '''Respond with ONLY valid JSON, no markdown:
 
 {
   "route": "chat | agentic",
@@ -159,6 +161,18 @@ const promptAnalyzeCrossDomainAmbiguityRule =
   * "read my clipboard" → clearly the clipboard tool. No question.
 - If you are truly unsure between two built-in tool routes after applying the user-scoped target rule, FIRST_ASK_USER with one short question. Asking is correct for real ambiguity; asking is wrong when the user already scoped the target clearly.''';
 
+String promptAnalyzePredefinedSkillIndex(String skillIndexBlock) =>
+    '''Predefined skill index:
+$skillIndexBlock
+
+Skill selection rules:
+- Select the smallest set of predefined skills that match the user's intent.
+- Use skill ids exactly as listed above. Never invent a skill id.
+- A single-domain request usually selects exactly one skill.
+- A cross-domain request may select multiple skills.
+- If requires_tools=false because the message is ordinary chat or missing details, selected_skill_ids may be empty.
+- selected_skill_ids is routing metadata only. It does not prove a tool exists and does not bypass tool permissions, confirmation, or verification.''';
+
 const promptAnalyzeExamples =
     '''Examples that require tools (intent shown in English; user phrasing may be in any language; <app>, <query>, <name>, <X>, <Y> are placeholders):
 - "open <app>" → app.resolve(<app>) then app.open(packageName) → tool_groups: ["app"] (DONE after open)
@@ -208,6 +222,7 @@ const promptAnalyzeResponseFormat =
   "requires_tools": true/false,
   "risk": "safe/sensitive/dangerous",
   "detected_language": "ISO 639-1 code of the user's message language",
+  "selected_skill_ids": ["meow.skill_id", "..."],
   "tool_groups": ["group enum", "..."],
   "missing_info": ["clarifying question 1", "clarifying question 2"],
   "subgoal_seeds": ["first user-visible outcome", "second outcome", "..."],
@@ -225,6 +240,7 @@ Rules:
   size; otherwise null. It MUST agree with the number of per-item
   subgoal_seeds when the entries are identifiable.
 - detected_language: the ISO 639-1 code of the language the USER wrote in (e.g. "en", "id", "es", "fr", "ja", "ar"). Judge from the user's actual message text, not the app setting. This drives every user-facing reply, so be accurate. If the message is too short or ambiguous to tell, repeat the language of the recent conversation, else default to "en".
+- selected_skill_ids: when requires_tools is true, list the predefined skill ids that should be loaded next. Use only ids from the predefined skill index. Pick the smallest set that covers the request. If requires_tools is false, use [] unless a clarification clearly belongs to a skill domain.
 - tool_groups: when requires_tools is true, list the tool CATEGORY/CATEGORIES most relevant to the request, chosen ONLY from this fixed English enum:
     app          \\u2014 open apps/URLs, list installed apps, open settings
     clipboard    \\u2014 read/write the clipboard

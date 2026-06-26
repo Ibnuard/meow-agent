@@ -4,6 +4,7 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'llm_json_caller.dart';
 import 'pending_action.dart';
+import 'predefined_skills/predefined_skills.dart';
 import 'prompt_templates.dart';
 import 'runtime_logger.dart';
 import 'runtime_models.dart';
@@ -79,7 +80,27 @@ class Planner {
     );
 
     final result = await _caller.call(prompt, 'analyze', logger);
+    _normalizeSelectedSkills(result);
     return result;
+  }
+
+  void _normalizeSelectedSkills(Map<String, dynamic>? analysis) {
+    if (analysis == null) return;
+
+    final rawSkillIds = analysis['selected_skill_ids'];
+    final normalized = rawSkillIds is List
+        ? PredefinedSkillRegistry.normalizeSkillIds(rawSkillIds)
+        : <String>[];
+
+    if (normalized.isNotEmpty) {
+      analysis['selected_skill_ids'] = normalized;
+      return;
+    }
+
+    final rawGroups = analysis['tool_groups'];
+    analysis['selected_skill_ids'] = rawGroups is List
+        ? PredefinedSkillRegistry.skillIdsForToolGroups(rawGroups)
+        : <String>[];
   }
 
   /// Create execution plan from analysis. Returns parsed JSON or null.

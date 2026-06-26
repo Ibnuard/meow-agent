@@ -99,5 +99,56 @@ void main() {
 
       expect(resolved.map((skill) => skill.id), ['meow.app', 'meow.database']);
     });
+
+    test('normalizes selected skill ids and ignores invalid values', () {
+      expect(
+        PredefinedSkillRegistry.normalizeSkillIds([
+          'meow.app',
+          'meow.agent.master',
+          'meow.unknown',
+          'meow.app',
+          '',
+          null,
+          'meow.files',
+        ]),
+        ['meow.app', 'meow.files'],
+      );
+    });
+
+    test('maps analyzer tool groups to skill ids', () {
+      expect(
+        PredefinedSkillRegistry.skillIdsForToolGroups([
+          'app',
+          'clipboard',
+          'database',
+          'app',
+          'unknown',
+        ]),
+        ['meow.app', 'meow.clipboard', 'meow.database'],
+      );
+    });
+
+    test('resolves exact tool names from selected skill ids', () {
+      final appTools = PredefinedSkillRegistry.toolNamesForSkillIds([
+        'meow.app',
+      ]);
+
+      expect(appTools, contains('app.open'));
+      expect(appTools, contains('app.resolve'));
+      expect(appTools, isNot(contains('device.battery')));
+    });
+
+    test('selected skill tool resolution can include related skills', () {
+      final systemTools = PredefinedSkillRegistry.toolNamesForSkillIds([
+        'meow.system',
+      ]);
+
+      expect(systemTools, contains('system.tools.list'));
+      expect(
+        systemTools,
+        contains('files.read'),
+        reason: 'meow.system declares meow.files as a related skill.',
+      );
+    });
   });
 }

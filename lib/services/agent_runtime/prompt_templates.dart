@@ -3,6 +3,7 @@ import 'action_map.dart';
 import 'goal_tree.dart';
 import 'pending_action.dart';
 import 'prompt_constants.dart';
+import 'predefined_skills/predefined_skills.dart';
 import 'runtime_models.dart';
 
 /// Builds prompt strings for each phase of the runtime loop.
@@ -109,6 +110,9 @@ ${PromptConstants.chatRouteResponseFormat}''';
     final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
         ? '\n${PromptConstants.vmWorkflowRules}\n'
         : '';
+    final predefinedSkillsBlock = PromptConstants.analyzePredefinedSkillIndex(
+      PredefinedSkillRegistry.analyzerIndexBlock(),
+    );
 
     return '''${PromptConstants.analyzeIntro}
 
@@ -119,6 +123,8 @@ $selfIdentityBlock$vmBlock
 Identity context (user profile stored in database):
 ${workspace.soul}
 ${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
+$predefinedSkillsBlock
+
 Available tools:
 ${availableTools.join('\n')}
 
@@ -282,7 +288,8 @@ ${PromptConstants.selectToolResponseFormat}''';
               'final_response or summary, ground it strictly on this; do NOT '
               'invent items, names, numbers, or jokes not present here):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
-    final previousResultsBlock = '\nPrevious results (this turn):\n'
+    final previousResultsBlock =
+        '\nPrevious results (this turn):\n'
         '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
     return '''${PromptConstants.reviewIntro}
 $selfIdentityBlock
@@ -330,10 +337,9 @@ ${PromptConstants.reviewResponseFormat}''';
   static String _actionMapBlock(List<String> availableTools) {
     final domains = <String>{};
     for (final def in availableTools) {
-      final firstLine = def.split('\n').firstWhere(
-            (l) => l.trim().isNotEmpty,
-            orElse: () => '',
-          );
+      final firstLine = def
+          .split('\n')
+          .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
       // Tool names look like "system.config.patch" or "app_agent.click".
       // Extract the leading token before the first dot.
       final match = RegExp(r'([a-z_]+)\.').firstMatch(firstLine);

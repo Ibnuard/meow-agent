@@ -46,6 +46,10 @@ void main() {
         contains('"requested_item_count"'),
       );
       expect(
+        PromptConstants.analyzeResponseFormat,
+        contains('"selected_skill_ids"'),
+      );
+      expect(
         PromptConstants.planResponseFormat,
         contains('ONE subgoal per row'),
       );
@@ -83,5 +87,15 @@ void main() {
         );
       },
     );
+
+    test('analyzer has predefined skill selection instructions', () {
+      final block = PromptConstants.analyzePredefinedSkillIndex(
+        '- meow.app: Open apps. tool_groups=[app]; key_tools=[app.open]',
+      );
+
+      expect(block, contains('Predefined skill index'));
+      expect(block, contains('selected_skill_ids'));
+      expect(block, contains('Never invent a skill id'));
+    });
   });
 }
