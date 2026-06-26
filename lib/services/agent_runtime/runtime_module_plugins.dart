@@ -7,6 +7,7 @@ import '../../features/modules/files/files_module.dart';
 import '../../features/modules/notes/notes_module.dart';
 import '../../features/modules/notification_intelligence/notification_module.dart';
 import '../../features/modules/provider/provider_domain_module.dart';
+import '../../features/modules/skills/skills_module.dart';
 import '../../features/modules/sqlite/sqlite_query_module.dart';
 import '../../features/modules/system/system_module.dart';
 import '../../features/modules/web/web_module.dart';
@@ -28,6 +29,7 @@ const List<ModulePlugin> runtimeModulePlugins = [
   // Replaces system.config.patch for agent and provider mutations.
   AgentDomainModulePlugin(),
   ProviderDomainModulePlugin(),
+  SkillsModulePlugin(),
   SystemModulePlugin(),
   SqliteQueryModulePlugin(),
   ChatModulePlugin(),

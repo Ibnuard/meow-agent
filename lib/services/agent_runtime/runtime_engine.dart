@@ -2282,6 +2282,7 @@ final agentRuntimeEngineProvider = Provider<AgentRuntimeEngine>((ref) {
       coreProviderRepo: ref.read(coreProviderEntryRepositoryProvider),
       coreSoulRepo: ref.read(coreAgentSoulRepositoryProvider),
       coreMemoryRepo: ref.read(coreAgentMemoryRepositoryProvider),
+      coreSkillsRepo: ref.read(agentSkillsRepositoryProvider),
       secureStorage: ref.read(secureStorageProvider),
     ),
     contextBuilder: ContextBuilder(),

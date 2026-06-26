@@ -389,10 +389,6 @@ void main() {
       provider: provider(),
     );
 
-    print('R10 state: ${res.state}, success: ${res.success}, message: ${res.finalMessage}');
-    for (final ev in res.events) {
-      print('  Event: [${ev.type}] ${ev.message} (data: ${ev.data})');
-    }
     expect(res.state,
         anyOf(AgentRuntimeState.done, AgentRuntimeState.askingUser));
     expect(res.finalMessage, isNotEmpty);
@@ -805,10 +801,6 @@ void main() {
       provider: provider(),
     );
 
-    print('R18 state: ${res.state}, success: ${res.success}, message: ${res.finalMessage}');
-    for (final ev in res.events) {
-      print('  Event: [${ev.type}] ${ev.message} (data: ${ev.data})');
-    }
     expect(res.state,
         anyOf(AgentRuntimeState.done, AgentRuntimeState.askingUser));
     expect(res.finalMessage, isNotEmpty);

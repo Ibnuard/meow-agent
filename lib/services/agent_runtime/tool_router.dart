@@ -1,5 +1,6 @@
 import '../../core/storage/agent_repository.dart' as core_agents;
 import '../../core/storage/agent_memory_repository.dart' as core_memory;
+import '../../core/storage/agent_skills_repository.dart' as core_skills;
 import '../../core/storage/agent_soul_repository.dart' as core_soul;
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
@@ -37,6 +38,7 @@ class ToolRouter {
     this.coreProviderRepo,
     this.coreSoulRepo,
     this.coreMemoryRepo,
+    this.coreSkillsRepo,
     this.secureStorage,
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
@@ -54,6 +56,9 @@ class ToolRouter {
   final core_providers.ProviderEntryRepository? coreProviderRepo;
   final core_soul.AgentSoulRepository? coreSoulRepo;
   final core_memory.AgentMemoryRepository? coreMemoryRepo;
+
+  /// Skills repository for the skills module plugin (skills.* tools).
+  final core_skills.AgentSkillsRepository? coreSkillsRepo;
 
   /// Secure storage for provider API keys (mirrors the UI provider repo).
   final SecureStorageService? secureStorage;
@@ -284,6 +289,7 @@ class ToolRouter {
     coreProviderRepo: coreProviderRepo,
     coreSoulRepo: coreSoulRepo,
     coreMemoryRepo: coreMemoryRepo,
+    coreSkillsRepo: coreSkillsRepo,
     secureStorage: secureStorage,
   );
 

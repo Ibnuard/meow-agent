@@ -2,6 +2,7 @@ import 'runtime_models.dart';
 
 import '../../core/storage/agent_repository.dart' as core_agents;
 import '../../core/storage/agent_memory_repository.dart' as core_memory;
+import '../../core/storage/agent_skills_repository.dart' as core_skills;
 import '../../core/storage/agent_soul_repository.dart' as core_soul;
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
@@ -39,6 +40,7 @@ class ModuleToolContext {
     this.coreProviderRepo,
     this.coreSoulRepo,
     this.coreMemoryRepo,
+    this.coreSkillsRepo,
     this.secureStorage,
   });
 
@@ -76,6 +78,9 @@ class ModuleToolContext {
   final core_providers.ProviderEntryRepository? coreProviderRepo;
   final core_soul.AgentSoulRepository? coreSoulRepo;
   final core_memory.AgentMemoryRepository? coreMemoryRepo;
+
+  /// Skills repository for the skills module plugin (skills.* tools).
+  final core_skills.AgentSkillsRepository? coreSkillsRepo;
 
   /// Secure storage for sensitive values (e.g. provider API keys). Domain
   /// plugins that persist secrets (provider.*) write the raw key here keyed by

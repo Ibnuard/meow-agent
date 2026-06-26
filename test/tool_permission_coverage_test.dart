@@ -34,6 +34,8 @@ void main() {
     'files.search',
     'files.tree',
     'provider.list',
+    'skills.list',
+    'skills.search',
     'sqlite.query',
     'system.self',
     'system.rtb',
@@ -50,15 +52,18 @@ void main() {
     'provider.create',
     'provider.delete',
     'provider.update',
+    'skills.create',
+    'skills.delete',
     'system.config.patch',
     'system.import',
 
     // ─── Core self-management surfaces (no user-facing module toggle) ───────
-    // These modules (agent/provider/system/chat) are agent self-management and
-    // are not in ModuleRegistry.available, so a moduleId gate would always
+    // These modules (agent/provider/system/chat/skills) are agent self-management
+    // and are not in ModuleRegistry.available, so a moduleId gate would always
     // resolve to moduleMissing and hard-block them.
     'agent.update',
     'chat.send',
+    'skills.update',
     'system.profile.update',
     'system.memory.append',
   };
