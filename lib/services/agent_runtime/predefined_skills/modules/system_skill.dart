@@ -1,0 +1,52 @@
+import '../predefined_skill.dart';
+
+const predefinedSystemSkill = PredefinedSkill(
+  id: 'meow.system',
+  title: 'Meow Agent system',
+  summary:
+      'Inspect and update agents, providers, profile, memory, tools, and configuration.',
+  toolGroups: ['system'],
+  toolNames: [
+    'system.self',
+    'system.rtb',
+    'system.workspace.schema',
+    'system.workspace.read',
+    'system.profile.update',
+    'system.memory.append',
+    'system.memory.search',
+    'system.config.read',
+    'system.config.patch',
+    'system.tools.list',
+    'system.export_all',
+    'system.import',
+    'agent.create',
+    'agent.delete',
+    'agent.update',
+    'agent.soul.read',
+    'agent.list',
+    'provider.create',
+    'provider.delete',
+    'provider.update',
+    'provider.list',
+    'sqlite.query',
+  ],
+  useWhen: [
+    'The user asks about Meow Agent capabilities, tools, modules, agents, or providers.',
+    'The user gives identity, profile, timezone, preferred language, or communication-style information.',
+    'The user asks the agent to remember or search durable memory.',
+    'The user asks about system database state that structured system tools cannot answer directly.',
+  ],
+  avoidWhen: [
+    'The user asks about user-defined custom tables; use meow.database.',
+    'The user asks about workspace documents; use meow.files.',
+  ],
+  requiredContextKeys: ['agent_identity', 'runtime_registry'],
+  examples: [
+    'List available tools.',
+    'Update the current agent profile.',
+    'Append a durable memory.',
+    'Create or update an agent.',
+    'Inspect provider or module configuration.',
+  ],
+  relatedSkillIds: ['meow.files'],
+);
