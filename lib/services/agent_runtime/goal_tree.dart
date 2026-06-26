@@ -130,7 +130,8 @@ class GoalTree {
 
   bool get isComplete =>
       subgoals.isNotEmpty &&
-      subgoals.every((s) => s.status == SubgoalStatus.done);
+      subgoals.every((s) => s.isTerminal) &&
+      subgoals.any((s) => s.status == SubgoalStatus.done);
 
   bool get hasFailed => subgoals.any((s) => s.status == SubgoalStatus.failed);
 

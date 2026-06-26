@@ -69,7 +69,9 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - If a tool failed only because a precondition is missing that any available tool can establish (a required target location/resource does not yet exist), do NOT give up. Select the corrective action or tool that establishes the precondition. Re-attempt the original action on the next step. Escalate to ask_user or done only after a self-repair attempt has itself failed.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
-- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).''';
+- Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).
+- MINIAPP PATCH: When calling miniapp.patch, PREFER full-rewrite mode (expectedRevision + replacementContent only, omit startLine/endLine/targetContent). This is the most reliable mode — read the app with miniapp.read, modify the code, send the entire updated code as replacementContent. Only use search-replace (targetContent) or range mode (startLine/endLine) for small targeted edits. If a previous miniapp.patch failed with a mismatch error, immediately switch to full-rewrite mode on retry.
+- CODE INSPECTION GROUNDING: When a previous tool result contains a `codeInspection` object, its boolean fields are OBJECTIVE FACTS. If the user's request requires a capability that codeInspection flags as absent (e.g. usesUserDatabase=false when the user asked for database integration), you MUST select the tool that adds the missing capability (e.g. miniapp.patch). NEVER return status="done" when codeInspection contradicts the user's goal. Do NOT rely on your own reading of the code — the inspection flags are authoritative.''';
 
 // ─── Reviewer ────────────────────────────────────────────────────────────────
 
@@ -97,7 +99,13 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - Do NOT switch to another tool unless a DIFFERENT tool is genuinely more likely to find what was missed (e.g. switching from notes.search to files.search when the user mentioned a file path). When in doubt, return done with the empty result.
 - Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
 - Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.
-- Before returning status="failed" for a precondition the agent itself can fix (a target location/resource that an available tool can create), prefer status="continue" so the next step runs the corrective action and then re-attempts the original. Reserve status="failed" for failures no available tool can repair: a disabled module/permission/toggle, an unavailable capability, or a genuinely unrecoverable error.''';
+- Before returning status="failed" for a precondition the agent itself can fix (a target location/resource that an available tool can create), prefer status="continue" so the next step runs the corrective action and then re-attempts the original. Reserve status="failed" for failures no available tool can repair: a disabled module/permission/toggle, an unavailable capability, or a genuinely unrecoverable error.
+
+GROUNDING RULE for codeInspection data:
+- When a tool result contains a `codeInspection` object (e.g. from miniapp.read), its boolean fields (`usesUserDatabase`, `initializesTables`, `readsDatabase`, `writesDatabase`, `usesThemeTokens`, `usesMeowSdk`) are OBJECTIVE FACTS extracted from the code — not opinions.
+- If the user's request requires database integration and codeInspection.usesUserDatabase is false, the task is NOT complete. You MUST return status="continue" so the agent patches the code. NEVER claim "already integrated" or skip the subgoal based on your own reading of the code — trust the codeInspection flags.
+- If codeInspection.warnings is non-empty, those warnings describe real gaps. Address them before returning status="done".
+- Never mark a subgoal "skipped" with a justification that contradicts codeInspection data (e.g. "Integration already present" when usesUserDatabase=false). The system will revert such skips.''';
 
 const promptReviewResponseFormat =
     '''Decide what to do next. Respond with ONLY valid JSON, no markdown, no explanation.

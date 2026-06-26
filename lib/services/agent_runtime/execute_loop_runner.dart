@@ -285,9 +285,9 @@ class ExecuteLoopRunner {
 
           // Even AFTER a tool has run, a selector that keeps oscillating
           // done/tool re-narrates every pass and burns the budget. Bound it:
-          // 3+ premature-done overrides means the selector cannot converge —
+          // 2+ premature-done overrides means the selector cannot converge —
           // synthesize from what we have instead of looping to exhaustion.
-          if (prematureDoneCount >= 3) {
+          if (prematureDoneCount >= 2) {
             logger.logError(
               'Selector oscillated on status=done $prematureDoneCount times '
               'after executing $toolsExecutedSoFar tool(s). Stopping the loop '
@@ -313,13 +313,18 @@ class ExecuteLoopRunner {
             'Selector tried to finish early but goal tree is incomplete '
             '(${goalTree.subgoals.where((s) => !s.isTerminal).length} subgoals remaining). Continuing loop.',
           );
+          final remainingSubgoals = goalTree.subgoals
+              .where((s) => !s.isTerminal)
+              .map((s) => '${s.id}: ${s.label} [${s.status.label}]')
+              .join('; ');
           previousResults.add({
             'step': currentStep,
             'note':
                 'SYSTEM ERROR: You returned status=done but subgoals remain '
                 'and NO tool was executed. You MUST select status=tool_required '
                 'and call the appropriate tool. Do NOT return status=done until '
-                'a tool has been executed for this task.',
+                'a tool has been executed for this task. '
+                'Remaining subgoals: $remainingSubgoals',
           });
           currentStep++;
           continue;
