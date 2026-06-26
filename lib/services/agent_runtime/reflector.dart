@@ -6,6 +6,7 @@ import 'ecosystem_snapshot.dart';
 import 'goal_tree.dart';
 import 'json_utils.dart';
 import 'language_detector.dart';
+import 'predefined_skills/predefined_skills.dart';
 import 'prompt_constants.dart';
 import 'runtime_logger.dart';
 import 'runtime_models.dart';
@@ -333,6 +334,14 @@ class Reflector {
                     '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}',
               )
               .join('\n');
+    final selectedSkillDetail = PredefinedSkillRegistry.skillDetailBlock(
+      analysis['selected_skill_ids'] is List
+          ? analysis['selected_skill_ids'] as List
+          : const [],
+    );
+    final skillBlock = selectedSkillDetail.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillDetail\n';
 
     // Recovery context: when the runtime is asking the reflector to rethink
     // after a previous failure, surface the full attempt history. This is
@@ -393,6 +402,7 @@ User message: "$userMessage"
 
 Analyzer output:
 ${_jsonSummary(analysis)}
+$skillBlock
 ${priorAttemptsBlock == null ? '' : '\n$priorAttemptsBlock\n'}${broadenedNote.isEmpty ? '' : '\n$broadenedNote\n'}
 Recent conversation:
 $historyBlock

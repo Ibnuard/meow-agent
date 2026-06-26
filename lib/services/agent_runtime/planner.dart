@@ -36,10 +36,11 @@ class Planner {
     List<Map<String, String>> recentMessages = const [],
     String agentName = '',
     String agentId = '',
+    String? defaultLanguageCode,
   }) async {
     final prompt = PromptTemplates.chatRoutePrompt(
       userMessage: userMessage,
-      languageCode: languageCode,
+      languageCode: defaultLanguageCode ?? languageCode,
       soul: soul,
       memory: memory,
       userNotIntroduced: userNotIntroduced,

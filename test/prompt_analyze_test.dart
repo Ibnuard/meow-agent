@@ -101,6 +101,35 @@ void main() {
       expect(block, contains('Never invent a skill id'));
     });
 
+    test('profile persistence rules are shared by chat route and analyzer', () {
+      expect(
+        PromptConstants.profilePersistenceRules,
+        contains('system.profile.update'),
+      );
+
+      final chatPrompt = PromptTemplates.chatRoutePrompt(
+        userMessage: 'my name is Wowo',
+        languageCode: 'en',
+        soul: '# Soul\nName: [Your Name]',
+        memory: '',
+        userNotIntroduced: true,
+        recentMessages: const [
+          {'role': 'assistant', 'content': 'What name should I use?'},
+        ],
+      );
+      final analyzePrompt = PromptTemplates.analyzePrompt(
+        userMessage: 'my name is Wowo',
+        workspace: const AgentWorkspace(soul: '# Soul\nName: [Your Name]'),
+        availableTools: const [],
+        languageCode: 'en',
+      );
+
+      expect(chatPrompt, contains('PROFILE PERSISTENCE RULES'));
+      expect(chatPrompt, contains('full agentic runtime'));
+      expect(analyzePrompt, contains('PROFILE PERSISTENCE RULES'));
+      expect(analyzePrompt, contains('system.profile.update'));
+    });
+
     test('module-specific examples live in selected skill details', () {
       final index = PredefinedSkillRegistry.analyzerIndexBlock();
       expect(index, contains('db.create_table'));
@@ -137,11 +166,30 @@ void main() {
         );
 
         expect(prompt, contains('Predefined skill index'));
+        expect(prompt, contains('Tool details are intentionally omitted'));
+        expect(prompt, isNot(contains('- db.list_tables: list tables')));
         expect(prompt, isNot(contains('System Database (meow_core.db')));
         expect(prompt, isNot(contains('World model (files.* tools)')));
         expect(prompt, isNot(contains('agent_soul(agent_id')));
         expect(prompt, isNot(contains('Documents/MeowAgent/Agents')));
       },
     );
+
+    test('selected skill context is rendered outside execution plan dumps', () {
+      final prompt = PromptTemplates.selectToolPrompt(
+        plan: const {
+          'main_goal': 'open app',
+          '_selected_skill_context': 'meow.app detail',
+        },
+        currentStep: 1,
+        previousResults: const [],
+        availableTools: const ['- app.open: Open app'],
+      );
+
+      expect(prompt, contains('Selected skill context:'));
+      expect(prompt, contains('meow.app detail'));
+      expect(prompt, contains('main_goal: open app'));
+      expect(prompt, isNot(contains('_selected_skill_context:')));
+    });
   });
 }

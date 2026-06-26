@@ -656,7 +656,6 @@ class AgentRuntimeEngine {
               phase: 'attachment_vision',
             );
           };
-      await workspaceFolder.ensureFolder(wsName);
       // Drop transient provider-error messages from history before slicing —
       // they describe past connection state, not real conversational context.
       // Without this filter the LLM sees its own "I can't connect" reply from
@@ -711,30 +710,32 @@ class AgentRuntimeEngine {
           activeLedger == null &&
           restartFromOriginalMessage == null &&
           request.attachments.isEmpty &&
-          request.userMessage.trim().isNotEmpty;
+          request.userMessage.trim().isNotEmpty &&
+          !_shouldBypassFastChatForProfileCapture(
+            soul: activeSoul,
+            recentMessages: recentMsgs,
+          );
       if (canTryChatRoute) {
         logger.logStateChange(
           AgentRuntimeState.analyzing,
           'Fast chat route check',
         );
         emit(logger.events.last);
-        final chatWorkspace = await _buildWorkspace(
-          wsName,
-          request.agentId,
-          userMessage: request.userMessage,
-          preFilteredSkills: const [],
-        );
         final userNotIntroducedForChat = _isUserNameMissing(activeSoul);
         final chatRoute = await _tryChatRoute(
           planner: planner,
           userMessage: request.userMessage,
-          soul: chatWorkspace.soul,
-          memory: chatWorkspace.memory,
+          soul: WorkspaceContextBuilder.formatSoul(wsName, activeSoul),
+          memory: '',
           userNotIntroduced: userNotIntroducedForChat,
           logger: logger,
           recentMessages: recentMsgs,
           agentName: wsName,
           agentId: request.agentId,
+          defaultLanguageCode: _chatRouteDefaultLanguageCode(
+            userMessage: request.userMessage,
+            detectedLang: detectedLang,
+          ),
         );
         if (logger.events.isNotEmpty) emit(logger.events.last);
         final route = (chatRoute?['route'] ?? '')
@@ -776,6 +777,8 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
       }
+
+      await workspaceFolder.ensureFolder(wsName);
 
       // activeSoul is loaded early at the start of run()
       final allActiveSkills = skillsRepo != null
@@ -830,19 +833,11 @@ class AgentRuntimeEngine {
       // the tool set AFTER classification (below). This prevents the LLM from
       // hallucinating or picking irrelevant tools (e.g. app_agent) just because
       // a previous ledger exists on a simple "open app" request.
-      var analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
-        toolSelection.toolNames,
-      );
-      var availableTools = toolRouter.buildToolDescriptions(
-        toolSelection.toolNames,
-      );
-      if (availableTools.isEmpty) {
-        analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
-        availableTools = toolRouter.buildAllToolDescriptions();
-      }
+      var analyzerTools = <String>[];
+      var availableTools = <String>[];
       logger.logStateChange(
         AgentRuntimeState.analyzing,
-        'Tool context: ${toolSelection.reason}${activeTaskContext.isNotEmpty ? ' [active-task ctx]' : ''} (${availableTools.length} tools, confidence ${toolSelection.confidence.toStringAsFixed(2)})',
+        'Skill context: compact predefined skill index${activeTaskContext.isNotEmpty ? ' [active-task ctx]' : ''}',
       );
       emit(logger.events.last);
       var state = AgentRuntimeState.analyzing;
@@ -857,7 +852,7 @@ class AgentRuntimeEngine {
       var analysis = await planner.analyze(
         userMessage: effectiveUserMessage,
         workspace: workspace,
-        availableTools: analyzerTools,
+        availableTools: const [],
         logger: logger,
         recentMessages: recentMsgs,
         pendingAction: pending,
@@ -913,7 +908,8 @@ class AgentRuntimeEngine {
         emit(logger.events.last);
         detectedLang = refined;
       }
-      if (activeTaskContext.isEmpty) {
+      final analyzerRequiresTools = analysis['requires_tools'] == true;
+      if (activeTaskContext.isEmpty && analyzerRequiresTools) {
         final narrowed = _toolSelectionFromAnalysis(analysis);
         final narrowedAvailable = toolRouter.buildToolDescriptions(
           narrowed.toolNames,
@@ -989,19 +985,21 @@ class AgentRuntimeEngine {
           pendingClarification = null;
           effectiveUserMessage = userMessageWithAttachments;
           activeTaskContext = '';
-          final narrowed = _toolSelectionFromAnalysis(analysis);
-          final narrowedAvailable = toolRouter.buildToolDescriptions(
-            narrowed.toolNames,
-          );
-          if (narrowedAvailable.isNotEmpty) {
-            toolSelection = narrowed;
-            analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+          if (analysis['requires_tools'] == true) {
+            final narrowed = _toolSelectionFromAnalysis(analysis);
+            final narrowedAvailable = toolRouter.buildToolDescriptions(
               narrowed.toolNames,
             );
-            availableTools = narrowedAvailable;
-          } else {
-            analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
-            availableTools = toolRouter.buildAllToolDescriptions();
+            if (narrowedAvailable.isNotEmpty) {
+              toolSelection = narrowed;
+              analyzerTools = toolRouter.buildAnalyzerToolDescriptions(
+                narrowed.toolNames,
+              );
+              availableTools = narrowedAvailable;
+            } else {
+              analyzerTools = toolRouter.buildAllAnalyzerToolDescriptions();
+              availableTools = toolRouter.buildAllToolDescriptions();
+            }
           }
           final headsUp = await verbalizer.taskAborted(
             previousMainGoal: previousGoal,
@@ -1021,7 +1019,7 @@ class AgentRuntimeEngine {
           analysis = await planner.analyze(
             userMessage: effectiveUserMessage,
             workspace: workspace,
-            availableTools: analyzerTools,
+            availableTools: const [],
             logger: logger,
             recentMessages: recentMsgs,
             pendingAction: pending,
@@ -1443,6 +1441,7 @@ class AgentRuntimeEngine {
           userMessage: effectiveUserMessage,
         );
       }
+      _attachSelectedSkillContext(plan, analysis);
       final planEvidenceRef = 'runtime_event:${logger.events.last.id}';
       final planNarrative = (plan['narrative'] ?? '').toString();
       final planLabels = (plan['subgoals'] as List? ?? const [])
@@ -1562,6 +1561,7 @@ class AgentRuntimeEngine {
             resolvedTargetLabels: reResolvedLabels,
           );
           if (newPlan == null) return null;
+          _attachSelectedSkillContext(newPlan, freshAnalysis);
           if (reTargetGraph.isNotEmpty) {
             newPlan['runtime_target_graph'] = reTargetGraph.toJson();
           }
@@ -2279,6 +2279,7 @@ class AgentRuntimeEngine {
     required List<Map<String, String>> recentMessages,
     required String agentName,
     required String agentId,
+    String? defaultLanguageCode,
   }) async {
     try {
       return await planner.chatRoute(
@@ -2290,11 +2291,38 @@ class AgentRuntimeEngine {
         recentMessages: recentMessages,
         agentName: agentName,
         agentId: agentId,
+        defaultLanguageCode: defaultLanguageCode,
       );
     } catch (e) {
       logger.logError('Fast chat route failed; falling back to analyzer', e);
       return null;
     }
+  }
+
+  String _chatRouteDefaultLanguageCode({
+    required String userMessage,
+    required DetectedLanguage detectedLang,
+  }) {
+    if (detectedLang.script != 'Latin' || detectedLang.isHighConfidence) {
+      return detectedLang.code;
+    }
+    final tokens = userMessage
+        .trim()
+        .split(RegExp(r'[^\p{L}\p{N}]+', unicode: true))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    if (tokens.length <= 1 && userMessage.trim().length <= 12) {
+      return 'en';
+    }
+    return detectedLang.code;
+  }
+
+  bool _shouldBypassFastChatForProfileCapture({
+    required AgentSoul? soul,
+    required List<Map<String, String>> recentMessages,
+  }) {
+    if (!_isUserNameMissing(soul)) return false;
+    return recentMessages.any((message) => message['role'] == 'assistant');
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({
@@ -2396,6 +2424,17 @@ class AgentRuntimeEngine {
         ?.map((e) => e.toString())
         .toList();
     return ToolCatalog.fromGroups(groupsHint);
+  }
+
+  void _attachSelectedSkillContext(
+    Map<String, dynamic> plan,
+    Map<String, dynamic> analysis,
+  ) {
+    final rawSkillIds = analysis['selected_skill_ids'];
+    if (rawSkillIds is! List) return;
+    final detail = PredefinedSkillRegistry.skillDetailBlock(rawSkillIds).trim();
+    if (detail.isEmpty) return;
+    plan['_selected_skill_context'] = detail;
   }
 
   /// Build a metadata-only context string describing attached files.

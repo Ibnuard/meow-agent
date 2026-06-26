@@ -40,6 +40,8 @@ $soul
 Memory context:
 ${memory.trim().isEmpty ? 'No relevant memory.' : memory}
 $introGateBlock
+${PromptConstants.profilePersistenceRules}
+
 Recent conversation:
 $historyBlock
 
@@ -113,6 +115,9 @@ ${PromptConstants.chatRouteResponseFormat}''';
     final predefinedSkillsBlock = PromptConstants.analyzePredefinedSkillIndex(
       PredefinedSkillRegistry.analyzerIndexBlock(),
     );
+    const toolContextBlock =
+        'Tool details are intentionally omitted before skill selection. '
+        'Use the predefined skill index to choose selected_skill_ids.';
 
     return '''${PromptConstants.analyzeIntro}
 
@@ -124,8 +129,8 @@ ${workspace.soul}
 ${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
 $predefinedSkillsBlock
 
-Available tools:
-${availableTools.join('\n')}
+Tool context:
+$toolContextBlock
 
 Recent conversation:
 $historyBlock
@@ -134,6 +139,8 @@ $pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
 User message: "$userMessage"
 
 ${PromptConstants.policyAsk}
+
+${PromptConstants.profilePersistenceRules}
 
 ${PromptConstants.analyzeRequiresToolsRules}
 
@@ -162,10 +169,19 @@ ${PromptConstants.analyzeResponseFormat}''';
     final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
         ? '\n${PromptConstants.vmWorkflowRules}\n'
         : '';
+    final selectedSkillDetail = PredefinedSkillRegistry.skillDetailBlock(
+      analysis['selected_skill_ids'] is List
+          ? analysis['selected_skill_ids'] as List
+          : const [],
+    );
+    final skillBlock = selectedSkillDetail.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillDetail\n';
     return '''${PromptConstants.planIntro}
 $vmBlock
 Analysis result:
 ${_jsonString(analysis)}
+$skillBlock
 $resolvedBlock
 Available tools:
 ${availableTools.join('\n')}
@@ -239,6 +255,12 @@ ${PromptConstants.planResponseFormat}''';
     final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
         ? '\n${PromptConstants.vmWorkflowRules}\n'
         : '';
+    final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
+        .toString()
+        .trim();
+    final selectedSkillBlock = selectedSkillContext.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.selectToolIntro}
 ${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 ${PromptConstants.policyMinimal}
@@ -246,6 +268,7 @@ $literalInstructionBlock$vmBlock
 ${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
+$selectedSkillBlock
 
 Current step: $currentStep
 Previous results (this turn):
@@ -288,6 +311,12 @@ ${PromptConstants.selectToolResponseFormat}''';
     final previousResultsBlock =
         '\nPrevious results (this turn):\n'
         '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
+    final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
+        .toString()
+        .trim();
+    final selectedSkillBlock = selectedSkillContext.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.reviewIntro}
 $selfIdentityBlock
 ${PromptConstants.policyGround}
@@ -300,6 +329,7 @@ Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
+$selectedSkillBlock
 $previousResultsBlock$historyBlock$goalBlock
 Current step: $currentStep
 
@@ -320,7 +350,10 @@ ${PromptConstants.reviewResponseFormat}''';
   }
 
   static String _jsonString(Map<String, dynamic> json) {
-    return json.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+    return json.entries
+        .where((e) => !e.key.startsWith('_'))
+        .map((e) => '  ${e.key}: ${e.value}')
+        .join('\n');
   }
 
   /// Render the canonical action map block, filtered to only the domains

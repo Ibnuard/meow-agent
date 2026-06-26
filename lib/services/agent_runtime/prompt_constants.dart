@@ -3,6 +3,7 @@ import 'prompt_context.dart';
 import 'prompt_execute.dart';
 import 'prompt_plan.dart';
 import 'prompt_policy.dart';
+import 'prompt_profile_rules.dart';
 import 'prompt_reflect.dart';
 import 'prompt_system.dart';
 import 'prompt_workflow.dart';
@@ -116,6 +117,10 @@ $_sharedSystemRules
   static const policyMinimal = promptPolicyMinimal;
   static const policyRecover = promptPolicyRecover;
   static const policyVoice = promptPolicyVoice;
+
+  // ─── Profile / soul persistence (delegated) ───────────────────────────────
+
+  static const profilePersistenceRules = promptProfilePersistenceRules;
 
   // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
 

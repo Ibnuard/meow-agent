@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:meow_agent/features/chat/data/chat_history_service.dart';
 import 'package:meow_agent/features/providers/data/provider_config.dart';
 import 'package:meow_agent/services/agent_runtime/context_builder.dart';
 import 'package:meow_agent/services/agent_runtime/goal_tree.dart';
@@ -14,9 +15,10 @@ import 'support/scripted_llm_client.dart';
 import 'support/scripted_tool_router.dart';
 
 class PermissionDeniedRouter extends ScriptedToolRouter {
-  PermissionDeniedRouter({required Map<String, ToolExecutionResult> deniedByTool})
-    : _deniedByTool = deniedByTool,
-      super(results: const {});
+  PermissionDeniedRouter({
+    required Map<String, ToolExecutionResult> deniedByTool,
+  }) : _deniedByTool = deniedByTool,
+       super(results: const {});
 
   final Map<String, ToolExecutionResult> _deniedByTool;
 
@@ -41,8 +43,12 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  ProviderConfig provider() =>
-      ProviderConfig(nickname: 'test', baseUrl: 'http://localhost', apiKey: 'k', model: 'm');
+  ProviderConfig provider() => ProviderConfig(
+    nickname: 'test',
+    baseUrl: 'http://localhost',
+    apiKey: 'k',
+    model: 'm',
+  );
 
   AgentRuntimeEngine buildEngine({
     required ScriptedLlmClient llm,
@@ -59,7 +65,22 @@ void main() {
   );
 
   AgentRuntimeRequest req(String message, {String agentId = 'a1'}) =>
-      AgentRuntimeRequest(agentId: agentId, agentName: 'TestAgent', userMessage: message);
+      AgentRuntimeRequest(
+        agentId: agentId,
+        agentName: 'TestAgent',
+        userMessage: message,
+      );
+
+  AgentRuntimeRequest reqWithHistory(
+    String message, {
+    String agentId = 'a1',
+    List<ChatMessage> recentMessages = const [],
+  }) => AgentRuntimeRequest(
+    agentId: agentId,
+    agentName: 'TestAgent',
+    userMessage: message,
+    recentMessages: recentMessages,
+  );
 
   test('S0 ordinary chat exits through fast chat route', () async {
     final llm = ScriptedLlmClient({
@@ -87,35 +108,110 @@ void main() {
     expect(router.dispatchSequence, isEmpty);
   });
 
-  test('S0 ambiguous fresh chat defaults to English before app language setting', () async {
+  test(
+    'S0 ambiguous fresh chat defaults to English before app language setting',
+    () async {
+      final llm = ScriptedLlmClient({
+        'chat_route': [
+          '{"route":"chat","detected_language":"en",'
+              '"direct_response":"Hello! What name or nickname would you like me to use?",'
+              '"reason":"short ambiguous greeting uses default language"}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+        languageCode: 'id',
+      ).run(req('halo'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, startsWith('Hello'));
+      expect(llm.phaseSequence, ['chat_route']);
+      expect(
+        llm.callLog.single.lastUserContent,
+        contains('Default response language: English'),
+      );
+      expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
+      expect(
+        res.events.any(
+          (event) => event.message.contains('Language bootstrap: en'),
+        ),
+        true,
+      );
+      expect(router.dispatchSequence, isEmpty);
+    },
+  );
+
+  test('S0b introduction answer persists profile through agentic route', () async {
     final llm = ScriptedLlmClient({
-      'chat_route': [
-        '{"route":"chat","detected_language":"en",'
-            '"direct_response":"Hello! What name or nickname would you like me to use?",'
-            '"reason":"short ambiguous greeting uses default language"}',
+      'analyze': [
+        '{"intent":"profile.update","goal":"save the user name",'
+            '"requires_tools":true,"risk":"safe","detected_language":"en",'
+            '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["save the user name"],'
+            '"task_relation":"none","narrative":"",'
+            '"next_narrative":"Next I need to save this identity detail."}',
+      ],
+      'reflect': [
+        '{"strategy":"direct_execute","goal_tree":{"main_goal":"save the user name",'
+            '"completion_criteria":["profile name saved"],"subgoals":[{"id":"sg1",'
+            '"label":"save the user name","required_slots":{},"missing_slots":[],'
+            '"status":"pending"}]},"narrative":""}',
+      ],
+      'plan': [
+        '{"main_goal":"save the user name","completion_criteria":["profile name saved"],'
+            '"subgoals":[{"id":"sg1","label":"save the user name",'
+            '"required_slots":{},"missing_slots":[],"status":"pending"}],'
+            '"narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.profile.update",'
+            '"args":{"field":"name","value":"Wowo"},"risk":"safe",'
+            '"requires_confirmation":false},"narrative":""}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Nice to meet you, Wowo.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
       ],
     });
-    final router = ScriptedToolRouter(results: const {});
+    final router = ScriptedToolRouter(
+      results: {
+        'system.profile.update': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Wowo'},
+        ),
+      },
+    );
 
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-      languageCode: 'id',
-    ).run(req('halo'), provider: provider());
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'my name is Wowo',
+        recentMessages: [
+          ChatMessage(
+            role: 'assistant',
+            content: 'Hello! What name or nickname would you like me to use?',
+          ),
+        ],
+      ),
+      provider: provider(),
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
-    expect(res.finalMessage, startsWith('Hello'));
-    expect(llm.phaseSequence, ['chat_route']);
-    expect(llm.callLog.single.lastUserContent, contains('Default response language: English'));
-    expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
-    expect(
-      res.events.any(
-        (event) => event.message.contains('Language bootstrap: en'),
-      ),
-      true,
-    );
-    expect(router.dispatchSequence, isEmpty);
+    expect(res.finalMessage, contains('Wowo'));
+    expect(llm.phaseSequence, [
+      'analyze',
+      'reflect',
+      'plan',
+      'selectTool',
+      'review',
+    ]);
+    expect(router.dispatchSequence, ['system.profile.update']);
+    expect(router.dispatchLog.single.args, {'field': 'name', 'value': 'Wowo'});
   });
 
   // ── Scenario 1: simple read ────────────────────────────────────────────
@@ -151,7 +247,9 @@ void main() {
         '{"status":"done","final_response":"Battery is at 80%.",'
             '"subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
       ],
-      'verbalize.answer_from_tool_result': ['Your battery is at 80%, not charging.'],
+      'verbalize.answer_from_tool_result': [
+        'Your battery is at 80%, not charging.',
+      ],
       'verbalize.success': ['Done.'],
     });
     final router = ScriptedToolRouter(
@@ -179,7 +277,8 @@ void main() {
         (event) =>
             event.type == 'narrative' &&
             event.data?['mode'] == 'pre_action' &&
-            event.message == 'Next I need to inspect the current battery reading.',
+            event.message ==
+                'Next I need to inspect the current battery reading.',
       ),
       isTrue,
     );
@@ -257,75 +356,81 @@ void main() {
     expect(llm.countOf('reflect'), 1);
   });
 
-  test('S2b resetAgentState clears pending confirmation and all ledgers', () async {
-    final ledgerDb = TaskLedgerDatabase(overrideDbPath: inMemoryDatabasePath);
-    addTearDown(ledgerDb.close);
-    final llm = ScriptedLlmClient({
-      'analyze': [
-        '{"intent":"app.open","goal":"open app","requires_tools":true,'
-            '"risk":"sensitive","missing_info":[],"subgoal_seeds":["open app"],'
-            '"task_relation":"none","narrative":""}',
-      ],
-      'reflect': [
-        '{"strategy":"direct_execute","goal_tree":{"main_goal":"open app",'
-            '"completion_criteria":["app opened"],"subgoals":[{"id":"sg1",'
-            '"label":"open app","required_slots":{},"missing_slots":[],'
-            '"status":"pending"}]},"narrative":""}',
-      ],
-      'plan': [
-        '{"main_goal":"open app","completion_criteria":["app opened"],'
-            '"subgoals":[{"id":"sg1","label":"open app","required_slots":{},'
-            '"missing_slots":[],"status":"pending"}],"narrative":""}',
-      ],
-      'selectTool': [
-        '{"status":"tool_required","tool":{"name":"app.open",'
-            '"args":{"package":"com.example"},"risk":"sensitive",'
-            '"requires_confirmation":true},"narrative":""}',
-      ],
-      'verbalize.confirm': ['Open the app?'],
-      'verbalize.preview': ['This would open the app.'],
-    });
-    final router = ScriptedToolRouter(results: const {});
-    final engine = buildEngine(llm: llm, router: router, ledgerDb: ledgerDb);
-    await ledgerDb.upsert(
-      TaskLedger(
-        id: 'stale_active',
-        agentId: 'a1',
-        source: LedgerSource.chat,
-        mainGoal: 'old multi-step task',
-        languageCode: 'en',
-        originalUserMessage: 'old task',
-        goalTree: GoalTree(
+  test(
+    'S2b resetAgentState clears pending confirmation and all ledgers',
+    () async {
+      final ledgerDb = TaskLedgerDatabase(overrideDbPath: inMemoryDatabasePath);
+      addTearDown(ledgerDb.close);
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"app.open","goal":"open app","requires_tools":true,'
+              '"risk":"sensitive","missing_info":[],"subgoal_seeds":["open app"],'
+              '"task_relation":"none","narrative":""}',
+        ],
+        'reflect': [
+          '{"strategy":"direct_execute","goal_tree":{"main_goal":"open app",'
+              '"completion_criteria":["app opened"],"subgoals":[{"id":"sg1",'
+              '"label":"open app","required_slots":{},"missing_slots":[],'
+              '"status":"pending"}]},"narrative":""}',
+        ],
+        'plan': [
+          '{"main_goal":"open app","completion_criteria":["app opened"],'
+              '"subgoals":[{"id":"sg1","label":"open app","required_slots":{},'
+              '"missing_slots":[],"status":"pending"}],"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.open",'
+              '"args":{"package":"com.example"},"risk":"sensitive",'
+              '"requires_confirmation":true},"narrative":""}',
+        ],
+        'verbalize.confirm': ['Open the app?'],
+        'verbalize.preview': ['This would open the app.'],
+      });
+      final router = ScriptedToolRouter(results: const {});
+      final engine = buildEngine(llm: llm, router: router, ledgerDb: ledgerDb);
+      await ledgerDb.upsert(
+        TaskLedger(
+          id: 'stale_active',
+          agentId: 'a1',
+          source: LedgerSource.chat,
           mainGoal: 'old multi-step task',
-          subgoals: [Subgoal(id: 'sg1', label: 'old step')],
+          languageCode: 'en',
+          originalUserMessage: 'old task',
+          goalTree: GoalTree(
+            mainGoal: 'old multi-step task',
+            subgoals: [Subgoal(id: 'sg1', label: 'old step')],
+          ),
         ),
-      ),
-    );
-    final archived = TaskLedger(
-      id: 'stale_archived',
-      agentId: 'a1',
-      source: LedgerSource.workflow,
-      mainGoal: 'old archived task',
-      languageCode: 'en',
-      originalUserMessage: 'old workflow task',
-      goalTree: GoalTree(
+      );
+      final archived = TaskLedger(
+        id: 'stale_archived',
+        agentId: 'a1',
+        source: LedgerSource.workflow,
         mainGoal: 'old archived task',
-        subgoals: [Subgoal(id: 'sg1', label: 'old workflow step')],
-      ),
-    );
-    await ledgerDb.upsert(archived);
-    await ledgerDb.archive('stale_archived', LedgerStatus.completed);
+        languageCode: 'en',
+        originalUserMessage: 'old workflow task',
+        goalTree: GoalTree(
+          mainGoal: 'old archived task',
+          subgoals: [Subgoal(id: 'sg1', label: 'old workflow step')],
+        ),
+      );
+      await ledgerDb.upsert(archived);
+      await ledgerDb.archive('stale_archived', LedgerStatus.completed);
 
-    final res = await engine.run(req('open the example app'), provider: provider());
-    expect(res.state, AgentRuntimeState.waitingConfirmation);
-    expect(engine.getPendingAction('a1'), isNotNull);
+      final res = await engine.run(
+        req('open the example app'),
+        provider: provider(),
+      );
+      expect(res.state, AgentRuntimeState.waitingConfirmation);
+      expect(engine.getPendingAction('a1'), isNotNull);
 
-    await engine.resetAgentState('a1');
+      await engine.resetAgentState('a1');
 
-    expect(engine.getPendingAction('a1'), isNull);
-    expect(await ledgerDb.findById('stale_active'), isNull);
-    expect(await ledgerDb.findById('stale_archived'), isNull);
-  });
+      expect(engine.getPendingAction('a1'), isNull);
+      expect(await ledgerDb.findById('stale_active'), isNull);
+      expect(await ledgerDb.findById('stale_archived'), isNull);
+    },
+  );
 
   // ── Scenario 3: ambiguous → clarify ────────────────────────────────────
   test('S3 ambiguous request asks a clarifying question', () async {
@@ -507,7 +612,9 @@ void main() {
     expect(res.finalMessage.toLowerCase(), isNot(contains('created')));
     expect(
       res.events.any(
-        (event) => event.type == 'stream_bubble' && event.data?['kind'] == 'tool_failure',
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'tool_failure',
       ),
       true,
     );
@@ -563,10 +670,11 @@ void main() {
       },
     );
     final emitted = <RuntimeEvent>[];
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('create 3 notes A, B, C'), provider: provider(), onEvent: emitted.add);
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('create 3 notes A, B, C'),
+      provider: provider(),
+      onEvent: emitted.add,
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -584,7 +692,9 @@ void main() {
     );
     expect(
       res.events.any(
-        (event) => event.type == 'stream_bubble' && event.data?['kind'] == 'next_action',
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'next_action',
       ),
       true,
     );
@@ -710,10 +820,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('delete all notes with draft in the title'), provider: provider());
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('delete all notes with draft in the title'),
+      provider: provider(),
+    );
 
     // Bulk delete with two drafts → parks for confirmation (sensitive tool).
     expect(res.state, AgentRuntimeState.waitingConfirmation);
@@ -754,8 +864,12 @@ void main() {
             '"args":{"operations":[{"op":"replace","path":"/agents","value":[]}]},'
             '"risk":"sensitive","requires_confirmation":true},"narrative":""}',
       ],
-      'verbalize.confirm': ['Delete agent Coder? This will affect the Code Review workflow.'],
-      'verbalize.preview': ['Coder is used by Code Review workflow. It will need a new agent.'],
+      'verbalize.confirm': [
+        'Delete agent Coder? This will affect the Code Review workflow.',
+      ],
+      'verbalize.preview': [
+        'Coder is used by Code Review workflow. It will need a new agent.',
+      ],
     });
     final router = ScriptedToolRouter(
       results: {
@@ -880,21 +994,27 @@ void main() {
         'miniapp.patch': const ToolExecutionResult(
           success: true,
           toolName: 'miniapp.patch',
-          data: {'id': 'calorie_calculator', 'patched': true, 'persisted': true},
+          data: {
+            'id': 'calorie_calculator',
+            'patched': true,
+            'persisted': true,
+          },
         ),
       },
     );
 
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('redesign Calorie Calculator with a modern layout'), provider: provider());
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('redesign Calorie Calculator with a modern layout'),
+      provider: provider(),
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(router.dispatchSequence, ['miniapp.read', 'miniapp.patch']);
     expect(llm.countOf('review'), 2);
-    final selectorCalls = llm.callLog.where((call) => call.phase == 'selectTool').toList();
+    final selectorCalls = llm.callLog
+        .where((call) => call.phase == 'selectTool')
+        .toList();
     expect(selectorCalls[1].lastUserContent, contains('-END'));
     expect(selectorCalls[1].lastUserContent, isNot(contains('…(+')));
   });
@@ -935,7 +1055,11 @@ void main() {
                 'description': 'Read current battery level.',
                 'available': true,
               },
-              {'name': 'notes.create', 'description': 'Create a note.', 'available': true},
+              {
+                'name': 'notes.create',
+                'description': 'Create a note.',
+                'available': true,
+              },
             ],
           },
         ),
@@ -949,47 +1073,53 @@ void main() {
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(router.dispatchSequence, ['system.tools.list']);
-    expect(res.finalMessage.toLowerCase(), contains('belum punya tool kontrol media'));
-  });
-
-  test('S18 unavailable capability cannot turn into follow-up question', () async {
-    final llm = ScriptedLlmClient({
-      'analyze': [
-        '{"intent":"media.play","goal":"play a song","requires_tools":true,'
-            '"risk":"safe","tool_groups":["app"],"missing_info":[],'
-            '"subgoal_seeds":["play song"],"task_relation":"none",'
-            '"narrative":""}',
-      ],
-      'selectTool': [
-        '{"status":"tool_required","tool":{"name":"app.resolve",'
-            '"args":{"query":"music player"},"risk":"safe",'
-            '"requires_confirmation":false},"narrative":""}',
-      ],
-      'review': [
-        '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
-            '"subgoal_update":{"id":"sg1","status":"in_progress"},'
-            '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
-      ],
-    });
-    final router = ScriptedToolRouter(
-      results: {
-        'app.resolve': const ToolExecutionResult(
-          success: false,
-          toolName: 'app.resolve',
-          error: 'media control unavailable: no tool can play songs',
-        ),
-      },
+    expect(
+      res.finalMessage.toLowerCase(),
+      contains('belum punya tool kontrol media'),
     );
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('coba play lagu katanya bisa'), provider: provider());
-
-    expect(res.success, false);
-    expect(res.state, AgentRuntimeState.failed);
-    expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
-    expect(router.dispatchSequence, ['app.resolve']);
   });
+
+  test(
+    'S18 unavailable capability cannot turn into follow-up question',
+    () async {
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"media.play","goal":"play a song","requires_tools":true,'
+              '"risk":"safe","tool_groups":["app"],"missing_info":[],'
+              '"subgoal_seeds":["play song"],"task_relation":"none",'
+              '"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.resolve",'
+              '"args":{"query":"music player"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+        'review': [
+          '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
+              '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+              '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
+        ],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'app.resolve': const ToolExecutionResult(
+            success: false,
+            toolName: 'app.resolve',
+            error: 'media control unavailable: no tool can play songs',
+          ),
+        },
+      );
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('coba play lagu katanya bisa'), provider: provider());
+
+      expect(res.success, false);
+      expect(res.state, AgentRuntimeState.failed);
+      expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
+      expect(router.dispatchSequence, ['app.resolve']);
+    },
+  );
 
   test('S19 missing ecosystem module returns an install action', () async {
     final llm = ScriptedLlmClient({
