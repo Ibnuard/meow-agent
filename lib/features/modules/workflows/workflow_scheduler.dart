@@ -153,13 +153,10 @@ class WorkflowScheduler {
 
       if (wf.trigger.type == TriggerType.interval) {
         final intervalSecs = (wf.trigger.intervalMinutes ?? 60) * 60;
-        if (wf.lastRun == null) {
-          untilFire = Duration.zero;
-        } else {
-          final elapsed = now.difference(wf.lastRun!).inSeconds;
-          final remaining = intervalSecs - elapsed;
-          untilFire = Duration(seconds: remaining > 0 ? remaining : 0);
-        }
+        final lastTime = wf.lastRun ?? wf.createdAt;
+        final elapsed = now.difference(lastTime).inSeconds;
+        final remaining = intervalSecs - elapsed;
+        untilFire = Duration(seconds: remaining > 0 ? remaining : 0);
       } else if (wf.trigger.type == TriggerType.schedule) {
         final next = nextFireTime(wf.trigger);
         if (next != null) {

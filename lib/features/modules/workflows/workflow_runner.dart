@@ -184,8 +184,8 @@ class WorkflowRunner {
   /// Check if a workflow is due to run now.
   bool _isDue(WorkflowModel wf, DateTime now) {
     if (wf.trigger.type == TriggerType.interval) {
-      if (wf.lastRun == null) return true;
-      final elapsed = now.difference(wf.lastRun!).inSeconds;
+      final lastTime = wf.lastRun ?? wf.createdAt;
+      final elapsed = now.difference(lastTime).inSeconds;
       return elapsed >= (wf.trigger.intervalMinutes ?? 60) * 60;
     }
 
