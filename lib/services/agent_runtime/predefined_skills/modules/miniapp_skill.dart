@@ -23,11 +23,11 @@ const predefinedMiniAppSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['miniapp_registry', 'host_theme_tokens'],
   examples: [
-    'List installed Mini Apps.',
-    'Create a tracker Mini App.',
-    'Read a Mini App definition.',
-    'Patch an existing Mini App.',
-    'Delete a Mini App.',
+    '"list my Mini Apps" -> miniapp.list.',
+    '"create an expense tracker app" -> miniapp.create.',
+    '"open/read the tracker app definition" -> miniapp.read.',
+    '"change the app layout" -> miniapp.read then miniapp.patch.',
+    '"delete this Mini App" -> miniapp.delete.',
   ],
   relatedSkillIds: ['meow.database'],
 );

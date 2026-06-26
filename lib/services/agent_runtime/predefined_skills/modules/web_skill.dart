@@ -24,10 +24,10 @@ const predefinedWebSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['api_store_registry'],
   examples: [
-    'Fetch a URL.',
-    'List registered APIs.',
-    'Call a stored API.',
-    'Register an API endpoint.',
-    'Remove a stored API.',
+    '"fetch this API URL" -> web.fetch.',
+    '"list my saved APIs" -> web.api.list.',
+    '"call @api:name with params" -> web.api.call.',
+    '"save this endpoint as an API" -> web.api.register.',
+    '"remove this saved API" -> web.api.remove.',
   ],
 );

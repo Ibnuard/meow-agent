@@ -109,4 +109,25 @@ class PredefinedSkillRegistry {
         })
         .join('\n');
   }
+
+  static String skillDetailBlock(Iterable<Object?> rawSkillIds) {
+    return resolve(normalizeSkillIds(rawSkillIds))
+        .map((skill) {
+          final groups = skill.toolGroups.join(', ');
+          final tools = skill.toolNames.join(', ');
+          final useWhen = skill.useWhen.map((e) => '- $e').join('\n');
+          final avoidWhen = skill.avoidWhen.map((e) => '- $e').join('\n');
+          final examples = skill.examples.take(4).join('; ');
+          return '''${skill.id} — ${skill.title}
+Summary: ${skill.summary}
+Tool groups: [$groups]
+Tools: [$tools]
+Use when:
+$useWhen
+Avoid when:
+${avoidWhen.isEmpty ? '- No special exclusions.' : avoidWhen}
+Examples: [$examples]''';
+        })
+        .join('\n\n');
+  }
 }

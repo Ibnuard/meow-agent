@@ -21,9 +21,9 @@ const predefinedAppSkill = PredefinedSkill(
     'The user asks about foreground app, battery, network, or storage state; use meow.device when it exists.',
   ],
   examples: [
-    'Open a named app.',
-    'Open a URL.',
-    'List installed apps.',
-    'Open a settings screen.',
+    '"open <app>" -> app.resolve then app.open; task is done once the app is open.',
+    '"open <url>" -> intent.open_url.',
+    '"what apps are installed?" -> app.list_installed.',
+    '"open wifi settings" -> settings.open.',
   ],
 );

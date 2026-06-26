@@ -27,10 +27,12 @@ const predefinedWorkflowSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['workflow_templates', 'existing_workflows'],
   examples: [
-    'Create a scheduled automation.',
-    'List workflows.',
-    'Update a workflow schedule or action.',
-    'Enable or disable a workflow.',
-    'Delete a workflow.',
+    '"run this every morning" -> workflow.create.',
+    '"create workflow from template" -> workflow.create_from_template.',
+    '"list workflows" -> workflow.list.',
+    '"show this workflow" -> workflow.read.',
+    '"change the schedule" -> workflow.update.',
+    '"turn off this workflow" -> workflow.toggle.',
+    '"delete this workflow" -> workflow.delete.',
   ],
 );

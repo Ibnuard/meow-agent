@@ -17,7 +17,7 @@ const predefinedChatSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['current_agent_id'],
   examples: [
-    'Send a markdown report to this chat.',
-    'Deliver workflow output as a chat bubble.',
+    '"send this report to chat" -> chat.send.',
+    '"post workflow result here" -> chat.send.',
   ],
 );

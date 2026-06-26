@@ -14,5 +14,8 @@ const predefinedClipboardSkill = PredefinedSkill(
     'The user wants to save durable memory; use meow.system.',
     'The user wants to write a workspace file; use meow.files.',
   ],
-  examples: ['Read clipboard text.', 'Copy provided text to clipboard.'],
+  examples: [
+    '"read my clipboard" -> clipboard.read.',
+    '"copy this text" -> clipboard.write.',
+  ],
 );

@@ -27,9 +27,9 @@ const predefinedCommunicationSkill = PredefinedSkill(
     'sms_permission',
   ],
   examples: [
-    'Resolve a contact name.',
-    'List matching contacts.',
-    'Make a phone call.',
-    'Send an SMS.',
+    '"find contact <name>" -> communication.resolve_contact.',
+    '"list contacts matching <query>" -> communication.list_contacts.',
+    '"call <name>" -> communication.resolve_contact then communication.call.',
+    '"send SMS to <name>" -> communication.resolve_contact then communication.send_sms.',
   ],
 );

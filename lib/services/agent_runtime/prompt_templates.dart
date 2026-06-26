@@ -118,7 +118,6 @@ ${PromptConstants.chatRouteResponseFormat}''';
 
 ${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
 
-${PromptConstants.systemMarkdownMap}
 $selfIdentityBlock$vmBlock
 Identity context (user profile stored in database):
 ${workspace.soul}
@@ -139,8 +138,6 @@ ${PromptConstants.policyAsk}
 ${PromptConstants.analyzeRequiresToolsRules}
 
 ${PromptConstants.analyzeCrossDomainAmbiguityRule}
-
-${PromptConstants.analyzeExamples}
 
 ${PromptConstants.analyzeResponseFormat}''';
   }

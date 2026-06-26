@@ -31,10 +31,11 @@ const predefinedNotesSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['notes_index'],
   examples: [
-    'Create a note.',
-    'Search notes.',
-    'Append to a note.',
-    'Archive or pin a note.',
-    'Export notes.',
+    '"create a note titled <title>" -> notes.create.',
+    '"show recent notes" -> notes.list_recent.',
+    '"search notes for <query>" -> notes.search.',
+    '"append this to my journal" -> notes.search/read then notes.append.',
+    '"archive this note" -> notes.archive.',
+    '"export notes" -> notes.export.',
   ],
 );

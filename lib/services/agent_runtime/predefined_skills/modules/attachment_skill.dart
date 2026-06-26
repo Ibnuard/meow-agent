@@ -21,9 +21,9 @@ const predefinedAttachmentSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['current_message_attachments', 'model_vision_support'],
   examples: [
-    'List attached files.',
-    'Read an attached text file.',
-    'Describe an attached image.',
-    'Answer a question using an attached file.',
+    '"what files did I attach?" -> attachment.list.',
+    '"summarize this attached text file" -> attachment.read_text.',
+    '"what is in this image?" -> attachment.describe_image with the user question as prompt.',
+    '"answer from the attachment" -> attachment.list then read the relevant supported attachment.',
   ],
 );

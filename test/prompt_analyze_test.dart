@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meow_agent/services/agent_runtime/prompt_constants.dart';
+import 'package:meow_agent/services/agent_runtime/prompt_templates.dart';
+import 'package:meow_agent/services/agent_runtime/predefined_skills/predefined_skills.dart';
+import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 
 void main() {
   group('Analyzer prompt guardrails', () {
@@ -10,8 +13,8 @@ void main() {
 
         expect(rule, contains('FIRST_ASK_USER'));
         expect(rule, contains('CURRENT message'));
-        expect(rule, contains('clearly the notification tool'));
-        expect(rule, contains('clearly the clipboard tool'));
+        expect(rule, contains('explicitly scopes'));
+        expect(rule, contains('one interpretation dominates'));
       },
     );
 
@@ -39,7 +42,7 @@ void main() {
       expect(PromptConstants.policyAsk, contains('POPULATING COLLECTIONS'));
       expect(
         PromptConstants.analyzeRequiresToolsRules,
-        contains('Do not insert a sample row first'),
+        contains('Ask for scope when missing'),
       );
       expect(
         PromptConstants.analyzeResponseFormat,
@@ -97,5 +100,48 @@ void main() {
       expect(block, contains('selected_skill_ids'));
       expect(block, contains('Never invent a skill id'));
     });
+
+    test('module-specific examples live in selected skill details', () {
+      final index = PredefinedSkillRegistry.analyzerIndexBlock();
+      expect(index, contains('db.create_table'));
+      expect(index, contains('system.profile.update'));
+      expect(index, contains('app.resolve'));
+      expect(index, isNot(contains('"open <app>"')));
+
+      final appDetail = PredefinedSkillRegistry.skillDetailBlock(['meow.app']);
+      expect(appDetail, contains('"open <app>"'));
+      expect(appDetail, contains('app.resolve then app.open'));
+    });
+
+    test('analyzer constants do not own world model or examples', () {
+      expect(PromptConstants.systemMarkdownMap, contains('meow_core.db'));
+      expect(
+        PromptConstants.analyzeRequiresToolsRules,
+        isNot(contains('meow_core.db')),
+      );
+      expect(PromptConstants.analyzeResponseFormat, contains('subgoal_seeds'));
+      expect(
+        PromptConstants.analyzeResponseFormat,
+        isNot(contains('create 3')),
+      );
+    });
+
+    test(
+      'analyze prompt does not inject heavy world model or database schema',
+      () {
+        final prompt = PromptTemplates.analyzePrompt(
+          userMessage: 'show my tables',
+          workspace: const AgentWorkspace(soul: 'User: Test'),
+          availableTools: const ['- db.list_tables: list tables'],
+          languageCode: 'en',
+        );
+
+        expect(prompt, contains('Predefined skill index'));
+        expect(prompt, isNot(contains('System Database (meow_core.db')));
+        expect(prompt, isNot(contains('World model (files.* tools)')));
+        expect(prompt, isNot(contains('agent_soul(agent_id')));
+        expect(prompt, isNot(contains('Documents/MeowAgent/Agents')));
+      },
+    );
   });
 }

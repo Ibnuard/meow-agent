@@ -28,10 +28,11 @@ const predefinedNotificationSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['notification_access_status', 'recent_notifications'],
   examples: [
-    'Summarize recent notifications.',
-    'Classify important notifications.',
-    'Suggest a reply.',
-    'Reply to a notification.',
-    'Create a local notification.',
+    '"do I have notifications?" -> notification.status then notification.read_recent.',
+    '"summarize my notifications" -> notification.summarize.',
+    '"which notifications are important?" -> notification.classify.',
+    '"suggest a reply to that notification" -> notification.reply_suggestion.',
+    '"reply to this notification" -> notification.reply.',
+    '"notify me with this message" -> notification.create_local.',
   ],
 );

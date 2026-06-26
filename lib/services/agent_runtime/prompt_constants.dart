@@ -129,7 +129,6 @@ $_sharedSystemRules
       promptAnalyzeCrossDomainAmbiguityRule;
   static String analyzePredefinedSkillIndex(String skillIndexBlock) =>
       promptAnalyzePredefinedSkillIndex(skillIndexBlock);
-  static const analyzeExamples = promptAnalyzeExamples;
   static const analyzeResponseFormat = promptAnalyzeResponseFormat;
 
   // ─── Reflector (delegated to prompt_reflect.dart) ──────────────────────────

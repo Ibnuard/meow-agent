@@ -150,5 +150,21 @@ void main() {
         reason: 'meow.system declares meow.files as a related skill.',
       );
     });
+
+    test(
+      'analyzer index is compact while selected skill detail keeps examples',
+      () {
+        final index = PredefinedSkillRegistry.analyzerIndexBlock();
+        expect(index, contains('meow.app'));
+        expect(index, contains('key_tools=[app.resolve'));
+        expect(index, isNot(contains('examples=')));
+        expect(index, isNot(contains('"open <app>"')));
+
+        final detail = PredefinedSkillRegistry.skillDetailBlock(['meow.app']);
+        expect(detail, contains('Examples:'));
+        expect(detail, contains('"open <app>"'));
+        expect(detail, contains('app.resolve then app.open'));
+      },
+    );
   });
 }

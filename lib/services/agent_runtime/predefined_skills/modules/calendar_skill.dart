@@ -29,10 +29,11 @@ const predefinedCalendarSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['calendar_events', 'device_time'],
   examples: [
-    'Create a calendar event.',
-    'List today or upcoming events.',
-    'Check for conflicts.',
-    'Find a free time slot.',
-    'Delete an event.',
+    '"create a meeting tomorrow at 9" -> calendar.create.',
+    '"what is on my calendar today?" -> calendar.today.',
+    '"show events next week" -> calendar.list.',
+    '"am I free at 2 PM?" -> calendar.conflicts.',
+    '"find me a free hour this week" -> calendar.free_slot.',
+    '"delete this event" -> calendar.delete.',
   ],
 );

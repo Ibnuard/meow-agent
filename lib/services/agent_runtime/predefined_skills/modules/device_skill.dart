@@ -35,10 +35,11 @@ const predefinedDeviceSkill = PredefinedSkill(
   ],
   requiredContextKeys: ['android_permissions'],
   examples: [
-    'Check battery or charging status.',
-    'Read network, WiFi, or cellular status.',
-    'Show current foreground app.',
-    'Read app usage stats.',
-    'Toggle Do Not Disturb.',
+    '"what is my battery?" -> device.battery.',
+    '"am I charging?" -> device.charging.',
+    '"check my wifi" -> device.wifi.',
+    '"what app is open right now?" -> device.foreground_app.',
+    '"show my screen time" -> device.usage_stats.',
+    '"turn on do not disturb" -> device.dnd.set.',
   ],
 );
