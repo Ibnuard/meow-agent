@@ -314,6 +314,66 @@ Design Preference:
     }
     return buf.toString().trim();
   }
+
+  /// Keyword-based skill filtering — replaces the old LLM-based
+  /// `_selectRelevantSkills` round-trip. Uses the same tokenization
+  /// pattern as [_selectRelevantMemory]: language-generic, no stopword
+  /// lists, minimum token length.
+  ///
+  /// Returns all skills when:
+  /// - ≤3 active skills (not worth filtering)
+  /// - total content < 3000 chars (prompt won't bloat)
+  /// - no extractable keywords from userMessage
+  ///
+  /// Otherwise scores each skill's title+content against userMessage
+  /// keywords and keeps the top matches (min 2, max all with score > 0).
+  static List<AgentSkill> selectRelevantSkills({
+    required List<AgentSkill> activeSkills,
+    required String? userMessage,
+  }) {
+    if (activeSkills.length <= 3) return activeSkills;
+
+    final totalLength = activeSkills.fold<int>(
+      0,
+      (sum, s) => sum + s.content.length,
+    );
+    if (totalLength < 3000) return activeSkills;
+
+    final keywords = _extractKeywords(userMessage);
+    if (keywords.isEmpty) return activeSkills;
+
+    final scored = <_ScoredSkill>[];
+    for (final skill in activeSkills) {
+      final score = _scoreSkill(skill, keywords);
+      if (score > 0) {
+        scored.add(_ScoredSkill(skill: skill, score: score));
+      }
+    }
+
+    if (scored.isEmpty) return activeSkills;
+    scored.sort((a, b) => b.score.compareTo(a.score));
+    // Keep all skills with score > 0, minimum 2.
+    final result = scored.map((s) => s.skill).toList();
+    return result.length >= 2 ? result : activeSkills;
+  }
+
+  /// Score a skill by keyword overlap with title + content.
+  static int _scoreSkill(AgentSkill skill, Set<String> keywords) {
+    final text = '${skill.title} ${skill.content}'.toLowerCase();
+    var score = 0;
+    for (final kw in keywords) {
+      if (text.contains(kw)) score += 2;
+    }
+    return score;
+  }
+}
+
+/// A skill paired with its relevance score during keyword filtering.
+class _ScoredSkill {
+  const _ScoredSkill({required this.skill, required this.score});
+
+  final AgentSkill skill;
+  final int score;
 }
 
 /// A memory entry paired with its relevance score during recall selection.

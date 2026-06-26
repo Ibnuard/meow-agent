@@ -257,24 +257,4 @@ CRITICAL RULES:
 ''';
 }
 
-/// Prompt template to select relevant skills based on the user's message.
-String promptSelectRelevantSkills({
-  required String userMessage,
-  required String skillsListBlock,
-}) {
-  return '''
-You are a skill selector for an AI agent runtime.
-Analyze the user message and select which of the available skills are relevant to the user request.
 
-User Message: "$userMessage"
-
-Available Skills:
-$skillsListBlock
-
-Respond ONLY with a JSON object containing the IDs (or titles/names) of the relevant skills:
-{
-  "relevant_skill_ids": ["skill_id_or_title_1", "skill_id_or_title_2"]
-}
-If no skills are relevant, return an empty list. Do not include markdown formatting or explanations.
-''';
-}

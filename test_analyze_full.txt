@@ -1,0 +1,26 @@
+﻿Analyzing test...                                               
+
+  error - The getter 'analyzeCrossDomainAmbiguityRule' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:12:38 - undefined_getter
+  error - The getter 'analyzeResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:27:25 - undefined_getter
+  error - The getter 'reflectResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:31:25 - undefined_getter
+  error - The getter 'planResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:34:30 - undefined_getter
+  error - The getter 'analyzeRequiresToolsRules' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:44:25 - undefined_getter
+  error - The getter 'analyzeResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:48:25 - undefined_getter
+  error - The getter 'analyzeResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:52:25 - undefined_getter
+  error - The getter 'planResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:56:25 - undefined_getter
+  error - The method 'analyzePredefinedSkillIndex' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:95:37 - undefined_method
+  error - The method 'chatRoutePrompt' isn't defined for the type 'PromptTemplates' - test\prompt_analyze_test.dart:110:42 - undefined_method
+  error - The method 'analyzePrompt' isn't defined for the type 'PromptTemplates' - test\prompt_analyze_test.dart:120:45 - undefined_method
+  error - The getter 'analyzeRequiresToolsRules' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:148:25 - undefined_getter
+  error - The getter 'analyzeResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:151:30 - undefined_getter
+  error - The getter 'analyzeResponseFormat' isn't defined for the type 'PromptConstants' - test\prompt_analyze_test.dart:153:25 - undefined_getter
+  error - The method 'analyzePrompt' isn't defined for the type 'PromptTemplates' - test\prompt_analyze_test.dart:161:40 - undefined_method
+  error - The method 'analyzePrompt' isn't defined for the type 'PromptTemplates' - test\runtime_phase1_test.dart:466:38 - undefined_method
+
+flutter : 16 issues found. (ran in 4.8s)
+At line:1 char:1
++ flutter analyze test 2>&1 | Out-File -FilePath test_analyze_full.txt  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (16 issues found. (ran in 4.8s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -24,7 +24,6 @@ import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
 import 'json_utils.dart';
-import 'llm_json_caller.dart';
 import 'language_detector.dart';
 import 'memory_extractor.dart';
 import 'narrative_narrator.dart';
@@ -192,80 +191,7 @@ class AgentRuntimeEngine {
     );
   }
 
-  /// Use a lightweight LLM call to select which skills are relevant to the user request.
-  Future<List<AgentSkill>> _selectRelevantSkills({
-    required List<AgentSkill> activeSkills,
-    required String userMessage,
-    required LlmProviderConfig config,
-    required OpenAiCompatibleClient client,
-    required RuntimeLogger logger,
-  }) async {
-    if (activeSkills.isEmpty) return const [];
-    if (userMessage.trim().isEmpty) return activeSkills;
-    if (activeSkills.length <= 1) return activeSkills;
-    final totalLength = activeSkills.fold<int>(
-      0,
-      (sum, s) => sum + s.content.length,
-    );
-    if (totalLength < 2000) return activeSkills;
 
-    try {
-      final buffer = StringBuffer();
-      for (final skill in activeSkills) {
-        final snippet = skill.content.length > 200
-            ? '${skill.content.substring(0, 200)}...'
-            : skill.content;
-        buffer.writeln('- ID: ${skill.id}');
-        buffer.writeln('  Title: ${skill.title}');
-        buffer.writeln('  Content Snippet: $snippet');
-        buffer.writeln();
-      }
-
-      final prompt = PromptConstants.selectRelevantSkills(
-        userMessage: userMessage,
-        skillsListBlock: buffer.toString().trim(),
-      );
-
-      final caller = LlmJsonCaller(client: client, config: config);
-      final response = await caller.call(prompt, 'skills_selection', logger);
-
-      if (response == null) {
-        logger.logError(
-          'Skills selector returned null, falling back to all active skills',
-        );
-        return activeSkills;
-      }
-
-      final relevantIdentifiers = (response['relevant_skill_ids'] as List?)
-          ?.map((e) => e.toString().trim().toLowerCase())
-          .toSet();
-
-      if (relevantIdentifiers == null) {
-        logger.logError(
-          'Skills selector response format invalid, falling back to all active skills',
-        );
-        return activeSkills;
-      }
-
-      final matched = activeSkills.where((s) {
-        final idLower = s.id.toLowerCase();
-        final titleLower = s.title.toLowerCase();
-        return relevantIdentifiers.contains(idLower) ||
-            relevantIdentifiers.contains(titleLower);
-      }).toList();
-      logger.logStateChange(
-        AgentRuntimeState.analyzing,
-        'Skills selector filtered active skills: ${matched.map((s) => s.title).join(', ')} (from total ${activeSkills.length})',
-      );
-      return matched;
-    } catch (e) {
-      logger.logError(
-        'Failed to select relevant skills using LLM, falling back to all active skills',
-        e,
-      );
-      return activeSkills;
-    }
-  }
 
   /// True if the user hasn't introduced themselves yet. Drives the
   /// introduction gate. Phase 7: reads `agent_soul.user_name` directly.
@@ -711,13 +637,18 @@ class AgentRuntimeEngine {
           ? await skillsRepo!.getActiveSkillsForAgent(request.agentId)
           : const <AgentSkill>[];
 
-      final filteredSkills = await _selectRelevantSkills(
+      // P2: Keyword-based skill filtering — no LLM call needed.
+      // Uses the same tokenization pattern as memory recall.
+      final filteredSkills = WorkspaceContextBuilder.selectRelevantSkills(
         activeSkills: allActiveSkills,
         userMessage: request.userMessage,
-        config: llmConfig,
-        client: client,
-        logger: logger,
       );
+      if (filteredSkills.length != allActiveSkills.length) {
+        logger.logStateChange(
+          AgentRuntimeState.analyzing,
+          'Keyword-filtered skills: ${filteredSkills.length}/${allActiveSkills.length} active',
+        );
+      }
 
       final workspace = await _buildWorkspace(
         wsName,
@@ -1394,7 +1325,9 @@ class AgentRuntimeEngine {
       Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
       rethink() async {
         try {
-          final freshSnapshot = await _buildSnapshot();
+          // P3: Reuse the classify snapshot — state hasn't changed
+          // between classify and first recovery attempt.
+          final freshSnapshot = classifySnapshot;
           final freshAnalysis = Map<String, dynamic>.from(capturedAnalysis);
           final priorContext = recovery.toReflectionContextList();
           if (priorContext.isNotEmpty) {

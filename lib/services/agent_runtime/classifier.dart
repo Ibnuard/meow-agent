@@ -93,7 +93,7 @@ class Classifier {
     String agentId = '',
     List<String> resolvedTargetLabels = const [],
   }) async {
-    final prompt = _buildPrompt(
+    final prompt = buildPrompt(
       userMessage: userMessage,
       workspace: workspace,
       snapshot: snapshot,
@@ -134,7 +134,7 @@ class Classifier {
 
   // ─── Prompt builder ────────────────────────────────────────────────────────
 
-  String _buildPrompt({
+  static String buildPrompt({
     required String userMessage,
     required AgentWorkspace workspace,
     required EcosystemSnapshot snapshot,
@@ -203,9 +203,10 @@ class Classifier {
         ? ''
         : '\nSelected skill context:\n$selectedSkillDetail\n';
 
-    final predefinedSkillsBlock = PromptConstants.analyzePredefinedSkillIndex(
-      PredefinedSkillRegistry.analyzerIndexBlock(),
-    );
+    final predefinedSkillsBlock =
+        PredefinedSkillRegistry.analyzerIndexBlock().isEmpty
+        ? ''
+        : '\nPredefined skill index:\n${PredefinedSkillRegistry.analyzerIndexBlock()}\n';
 
     final resolvedBlock = resolvedTargetLabels.isEmpty
         ? ''
@@ -250,7 +251,7 @@ $promptClassifyPlanRules
 $promptClassifyResponseFormat''';
   }
 
-  String _schemaSummary(Map<String, String> schema) {
+  static String _schemaSummary(Map<String, String> schema) {
     final entries = schema.entries.take(8).map((e) => '${e.key}:${e.value}');
     return entries.join(', ');
   }

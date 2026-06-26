@@ -1,10 +1,7 @@
-import 'prompt_analyze.dart';
 import 'prompt_context.dart';
 import 'prompt_execute.dart';
-import 'prompt_plan.dart';
 import 'prompt_policy.dart';
 import 'prompt_profile_rules.dart';
-import 'prompt_reflect.dart';
 import 'prompt_system.dart';
 import 'prompt_workflow.dart';
 
@@ -122,30 +119,9 @@ $_sharedSystemRules
 
   static const profilePersistenceRules = promptProfilePersistenceRules;
 
-  // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
+  // ─── System markdown map (delegated to prompt_context.dart) ─────────────
 
-  static const analyzeIntro = promptAnalyzeIntro;
-  static const chatRouteIntro = promptChatRouteIntro;
-  static const chatRouteRules = promptChatRouteRules;
-  static const chatRouteResponseFormat = promptChatRouteResponseFormat;
   static const systemMarkdownMap = promptSystemMarkdownMap;
-  static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
-  static const analyzeCrossDomainAmbiguityRule =
-      promptAnalyzeCrossDomainAmbiguityRule;
-  static String analyzePredefinedSkillIndex(String skillIndexBlock) =>
-      promptAnalyzePredefinedSkillIndex(skillIndexBlock);
-  static const analyzeResponseFormat = promptAnalyzeResponseFormat;
-
-  // ─── Reflector (delegated to prompt_reflect.dart) ──────────────────────────
-
-  static const reflectIntro = promptReflectIntro;
-  static String reflectRules(String language) => promptReflectRules(language);
-  static const reflectResponseFormat = promptReflectResponseFormat;
-
-  // ─── Planner (delegated to prompt_plan.dart) ───────────────────────────────
-
-  static const planIntro = promptPlanIntro;
-  static const planResponseFormat = promptPlanResponseFormat;
 
   // ─── Tool Selector (delegated to prompt_execute.dart) ──────────────────────
 
@@ -199,14 +175,6 @@ $_sharedSystemRules
   static const sessionSummarySystem = promptSessionSummarySystem;
   static String sessionSummaryUser(String transcript) =>
       promptSessionSummaryUser(transcript);
-
-  static String selectRelevantSkills({
-    required String userMessage,
-    required String skillsListBlock,
-  }) => promptSelectRelevantSkills(
-    userMessage: userMessage,
-    skillsListBlock: skillsListBlock,
-  );
 
   // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 

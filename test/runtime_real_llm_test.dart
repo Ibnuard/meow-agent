@@ -269,24 +269,35 @@ void main() {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(
       results: {
-        'system.config.read': const ToolExecutionResult(
+        'agent.list': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.read',
+          toolName: 'agent.list',
           data: {
-            'config': {
-              'schemaVersion': 1,
-              'agents': [
-                {'id': 'agent_1', 'name': 'Mina Chan', 'providerId': 'p1', 'model': 'm1'},
-                {'id': 'agent_2', 'name': 'Kai', 'providerId': 'p1', 'model': 'm1'},
-              ],
-              'providers': [
-                {'id': 'p1', 'nickname': 'test', 'baseUrl': '', 'model': 'm1'},
-              ],
-              'modules': {},
-              'prefs': {},
-            },
-            'schemaVersion': 1,
-            'valid': true,
+            'count': 2,
+            'self_id': 'agent_1',
+            'self_name': 'Mina Chan',
+            'agents': [
+              {
+                'id': 'agent_1',
+                'name': 'Mina Chan',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': true,
+              },
+              {
+                'id': 'agent_2',
+                'name': 'Kai',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': false,
+              },
+            ],
           },
         ),
       },
@@ -303,7 +314,7 @@ void main() {
     // The response must mention at least one agent name from the canned data.
     final msg = res.finalMessage.toLowerCase();
     expect(msg, anyOf(contains('mina'), contains('kai'), contains('agent')));
-    expect(router.dispatchCountOf('system.config.read'), greaterThanOrEqualTo(1));
+    expect(router.dispatchCountOf('agent.list'), greaterThanOrEqualTo(1));
     // Must not invent a non-existent agents.* tool path.
     expect(
       router.dispatchSequence.where((t) => t.startsWith('system.agents.')),
@@ -378,9 +389,10 @@ void main() {
       provider: provider(),
     );
 
-    // Real LLM chained reads: the LLM should call at least 1 device tool
-    // (battery, network, or storage). Chaining all three is ideal but may not
-    // always happen — the response should at least be non-empty and grounded.
+    print('R10 state: ${res.state}, success: ${res.success}, message: ${res.finalMessage}');
+    for (final ev in res.events) {
+      print('  Event: [${ev.type}] ${ev.message} (data: ${ev.data})');
+    }
     expect(res.state,
         anyOf(AgentRuntimeState.done, AgentRuntimeState.askingUser));
     expect(res.finalMessage, isNotEmpty);
@@ -494,32 +506,44 @@ void main() {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(
       results: {
-        'system.config.read': const ToolExecutionResult(
+        'agent.list': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.read',
+          toolName: 'agent.list',
           data: {
-            'config': {
-              'schemaVersion': 1,
-              'agents': [
-                {'id': 'a1', 'name': 'TestAgent', 'providerId': 'p1', 'model': 'm1'},
-              ],
-              'providers': [
-                {'id': 'p1', 'nickname': 'test', 'baseUrl': '', 'model': 'm1'},
-              ],
-              'modules': {},
-              'prefs': {},
-            },
-            'schemaVersion': 1,
-            'valid': true,
+            'count': 1,
+            'self_id': 'a1',
+            'self_name': 'TestAgent',
+            'agents': [
+              {
+                'id': 'a1',
+                'name': 'TestAgent',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': true,
+              },
+            ],
           },
         ),
-        'system.config.patch': const ToolExecutionResult(
+        'agent.create': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.patch',
+          toolName: 'agent.create',
           data: {
-            'backupId': 'bk_test',
-            'changedPaths': ['/agents/-'],
-            'configHash': 'abc123',
+            'id': 'a2',
+            'name': 'TestBot',
+            'provider_id': 'p1',
+            'model': 'm1',
+          },
+        ),
+        'agent.delete': const ToolExecutionResult(
+          success: true,
+          toolName: 'agent.delete',
+          data: {
+            'deleted': true,
+            'name': 'TestBot',
+            'id': 'a2',
           },
         ),
       },
@@ -533,16 +557,16 @@ void main() {
 
     // Real LLM may: (a) ask for the persona first (FIRST_ASK_USER — slot
     // extraction flags missing persona), (b) park at the confirmation gate
-    // for the sensitive config.patch, or (c) complete. All are valid.
+    // for the sensitive agent.create/delete, or (c) complete. All are valid.
     expect(res.state,
         anyOf(AgentRuntimeState.done, AgentRuntimeState.waitingConfirmation,
             AgentRuntimeState.askingUser));
-    // Only when it reaches done should config.patch have actually executed.
+    // Only when it reaches done should the tools have actually executed.
     // askingUser (clarify) and waitingConfirmation (parked) legitimately
     // produce zero dispatches.
     if (res.state == AgentRuntimeState.done) {
       expect(
-        router.dispatchCountOf('system.config.patch'),
+        router.dispatchCountOf('agent.delete'),
         greaterThanOrEqualTo(1),
       );
     }
@@ -601,32 +625,55 @@ void main() {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(
       results: {
-        'system.config.read': const ToolExecutionResult(
+        'agent.list': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.read',
+          toolName: 'agent.list',
           data: {
-            'config': {
-              'schemaVersion': 1,
-              'agents': [
-                {'id': 'chain_test', 'name': 'ChainBot', 'providerId': 'p1', 'model': 'm1'},
-              ],
-              'providers': [
-                {'id': 'p1', 'nickname': 'test', 'baseUrl': '', 'model': 'm1'},
-              ],
-              'modules': {},
-              'prefs': {},
-            },
-            'schemaVersion': 1,
-            'valid': true,
+            'count': 1,
+            'self_id': 'chain_test',
+            'self_name': 'ChainBot',
+            'agents': [
+              {
+                'id': 'chain_test',
+                'name': 'ChainBot',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': true,
+              },
+            ],
           },
         ),
-        'system.config.patch': const ToolExecutionResult(
+        'agent.create': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.patch',
+          toolName: 'agent.create',
           data: {
-            'backupId': 'bk_chain',
-            'changedPaths': ['/agents'],
-            'configHash': 'chain123',
+            'id': 'chain_test',
+            'name': 'ChainBot',
+            'provider_id': 'p1',
+            'model': 'm1',
+          },
+        ),
+        'agent.update': const ToolExecutionResult(
+          success: true,
+          toolName: 'agent.update',
+          data: {
+            'id': 'chain_test',
+            'name': 'LinkBot',
+            'field': 'name',
+            'value': 'LinkBot',
+            'scope': 'agent',
+          },
+        ),
+        'agent.delete': const ToolExecutionResult(
+          success: true,
+          toolName: 'agent.delete',
+          data: {
+            'deleted': true,
+            'name': 'LinkBot',
+            'id': 'chain_test',
           },
         ),
       },
@@ -659,33 +706,55 @@ void main() {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(
       results: {
-        'system.config.read': const ToolExecutionResult(
+        'agent.create': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.read',
+          toolName: 'agent.create',
           data: {
-            'config': {
-              'schemaVersion': 1,
-              'agents': [
-                {'id': 'bumi_id', 'name': 'Bumi', 'providerId': 'p1', 'model': 'm1'},
-                {'id': 'mars_id', 'name': 'Mars', 'providerId': 'p1', 'model': 'm1'},
-              ],
-              'providers': [
-                {'id': 'p1', 'nickname': 'test', 'baseUrl': '', 'model': 'm1'},
-              ],
-              'modules': {},
-              'prefs': {},
-            },
-            'schemaVersion': 1,
-            'valid': true,
+            'id': 'bumi_id',
+            'name': 'Bumi',
+            'provider_id': 'p1',
+            'model': 'm1',
           },
         ),
-        'system.config.patch': const ToolExecutionResult(
+        'agent.list': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.patch',
+          toolName: 'agent.list',
           data: {
-            'backupId': 'bk_id',
-            'changedPaths': ['/agents/-'],
-            'configHash': 'id_hash',
+            'count': 3,
+            'self_id': 'a1',
+            'self_name': 'TestAgent',
+            'agents': [
+              {
+                'id': 'a1',
+                'name': 'TestAgent',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': true,
+              },
+              {
+                'id': 'bumi_id',
+                'name': 'Bumi',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': false,
+              },
+              {
+                'id': 'mars_id',
+                'name': 'Mars',
+                'provider_id': 'p1',
+                'model': 'm1',
+                'persona': '',
+                'communication_style': '',
+                'work_role': '',
+                'is_self': false,
+              },
+            ],
           },
         ),
       },
@@ -712,19 +781,14 @@ void main() {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(
       results: {
-        'system.config.read': const ToolExecutionResult(
+        'agent.list': const ToolExecutionResult(
           success: true,
-          toolName: 'system.config.read',
+          toolName: 'agent.list',
           data: {
-            'config': {
-              'schemaVersion': 1,
-              'agents': [],
-              'providers': [],
-              'modules': {},
-              'prefs': {},
-            },
-            'schemaVersion': 1,
-            'valid': true,
+            'count': 0,
+            'self_id': 'a1',
+            'self_name': 'TestAgent',
+            'agents': [],
           },
         ),
         'system.tools.list': const ToolExecutionResult(
@@ -741,6 +805,10 @@ void main() {
       provider: provider(),
     );
 
+    print('R18 state: ${res.state}, success: ${res.success}, message: ${res.finalMessage}');
+    for (final ev in res.events) {
+      print('  Event: [${ev.type}] ${ev.message} (data: ${ev.data})');
+    }
     expect(res.state,
         anyOf(AgentRuntimeState.done, AgentRuntimeState.askingUser));
     expect(res.finalMessage, isNotEmpty);

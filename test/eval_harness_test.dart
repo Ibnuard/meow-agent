@@ -170,25 +170,34 @@ void main() {
   test('E4 create-agent — buatkan agen baru dengan nama TEST', () async {
     if (!EnvLoader.isAvailable) return;
     final router = ScriptedToolRouter(results: {
-      'system.agents.create': const ToolExecutionResult(
+      'agent.create': const ToolExecutionResult(
         success: true,
-        toolName: 'system.agents.create',
+        toolName: 'agent.create',
         data: {
-          'agent': {
-            'id': 'eval-new-id',
-            'name': 'TEST',
-            'providerId': 'p1',
-            'model': 'test-model',
-          },
+          'id': 'eval-new-id',
+          'name': 'TEST',
+          'provider_id': 'p1',
+          'model': 'test-model',
         },
       ),
-      'system.agents.list': const ToolExecutionResult(
+      'agent.list': const ToolExecutionResult(
         success: true,
-        toolName: 'system.agents.list',
+        toolName: 'agent.list',
         data: {
           'count': 1,
+          'self_id': 'eval-agent',
+          'self_name': 'EvalAgent',
           'agents': [
-            {'id': 'eval-agent', 'name': 'EvalAgent'},
+            {
+              'id': 'eval-agent',
+              'name': 'EvalAgent',
+              'provider_id': 'p1',
+              'model': 'm1',
+              'persona': '',
+              'communication_style': '',
+              'work_role': '',
+              'is_self': true,
+            },
           ],
         },
       ),
@@ -197,13 +206,14 @@ void main() {
     final res = await engine.run(
       req('buatkan agen baru dengan nama TEST'),
       provider: provider(),
+      autoApproveSensitive: true,
     );
 
     final pass = res.state == AgentRuntimeState.done &&
-        router.dispatchSequence.contains('system.agents.create');
+        router.dispatchSequence.contains('agent.create');
     record('E4 create-agent', pass);
     expect(res.state, AgentRuntimeState.done);
-    expect(router.dispatchSequence, contains('system.agents.create'));
+    expect(router.dispatchSequence, contains('agent.create'));
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   // ═══════════════════════════════════════════════════════════════════════════
