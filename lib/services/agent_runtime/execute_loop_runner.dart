@@ -75,6 +75,7 @@ class ExecuteLoopRunner {
     int initialStep = 1,
     int nullSelectionRecoveryCount = 0,
     bool fastPath = false,
+    String? stableContext,
   }) async {
     _overrideLanguageCode = detectedLang.code;
     final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
@@ -190,6 +191,7 @@ class ExecuteLoopRunner {
         recentMessages: loopRecentMsgs,
         agentName: request.agentName.isNotEmpty ? request.agentName : request.agentId,
         agentId: request.agentId,
+        stableContext: stableContext,
       );
       emit(logger.events.last);
 
@@ -1093,6 +1095,7 @@ class ExecuteLoopRunner {
           recentMessages: loopRecentMsgs,
           agentName: request.agentName.isNotEmpty ? request.agentName : request.agentId,
           agentId: request.agentId,
+          stableContext: stableContext,
         );
         emit(logger.events.last);
 

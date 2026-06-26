@@ -34,12 +34,16 @@ class Executor {
     List<Map<String, String>> recentMessages = const [],
     String agentName = '',
     String agentId = '',
+    String? stableContext,
   }) async {
+    // Sort tools for deterministic ordering across multiple selectTool
+    // calls in the same loop — enables provider prefix cache hits.
+    final sortedTools = List<String>.from(availableTools)..sort();
     final prompt = PromptTemplates.selectToolPrompt(
       plan: plan,
       currentStep: currentStep,
       previousResults: previousResults,
-      availableTools: availableTools,
+      availableTools: sortedTools,
       userMessage: userMessage,
       recentToolMemory: recentToolMemory,
       isWorkflowAutoExecute: isWorkflowAutoExecute,
@@ -49,7 +53,12 @@ class Executor {
       agentId: agentId,
     );
 
-    return _caller.call(prompt, 'selectTool', logger);
+    return _caller.call(
+      prompt,
+      'selectTool',
+      logger,
+      stableContext: stableContext,
+    );
   }
 
   /// Review a tool result and decide next action.
@@ -65,6 +74,7 @@ class Executor {
     List<Map<String, String>> recentMessages = const [],
     String agentName = '',
     String agentId = '',
+    String? stableContext,
   }) async {
     final prompt = PromptTemplates.reviewPrompt(
       result: result,
@@ -79,7 +89,12 @@ class Executor {
       agentId: agentId,
     );
 
-    return _caller.call(prompt, 'review', logger);
+    return _caller.call(
+      prompt,
+      'review',
+      logger,
+      stableContext: stableContext,
+    );
   }
 
   /// Fast-path tool selection via native function calling.

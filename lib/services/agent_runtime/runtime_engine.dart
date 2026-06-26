@@ -18,6 +18,8 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import '../llm/llm_error_mapper.dart';
 import 'context_builder.dart';
+import 'classify_phase.dart';
+import 'classifier.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
@@ -26,10 +28,10 @@ import 'llm_json_caller.dart';
 import 'language_detector.dart';
 import 'memory_extractor.dart';
 import 'narrative_narrator.dart';
+import 'prompt_templates.dart';
 
 import 'pending_action.dart';
 import 'pending_clarification.dart';
-import 'planner.dart';
 import 'completion_verifier.dart';
 import 'confirmation_manager.dart';
 import 'predefined_skills/predefined_skills.dart';
@@ -59,14 +61,7 @@ typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 
 /// Entity types whose targets are resolved against the live ecosystem snapshot.
 /// Only these may be passed to the planner as authoritative "resolved target"
-/// labels — non-snapshot targets (app/message/screen/etc.) are not validated
-/// and can carry prior-turn context bleed, so they are excluded.
-const Set<String> _snapshotBackedEntities = {
-  'agent',
-  'workflow',
-  'provider',
-  'module',
-};
+
 
 /// The main agentic runtime engine.
 /// Stateful: maintains pending actions per agent.
@@ -500,6 +495,14 @@ class AgentRuntimeEngine {
       logger.logError('Failed to load agent soul early', e);
     }
 
+    // Initialize prompt caching for this conversation turn. All LLM calls
+    // within this turn (analyze, reflect, plan, execute, verbalize) share
+    // the same cache key so the provider can reuse the prefix.
+    // See REVIEWED.md Level 1: Provider Prompt Caching.
+    OpenAiCompatibleClient.initSession(
+      '${request.agentId}:${request.source.name}:${DateTime.now().millisecondsSinceEpoch ~/ 60000}',
+    );
+
     final llmConfig = LlmProviderConfig(
       baseUrl: provider.baseUrl,
       apiKey: provider.apiKey,
@@ -507,6 +510,7 @@ class AgentRuntimeEngine {
       supportsFunctionCalling: provider.supportsFunctionCallingFor(
         provider.model,
       ),
+      supportsPromptCaching: true,
     );
     final client = _client;
     unawaited(
@@ -516,21 +520,17 @@ class AgentRuntimeEngine {
         config: llmConfig,
       ),
     );
-    final planner = Planner(
-      client: client,
-      config: llmConfig,
-      languageCode: effectiveLang,
-      cancelToken: cancelToken,
-    );
     final executor = Executor(
       client: client,
       config: llmConfig,
       cancelToken: cancelToken,
     );
-    final reflector = Reflector(
-      client: client,
-      config: llmConfig,
-      cancelToken: cancelToken,
+    final classifyPhase = ClassifyPhase(
+      classifier: Classifier(
+        client: client,
+        config: llmConfig,
+        cancelToken: cancelToken,
+      ),
     );
     final isWorkflowAutoExecute =
         request.source == RequestSource.workflow && autoApproveSensitive;
@@ -702,81 +702,7 @@ class AgentRuntimeEngine {
             'pending clarification for: ${pendingClarification.originalMessage} (questions: ${pendingClarification.questions.join('; ')})';
       }
 
-      final canTryChatRoute =
-          request.source == RequestSource.chat &&
-          !isWorkflowAutoExecute &&
-          pending == null &&
-          pendingClarification == null &&
-          activeLedger == null &&
-          restartFromOriginalMessage == null &&
-          request.attachments.isEmpty &&
-          request.userMessage.trim().isNotEmpty &&
-          !_shouldBypassFastChatForProfileCapture(
-            soul: activeSoul,
-            recentMessages: recentMsgs,
-          );
-      if (canTryChatRoute) {
-        logger.logStateChange(
-          AgentRuntimeState.analyzing,
-          'Fast chat route check',
-        );
-        emit(logger.events.last);
-        final userNotIntroducedForChat = _isUserNameMissing(activeSoul);
-        final chatRoute = await _tryChatRoute(
-          planner: planner,
-          userMessage: request.userMessage,
-          soul: WorkspaceContextBuilder.formatSoul(wsName, activeSoul),
-          memory: '',
-          userNotIntroduced: userNotIntroducedForChat,
-          logger: logger,
-          recentMessages: recentMsgs,
-          agentName: wsName,
-          agentId: request.agentId,
-          defaultLanguageCode: _chatRouteDefaultLanguageCode(
-            userMessage: request.userMessage,
-            detectedLang: detectedLang,
-          ),
-        );
-        if (logger.events.isNotEmpty) emit(logger.events.last);
-        final route = (chatRoute?['route'] ?? '')
-            .toString()
-            .trim()
-            .toLowerCase();
-        final direct = (chatRoute?['direct_response'] ?? '').toString().trim();
-        final routeLang = (chatRoute?['detected_language'] ?? '')
-            .toString()
-            .trim()
-            .toLowerCase();
-        if (routeLang.isNotEmpty &&
-            routeLang != detectedLang.code &&
-            (!detectedLang.isHighConfidence ||
-                detectedLang.script == 'Latin')) {
-          detectedLang = DetectedLanguage.fromAnalyzerCode(routeLang);
-          logger.logStateChange(
-            AgentRuntimeState.analyzing,
-            'Language refined by fast chat route: ${detectedLang.code} (${detectedLang.label})',
-          );
-          emit(logger.events.last);
-        }
-        if (route == 'chat' && direct.isNotEmpty) {
-          logger.logStateChange(AgentRuntimeState.done, 'Fast chat response');
-          emit(logger.events.last);
-          logger.logFinalResponse(direct);
-          return AgentRuntimeResponse(
-            finalMessage: direct,
-            success: true,
-            state: AgentRuntimeState.done,
-            events: logger.events,
-          );
-        }
-        if (route == 'agentic') {
-          logger.logStateChange(
-            AgentRuntimeState.analyzing,
-            'Fast chat route selected agentic runtime',
-          );
-          emit(logger.events.last);
-        }
-      }
+
 
       await workspaceFolder.ensureFolder(wsName);
 
@@ -798,6 +724,15 @@ class AgentRuntimeEngine {
         request.agentId,
         userMessage: request.userMessage,
         preFilteredSkills: filteredSkills,
+      );
+      // Build stable context prefix once for this turn — all phases
+      // (analyze, reflect, plan, selectTool, review) share it for caching.
+      // See REVIEWED.md Level 2: Stable Prompt Prefix.
+      final stableContext = PromptTemplates.buildStableContext(
+        soul: workspace.soul,
+        skills: workspace.skills,
+        agentName: wsName,
+        agentId: request.agentId,
       );
       final userNotIntroduced = _isUserNameMissing(activeSoul);
       final mergedUserMessage = pendingClarification != null
@@ -849,11 +784,19 @@ class AgentRuntimeEngine {
         state: state.name,
         task: effectiveUserMessage,
       );
-      var analysis = await planner.analyze(
+      // Build snapshot early — classify (merged analyze+reflect+plan) needs it.
+      final classifySnapshot = await _buildSnapshot();
+      // Merged L3 call: routing + intent + strategy + goal tree in ONE LLM
+      // round-trip. Replaces the old 3-phase analyze→reflect→plan sequence.
+      // See codebase_analysis.md P0/L3.
+      final classifyResult = await classifyPhase.run(
         userMessage: effectiveUserMessage,
         workspace: workspace,
-        availableTools: const [],
+        snapshot: classifySnapshot,
+        availableTools: _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+        language: detectedLang,
         logger: logger,
+        stableContext: stableContext,
         recentMessages: recentMsgs,
         pendingAction: pending,
         recentToolMemory: _memory.formatForPrompt(request.agentId),
@@ -862,12 +805,22 @@ class AgentRuntimeEngine {
         agentName: wsName,
         agentId: request.agentId,
       );
+      // Handle chat route from the merged call.
+      if (classifyResult.isChatRoute && classifyResult.directResponse.isNotEmpty) {
+        logger.logStateChange(AgentRuntimeState.done, 'Chat response');
+        emit(logger.events.last);
+        logger.logFinalResponse(classifyResult.directResponse);
+        return AgentRuntimeResponse(
+          finalMessage: classifyResult.directResponse,
+          success: true,
+          state: AgentRuntimeState.done,
+          events: logger.events,
+        );
+      }
+      // Extract analysis-level fields for downstream deterministic logic.
+      var analysis = classifyResult.analysis;
       emit(logger.events.last);
       final analysisEvidenceRef = 'runtime_event:${logger.events.last.id}';
-      if (analysis == null) {
-        await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-        return _loopRunner.fail('Failed to analyze request.', logger);
-      }
       final analyzeNarrative = (analysis['narrative'] ?? '').toString();
       // Gate: if missing_info is non-empty, the runtime will ask a clarifying
       // question. Override optimistic LLM narrative with deterministic phrase.
@@ -1016,11 +969,14 @@ class AgentRuntimeEngine {
         } else if (pendingClarification != null &&
             effectiveUserMessage != mergedUserMessage) {
           effectiveUserMessage = mergedUserMessage;
-          analysis = await planner.analyze(
+          final reClarifyResult = await classifyPhase.run(
             userMessage: effectiveUserMessage,
             workspace: workspace,
-            availableTools: const [],
+            snapshot: classifySnapshot,
+            availableTools: _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+            language: detectedLang,
             logger: logger,
+            stableContext: stableContext,
             recentMessages: recentMsgs,
             pendingAction: pending,
             recentToolMemory: _memory.formatForPrompt(request.agentId),
@@ -1029,17 +985,8 @@ class AgentRuntimeEngine {
             agentName: wsName,
             agentId: request.agentId,
           );
+          analysis = reClarifyResult.analysis;
           emit(logger.events.last);
-          if (analysis == null) {
-            await _taskScope.finishScopeForRequest(
-              request,
-              LedgerStatus.failed,
-            );
-            return _loopRunner.fail(
-              'Failed to analyze clarified request.',
-              logger,
-            );
-          }
         }
       }
       if (pending != null &&
@@ -1159,34 +1106,16 @@ class AgentRuntimeEngine {
           emit(logger.events.last);
         }
       }
-      final reflectSnapshot =
-          (analyzerSaysToolsForReflect && !isWorkflowAutoExecute)
-          ? await _buildSnapshot()
-          : EcosystemSnapshot(
-              agents: const [],
-              workflows: const [],
-              providers: const [],
-              modules: const [],
-              builtAt: DateTime.fromMillisecondsSinceEpoch(0),
-            );
+      // Reflection already came from the merged classify call — no separate
+      // LLM round-trip needed. Just run deterministic target resolution.
       final shouldReflect =
           analyzerSaysToolsForReflect && !isWorkflowAutoExecute;
       if (shouldReflect) {
         state = AgentRuntimeState.analyzing;
         logger.logStateChange(state, 'Reflecting on impact and slot needs');
         emit(logger.events.last);
-        final snapshot = reflectSnapshot;
-        reflection = await reflector.reflect(
-          userMessage: effectiveUserMessage,
-          analysis: analysis,
-          snapshot: snapshot,
-          availableTools: _toolDefinitionsFor(toolSelection.toolNames),
-          language: detectedLang,
-          logger: logger,
-          recentMessages: recentMsgs,
-          agentName: wsName,
-          agentId: request.agentId,
-        );
+        final snapshot = classifySnapshot;
+        reflection = classifyResult.reflection;
         final targetResolution = TargetResolver.resolveReflection(
           reflection: reflection,
           snapshot: snapshot,
@@ -1391,50 +1320,13 @@ class AgentRuntimeEngine {
       // app target ("open LinkedIn") into a brand-new task ("open Facebook")
       // because the prior turn is still in recentMessages. Feeding those as
       // "use verbatim" labels forces the planner to build the wrong goal.
-      // For non-snapshot targets the analyzer's goal + subgoal_seeds (which
-      // reflect the CURRENT message) are authoritative, so we leave
-      // resolvedLabels empty and let the planner build from them.
-      final resolvedLabels = targetGraph != null && targetGraph.isNotEmpty
-          ? targetGraph.eligibleTargets
-                .where(
-                  (t) => _snapshotBackedEntities.contains(
-                    t.entityType.trim().toLowerCase(),
-                  ),
-                )
-                .map(
-                  (t) =>
-                      '${t.operation} ${t.entityType}: ${t.entityLabel}'
-                      '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
-                )
-                .toList(growable: false)
-          : <String>[];
-      var plan = await _tryCreatePlan(
-        planner: planner,
-        analysis: analysis,
-        availableTools: availableTools,
-        logger: logger,
-        resolvedTargetLabels: resolvedLabels,
-      );
-      emit(logger.events.last);
-      if (plan == null) {
+      // Plan already came from the merged classify call — no separate
+      // LLM round-trip needed.
+      var plan = classifyResult.plan;
+      if (plan['subgoals'] == null || (plan['subgoals'] as List?)?.isEmpty == true) {
+        // Fallback: classify didn't emit subgoals, synthesize from analysis.
         logger.logError(
-          'Planner returned null on first attempt; retrying with broadened tools.',
-        );
-        final broadenedAnalyzer = toolRouter.buildAllAnalyzerToolDescriptions();
-        plan = await _tryCreatePlan(
-          planner: planner,
-          analysis: analysis,
-          availableTools: broadenedAnalyzer.isNotEmpty
-              ? broadenedAnalyzer
-              : toolRouter.buildAllToolDescriptions(),
-          logger: logger,
-          resolvedTargetLabels: resolvedLabels,
-        );
-        emit(logger.events.last);
-      }
-      if (plan == null) {
-        logger.logError(
-          'Planner returned null after retry; synthesizing fallback plan from analyzer output.',
+          'Classify returned empty plan; synthesizing fallback from analysis.',
         );
         plan = _fallbackPlanFromAnalysis(
           analysis: analysis,
@@ -1508,26 +1400,31 @@ class AgentRuntimeEngine {
           if (priorContext.isNotEmpty) {
             freshAnalysis['prior_attempts'] = priorContext;
           }
-          final broadenedTools = toolRouter.buildAllToolDescriptions();
-          final broadenedAnalyzerTools = toolRouter
-              .buildAllAnalyzerToolDescriptions();
           freshAnalysis['available_tools_broadened'] = true;
-          final reReflection = await reflector.reflect(
+          // Recovery: re-run the merged classify with the fresh analysis
+          // context (prior attempts injected) to get a new reflection + plan
+          // in a single LLM call.
+          final reClassify = await classifyPhase.run(
             userMessage: effectiveUserMessage,
-            analysis: freshAnalysis,
+            workspace: workspace,
             snapshot: freshSnapshot,
             availableTools: _toolDefinitionsFor(
               toolRouter.registeredTools.toSet(),
             ),
             language: detectedLang,
             logger: logger,
+            stableContext: stableContext,
             recentMessages: recentMsgs,
+            recentToolMemory: _memory.formatForPrompt(request.agentId),
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            activeTaskContext: activeTaskContext,
             agentName: wsName,
             agentId: request.agentId,
           );
-          // Resolve targets from the fresh reflection so the planner LLM and
-          // the goal-tree fan-out fallback both see the snapshot-matched
-          // entities.
+          final reReflection = reClassify.reflection;
+          final newPlan = reClassify.plan;
+          // Resolve targets from the fresh reflection so the goal-tree
+          // fan-out fallback sees snapshot-matched entities.
           final reTargetResolution = TargetResolver.resolveReflection(
             reflection: reReflection,
             snapshot: freshSnapshot,
@@ -1535,38 +1432,11 @@ class AgentRuntimeEngine {
             language: detectedLang,
           );
           final reTargetGraph = reTargetResolution.graph;
-          // Same snapshot-backed-only filter as the main plan path: never feed
-          // non-snapshot (app/message/screen) targets as authoritative labels,
-          // they can carry prior-turn bleed.
-          final reResolvedLabels = reTargetGraph.isNotEmpty
-              ? reTargetGraph.eligibleTargets
-                    .where(
-                      (t) => _snapshotBackedEntities.contains(
-                        t.entityType.trim().toLowerCase(),
-                      ),
-                    )
-                    .map(
-                      (t) =>
-                          '${t.operation} ${t.entityType}: ${t.entityLabel}'
-                          '${t.entityId.isNotEmpty ? ' (id: ${t.entityId})' : ''}',
-                    )
-                    .toList(growable: false)
-              : <String>[];
-          final newPlan = await planner.plan(
-            analysis: freshAnalysis,
-            availableTools: broadenedAnalyzerTools.isNotEmpty
-                ? broadenedAnalyzerTools
-                : broadenedTools,
-            logger: logger,
-            resolvedTargetLabels: reResolvedLabels,
-          );
-          if (newPlan == null) return null;
-          _attachSelectedSkillContext(newPlan, freshAnalysis);
           if (reTargetGraph.isNotEmpty) {
             newPlan['runtime_target_graph'] = reTargetGraph.toJson();
           }
-          // Planner is the single source of authority — ignore reReflection's
-          // goal tree; rebuild from the planner output and resolved targets.
+          _attachSelectedSkillContext(newPlan, freshAnalysis);
+          // Rebuild goal tree from the planner output and resolved targets.
           final newTree = _buildGoalTree(
             plan: newPlan,
             analysis: freshAnalysis,
@@ -1597,6 +1467,7 @@ class AgentRuntimeEngine {
         autoApproveSensitive: autoApproveSensitive,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         fastPath: isFastPath,
+        stableContext: stableContext,
       );
 
       await _maybeExtractMemory(
@@ -1636,6 +1507,7 @@ class AgentRuntimeEngine {
           fastPath: false,
           initialPreviousResults: loopResponse.previousResults,
           initialStep: loopResponse.nextStep ?? 1,
+          stableContext: stableContext,
         );
       }
 
@@ -2247,82 +2119,6 @@ class AgentRuntimeEngine {
       if (def != null) out.add(def);
     }
     return out;
-  }
-
-  Future<Map<String, dynamic>?> _tryCreatePlan({
-    required Planner planner,
-    required Map<String, dynamic> analysis,
-    required List<String> availableTools,
-    required RuntimeLogger logger,
-    required List<String> resolvedTargetLabels,
-  }) async {
-    try {
-      return await planner.plan(
-        analysis: analysis,
-        availableTools: availableTools,
-        logger: logger,
-        resolvedTargetLabels: resolvedTargetLabels,
-      );
-    } catch (e) {
-      logger.logError('Planner call failed', e);
-      return null;
-    }
-  }
-
-  Future<Map<String, dynamic>?> _tryChatRoute({
-    required Planner planner,
-    required String userMessage,
-    required String soul,
-    required String memory,
-    required bool userNotIntroduced,
-    required RuntimeLogger logger,
-    required List<Map<String, String>> recentMessages,
-    required String agentName,
-    required String agentId,
-    String? defaultLanguageCode,
-  }) async {
-    try {
-      return await planner.chatRoute(
-        userMessage: userMessage,
-        soul: soul,
-        memory: memory,
-        userNotIntroduced: userNotIntroduced,
-        logger: logger,
-        recentMessages: recentMessages,
-        agentName: agentName,
-        agentId: agentId,
-        defaultLanguageCode: defaultLanguageCode,
-      );
-    } catch (e) {
-      logger.logError('Fast chat route failed; falling back to analyzer', e);
-      return null;
-    }
-  }
-
-  String _chatRouteDefaultLanguageCode({
-    required String userMessage,
-    required DetectedLanguage detectedLang,
-  }) {
-    if (detectedLang.script != 'Latin' || detectedLang.isHighConfidence) {
-      return detectedLang.code;
-    }
-    final tokens = userMessage
-        .trim()
-        .split(RegExp(r'[^\p{L}\p{N}]+', unicode: true))
-        .where((token) => token.isNotEmpty)
-        .toList(growable: false);
-    if (tokens.length <= 1 && userMessage.trim().length <= 12) {
-      return 'en';
-    }
-    return detectedLang.code;
-  }
-
-  bool _shouldBypassFastChatForProfileCapture({
-    required AgentSoul? soul,
-    required List<Map<String, String>> recentMessages,
-  }) {
-    if (!_isUserNameMissing(soul)) return false;
-    return recentMessages.any((message) => message['role'] == 'assistant');
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({

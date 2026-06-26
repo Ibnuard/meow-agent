@@ -4,8 +4,8 @@ import '../../features/settings/data/llm_provider_config.dart';
 import '../llm/openai_compatible_client.dart';
 import 'ecosystem_snapshot.dart';
 import 'goal_tree.dart';
-import 'json_utils.dart';
 import 'language_detector.dart';
+import 'llm_json_caller.dart';
 import 'predefined_skills/predefined_skills.dart';
 import 'prompt_constants.dart';
 import 'runtime_logger.dart';
@@ -232,6 +232,7 @@ class Reflector {
     List<Map<String, String>> recentMessages = const [],
     String agentName = '',
     String agentId = '',
+    String? stableContext,
   }) async {
     final analyzerSeedTree = _seedTreeFromAnalysis(analysis, userMessage);
 
@@ -257,39 +258,22 @@ class Reflector {
       agentId: agentId,
     );
 
-    Map<String, dynamic>? parsed;
-    var attempts = 0;
-    String lastResponse = '';
-    while (attempts < maxRetries && parsed == null) {
-      try {
-        final response = await client.chat(
-          config: config,
-          phase: attempts == 0 ? 'reflect' : 'reflect.repair',
-          cancelToken: cancelToken,
-          messages: [
-            {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
-            {
-              'role': 'user',
-              'content': attempts == 0
-                  ? prompt
-                  : '${PromptConstants.jsonRepairIntro}\n\n$lastResponse',
-            },
-          ],
-        );
-        lastResponse = response;
-        parsed = JsonUtils.tryParseObject(response);
-      } catch (e) {
-        logger.logError(
-          'Reflection LLM call failed (attempt ${attempts + 1})',
-          e,
-        );
-      }
-      attempts++;
-    }
+    final caller = LlmJsonCaller(
+      client: client,
+      config: config,
+      cancelToken: cancelToken,
+    );
+
+    final parsed = await caller.call(
+      prompt,
+      'reflect',
+      logger,
+      stableContext: stableContext,
+    );
 
     if (parsed == null) {
       logger.logError(
-        'Reflection failed after $attempts attempts; degrading to direct execute',
+        'Reflection failed after LlmJsonCaller attempts; degrading to direct execute',
       );
       return ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,

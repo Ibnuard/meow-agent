@@ -25,19 +25,30 @@ class LlmJsonCaller {
   /// Sends [prompt] to the LLM under [phase], expecting a JSON object back.
   /// Returns the parsed `Map<String, dynamic>` on success, or `null` if both
   /// the initial call and the repair retry fail to produce valid JSON.
+  ///
+  /// When [stableContext] is provided, it is sent as a separate user message
+  /// BEFORE [prompt]. This enables provider-side prompt caching: the system
+  /// message + stableContext form a byte-identical prefix across all phases
+  /// in a turn, so the provider reuses the cached prefix instead of
+  /// re-processing it. See REVIEWED.md Level 2: Stable Prompt Prefix.
   Future<Map<String, dynamic>?> call(
     String prompt,
     String phase,
-    RuntimeLogger logger,
-  ) async {
+    RuntimeLogger logger, {
+    String? stableContext,
+  }) async {
+    final baseMessages = <Map<String, String>>[
+      {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
+      if (stableContext != null && stableContext.isNotEmpty)
+        {'role': 'user', 'content': stableContext},
+      {'role': 'user', 'content': prompt},
+    ];
+
     final response = await client.chat(
       config: config,
       phase: phase,
       cancelToken: cancelToken,
-      messages: [
-        {'role': 'system', 'content': PromptConstants.jsonOnlySystem},
-        {'role': 'user', 'content': prompt},
-      ],
+      messages: baseMessages,
     );
 
     var parsed = JsonUtils.tryParseObject(response);

@@ -80,7 +80,19 @@ class Planner {
       agentId: agentId,
     );
 
-    final result = await _caller.call(prompt, 'analyze', logger);
+    final stableContext = PromptTemplates.buildStableContext(
+      soul: workspace.soul,
+      skills: workspace.skills,
+      agentName: agentName,
+      agentId: agentId,
+    );
+
+    final result = await _caller.call(
+      prompt,
+      'analyze',
+      logger,
+      stableContext: stableContext,
+    );
     _normalizeSelectedSkills(result);
     return result;
   }
@@ -110,6 +122,7 @@ class Planner {
     required List<String> availableTools,
     required RuntimeLogger logger,
     List<String> resolvedTargetLabels = const [],
+    String? stableContext,
   }) async {
     final prompt = PromptTemplates.planPrompt(
       analysis: analysis,
@@ -117,7 +130,12 @@ class Planner {
       resolvedTargetLabels: resolvedTargetLabels,
     );
 
-    final result = await _caller.call(prompt, 'plan', logger);
+    final result = await _caller.call(
+      prompt,
+      'plan',
+      logger,
+      stableContext: stableContext,
+    );
     return result;
   }
 }

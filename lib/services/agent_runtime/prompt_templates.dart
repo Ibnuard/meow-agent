@@ -8,6 +8,32 @@ import 'runtime_models.dart';
 
 /// Builds prompt strings for each phase of the runtime loop.
 class PromptTemplates {
+  /// Build a stable context prefix that is byte-identical across all phases
+  /// in a single turn (analyze, selectTool, review). When passed as
+  /// [LlmJsonCaller.call]'s `stableContext` parameter, the provider can
+  /// cache this prefix and reuse it across multi-phase LLM calls.
+  ///
+  /// Contains: self-identity, soul, and skills — the parts that never change
+  /// within a turn. Tool definitions are NOT included here because the
+  /// analyze phase doesn't have them (they arrive later after tool narrowing).
+  ///
+  /// See REVIEWED.md Level 2: Stable Prompt Prefix.
+  static String buildStableContext({
+    required String soul,
+    required String skills,
+    String agentName = '',
+    String agentId = '',
+  }) {
+    final selfIdentity = agentName.isEmpty
+        ? ''
+        : PromptConstants.selfIdentity(agentName: agentName, agentId: agentId);
+    final skillsBlock = skills.isEmpty ? '' : '\n$skills\n';
+    return '''$selfIdentity
+Identity context (user profile stored in database):
+$soul
+$skillsBlock''';
+  }
+
   /// Fast route for ordinary chat before the heavy analyzer/tool catalog path.
   static String chatRoutePrompt({
     required String userMessage,

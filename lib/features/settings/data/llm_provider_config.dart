@@ -8,12 +8,14 @@ class LlmProviderConfig {
     required this.apiKey,
     required this.model,
     this.supportsFunctionCalling = false,
+    this.supportsPromptCaching = false,
   });
 
   final String baseUrl;
   final String apiKey;
   final String model;
   final bool supportsFunctionCalling;
+  final bool supportsPromptCaching;
 
   bool get isComplete =>
       baseUrl.trim().isNotEmpty &&
@@ -25,6 +27,7 @@ class LlmProviderConfig {
     String? apiKey,
     String? model,
     bool? supportsFunctionCalling,
+    bool? supportsPromptCaching,
   }) {
     return LlmProviderConfig(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -32,6 +35,8 @@ class LlmProviderConfig {
       model: model ?? this.model,
       supportsFunctionCalling:
           supportsFunctionCalling ?? this.supportsFunctionCalling,
+      supportsPromptCaching:
+          supportsPromptCaching ?? this.supportsPromptCaching,
     );
   }
 

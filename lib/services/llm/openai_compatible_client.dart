@@ -11,6 +11,7 @@ class LlmRequestUsage {
     required this.model,
     required this.inputTokens,
     this.outputTokens,
+    this.cachedTokens,
     required this.messageCount,
     required this.createdAt,
   });
@@ -19,6 +20,7 @@ class LlmRequestUsage {
   final String model;
   final int inputTokens;
   final int? outputTokens;
+  final int? cachedTokens;
   final int messageCount;
   final DateTime createdAt;
 }
@@ -66,6 +68,26 @@ class OpenAiCompatibleClient {
   static const int _maxUsageRecords = 80;
   static final List<LlmRequestUsage> _usageRecords = [];
 
+  /// Session-scoped prompt cache key. Set once per conversation turn flow
+  /// so the provider can reuse the cached prompt prefix across multi-phase
+  /// LLM calls (analyze → reflect → plan → execute).
+  /// See REVIEWED.md Level 1: Provider Prompt Caching.
+  static String _sessionCacheKey = '';
+
+  /// Initialize prompt caching for the current conversation.
+  /// Call this at the start of [AgentRuntimeEngine.run] with a stable
+  /// identifier (agentId + conversation segment). When set and the provider
+  /// config has [LlmProviderConfig.supportsPromptCaching], every subsequent
+  /// request carries the `prompt_cache_key` header.
+  static void initSession(String sessionId) {
+    _sessionCacheKey = sessionId;
+  }
+
+  /// Clear the session cache key (e.g. on conversation reset).
+  static void clearSession() {
+    _sessionCacheKey = '';
+  }
+
   static List<LlmRequestUsage> get usageRecords =>
       List.unmodifiable(_usageRecords);
 
@@ -90,6 +112,32 @@ class OpenAiCompatibleClient {
     if (_usageRecords.length > _maxUsageRecords) {
       _usageRecords.removeRange(0, _usageRecords.length - _maxUsageRecords);
     }
+  }
+
+  /// Build headers for a request, injecting prompt_cache_key when the
+  /// provider supports caching and a session key has been set.
+  Map<String, dynamic> _buildHeaders(LlmProviderConfig config) {
+    final headers = <String, dynamic>{
+      'Authorization': 'Bearer ${config.apiKey}',
+      'Content-Type': 'application/json',
+    };
+    if (config.supportsPromptCaching && _sessionCacheKey.isNotEmpty) {
+      headers['prompt_cache_key'] = _sessionCacheKey;
+    }
+    return headers;
+  }
+
+  /// Extract cached token count from provider response usage data.
+  /// OpenAI-compatible providers return this under
+  /// `usage.prompt_tokens_details.cached_tokens`.
+  static int? _extractCachedTokens(Map? usage) {
+    if (usage == null) return null;
+    final details = usage['prompt_tokens_details'];
+    if (details is Map) {
+      final cached = details['cached_tokens'];
+      if (cached is int) return cached;
+    }
+    return null;
   }
 
   Uri _resolve(String baseUrl, String path) {
@@ -200,12 +248,7 @@ class OpenAiCompatibleClient {
     final response = await _dio.postUri<Map<String, dynamic>>(
       _resolve(config.baseUrl, '/chat/completions'),
       data: {'model': config.model, 'messages': wireMessages},
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
-      ),
+      options: Options(headers: _buildHeaders(config)),
       cancelToken: cancelToken,
     );
 
@@ -232,6 +275,7 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimatedInputTokens,
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: messages.length,
         createdAt: DateTime.now(),
       ),
@@ -266,12 +310,7 @@ class OpenAiCompatibleClient {
         'tools': tools,
         'tool_choice': toolChoice,
       },
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
-      ),
+      options: Options(headers: _buildHeaders(config)),
       cancelToken: cancelToken,
     );
 
@@ -293,6 +332,7 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimatedInputTokens,
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: messages.length,
         createdAt: DateTime.now(),
       ),
@@ -357,12 +397,7 @@ class OpenAiCompatibleClient {
           },
         ],
       },
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
-      ),
+      options: Options(headers: _buildHeaders(config)),
       cancelToken: cancelToken,
     );
 
@@ -389,6 +424,7 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimateTokens(prompt),
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: 1,
         createdAt: DateTime.now(),
       ),
