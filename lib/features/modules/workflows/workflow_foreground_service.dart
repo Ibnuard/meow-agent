@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 
 import 'workflow_repository.dart';
 
@@ -17,6 +18,9 @@ import 'workflow_repository.dart';
 class WorkflowForegroundService {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
+  static const MethodChannel _native = MethodChannel(
+    'com.meowagent/workflow_service',
+  );
 
   static const _channelId = 'workflow_foreground';
   static const _channelName = 'Workflow Service';
@@ -25,6 +29,7 @@ class WorkflowForegroundService {
   static bool _active = false;
   static bool _persistentMode = false;
   static bool _pluginInitialized = false;
+  static bool _nativeActive = false;
   static int _activeWorkflows = 0;
   static Timer? _autoStopTimer;
 
@@ -37,9 +42,60 @@ class WorkflowForegroundService {
   /// Ensure the notification plugin is initialized before use.
   static Future<void> _ensureInitialized() async {
     if (_pluginInitialized) return;
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await _plugin.initialize(const InitializationSettings(android: androidSettings));
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+    await _plugin.initialize(
+      const InitializationSettings(android: androidSettings),
+    );
     _pluginInitialized = true;
+  }
+
+  static Future<bool> _startNative({
+    required String title,
+    required String text,
+  }) async {
+    try {
+      final started = await _native.invokeMethod<bool>('startWorkflowService', {
+        'title': title,
+        'text': text,
+      });
+      _nativeActive = started == true;
+      return _nativeActive;
+    } catch (_) {
+      _nativeActive = false;
+      return false;
+    }
+  }
+
+  static Future<void> _stopNative() async {
+    try {
+      await _native.invokeMethod<bool>('stopWorkflowService');
+    } catch (_) {
+      // The native channel is not available in tests or some background
+      // isolates. Local notification fallback below still keeps behavior sane.
+    } finally {
+      _nativeActive = false;
+    }
+  }
+
+  /// Register the native WorkManager keep-alive that restarts the native
+  /// foreground service if Android kills the app process.
+  static Future<void> registerNativeKeepAlive() async {
+    try {
+      await _native.invokeMethod<bool>('registerWorkflowKeepAlive');
+    } catch (_) {
+      // Best-effort. Flutter WorkManager remains the functional scheduler.
+    }
+  }
+
+  /// Cancel the native keep-alive when no workflows are enabled.
+  static Future<void> cancelNativeKeepAlive() async {
+    try {
+      await _native.invokeMethod<bool>('cancelWorkflowKeepAlive');
+    } catch (_) {
+      // Best-effort.
+    }
   }
 
   // ─── Persistent Scheduler Mode ──────────────────────────────────────────
@@ -53,8 +109,8 @@ class WorkflowForegroundService {
 
     if (hasEnabled && !_persistentMode) {
       await _startPersistent();
-    } else if (!hasEnabled && _persistentMode && _activeWorkflows <= 0) {
-      await _stopPersistent();
+    } else if (!hasEnabled && _activeWorkflows <= 0) {
+      await stop();
     }
   }
 
@@ -66,11 +122,17 @@ class WorkflowForegroundService {
   }
 
   static Future<void> _startPersistent() async {
-    await _ensureInitialized();
     _persistentMode = true;
     _active = true;
     _autoStopTimer?.cancel();
 
+    final nativeStarted = await _startNative(
+      title: 'Meow Agent',
+      text: 'Workflow scheduler active',
+    );
+    if (nativeStarted) return;
+
+    await _ensureInitialized();
     final androidDetails = AndroidNotificationDetails(
       _channelId,
       _channelName,
@@ -95,16 +157,6 @@ class WorkflowForegroundService {
     );
   }
 
-  static Future<void> _stopPersistent() async {
-    if (!_persistentMode) return;
-    _persistentMode = false;
-    if (_activeWorkflows <= 0) {
-      _active = false;
-      await _ensureInitialized();
-      await _plugin.cancel(_notifId);
-    }
-  }
-
   // ─── Execution Mode (transient, during active workflow run) ─────────────
 
   /// Start execution mode. Call before executing workflows.
@@ -120,6 +172,12 @@ class WorkflowForegroundService {
     }
 
     _active = true;
+
+    final nativeStarted = await _startNative(
+      title: 'Meow Agent — Workflow Active',
+      text: _buildBody(workflowTitle),
+    );
+    if (nativeStarted) return;
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -169,11 +227,15 @@ class WorkflowForegroundService {
 
   /// Force stop all modes.
   static Future<void> stop() async {
-    if (!_active) return;
+    if (!_active) {
+      await _stopNative();
+      return;
+    }
     _active = false;
     _persistentMode = false;
     _activeWorkflows = 0;
     _autoStopTimer?.cancel();
+    await _stopNative();
     await _ensureInitialized();
     await _plugin.cancel(_notifId);
   }
@@ -183,12 +245,15 @@ class WorkflowForegroundService {
     await _ensureInitialized();
 
     final isExecuting = _activeWorkflows > 0;
-    final title = isExecuting
-        ? 'Meow Agent — Workflow Active'
-        : 'Meow Agent';
+    final title = isExecuting ? 'Meow Agent — Workflow Active' : 'Meow Agent';
     final body = isExecuting
         ? _buildBody(workflowTitle)
         : 'Workflow scheduler active';
+
+    if (_nativeActive) {
+      final nativeUpdated = await _startNative(title: title, text: body);
+      if (nativeUpdated) return;
+    }
 
     final androidDetails = AndroidNotificationDetails(
       _channelId,

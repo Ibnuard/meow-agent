@@ -92,7 +92,10 @@ class WorkflowScheduler {
   static Future<void> registerKeepAlive() async {
     final repo = WorkflowRepository();
     final hasEnabled = (await repo.listEnabled()).isNotEmpty;
-    if (!hasEnabled) return;
+    if (!hasEnabled) {
+      await cancelKeepAlive();
+      return;
+    }
 
     await Workmanager().registerPeriodicTask(
       'meow_keep_alive',
@@ -101,11 +104,13 @@ class WorkflowScheduler {
       constraints: Constraints(networkType: NetworkType.notRequired),
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
+    await WorkflowForegroundService.registerNativeKeepAlive();
   }
 
   /// Cancel the keep-alive task (when all workflows are disabled).
   static Future<void> cancelKeepAlive() async {
     await Workmanager().cancelByUniqueName('meow_keep_alive');
+    await WorkflowForegroundService.cancelNativeKeepAlive();
   }
 
   /// Calculate the next fire time for a schedule trigger.
@@ -189,9 +194,7 @@ Future<void> _alarmCallback() async {
   final storage = LocalStorageService(settingsRepo, allSettings);
 
   final container = ProviderContainer(
-    overrides: [
-      localStorageProvider.overrideWithValue(storage),
-    ],
+    overrides: [localStorageProvider.overrideWithValue(storage)],
   );
 
   // Execute due workflows
@@ -226,9 +229,7 @@ void _workManagerDispatcher() {
     final storage = LocalStorageService(settingsRepo, allSettings);
 
     final container = ProviderContainer(
-      overrides: [
-        localStorageProvider.overrideWithValue(storage),
-      ],
+      overrides: [localStorageProvider.overrideWithValue(storage)],
     );
 
     final runner = container.read(workflowRunnerProvider);

@@ -240,7 +240,7 @@ class WorkflowRunner {
 
     try {
       final engine = _ref.read(agentRuntimeEngineProvider);
-      final agents = _ref.read(agentListProvider);
+      final agents = await _ref.read(agentRepositoryProvider).loadAll();
       final providerRepo = _ref.read(providerRepositoryProvider);
       final providers = await providerRepo.loadAll();
 

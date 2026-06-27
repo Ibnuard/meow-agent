@@ -17,6 +17,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val SHARE_CHANNEL = "com.meowagent/share"
     private val SERVICE_CHANNEL = "com.meowagent/services"
+    private val WORKFLOW_CHANNEL = "com.meowagent/workflow_service"
     private var sharedText: String? = null
     private var shareChannel: MethodChannel? = null
     private val TAG = "MeowAgent"
@@ -60,6 +61,34 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VmRuntimePlugin.CHANNEL)
             .setMethodCallHandler(VmRuntimePlugin(applicationContext))
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WORKFLOW_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startWorkflowService" -> {
+                        val title = call.argument<String>("title") ?: "Meow Agent"
+                        val text = call.argument<String>("text") ?: "Workflow scheduler active"
+                        startWorkflowService(title, text)
+                        result.success(true)
+                    }
+                    "stopWorkflowService" -> {
+                        stopWorkflowService()
+                        result.success(true)
+                    }
+                    "isWorkflowServiceRunning" -> {
+                        result.success(isServiceRunning(WorkflowForegroundService::class.java))
+                    }
+                    "registerWorkflowKeepAlive" -> {
+                        WorkflowKeepAliveWorker.register(applicationContext)
+                        result.success(true)
+                    }
+                    "cancelWorkflowKeepAlive" -> {
+                        WorkflowKeepAliveWorker.cancel(applicationContext)
+                        result.success(true)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CommunicationPlugin.CHANNEL)
             .setMethodCallHandler(CommunicationPlugin(this))
@@ -301,6 +330,14 @@ class MainActivity : FlutterActivity() {
 
     private fun stopClipboardService() {
         stopService(Intent(this, ClipboardForegroundService::class.java))
+    }
+
+    private fun startWorkflowService(title: String, text: String) {
+        WorkflowKeepAliveWorker.startWorkflowService(applicationContext, title, text)
+    }
+
+    private fun stopWorkflowService() {
+        stopService(Intent(this, WorkflowForegroundService::class.java))
     }
 
     private fun isServiceRunning(serviceClass: Class<*>): Boolean {

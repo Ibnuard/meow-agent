@@ -106,6 +106,8 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:13.1.5")
     // Coroutines for VM runtime async ops (download, install, exec).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Native workflow keep-alive worker.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     // Extract Termux .deb payloads downloaded in-app for the VM runtime.
     implementation("org.tukaani:xz:1.10")
 }

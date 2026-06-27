@@ -88,6 +88,17 @@
                 android:value="local linux runtime for developer tools" />
         </service>
 
+        <!-- Workflow Foreground Service: native lifecycle anchor for scheduled
+             automations while the app UI is closed or the screen is locked. -->
+        <service
+            android:name=".WorkflowForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="scheduled local workflow automation" />
+        </service>
+
         <!-- Notification Listener Service (read-only). User must enable in
              Settings → Notifications → Notification access. -->
         <service

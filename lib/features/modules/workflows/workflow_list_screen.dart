@@ -37,8 +37,6 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
     _load();
   }
 
-
-
   Future<void> _load() async {
     final list = await _repo.list();
     if (mounted) {
@@ -50,8 +48,14 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
   }
 
   Future<void> _toggle(WorkflowModel wf) async {
-    await _repo.toggle(wf.id, !wf.enabled);
+    final nextEnabled = !wf.enabled;
+    await _repo.toggle(wf.id, nextEnabled);
+    await WorkflowScheduler.cancel(wf);
+    if (nextEnabled) {
+      await WorkflowScheduler.schedule(wf.copyWith(enabled: true));
+    }
     await WorkflowForegroundService.ensureSchedulerRunning();
+    await WorkflowScheduler.registerKeepAlive();
     _load();
   }
 
@@ -92,9 +96,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
         content: Text(s.wfListRunNowQueued),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -156,6 +158,8 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
         await _repo.delete(id);
       }
     }
+    await WorkflowForegroundService.ensureSchedulerRunning();
+    await WorkflowScheduler.registerKeepAlive();
     _exitSelection();
     _load();
   }
@@ -186,7 +190,10 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<List<WorkflowModel>>>(workflowListProvider, (_, next) {
+    ref.listen<AsyncValue<List<WorkflowModel>>>(workflowListProvider, (
+      _,
+      next,
+    ) {
       next.whenData((list) {
         if (mounted) setState(() => _workflows = list);
       });
@@ -225,8 +232,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
             : ListView.builder(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
                 itemCount: _workflows.length,
-                itemBuilder: (_, i) =>
-                    _buildCard(_workflows[i], cs, extras, s),
+                itemBuilder: (_, i) => _buildCard(_workflows[i], cs, extras, s),
               ),
       ),
     );
@@ -284,9 +290,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
           icon: Icon(
             allSelected ? Icons.deselect_rounded : Icons.select_all_rounded,
           ),
-          tooltip: allSelected
-              ? s.wfListDeselectAll
-              : s.wfListSelectAll,
+          tooltip: allSelected ? s.wfListDeselectAll : s.wfListSelectAll,
           onPressed: _selectAll,
         ),
         IconButton(
@@ -461,10 +465,7 @@ class _WorkflowListScreenState extends ConsumerState<WorkflowListScreen> {
                 onPressed: () => _runNow(wf, s),
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
               Transform.scale(
                 scale: 0.85,

@@ -3,8 +3,10 @@ import 'package:uuid/uuid.dart';
 import '../../../features/agents/data/agent_repository.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../data/module_repository.dart';
+import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
+import 'workflow_scheduler.dart';
 import 'workflow_templates.dart';
 
 /// Agent tools for workflow management.
@@ -58,6 +60,29 @@ class WorkflowTools {
         args['assigned_to'];
     if (v is String) return v.trim();
     return null;
+  }
+
+  /// Keep OS-level schedulers in sync with workflow mutations made through
+  /// agent tools. Best-effort: persistence remains the source of truth, and
+  /// app startup will reschedule enabled workflows if a platform scheduler
+  /// call fails in a non-Android/test isolate.
+  Future<String?> _syncSchedule({
+    WorkflowModel? oldWorkflow,
+    WorkflowModel? newWorkflow,
+  }) async {
+    try {
+      if (oldWorkflow != null) {
+        await WorkflowScheduler.cancel(oldWorkflow);
+      }
+      if (newWorkflow != null && newWorkflow.enabled) {
+        await WorkflowScheduler.schedule(newWorkflow);
+      }
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      await WorkflowScheduler.registerKeepAlive();
+      return null;
+    } catch (e) {
+      return e.toString();
+    }
   }
 
   /// Create a new workflow.
@@ -186,6 +211,8 @@ class WorkflowTools {
       );
     }
 
+    final scheduleWarning = await _syncSchedule(newWorkflow: workflow);
+
     return ToolExecutionResult(
       success: true,
       toolName: 'workflow.create',
@@ -196,6 +223,8 @@ class WorkflowTools {
         'priority': workflow.priority.name,
         'isChained': workflow.isChained,
         'stepCount': workflow.steps.length,
+        if (scheduleWarning == null) 'scheduled': true,
+        'scheduleWarning': ?scheduleWarning,
       },
       actions: const [
         ResultAction(
@@ -268,6 +297,8 @@ class WorkflowTools {
       );
     }
 
+    final scheduleWarning = await _syncSchedule(newWorkflow: workflow);
+
     return ToolExecutionResult(
       success: true,
       toolName: 'workflow.create_from_template',
@@ -275,6 +306,8 @@ class WorkflowTools {
         'workflowId': workflow.id,
         'templateId': tpl.id,
         'title': workflow.title,
+        if (scheduleWarning == null) 'scheduled': true,
+        'scheduleWarning': ?scheduleWarning,
       },
     );
   }
@@ -509,12 +542,20 @@ class WorkflowTools {
     );
 
     await _repo.update(updated);
+    final scheduleWarning = await _syncSchedule(
+      oldWorkflow: existing,
+      newWorkflow: updated,
+    );
 
-    return const ToolExecutionResult(
+    return ToolExecutionResult(
       success: true,
       toolName: 'workflow.update',
-      data: {'updated': true},
-      actions: [
+      data: {
+        'updated': true,
+        if (scheduleWarning == null) 'scheduled': updated.enabled,
+        'scheduleWarning': ?scheduleWarning,
+      },
+      actions: const [
         ResultAction(
           label: 'Open Workflows',
           icon: 'schedule_rounded',
@@ -546,6 +587,7 @@ class WorkflowTools {
       );
     }
 
+    final existing = await _repo.read(id);
     final success = await _repo.delete(id);
     if (!success) {
       return ToolExecutionResult(
@@ -555,10 +597,12 @@ class WorkflowTools {
       );
     }
 
-    return const ToolExecutionResult(
+    final scheduleWarning = await _syncSchedule(oldWorkflow: existing);
+
+    return ToolExecutionResult(
       success: true,
       toolName: 'workflow.delete',
-      data: {'deleted': true},
+      data: {'deleted': true, 'scheduleWarning': ?scheduleWarning},
     );
   }
 
@@ -584,6 +628,7 @@ class WorkflowTools {
       );
     }
 
+    final existing = await _repo.read(id);
     final success = await _repo.toggle(id, enabled);
     if (!success) {
       return ToolExecutionResult(
@@ -593,10 +638,21 @@ class WorkflowTools {
       );
     }
 
+    final updated = existing?.copyWith(enabled: enabled);
+    final scheduleWarning = await _syncSchedule(
+      oldWorkflow: existing,
+      newWorkflow: updated,
+    );
+
     return ToolExecutionResult(
       success: true,
       toolName: 'workflow.toggle',
-      data: {'id': id, 'enabled': enabled},
+      data: {
+        'id': id,
+        'enabled': enabled,
+        if (scheduleWarning == null) 'scheduled': enabled,
+        'scheduleWarning': ?scheduleWarning,
+      },
     );
   }
 }

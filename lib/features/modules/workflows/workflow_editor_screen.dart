@@ -9,6 +9,7 @@ import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'workflow_builtin_vars.dart';
+import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_scheduler.dart';
@@ -248,9 +249,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         variables: const {}, // legacy field; built-ins handle everything now.
         templateId: _templateId,
       );
+      await WorkflowScheduler.cancel(widget.workflow!);
       await _repo.update(updated);
-      await WorkflowScheduler.cancel(updated);
       await WorkflowScheduler.schedule(updated);
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      await WorkflowScheduler.registerKeepAlive();
     } else {
       final workflow = WorkflowModel(
         id: 'wf_${const Uuid().v4().substring(0, 8)}',
@@ -277,6 +280,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         return;
       }
       await WorkflowScheduler.schedule(workflow);
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      await WorkflowScheduler.registerKeepAlive();
     }
 
     if (mounted) Navigator.pop(context, true);
@@ -301,6 +306,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (!confirm) return;
     await WorkflowScheduler.cancel(wf);
     await _repo.delete(wf.id);
+    await WorkflowForegroundService.ensureSchedulerRunning();
+    await WorkflowScheduler.registerKeepAlive();
     if (mounted) Navigator.pop(context, true);
   }
 
