@@ -685,14 +685,46 @@ class MiniAppModulePlugin extends ModulePlugin {
 
   Map<String, Object> _inspectCode(String code) {
     final lower = code.toLowerCase();
-    final usesMeowSdk = lower.contains('window.meow') || RegExp(r'\bmeow\.').hasMatch(code);
-    final usesUserDatabase = RegExp(r'\b(?:window\.)?meow\.db\.').hasMatch(code);
+
+    // --- Meow SDK detection ---
+    // Tolerant: allow whitespace around dots that _formatHtml may introduce.
+    final usesMeowSdk = lower.contains('window.meow') ||
+        RegExp(r'meow\s*\.', caseSensitive: false).hasMatch(code);
+
+    // --- User database detection ---
+    // Must detect: window.meow.db.query(...), meow.db.insert(...),
+    // await meow.db.execute(...), const db = window.meow.db; db.query(...).
+    // Allow optional whitespace around dots since _formatHtml can insert
+    // newlines between tokens (e.g. "meow.db.query\n(").
+    final usesUserDatabase = RegExp(
+      r'meow\s*\.\s*db\s*[\.\[\(]'   // meow.db. or meow.db[ or meow.db(
+      r'|'
+      r'meow\s*\.\s*db\b',           // bare reference: const db = meow.db
+      caseSensitive: false,
+    ).hasMatch(code);
+
     final initializesTables =
         lower.contains('create table if not exists') || lower.contains('create table');
-    final readsDatabase = RegExp(r'\b(?:window\.)?meow\.db\.query\s*\(').hasMatch(code);
-    final writesDatabase = RegExp(
-      r'\b(?:window\.)?meow\.db\.(insert|update|delete|execute)\s*\(',
+
+    // --- Read path detection ---
+    // Match meow.db.query/rawQuery/getAll/select and also aliased patterns
+    // like `db.query(...)` where db was assigned from meow.db.
+    final readsDatabase = RegExp(
+      r'meow\s*\.\s*db\s*\.\s*(?:query|rawQuery|getAll|select|getItem)\s*\('
+      r'|'
+      // Aliased: .db.query(...) — matches when meow.db assignment exists.
+      r'\.db\s*\.\s*(?:query|rawQuery|getAll|select|getItem)\s*\(',
+      caseSensitive: false,
     ).hasMatch(code);
+
+    // --- Write path detection ---
+    final writesDatabase = RegExp(
+      r'meow\s*\.\s*db\s*\.\s*(?:insert|update|delete|execute|run|setItem|put)\s*\('
+      r'|'
+      r'\.db\s*\.\s*(?:insert|update|delete|execute|run|setItem|put)\s*\(',
+      caseSensitive: false,
+    ).hasMatch(code);
+
     final usesThemeTokens = code.contains('--color-') ||
         lower.contains('meow.theme') ||
         lower.contains('dark:') ||
@@ -702,17 +734,20 @@ class MiniAppModulePlugin extends ModulePlugin {
       if (!usesMeowSdk)
         'No window.meow SDK usage detected. Device/data integration may not work.',
       if (!usesUserDatabase)
-        'No window.meow.db usage detected. Durable user data may not persist in the shared database.',
+        'No window.meow.db usage detected. Data will NOT persist in the user database (meow_user.db). '
+        'Use window.meow.db.execute/query/insert to store data in the user DB — this is separate from the system DB.',
       if (usesUserDatabase && !initializesTables)
-        'Database usage detected but no CREATE TABLE setup was found.',
+        'Database usage detected but no CREATE TABLE setup was found. '
+        'Ensure the table exists in the user DB (meow_user.db) — use db.create_table or window.meow.db.execute("CREATE TABLE...").',
       if (usesUserDatabase && !readsDatabase)
-        'Database usage detected but no startup query/read path was found.',
+        'Database usage detected but no query/read path was found. '
+        'Add window.meow.db.query() calls to load data from the user DB on startup.',
       if (writesDatabase && !readsDatabase)
         'Database writes detected without a read-back path to keep UI in sync.',
       if (!usesThemeTokens)
         'No dynamic theme integration detected. Use host CSS variables or Tailwind dark: selectors.',
       if (lower.contains('localstorage') || lower.contains('sessionstorage'))
-        'Browser storage detected. Use window.meow.db for important durable data.',
+        'Browser storage detected. Use window.meow.db for durable data — localStorage does not persist across Mini App sessions.',
     ];
 
     return {

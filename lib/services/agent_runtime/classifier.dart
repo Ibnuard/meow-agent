@@ -134,7 +134,7 @@ class Classifier {
       logger.logError(
         'Classify failed after LlmJsonCaller attempts; degrading to direct execute',
       );
-      return _degradedResult(userMessage);
+      return _degradedResult(userMessage, activeTaskContext: activeTaskContext);
     }
 
     return _parseResult(parsed, userMessage);
@@ -368,23 +368,34 @@ $promptClassifyResponseFormat''';
     });
   }
 
-  ClassifyResult _degradedResult(String userMessage) {
+  ClassifyResult _degradedResult(
+    String userMessage, {
+    String activeTaskContext = '',
+  }) {
+    // When there is an active task (ledger) and classify fails, degrade to
+    // continuation so the runtime re-enters the execute loop with the existing
+    // plan. Without this, the runtime falls through to a chat-only response
+    // that promises action but never calls any tools — killing the active task.
+    final hasActiveTask = activeTaskContext.isNotEmpty;
     final fallbackTree = GoalTree.singleSubgoal(
       mainGoal: userMessage,
       subgoalLabel: userMessage,
     );
     return ClassifyResult(
-      raw: {'route': 'agentic', 'requires_tools': false},
+      raw: {
+        'route': 'agentic',
+        'requires_tools': hasActiveTask,
+      },
       analysis: {
         'intent': '',
         'goal': userMessage,
-        'requires_tools': false,
+        'requires_tools': hasActiveTask,
         'detected_language': '',
         'selected_skill_ids': const [],
         'tool_groups': const [],
         'missing_info': const [],
         'subgoal_seeds': const [],
-        'task_relation': 'none',
+        'task_relation': hasActiveTask ? 'continuation' : 'none',
         'direct_response': '',
         'narrative': '',
         'next_narrative': '',
@@ -394,7 +405,9 @@ $promptClassifyResponseFormat''';
       reflection: ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,
         goalTree: fallbackTree,
-        reasoning: 'Classify failed; degraded to direct execute.',
+        reasoning: hasActiveTask
+            ? 'Classify failed; degraded to continuation of active task.'
+            : 'Classify failed; degraded to direct execute.',
         degraded: true,
       ),
       plan: {
