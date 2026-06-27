@@ -68,7 +68,7 @@ class ExecuteLoopRunner {
     required String memorySnapshot,
     RecoveryCoordinator? recovery,
     PostExecuteValidator? postExecuteValidator,
-    Future<({Map<String, dynamic> plan, GoalTree goalTree})?> Function()? rethink,
+    Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> Function()? rethink,
     bool autoApproveSensitive = false,
     bool isWorkflowAutoExecute = false,
     List<Map<String, dynamic>>? initialPreviousResults,
@@ -76,6 +76,7 @@ class ExecuteLoopRunner {
     int nullSelectionRecoveryCount = 0,
     bool fastPath = false,
     String? stableContext,
+    List<String> requiredCapabilities = const [],
   }) async {
     _overrideLanguageCode = detectedLang.code;
     final previousResults = <Map<String, dynamic>>[...?initialPreviousResults];
@@ -228,6 +229,7 @@ class ExecuteLoopRunner {
             initialPreviousResults: previousResults,
             initialStep: currentStep,
             nullSelectionRecoveryCount: nullSelectionRecoveryCount + 1,
+            requiredCapabilities: recoveryDecision.requiredCapabilities,
           );
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -257,6 +259,45 @@ class ExecuteLoopRunner {
       // the stacked duplicate narratives).
 
       if (status == 'done') {
+        var gateRejected = false;
+        if (requiredCapabilities.isNotEmpty) {
+          Map? inspection;
+          String lastToolName = '';
+          if (previousResults.isNotEmpty) {
+            final lastEntry = previousResults.last;
+            lastToolName = (lastEntry['tool'] ?? '').toString();
+            final lastResultData = lastEntry['result'] as Map?;
+            if (lastResultData != null) {
+              inspection = lastResultData['codeInspection'] as Map?;
+            }
+          }
+
+          for (final cap in requiredCapabilities) {
+            final actual = inspection != null ? inspection[cap] : null;
+            if (actual is! bool || !actual) {
+              gateRejected = true;
+              logger.logDivergence('capability_gate_rejected', {
+                'capability': cap,
+                'tool': lastToolName,
+                'step': currentStep,
+              });
+              previousResults.add({
+                'step': currentStep,
+                'note': 'SYSTEM GATE: Selector returned done but '
+                    '$cap=false in codeInspection. '
+                    'The required capability is missing. '
+                    'You MUST call miniapp.patch to add it. '
+                    'Do NOT return done until $cap=true.',
+              });
+              break;
+            }
+          }
+        }
+        if (gateRejected) {
+          currentStep++;
+          continue;
+        }
+
         final finalResponse =
             selection['final_response'] as String? ?? _runtimePhrase('runtime_task_completed');
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
@@ -410,6 +451,7 @@ class ExecuteLoopRunner {
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             initialPreviousResults: previousResults,
             initialStep: currentStep,
+            requiredCapabilities: recoveryDecision.requiredCapabilities,
           );
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -449,6 +491,7 @@ class ExecuteLoopRunner {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               initialPreviousResults: previousResults,
               initialStep: currentStep,
+              requiredCapabilities: recoveryDecision.requiredCapabilities,
             );
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -540,6 +583,7 @@ class ExecuteLoopRunner {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               initialPreviousResults: previousResults,
               initialStep: currentStep,
+              requiredCapabilities: recoveryDecision.requiredCapabilities,
             );
           }
           // Surface the most recent concrete failure if `previousResults` has
@@ -973,6 +1017,7 @@ class ExecuteLoopRunner {
                   isWorkflowAutoExecute: isWorkflowAutoExecute,
                   initialPreviousResults: previousResults,
                   initialStep: currentStep,
+                  requiredCapabilities: recoveryDecision.requiredCapabilities,
                 );
               }
               await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -1271,6 +1316,38 @@ class ExecuteLoopRunner {
         }
 
         if (reviewStatus == 'done') {
+          // P0: Deterministic semantic verification gate
+          if (result.success && requiredCapabilities.isNotEmpty) {
+            final inspection = result.data?['codeInspection'] as Map?;
+            var gateRejected = false;
+            for (final cap in requiredCapabilities) {
+              final actual = inspection != null ? inspection[cap] : null;
+              if (actual is! bool || !actual) {
+                gateRejected = true;
+                logger.logDivergence('capability_gate_rejected', {
+                  'capability': cap,
+                  'tool': toolRequest.name,
+                  'step': currentStep,
+                });
+                previousResults.add({
+                  'step': currentStep,
+                  'tool': toolRequest.name,
+                  'result': _shrinkResult(result.data, toolName: toolRequest.name),
+                  'note': 'SYSTEM GATE: Reviewer returned done but '
+                      '$cap=false in codeInspection. '
+                      'The required capability is missing. '
+                      'You MUST call miniapp.patch to add it. '
+                      'Do NOT return done until $cap=true.',
+                });
+                break;
+              }
+            }
+            if (gateRejected) {
+              currentStep++;
+              retryCount = 0;
+              continue;
+            }
+          }
           // Setup-only guard: a corrective/precondition tool succeeding is
           // never the user's goal. If the just-succeeded tool is pure setup
           // (`mkdir`, bare `cd`, install, etc.) AND the original request
@@ -1503,6 +1580,7 @@ class ExecuteLoopRunner {
               isWorkflowAutoExecute: isWorkflowAutoExecute,
               initialPreviousResults: previousResults,
               initialStep: currentStep,
+              requiredCapabilities: recoveryDecision.requiredCapabilities,
             );
           }
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
@@ -1574,9 +1652,9 @@ class ExecuteLoopRunner {
   // Recovery
   // ---------------------------------------------------------------------------
 
-  Future<({Map<String, dynamic> plan, GoalTree goalTree})?> _maybeRecover({
+  Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> _maybeRecover({
     required RecoveryCoordinator? recovery,
-    required Future<({Map<String, dynamic> plan, GoalTree goalTree})?> Function()? rethink,
+    required Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> Function()? rethink,
     required String reason,
     required RuntimeLogger logger,
     ToolCallRequest? failedTool,

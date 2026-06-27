@@ -1322,7 +1322,7 @@ class AgentRuntimeEngine {
         snapshotBuilder: () async => _buildSnapshot(),
       );
       final capturedAnalysis = Map<String, dynamic>.from(analysis);
-      Future<({Map<String, dynamic> plan, GoalTree goalTree})?>
+      Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?>
       rethink() async {
         try {
           // P3: Reuse the classify snapshot — state hasn't changed
@@ -1376,7 +1376,7 @@ class AgentRuntimeEngine {
             userMessage: effectiveUserMessage,
             resolvedTargets: reTargetGraph.targets,
           );
-          return (plan: newPlan, goalTree: newTree);
+          return (plan: newPlan, goalTree: newTree, requiredCapabilities: reClassify.requiredCapabilities);
         } catch (e) {
           logger.logError('Recovery rethink failed', e);
           return null;
@@ -1401,6 +1401,7 @@ class AgentRuntimeEngine {
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         fastPath: isFastPath,
         stableContext: stableContext,
+        requiredCapabilities: classifyResult.requiredCapabilities,
       );
 
       await _maybeExtractMemory(

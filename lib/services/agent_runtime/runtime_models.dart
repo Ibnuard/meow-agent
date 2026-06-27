@@ -282,6 +282,18 @@ class ToolDefinition {
   }
 }
 
+class PostCompletionCheck {
+  const PostCompletionCheck({
+    required this.fieldPath,    // e.g. "codeInspection.usesUserDatabase"
+    required this.mustBe,       // true or false
+    required this.rejectReason, // injected as error if check fails
+  });
+
+  final String fieldPath;
+  final bool mustBe;
+  final String rejectReason;
+}
+
 /// Specifies how the runtime should verify a mutating tool's outcome.
 ///
 /// The runtime evaluates the probe AFTER the tool reports success. If the
@@ -296,6 +308,7 @@ class ToolVerificationProbe {
     this.expectPresent = true,
     this.selectorArgKey = '',
     this.expectedDataKeys = const [],
+    this.postCompletionChecks = const [],
   });
 
   /// Probe kind:
@@ -323,6 +336,11 @@ class ToolVerificationProbe {
   /// profile fields) where the tool's own result payload is the only
   /// observable proof of mutation. Example: `['noteId']` for notes.create.
   final List<String> expectedDataKeys;
+
+  /// Semantic checks: verify specific field VALUES in result.data.
+  /// Each check specifies a dotted path, expected value, and reject reason.
+  /// Evaluated AFTER expectedDataKeys presence check passes.
+  final List<PostCompletionCheck> postCompletionChecks;
 
   /// Helper for common create/update verification.
   static const ToolVerificationProbe createOrUpdate = ToolVerificationProbe(

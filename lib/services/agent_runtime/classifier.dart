@@ -51,6 +51,14 @@ class ClassifyResult {
   String get directResponse => (raw['direct_response'] ?? '').toString().trim();
   String get detectedLanguage =>
       (raw['detected_language'] ?? '').toString().trim().toLowerCase();
+
+  List<String> get requiredCapabilities {
+    final caps = raw['required_capabilities'];
+    if (caps is List) {
+      return caps.map((e) => e.toString()).toList();
+    }
+    return const [];
+  }
 }
 
 /// Merges analyze + reflect + plan into a single LLM call (L3 optimization).
@@ -278,6 +286,7 @@ $promptClassifyResponseFormat''';
       'narrative': json['narrative'] ?? '',
       'next_narrative': json['next_narrative'] ?? '',
       'route': json['route'] ?? 'agentic',
+      'required_capabilities': json['required_capabilities'] ?? const [],
     };
 
     // Build reflection output.
@@ -380,6 +389,7 @@ $promptClassifyResponseFormat''';
         'narrative': '',
         'next_narrative': '',
         'route': 'agentic',
+        'required_capabilities': const [],
       },
       reflection: ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,

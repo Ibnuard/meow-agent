@@ -145,13 +145,15 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   "reasoning": "1-2 sentences in English",
   "main_goal": "single sentence summarizing the user's overall goal",
   "completion_criteria": ["observable condition 1", "observable condition 2"],
+  "required_capabilities": ["usesUserDatabase", "initializesTables"],
   "subgoals": [
     {
       "id": "sg1",
       "label": "one user-visible outcome",
       "required_slots": {"_operation": "update", "name": "..."},
       "missing_slots": ["persona"],
-      "status": "pending"
+      "status": "pending",
+      "toolHint": "miniapp.read"
     }
   ],
   "narrative": "$promptNarrativeFieldRule Show what you understood and your initial read.",
@@ -169,6 +171,8 @@ Rules:
 - selected_skill_ids: when requires_tools is true, list predefined skill ids. Use only ids from the predefined skill index.
 - tool_groups: compatibility fallback. Smallest set from: app, clipboard, device, notification, notes, files, calendar, workflow, system, database, miniapp, chat, communication, attachment, web.
 - task_relation: none/continuation/revision/new_task against ACTIVE TASK CONTEXT.
+- required_capabilities: list of capability strings the final result MUST have. Use "usesUserDatabase" when user asks for database/DB/persistent storage. Use "initializesTables" when user asks for table creation. Leave empty when no specific capability is required.
+- toolHint in subgoals: string representing the exact tool name (e.g. miniapp.read, miniapp.patch) expected to satisfy the subgoal, or null/absent if unknown.
 - $promptNarrativeFieldRule
 - $promptNextNarrativeFieldRule
 - Never include backticks or markdown fences.''';

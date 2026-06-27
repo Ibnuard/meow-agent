@@ -48,6 +48,7 @@ class Subgoal {
     this.status = SubgoalStatus.pending,
     this.resultRef,
     this.notes,
+    this.toolHint,
   }) : requiredSlots = requiredSlots ?? const {},
        missingSlots = missingSlots ?? const [];
 
@@ -71,6 +72,9 @@ class Subgoal {
   /// Free-form notes attached during execution (e.g. "agent_id=ag_42").
   String? notes;
 
+  /// Optional hint of which tool should be used to satisfy this subgoal.
+  final String? toolHint;
+
   bool get isReady =>
       missingSlots.isEmpty &&
       (status == SubgoalStatus.pending || status == SubgoalStatus.inProgress);
@@ -88,6 +92,7 @@ class Subgoal {
     'status': status.label,
     if (resultRef != null) 'result_ref': resultRef,
     if (notes != null) 'notes': notes,
+    if (toolHint != null) 'toolHint': toolHint,
   };
 
   factory Subgoal.fromJson(Map<String, dynamic> json) {
@@ -101,6 +106,7 @@ class Subgoal {
       status: SubgoalStatusX.fromLabel(json['status'] as String?),
       resultRef: json['result_ref'] as String?,
       notes: json['notes'] as String?,
+      toolHint: json['toolHint'] as String?,
     );
   }
 }
