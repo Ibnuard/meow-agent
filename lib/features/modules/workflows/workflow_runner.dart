@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -813,7 +814,10 @@ class WorkflowRunner {
             .timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
 
         stepStopwatch.stop();
-        previousResult = response.finalMessage;
+        previousResult = _enrichStepHandoff(
+          response.finalMessage,
+          response.previousResults,
+        );
         runtimeVars['step_${step.id}_result'] = previousResult;
         // Record this step's output for @stepN references by later steps.
         stepOutputs[i + 1] = previousResult;
@@ -1191,6 +1195,55 @@ class WorkflowRunner {
 
   String _earlierStepMarker(int stepNumber) =>
       PromptConstants.workflowEarlierStepMarker(stepNumber);
+
+  /// Enrich a step's verbalized narrative with the structured result data of
+  /// the last tool that ran in that step.
+  ///
+  /// Previously the chain handed only [response.finalMessage] (a verbalized
+  /// sentence) to the next step. A step returning `{"rows": [...]}` became a
+  /// natural-language sentence, and the next step had to re-parse (or re-fetch)
+  /// that data — a major accuracy loss for data-handoff chains (DB → send,
+  /// read → patch).
+  ///
+  /// This appends a delimited, compact JSON block carrying the last tool's
+  /// name + its result map so the next step's selector can read the real
+  /// structured values (ids, rows, revisions) directly. The narrative stays
+  /// first so the analyzer still keys on the instruction, not the payload.
+  /// Bounded to [_maxStructuredHandoffChars] so it never explodes context.
+  static const int _maxStructuredHandoffChars = 2400;
+
+  String _enrichStepHandoff(
+    String narrative,
+    List<Map<String, dynamic>>? previousResults,
+  ) {
+    if (narrative.isEmpty) return narrative;
+    if (previousResults == null || previousResults.isEmpty) return narrative;
+
+    Map<String, dynamic>? lastResult;
+    String? lastTool;
+    for (var i = previousResults.length - 1; i >= 0; i--) {
+      final entry = previousResults[i];
+      final result = entry['result'];
+      final tool = (entry['tool'] ?? '').toString();
+      if (result is Map && result.isNotEmpty && tool.isNotEmpty) {
+        lastResult = Map<String, dynamic>.from(result);
+        lastTool = tool;
+        break;
+      }
+    }
+    if (lastResult == null || lastTool == null) return narrative;
+
+    final encoded = jsonEncode({
+      'tool': lastTool,
+      'data': lastResult,
+    });
+    final capped = encoded.length > _maxStructuredHandoffChars
+        ? '${encoded.substring(0, _maxStructuredHandoffChars)}…(+${encoded.length - _maxStructuredHandoffChars} chars)'
+        : encoded;
+
+    return '$narrative\n\n[STRUCTURED RESULT — last tool output from the previous step. Use these real values (ids, rows, revisions, etc.) directly; do NOT re-fetch or re-parse them.]\n$capped\n[/STRUCTURED RESULT]';
+  }
+
 
   /// Notification built-ins that can be resolved either from a live
   /// notification event or from recent notification context for scheduled and

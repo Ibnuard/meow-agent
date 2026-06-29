@@ -176,3 +176,48 @@ Rules:
 - $promptNarrativeFieldRule
 - $promptNextNarrativeFieldRule
 - Never include backticks or markdown fences.''';
+
+/// Simplified classify fallback prompt.
+///
+/// When the full merged classify schema fails to parse (weak models, large
+/// JSON, repair failure), retry with THIS minimal schema. It requests only the
+/// fields needed to preserve multi-step plan structure: route, goal, requires_tools,
+/// and subgoals as a simple list of label strings. The schema is tiny so weak
+/// models produce valid JSON reliably, recovering the plan instead of collapsing
+/// to a single subgoal (which starves multi-step tasks of execute-loop budget).
+///
+/// English-only by design (prompt scaffolding rule). The LLM handles the
+/// user's language naturally via [detected_language].
+String promptClassifySimplifiedFallback({
+  required String userMessage,
+  required String activeTaskContext,
+}) {
+  final activeTaskBlock = activeTaskContext.isNotEmpty
+      ? '\nACTIVE TASK CONTEXT:\n$activeTaskContext\n'
+      : '';
+  return '''You are an AI agent runtime classifier. Your previous response could not be parsed. Reply with ONLY a minimal JSON object — no markdown, no explanation, no extra fields:
+
+{
+  "route": "chat | agentic",
+  "direct_response": "filled only when route is chat, else empty",
+  "goal": "one sentence describing what the user wants",
+  "requires_tools": true,
+  "detected_language": "ISO 639-1 code of the language the user wrote in",
+  "task_relation": "none | continuation | revision | new_task",
+  "main_goal": "single sentence summarizing the overall goal",
+  "subgoals": [
+    {"id": "sg1", "label": "one user-visible outcome"},
+    {"id": "sg2", "label": "next user-visible outcome"}
+  ]
+}
+
+Rules:
+- route="chat" only for ordinary conversational/creative/explanatory replies that need NO live state and NO mutation. Fill direct_response and leave subgoals empty.
+- route="agentic" for anything that inspects live/local state, mutates data, controls the device/apps, or manages stored data. Fill subgoals.
+- Split a multi-step request into one subgoal per user-visible outcome (e.g. read code, then patch it). Do NOT collapse multi-step tasks into one subgoal — each subgoal grants the executor more iteration budget.
+- task_relation: continuation if continuing an active task, revision if refining the same goal, new_task if unrelated, none otherwise.
+- Never include backticks or markdown fences.
+
+USER MESSAGE:
+$userMessage$activeTaskBlock''';
+}

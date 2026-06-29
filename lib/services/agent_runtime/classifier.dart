@@ -132,12 +132,133 @@ class Classifier {
 
     if (parsed == null) {
       logger.logError(
-        'Classify failed after LlmJsonCaller attempts; degrading to direct execute',
+        'Classify failed after LlmJsonCaller attempts; retrying with simplified schema',
+      );
+      // The full merged schema is large and weak models frequently emit
+      // malformed JSON for complex multi-step tasks. Retry ONCE with a
+      // minimal schema that requests only route/goal/subgoals — tiny enough
+      // that weak models reliably produce valid JSON. This recovers the
+      // multi-step plan structure instead of collapsing to a single subgoal
+      // (which would starve complex tasks of execute-loop budget).
+      final simplified = await _retrySimplifiedClassify(
+        userMessage: userMessage,
+        logger: logger,
+        stableContext: stableContext,
+        activeTaskContext: activeTaskContext,
+      );
+      if (simplified != null) {
+        logger.logLlmDecision(
+          'classify.simplified',
+          simplified.raw,
+          version: PromptConstants.promptVersion,
+        );
+        return simplified;
+      }
+      logger.logError(
+        'Simplified classify retry also failed; degrading to direct execute',
       );
       return _degradedResult(userMessage, activeTaskContext: activeTaskContext);
     }
 
     return _parseResult(parsed, userMessage);
+  }
+
+  /// One-shot retry with a minimal JSON schema when the full classify failed
+  /// to parse. Returns a [ClassifyResult] built from the simplified fields, or
+  /// null if this retry also fails to parse.
+  Future<ClassifyResult?> _retrySimplifiedClassify({
+    required String userMessage,
+    required RuntimeLogger logger,
+    required String stableContext,
+    String activeTaskContext = '',
+  }) async {
+    final prompt = PromptConstants.classifySimplifiedFallback(
+      userMessage: userMessage,
+      activeTaskContext: activeTaskContext,
+    );
+    final simplifiedCaller = LlmJsonCaller(
+      client: client,
+      config: config,
+      cancelToken: cancelToken,
+    );
+    final parsed = await simplifiedCaller.call(
+      prompt,
+      'classify.simplified',
+      logger,
+      stableContext: stableContext,
+    );
+    if (parsed == null) return null;
+    return _parseSimplifiedResult(parsed, userMessage);
+  }
+
+  /// Build a full [ClassifyResult] from the minimal simplified schema.
+  /// Fills the analysis/reflection/plan maps the engine expects, deriving the
+  /// goal tree from the simplified `subgoals` array so multi-step structure
+  /// survives the fallback.
+  ClassifyResult _parseSimplifiedResult(
+    Map<String, dynamic> json,
+    String userMessage,
+  ) {
+    final route = (json['route'] ?? 'agentic').toString();
+    final isChat = route == 'chat';
+    final directResponse = (json['direct_response'] ?? '').toString().trim();
+    final goal = (json['goal'] ?? json['main_goal'] ?? userMessage).toString();
+    final requiresTools = json['requires_tools'] ?? !isChat;
+    final detectedLanguage =
+        (json['detected_language'] ?? '').toString().trim().toLowerCase();
+    final taskRelation = (json['task_relation'] ?? 'none').toString();
+    final mainGoal = (json['main_goal'] ?? goal).toString();
+    final subgoalsJson = json['subgoals'] as List?;
+
+    final analysis = <String, dynamic>{
+      'intent': '',
+      'goal': goal,
+      'requires_tools': requiresTools,
+      'risk': 'safe',
+      'detected_language': detectedLanguage,
+      'selected_skill_ids': const [],
+      'tool_groups': const [],
+      'missing_info': const [],
+      'subgoal_seeds': const [],
+      'task_relation': taskRelation,
+      'direct_response': isChat ? directResponse : '',
+      'narrative': '',
+      'next_narrative': '',
+      'route': route,
+      'required_capabilities': const [],
+    };
+
+    final goalTree = (subgoalsJson == null || subgoalsJson.isEmpty)
+        ? GoalTree.singleSubgoal(mainGoal: mainGoal, subgoalLabel: mainGoal)
+        : GoalTree.fromJson({
+            'main_goal': mainGoal,
+            'completion_criteria': const [],
+            'subgoals': subgoalsJson,
+          });
+
+    final reflection = ReflectionOutput(
+      strategy: ReflectionStrategy.directExecute,
+      goalTree: goalTree,
+      reasoning:
+          'Classify parsed via simplified fallback schema; plan structure preserved.',
+      degraded: true,
+    );
+
+    final plan = <String, dynamic>{
+      'main_goal': mainGoal,
+      'completion_criteria': const [],
+      'subgoals': subgoalsJson ?? const [],
+      'narrative': '',
+      'next_narrative': '',
+    };
+
+    return ClassifyResult(
+      raw: json,
+      analysis: analysis,
+      reflection: reflection,
+      plan: plan,
+      degraded: true,
+    );
   }
 
   // ─── Prompt builder ────────────────────────────────────────────────────────

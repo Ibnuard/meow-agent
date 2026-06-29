@@ -120,7 +120,7 @@ $selectedSkillBlock
 
 Current step: $currentStep
 Previous results (this turn):
-${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
+${_formatPreviousResults(previousResults)}
 $historyBlock$goalBlock$memoryBlock$sourceModeBlock
 Available tools:
 ${availableTools.join('\n')}
@@ -158,7 +158,7 @@ ${PromptConstants.selectToolResponseFormat}''';
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
     final previousResultsBlock =
         '\nPrevious results (this turn):\n'
-        '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
+        '${_formatPreviousResults(previousResults)}\n';
     final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
         .toString()
         .trim();
@@ -202,6 +202,50 @@ ${PromptConstants.reviewResponseFormat}''';
         .where((e) => !e.key.startsWith('_'))
         .map((e) => '  ${e.key}: ${e.value}')
         .join('\n');
+  }
+
+  /// Render the per-turn previous-results list into a bounded prompt block.
+  ///
+  /// Without this the accumulated history is re-serialized in full into every
+  /// selector and reviewer prompt, growing unbounded up to `maxSteps×3` entries
+  /// and inflating tokens (and confusing the model) as a complex task
+  /// progresses. Keep the most recent [_fullResultsWindow] entries in full
+  /// (the selector/reviewer need their structured data to chain steps), and
+  /// compress older entries into one-line summaries — enough to recall what
+  /// already happened without re-doing it, without the cost.
+  static const int _fullResultsWindow = 4;
+
+  static String _formatPreviousResults(
+    List<Map<String, dynamic>> previousResults,
+  ) {
+    if (previousResults.isEmpty) return 'None yet.';
+    if (previousResults.length <= _fullResultsWindow) {
+      return previousResults.map(_jsonString).join('\n');
+    }
+    final older = previousResults.sublist(
+      0,
+      previousResults.length - _fullResultsWindow,
+    );
+    final recent = previousResults.sublist(
+      previousResults.length - _fullResultsWindow,
+    );
+    final olderSummary = older.map((e) {
+      final step = e['step'] ?? '?';
+      final tool = e['tool'] ?? '?';
+      final note = (e['note'] ?? '').toString().trim();
+      final result = e['result'];
+      String outcome;
+      if (result is Map) {
+        outcome = result.containsKey('error')
+            ? 'failed'
+            : (result['success'] == false ? 'failed' : 'ok');
+      } else {
+        outcome = note.isEmpty ? 'ok' : 'ok';
+      }
+      return '  - step $step: $tool → $outcome'
+          '${note.isEmpty ? '' : ' ($note)'}';
+    }).join('\n');
+    return 'Earlier (compressed):\n$olderSummary\n\nLatest:\n${recent.map(_jsonString).join('\n')}';
   }
 
   /// Render the canonical action map block, filtered to only the domains

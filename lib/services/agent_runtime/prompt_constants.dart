@@ -1,3 +1,4 @@
+import 'prompt_classify.dart';
 import 'prompt_context.dart';
 import 'prompt_execute.dart';
 import 'prompt_policy.dart';
@@ -200,4 +201,13 @@ $_sharedSystemRules
       promptEarlierStepMarker(stepNumber);
 
   static const workflowTriggerContextWrapper = promptTriggerContextWrapper;
+
+  static String classifySimplifiedFallback({
+    required String userMessage,
+    String activeTaskContext = '',
+  }) =>
+      promptClassifySimplifiedFallback(
+        userMessage: userMessage,
+        activeTaskContext: activeTaskContext,
+      );
 }

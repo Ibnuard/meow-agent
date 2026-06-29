@@ -1,8 +1,8 @@
-import '../llm/llm_error_mapper.dart';
 import 'action_map.dart';
 import 'completion_verifier.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
+import 'history_slicer.dart';
 import 'language_detector.dart';
 import 'language_registry.dart';
 import 'narrative_narrator.dart';
@@ -96,19 +96,13 @@ class ExecuteLoopRunner {
     ToolCallRequest? lastDeliveryTool;
     ToolExecutionResult? lastDeliveryResult;
 
-    // Conversation history snapshot (latest 20, chronological).
-    // Provider-error sentinel messages are stripped first — they describe a
-    // past connection failure, not real conversational context, and must not
-    // leak into the executor or reviewer prompts.
-    final loopRecentMsgs = () {
-      final src = request.recentMessages
-          .where(
-            (m) => m.includeInRuntimeContext && !LlmErrorMapper.isProviderErrorMessage(m.content),
-          )
-          .toList();
-      final latest = src.length > 20 ? src.sublist(src.length - 20) : src;
-      return latest.map((m) => {'role': m.role, 'content': m.content}).toList();
-    }();
+    // Conversation history (pinned original goal + recent window).
+    // The original user goal is pinned so a long multi-step task that
+    // generates many tool results does not push the request out of the
+    // selector's context — that causes goal drift. Provider-error sentinel
+    // messages are stripped inside the slicer.
+    final loopRecentMsgs =
+        HistorySlicer.slice(messages: request.recentMessages);
 
     // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3.
     // Fast-path tasks get a hard cap of 2 iterations — if exhausted, the caller

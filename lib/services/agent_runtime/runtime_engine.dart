@@ -23,6 +23,7 @@ import 'classifier.dart';
 import 'ecosystem_snapshot.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
+import 'history_slicer.dart';
 import 'json_utils.dart';
 import 'language_detector.dart';
 import 'memory_extractor.dart';
@@ -582,24 +583,12 @@ class AgentRuntimeEngine {
               phase: 'attachment_vision',
             );
           };
-      // Drop transient provider-error messages from history before slicing —
-      // they describe past connection state, not real conversational context.
-      // Without this filter the LLM sees its own "I can't connect" reply from
-      // a prior failed turn and parrots that narrative even after the
-      // connection has recovered. See LlmErrorMapper.providerErrorSentinel.
-      final sourceMessages = request.recentMessages
-          .where(
-            (m) =>
-                m.includeInRuntimeContext &&
-                !LlmErrorMapper.isProviderErrorMessage(m.content),
-          )
-          .toList();
-      final latestMessages = sourceMessages.length > 20
-          ? sourceMessages.sublist(sourceMessages.length - 20)
-          : sourceMessages;
-      final recentMsgs = latestMessages
-          .map((m) => {'role': m.role, 'content': m.content})
-          .toList();
+      // Slice conversation history for the prompt. HistorySlicer pins the
+      // original user goal at the front so it is never lost behind the recent
+      // window — this prevents goal drift on complex multi-step tasks where
+      // many tool results would otherwise push the request out of context.
+      // Provider-error sentinel messages are stripped inside the slicer.
+      final recentMsgs = HistorySlicer.slice(messages: request.recentMessages);
       var pendingClarification = _pendingClarifications[request.agentId];
       if (pendingClarification != null && pendingClarification.isExpired) {
         _pendingClarifications.remove(request.agentId);
