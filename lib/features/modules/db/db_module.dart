@@ -126,6 +126,11 @@ class DatabaseModulePlugin extends ModulePlugin {
           operation: 'update',
           targetEntity: 'row',
           selectorArgs: ['table'],
+          verificationProbe: ToolVerificationProbe(
+            kind: 'tool_result_data',
+            entityType: 'row',
+            expectedDataKeys: ['updated'],
+          ),
         ),
         ToolDefinition(
           name: 'db.delete',
@@ -140,6 +145,11 @@ class DatabaseModulePlugin extends ModulePlugin {
           operation: 'delete',
           targetEntity: 'row',
           selectorArgs: ['table'],
+          verificationProbe: ToolVerificationProbe(
+            kind: 'tool_result_data',
+            entityType: 'row',
+            expectedDataKeys: ['deleted'],
+          ),
         ),
       ];
 

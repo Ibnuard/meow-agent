@@ -1325,9 +1325,12 @@ class AgentRuntimeEngine {
       Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?>
       rethink() async {
         try {
-          // P3: Reuse the classify snapshot — state hasn't changed
-          // between classify and first recovery attempt.
-          final freshSnapshot = classifySnapshot;
+          // Rebuild the ecosystem snapshot fresh — tools executed since the
+          // initial classify may have mutated state (created tables, mini
+          // apps, providers, etc.). Reusing the pre-mutation snapshot would
+          // make the rethink re-plan against stale entities and re-attempt
+          // already-satisfied subgoals.
+          final freshSnapshot = await _buildSnapshot();
           final freshAnalysis = Map<String, dynamic>.from(capturedAnalysis);
           final priorContext = recovery.toReflectionContextList();
           if (priorContext.isNotEmpty) {

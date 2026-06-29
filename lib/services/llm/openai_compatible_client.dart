@@ -245,11 +245,13 @@ class OpenAiCompatibleClient {
       }
     }
 
-    final response = await _dio.postUri<Map<String, dynamic>>(
-      _resolve(config.baseUrl, '/chat/completions'),
-      data: {'model': config.model, 'messages': wireMessages},
-      options: Options(headers: _buildHeaders(config)),
-      cancelToken: cancelToken,
+    final response = await _postWithRetry<Map<String, dynamic>>(
+      () => _dio.postUri<Map<String, dynamic>>(
+        _resolve(config.baseUrl, '/chat/completions'),
+        data: {'model': config.model, 'messages': wireMessages},
+        options: Options(headers: _buildHeaders(config)),
+        cancelToken: cancelToken,
+      ),
     );
 
     final data = response.data;
@@ -283,6 +285,56 @@ class OpenAiCompatibleClient {
     return _normalizeContent(content);
   }
 
+  /// Execute a POST request with a bounded retry on transient network/HTTP
+  /// failures (connection reset, receive timeout, 429 Too Many Requests, 5xx).
+  ///
+  /// Without this a single dropped packet or a momentary provider 503 aborts
+  /// the entire agent turn — even though the very next attempt would likely
+  /// succeed. We retry up to [_maxChatRetries] times with exponential backoff,
+  /// reusing the provider prompt-cache key so retried calls still benefit from
+  /// prefix caching. Non-transient failures (4xx auth/validation) propagate
+  /// immediately, and a cancelled request is never retried.
+  static const int _maxChatRetries = 2;
+
+  Future<Response<T>> _postWithRetry<T>(
+    Future<Response<T>> Function() request,
+  ) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await request();
+      } on DioException catch (e) {
+        if (!_isTransientDioError(e) || attempt >= _maxChatRetries) rethrow;
+        // Backoff: 500ms, 1500ms — long enough for a transient provider
+        // blip to clear without making a stalled turn feel hung.
+        final backoffMs = (500 * (attempt + 1)) + (attempt * 1000);
+        await Future.delayed(Duration(milliseconds: backoffMs));
+        attempt++;
+      }
+    }
+  }
+
+  /// True for errors worth retrying: timeouts, connection resets, and provider
+  /// rate-limit/server errors. False for auth failures, bad requests, and
+  /// cancellations.
+  bool _isTransientDioError(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.badResponse:
+        final status = e.response?.statusCode ?? 0;
+        // 429 Too Many Requests and 5xx server errors are transient.
+        return status == 429 || (status >= 500 && status < 600);
+      case DioExceptionType.cancel:
+      case DioExceptionType.badCertificate:
+      case DioExceptionType.unknown:
+        return false;
+    }
+  }
+
   /// Native function calling path. Sends `tools` as an API parameter and
   /// reads `message.tool_calls[0].function` from the response.
   ///
@@ -302,16 +354,18 @@ class OpenAiCompatibleClient {
       )).toList(),
     );
 
-    final response = await _dio.postUri<Map<String, dynamic>>(
-      _resolve(config.baseUrl, '/chat/completions'),
-      data: {
-        'model': config.model,
-        'messages': messages,
-        'tools': tools,
-        'tool_choice': toolChoice,
-      },
-      options: Options(headers: _buildHeaders(config)),
-      cancelToken: cancelToken,
+    final response = await _postWithRetry<Map<String, dynamic>>(
+      () => _dio.postUri<Map<String, dynamic>>(
+        _resolve(config.baseUrl, '/chat/completions'),
+        data: {
+          'model': config.model,
+          'messages': messages,
+          'tools': tools,
+          'tool_choice': toolChoice,
+        },
+        options: Options(headers: _buildHeaders(config)),
+        cancelToken: cancelToken,
+      ),
     );
 
     final data = response.data;

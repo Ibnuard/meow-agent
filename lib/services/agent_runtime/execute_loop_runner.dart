@@ -732,12 +732,19 @@ class ExecuteLoopRunner {
           logger.logStateChange(state, 'Tool requires confirmation: ${toolRequest.name}');
           emit(logger.events.last);
 
-          final summary = await verbalizer.confirm(
-            tool: toolRequest,
-            definition: definition,
-            language: detectedLang,
-          );
-          final preview = await verbalizer.preview(tool: toolRequest, language: detectedLang);
+          // Render the confirmation summary and the operation preview
+          // concurrently — these are independent LLM calls and issuing them
+          // in parallel halves the confirmation-gate latency.
+          final confirmFutures = await Future.wait<dynamic>([
+            verbalizer.confirm(
+              tool: toolRequest,
+              definition: definition,
+              language: detectedLang,
+            ),
+            verbalizer.preview(tool: toolRequest, language: detectedLang),
+          ]);
+          final summary = confirmFutures[0] as String;
+          final preview = confirmFutures[1] as String;
 
           Map<String, dynamic>? resumeContext;
           String? ledgerIdForPending;
