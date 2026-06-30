@@ -199,6 +199,25 @@ class AgentSoulRepository {
   final MeowDatabase _db;
   final _byAgentControllers = <String, StreamController<AgentSoul?>>{};
 
+  /// In-memory soul cache. The runtime reads the soul on EVERY turn (once at
+  /// the top of `run()` and again inside `WorkspaceContextBuilder.build`).
+  /// Without this cache each turn = 2 DB round-trips for the same row that
+  /// rarely changes. The cache is invalidated on any write (updateField /
+  /// updateAll) and by [invalidate]. The provider prompt-cache also benefits
+  /// because the stable context prefix stays byte-identical across turns
+  /// when the soul hasn't changed.
+  final _soulCache = <String, AgentSoul?>{};
+
+  /// Clear the cached soul for [agentId] (or all agents when null). Call this
+  /// when the soul is known to have changed externally.
+  void invalidate([String? agentId]) {
+    if (agentId == null) {
+      _soulCache.clear();
+    } else {
+      _soulCache.remove(agentId);
+    }
+  }
+
   /// Watch a specific agent's soul row.
   Stream<AgentSoul?> watch(String agentId) async* {
     yield await get(agentId);
@@ -210,14 +229,18 @@ class AgentSoulRepository {
   }
 
   Future<AgentSoul?> get(String agentId) async {
+    if (_soulCache.containsKey(agentId)) {
+      return _soulCache[agentId];
+    }
     final db = await _db.database;
     final rows = await db.query(
       'agent_soul',
       where: 'agent_id = ?',
       whereArgs: [agentId],
     );
-    if (rows.isEmpty) return null;
-    return AgentSoul.fromRow(rows.first);
+    final soul = rows.isEmpty ? null : AgentSoul.fromRow(rows.first);
+    _soulCache[agentId] = soul;
+    return soul;
   }
 
   /// Update a single field. Used by `system.profile.update`.
@@ -243,6 +266,7 @@ class AgentSoulRepository {
       where: 'agent_id = ?',
       whereArgs: [agentId],
     );
+    _soulCache.remove(agentId);
     final fresh = await get(agentId);
     if (fresh != null) _notify(agentId, fresh);
     return fresh!;
@@ -258,6 +282,7 @@ class AgentSoulRepository {
       where: 'agent_id = ?',
       whereArgs: [soul.agentId],
     );
+    _soulCache[soul.agentId] = updated;
     _notify(soul.agentId, updated);
     return updated;
   }

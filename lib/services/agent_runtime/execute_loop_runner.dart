@@ -1271,8 +1271,26 @@ class ExecuteLoopRunner {
               }
             }
           } else if (result.success) {
+            // Auto-mark the active subgoal done when the reviewer omitted a
+            // subgoal_update but the tool succeeded. This is the common path
+            // for trivial single-action tasks.
+            //
+            // BUT: when completion_criteria exist, a silent auto-done is
+            // dangerous — it completes a single-subgoal tree after one tool
+            // without the reviewer ever confirming the criteria are met. A
+            // complex task that collapsed to sg_main (no enumeration) would
+            // exit after the first tool: "create mini app" → done, even
+            // though "has DB / table initialized / read path" are unmet.
+            // Keep the subgoal in_progress so the completion-criteria gate
+            // below and the next review pass get a chance to verify.
             final active = goalTree.nextActionable;
-            if (active != null) active.status = SubgoalStatus.done;
+            if (active != null) {
+              if (goalTree.completionCriteria.isEmpty) {
+                active.status = SubgoalStatus.done;
+              } else {
+                active.status = SubgoalStatus.inProgress;
+              }
+            }
           } else {
             final active = goalTree.nextActionable;
             if (active != null) active.status = SubgoalStatus.inProgress;
@@ -1392,6 +1410,74 @@ class ExecuteLoopRunner {
             currentStep++;
             retryCount = 0;
             continue;
+          }
+
+          // Completion-criteria gate for single-subgoal trees.
+          //
+          // This is the primary fix for "agent replies with 1 bubble then stops
+          // on complex tasks". When a complex request collapses to a single
+          // sg_main subgoal (no enumeration — the LLM didn't split it into
+          // read→patch, create_table→insert→query, etc.), the premature-done
+          // guard above is skipped because the single subgoal is already
+          // terminal after one tool → isComplete=true → loop exits.
+          //
+          // completion_criteria are the deterministic signal that more work is
+          // expected. When they exist and we haven't already reminded the
+          // reviewer about them for this subgoal, re-open the subgoal and
+          // inject the criteria as a hard system note so the reviewer gets
+          // one more pass to verify each criterion. Bounded: a second done
+          // is accepted (the premature-done counter will synthesize if the
+          // reviewer keeps oscillating).
+          if (result.success &&
+              goalTree.isSingleAction &&
+              goalTree.completionCriteria.isNotEmpty) {
+            final alreadyReminded = previousResults.any(
+              (r) => (r['note'] ?? '')
+                  .toString()
+                  .contains('COMPLETION CRITERIA REMINDER'),
+            );
+            if (!alreadyReminded) {
+              final criteriaList = goalTree.completionCriteria
+                  .map((c) => '  - $c')
+                  .join('\n');
+              logger.logDivergence('completion_criteria_gate', {
+                'criteria_count': goalTree.completionCriteria.length,
+                'tool': toolRequest.name,
+                'step': currentStep,
+              });
+              logger.logError(
+                'Reviewer returned done on a single-subgoal task with '
+                '${goalTree.completionCriteria.length} unverified completion '
+                'criterion/criteria. Re-opening subgoal for verification.',
+              );
+              final active = goalTree.nextActionable;
+              if (active != null) {
+                active.status = SubgoalStatus.inProgress;
+              } else {
+                for (final s in goalTree.subgoals) {
+                  if (s.status == SubgoalStatus.done) {
+                    s.status = SubgoalStatus.inProgress;
+                    break;
+                  }
+                }
+              }
+              previousResults.add({
+                'step': currentStep,
+                'tool': toolRequest.name,
+                'result':
+                    _shrinkResult(result.data, toolName: toolRequest.name),
+                'note': 'COMPLETION CRITERIA REMINDER: You returned '
+                    'status=done but this task has unverified completion '
+                    'criteria. Before returning done again, verify EACH '
+                    'criterion against the tool results you have. If any '
+                    'criterion is NOT yet met, select the tool that satisfies '
+                    'it (e.g. miniapp.patch, db.create_table, db.insert). '
+                    'Criteria:\n$criteriaList',
+              });
+              currentStep++;
+              retryCount = 0;
+              continue;
+            }
           }
 
           if (goalTree.isNotEmpty && !goalTree.isComplete) {

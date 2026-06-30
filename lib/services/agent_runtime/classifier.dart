@@ -100,6 +100,7 @@ class Classifier {
     String agentName = '',
     String agentId = '',
     List<String> resolvedTargetLabels = const [],
+    bool userNotIntroduced = false,
   }) async {
     final prompt = buildPrompt(
       userMessage: userMessage,
@@ -115,6 +116,7 @@ class Classifier {
       agentName: agentName,
       agentId: agentId,
       resolvedTargetLabels: resolvedTargetLabels,
+      userNotIntroduced: userNotIntroduced,
     );
 
     final caller = LlmJsonCaller(
@@ -277,6 +279,7 @@ class Classifier {
     String agentName = '',
     String agentId = '',
     List<String> resolvedTargetLabels = const [],
+    bool userNotIntroduced = false,
   }) {
     final languageLabel = language.label;
     final historyBlock = recentMessages.isNotEmpty
@@ -302,6 +305,14 @@ class Classifier {
               '- The user pre-approved sensitive actions when creating this workflow.\n'
               '- ALWAYS set requires_tools=true if the prompt describes an action.\n'
               '- NEVER set requires_tools=false to ask for permission — execute directly.\n'
+        : '';
+
+    // Bootstrap rule: when the user hasn't introduced themselves yet (no name
+    // in soul), tell the classifier to set route=chat and handle the intro
+    // naturally instead of diving into tools. Only for interactive chat —
+    // workflows run unattended and should never block on intros.
+    final bootstrapBlock = (userNotIntroduced && !isWorkflowAutoExecute)
+        ? '\n\n${PromptConstants.bootstrapRule}'
         : '';
 
     final activeTaskBlock = activeTaskContext.isNotEmpty
@@ -361,7 +372,7 @@ $skillBlock$resolvedBlock
 
 Recent conversation:
 $historyBlock
-$pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
+$pendingBlock$memoryBlock$sourceModeBlock$bootstrapBlock$activeTaskBlock
 
 User message: "$userMessage"
 

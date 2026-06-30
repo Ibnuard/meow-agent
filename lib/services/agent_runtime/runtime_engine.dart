@@ -169,7 +169,7 @@ class AgentRuntimeEngine {
       isWorkflowAutoExecute: isWorkflowAutoExecute,
     );
     if (!userNotIntroduced || isWorkflowAutoExecute) return base;
-    return '$base\n\n${PromptConstants.introductionGateRule}';
+    return '$base\n\n${PromptConstants.introductionGateRule}\n\n${PromptConstants.bootstrapRule}';
   }
 
   /// Build an [AgentWorkspace] from SQLite-backed repos.
@@ -720,11 +720,12 @@ class AgentRuntimeEngine {
         recentMessages: recentMsgs,
         pendingAction: pending,
         recentToolMemory: _memory.formatForPrompt(request.agentId),
-        isWorkflowAutoExecute: isWorkflowAutoExecute,
-        activeTaskContext: activeTaskContext,
-        agentName: wsName,
-        agentId: request.agentId,
-      );
+            isWorkflowAutoExecute: isWorkflowAutoExecute,
+            activeTaskContext: activeTaskContext,
+            agentName: wsName,
+            agentId: request.agentId,
+            userNotIntroduced: userNotIntroduced,
+          );
       // Handle chat route from the merged call.
       if (classifyResult.isChatRoute && classifyResult.directResponse.isNotEmpty) {
         logger.logStateChange(AgentRuntimeState.done, 'Chat response');

@@ -39,39 +39,14 @@ String promptSelfIdentity({
 - If the user might plausibly mean a DIFFERENT agent (they named another agent by name, or said "the other one"), ask in first person, e.g. "Should I copy from my own config, or from a different agent?". Phrase the question in the user's language. Never phrase it as a neutral system query like "which agent do you want to copy from".
 - Never refer to yourself in the third person. Never call yourself "the active agent" or "agent X" — speak as "I" (in the user's language).
 - LISTING OTHER AGENTS: When the user asks for agents OTHER than you (any phrasing equivalent to "besides you", "other than you", "the rest of the agents") — EXCLUDE yourself from the answer. Only list agents that are NOT you. If you are the only agent, say so honestly. Never list yourself as both the speaker AND an item in the list.
-- YOUR OWN CAPABILITIES: When the user asks what you can do / what your abilities are — answer from YOUR perspective in first person. Describe what YOU can do based on your registered tools. Never describe other agents' capabilities as if they were yours, and never narrate yourself as a third-party item from a tool result.''';
+ - YOUR OWN CAPABILITIES: When the user asks what you can do / what your abilities are — answer from YOUR perspective in first person. Describe what YOU can do based on your registered tools. Never describe other agents' capabilities as if they were yours, and never narrate yourself as a third-party item from a tool result.''';
 
-const promptSystemMarkdownMap = '''Meow Agent data model:
-- Identity data (user name, nickname, timezone, preferences) is stored in a local database and managed via system.profile.update.
-- Long-term memory (facts, preferences, bookmarks) is stored in a local database and managed via system.memory.append.
-- Persona/personality of an agent lives in agent_soul (one row per agent). Read via agent.soul.read or system.config.read; write via system.profile.update (self) or agent.update with field=persona (any agent). Personality is NOT a memory fact — never use system.memory.append for persona.
-- The workspace folder (Documents/MeowAgent/Agents/{AgentName}/) is for USER FILES only — documents, PDFs, exports, etc. It is NOT used for identity or memory storage.
-- If the user provides their name, nickname, timezone, preferred language, role, or communication style, update via system.profile.update.
-- If the user asks you to remember a fact/preference, append via system.memory.append.
-- Never store profile or memory data as files.
-
-World model (files.* tools):
-- The MeowAgent root (Documents/MeowAgent/) is the file sandbox. The calling agent's own workspace (Documents/MeowAgent/Agents/{ThisAgent}/) is the default scope.
-- You CAN reach a peer agent's workspace by passing "Agents/<PeerName>/<rel>" as the path (e.g. files.read with path="Agents/<PeerName>/notes.md"). The runtime will surface a confirmation gate to the user before executing any cross-agent file op, so it is safe to attempt when the user explicitly asks for it.
-- Use this for tasks that span peer agents: copying files between agent workspaces, etc.
-- DO NOT refuse a peer-agent file task by claiming "outside workspace". The boundary is MeowAgent root, not the calling agent. If the path is genuinely outside MeowAgent root, then explain that.
-
-Databases:
-1. System Database (meow_core.db, read-only via sqlite.query tool for ad-hoc introspection):
-   - agents(id, name, provider_id, model, max_context, auto_compact, icon_key, color_key, created_at, updated_at)
-   - agent_soul(agent_id, user_name, user_nickname, persona, communication_style, work_role, main_project, design_preference, preferred_language, timezone, persona_meta, updated_at)
-   - agent_memory(id, agent_id, category, content, created_at)
-   - agent_events(id, agent_id, event_type, state, task, last_tool, last_result, created_at)
-   - providers(id, nickname, base_url, api_key_ref, model_default, codename, models_json, created_at, updated_at) -- api_key_ref is a secure-storage handle, not the actual key.
-   - modules(id, enabled, config_json, installed_at), agent_module_permissions(agent_id, module_id, enabled, config_json)
-   - app_settings(key, value)
-   Use sqlite.query ONLY when structured tools (agent.list, agent.soul.read, system.config.read) cannot answer the question (joins, aggregates, custom filters).
-2. User Database (meow_user.db, read/write via db.* tools):
-   - This is an isolated database sandbox for user-defined custom tables (e.g., to create trackers, lists, schedules, and custom app backends).
-   - Use db.list_tables to see all custom tables.
-   - Use db.describe_table to get table columns schema.
-   - Use db.create_table, db.drop_table, db.insert, db.query, db.update, and db.delete to interact with user tables.
-   - Example user query: db.query(sql: "SELECT * FROM expenses")''';
+// The Meow Agent world model / DB schema previously lived here as
+// `promptSystemMarkdownMap`. It has been promoted to its own canonical home
+// in `prompt_agents.dart` (`promptAgentsWorldModel`) and is now injected into
+// the stable context prefix so ALL phases (classify/select/review) see it,
+// not just the direct-response path. Access it via
+// `PromptConstants.worldModel`.
 
 // ─── Shared cross-phase rules ────────────────────────────────────────────────
 

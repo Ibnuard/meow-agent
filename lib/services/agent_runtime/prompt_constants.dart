@@ -1,3 +1,4 @@
+import 'prompt_agents.dart';
 import 'prompt_classify.dart';
 import 'prompt_context.dart';
 import 'prompt_execute.dart';
@@ -99,6 +100,10 @@ $_sharedSystemRules
   static const introductionGateRule = promptIntroductionGateRule;
   static const vmWorkflowRules = promptVmWorkflowRules;
 
+  /// Behavioral character — the agent's "soul" (how it behaves, not what it
+  /// can do). Injected into the stable context so every phase sees it.
+  static const soulCharacter = promptSoulCharacter;
+
   /// True when the available-tools list includes any VM module tool, so the
   /// VM workflow rules are worth injecting (they cost ~400 tokens).
   static bool toolsIncludeVm(List<String> availableTools) {
@@ -120,9 +125,19 @@ $_sharedSystemRules
 
   static const profilePersistenceRules = promptProfilePersistenceRules;
 
-  // ─── System markdown map (delegated to prompt_context.dart) ─────────────
+  // ─── System markdown map (delegated to prompt_agents.dart) ─────────────
 
-  static const systemMarkdownMap = promptSystemMarkdownMap;
+  /// The full AGENTS world-model prompt (who you are, how you work, data model,
+  /// ecosystem, DB schemas). Static const — identical across all agents and
+  /// all turns, so it forms the first block of the stable context prefix for
+  /// maximum provider prompt-cache hits.
+  static const worldModel = promptAgentsWorldModel;
+
+  /// Backward-compatible accessor — delegates to the new [worldModel] home.
+  static const systemMarkdownMap = promptAgentsWorldModel;
+
+  /// Bootstrap rule injected when the workspace is fresh (no user name set).
+  static const bootstrapRule = promptBootstrapRule;
 
   // ─── Tool Selector (delegated to prompt_execute.dart) ──────────────────────
 

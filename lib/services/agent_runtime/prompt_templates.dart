@@ -10,9 +10,16 @@ class PromptTemplates {
   /// [LlmJsonCaller.call]'s `stableContext` parameter, the provider can
   /// cache this prefix and reuse it across multi-phase LLM calls.
   ///
-  /// Contains: self-identity, soul, and skills — the parts that never change
-  /// within a turn. Tool definitions are NOT included here because the
-  /// analyze phase doesn't have them (they arrive later after tool narrowing).
+  /// ORDER MATTERS for prompt caching: the world model is a static `const`
+  /// (identical across ALL agents and ALL turns) so it goes FIRST. This makes
+  /// the prefix maximally shared — a provider that caches the world-model
+  /// block on turn 1 reuses it on every subsequent turn and every phase
+  /// without re-processing it. The per-agent parts (self-identity, soul,
+  /// skills) come after.
+  ///
+  /// Contains: world model + self-identity + soul + skills.
+  /// Tool definitions are NOT included here because the analyze phase
+  /// doesn't have them (they arrive later after tool narrowing).
   ///
   /// See REVIEWED.md Level 2: Stable Prompt Prefix.
   static String buildStableContext({
@@ -25,7 +32,11 @@ class PromptTemplates {
         ? ''
         : PromptConstants.selfIdentity(agentName: agentName, agentId: agentId);
     final skillsBlock = skills.isEmpty ? '' : '\n$skills\n';
-    return '''$selfIdentity
+    return '''${PromptConstants.worldModel}
+
+${PromptConstants.soulCharacter}
+
+$selfIdentity
 Identity context (user profile stored in database):
 $soul
 $skillsBlock''';

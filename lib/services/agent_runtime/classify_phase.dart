@@ -30,6 +30,7 @@ class ClassifyPhase {
     String activeTaskContext = '',
     String agentName = '',
     String agentId = '',
+    bool userNotIntroduced = false,
   }) {
     return classifier.classify(
       userMessage: userMessage,
@@ -46,6 +47,7 @@ class ClassifyPhase {
       activeTaskContext: activeTaskContext,
       agentName: agentName,
       agentId: agentId,
+      userNotIntroduced: userNotIntroduced,
     );
   }
 }
