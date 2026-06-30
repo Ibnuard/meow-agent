@@ -169,7 +169,7 @@ class AgentRuntimeEngine {
       isWorkflowAutoExecute: isWorkflowAutoExecute,
     );
     if (!userNotIntroduced || isWorkflowAutoExecute) return base;
-    return '$base\n\n${PromptConstants.introductionGateRule}\n\n${PromptConstants.bootstrapRule}';
+    return '$base\n\n${PromptConstants.introductionGateRule}';
   }
 
   /// Build an [AgentWorkspace] from SQLite-backed repos.
@@ -1170,12 +1170,15 @@ class AgentRuntimeEngine {
           final toolMemoryBlock = recentToolMemory.isEmpty
               ? ''
               : '\n\nRECENT TOOL RESULTS (source of truth):\n$recentToolMemory\n\nUse successful retrieval results (read/list/search/status) to answer follow-up questions. Never treat failed tool results or prior progress/narrative messages as evidence. If the relevant result failed or is missing, say you cannot verify it yet and ask for the exact target or next step.';
-          final worldModelBlock =
-              '\n\nMEOW AGENT WORLD MODEL:\nYou are an Android-native AI agent, NOT a generic LLM or terminal-based assistant. Your workspace is a sandbox at Documents/MeowAgent/, rooted at your agent folder.\n${PromptConstants.systemMarkdownMap}';
           const capabilityDirectGuard =
               '\n\nCAPABILITY ANSWER GUARD:\nIf the user asks what you can do, what tools you have, or what capabilities are available, answer ONLY from a fresh system.tools.list retrieval result in RECENT TOOL RESULTS. If that result is not present, say you need to check the current tool list first. Never list generic assistant abilities or actions not backed by registered tools.';
+          // Build base system from the SAME stable context the multi-phase path
+          // uses (world model + soul character + self-identity + soul + skills)
+          // so both paths are consistent. The direct-response path previously
+          // rebuilt its own world-model block with a redundant wrapper — now it
+          // reuses the canonical stable context.
           final baseSystem =
-              '${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$selfIdentity\n\n$identityBlock$worldModelBlock$toolMemoryBlock$capabilityDirectGuard';
+              '${PromptConstants.worldModel}\n\n${PromptConstants.soulCharacter}\n\n${_directResponseRulesFor(languageLabel: detectedLang.label, isWorkflowAutoExecute: isWorkflowAutoExecute, userNotIntroduced: userNotIntroduced)}\n\n$selfIdentity\n\n$identityBlock$toolMemoryBlock$capabilityDirectGuard';
           final systemContent = pending != null
               ? '$baseSystem\n\nPENDING ACTION (user was asked to confirm):\nTool: ${pending.toolName}\nArgs: ${pending.toolArgs}\nSummary: ${pending.userFacingSummary}\nIf user asks about the result or preview, show them what the result would be.'
               : baseSystem;

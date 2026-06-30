@@ -47,31 +47,15 @@ class PromptConstants {
 
   /// Rules identical across interactive and workflow runs. Extracted once to
   /// avoid drift between the two systemRules variants (was duplicated prose).
+  /// NOTE: Mini App code-generation policy is NOT here — it is ~800 tokens
+  /// and is injected conditionally (only when miniapp tools are available)
+  /// via [miniAppRules], the same pattern as [vmWorkflowRules]. This keeps
+  /// non-miniapp tasks ~800 tokens leaner per LLM call.
   static const String _sharedSystemRules =
       '''- Respect enabled permissions and modules. Do not assume capabilities.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
 - CONFIG ARCHITECTURE: Configurational state (modules, active selections, user preferences) is managed through the config tool — read config then patch it. Agent and provider CRUD uses dedicated domain tools (agent.create/delete/update, provider.create/delete/update). Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.
-- MINI APPS POLICY: When creating, listing, or updating Mini Apps, present them as native-like custom applications. NEVER mention to the user that they are coded/built using HTML, CSS, JS, or WebViews. Keep the experience and your responses feeling native. Do not use terms like "source code", "web", or "HTML/CSS/JS" when talking to the user. Mini Apps run inside a WebView container on the device and can interact directly with the device features and the User Database (meow_user.db) through the window.meow SDK.
-When generating Mini App code:
-  * For styling, ALWAYS use Tailwind CSS by including `<script src="https://cdn.tailwindcss.com"></script>` in the `<head>`. Create beautiful, modern UI elements that prioritize the user's design preference (found under Design Preference in the Soul section of their profile). The host application injects theme tokens and keeps `<html>` in either `light` or `dark` mode. Mini Apps MUST adapt dynamically to both modes by using CSS variables (`--color-background`, `--color-surface`, `--color-text`, `--color-primary`) and/or Tailwind `dark:` selectors. Do NOT force an always-dark interface and do NOT hardcode dark backgrounds as the only readable state.
-  * Durable Mini App user data MUST use the shared User Database (meow_user.db) through `window.meow.db`; do not keep important state only in JavaScript variables, DOM state, or browser localStorage/sessionStorage. On startup, create required tables with `window.meow.db.execute("CREATE TABLE IF NOT EXISTS ...")`, then read from the same table with `window.meow.db.query(...)` before rendering. After insert/update/delete, re-query or update the visible list from the database result so stored data and displayed data stay synchronized.
-  * AVOID calling native dialogs or native picker components (such as browser `alert()`, `confirm()`, native `<input type="date">`, or `<input type="time">`). Instead, ALWAYS build custom, highly-polished inline components using Tailwind CSS:
-    - Custom styled HTML modal dialogs/banners for alerts and confirmations.
-    - Custom inline dropdowns/selection sheets.
-    - Custom Tailwind-based date pickers and time pickers.
-    This guarantees that the styling, transitions, and theme (dark mode, colors, typography) are completely unified and feel premium without popping up disjointed OS-level prompt dialogs.
-  * Utilize the following window.meow JavaScript SDK interfaces to integrate with native features and persist user data:
-    * window.meow.db.query(sql, params) -> Promise for custom database SELECT queries.
-    * window.meow.db.insert(table, data) -> Promise to insert an object key-value map.
-    * window.meow.db.update(table, data, where, whereArgs) -> Promise to update rows.
-    * window.meow.db.delete(table, where, whereArgs) -> Promise to delete rows.
-    * window.meow.db.execute(sql, params) -> Promise to execute raw SQL (e.g. CREATE TABLE IF NOT EXISTS).
-    * window.meow.theme.mode -> "light" or "dark"; window.meow.theme.colors exposes injected host color tokens.
-    * window.meow.notes.create(title, content, tags), list(limit), get(id) -> Promise to access notes.
-    * window.meow.api.call(apiId, params) -> Promise to invoke registered API Store config.
-    * window.meow.haptics.vibrate() -> Trigger light haptic vibration.
-    * window.meow.navigation.pop(), push(route) -> Manage screens.
-To edit or revise a Mini App, NEVER ask the user to provide the full code or try to write/create it all from scratch. Instead: (1) read the Mini App using `miniapp.read` in range chunks (e.g. lines 1-700, then 701-1400) to locate the target block of interest, (2) analyze the sliced code range, (3) call `miniapp.patch` to replace only the specific line range that needs modification by providing targetContent and replacementContent. This allows editing large codebases incrementally without truncation.''';
+- MINI APPS POLICY: When creating, listing, or updating Mini Apps, present them as native-like custom applications. NEVER mention to the user that they are coded/built using HTML, CSS, JS, or WebViews. Keep the experience and your responses feeling native. Do not use terms like "source code", "web", or "HTML/CSS/JS" when talking to the user.''';
 
   static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {
@@ -99,6 +83,7 @@ $_sharedSystemRules
   static const jsonOnlySystem = promptJsonOnlySystem;
   static const introductionGateRule = promptIntroductionGateRule;
   static const vmWorkflowRules = promptVmWorkflowRules;
+  static const miniAppRules = promptMiniAppRules;
 
   /// Behavioral character — the agent's "soul" (how it behaves, not what it
   /// can do). Injected into the stable context so every phase sees it.
@@ -109,6 +94,15 @@ $_sharedSystemRules
   static bool toolsIncludeVm(List<String> availableTools) {
     for (final def in availableTools) {
       if (def.contains('vm.')) return true;
+    }
+    return false;
+  }
+
+  /// True when the available-tools list includes any miniapp tool, so the
+  /// Mini App code-generation policy is worth injecting (~800 tokens).
+  static bool toolsIncludeMiniApp(List<String> availableTools) {
+    for (final def in availableTools) {
+      if (def.contains('miniapp.')) return true;
     }
     return false;
   }
@@ -136,8 +130,9 @@ $_sharedSystemRules
   /// Backward-compatible accessor — delegates to the new [worldModel] home.
   static const systemMarkdownMap = promptAgentsWorldModel;
 
-  /// Bootstrap rule injected when the workspace is fresh (no user name set).
-  static const bootstrapRule = promptBootstrapRule;
+  /// Bootstrap rule — merged into [introductionGateRule]. Kept for backward
+  /// compat; delegates to the merged rule.
+  static const bootstrapRule = promptIntroductionGateRule;
 
   // ─── Tool Selector (delegated to prompt_execute.dart) ──────────────────────
 

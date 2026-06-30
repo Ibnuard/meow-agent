@@ -114,6 +114,9 @@ $skillsBlock''';
     final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
         ? '\n${PromptConstants.vmWorkflowRules}\n'
         : '';
+    final miniAppBlock = PromptConstants.toolsIncludeMiniApp(availableTools)
+        ? '\n${PromptConstants.miniAppRules}\n'
+        : '';
     final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
         .toString()
         .trim();
@@ -121,9 +124,8 @@ $skillsBlock''';
         ? ''
         : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.selectToolIntro}
-${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 ${PromptConstants.policyMinimal}
-$literalInstructionBlock$vmBlock
+    $literalInstructionBlock$vmBlock$miniAppBlock
 ${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
@@ -152,9 +154,6 @@ ${PromptConstants.selectToolResponseFormat}''';
     String agentName = '',
     String agentId = '',
   }) {
-    final selfIdentityBlock = agentName.isEmpty
-        ? ''
-        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final goalBlock = goalTree == null || goalTree.isEmpty
         ? ''
         : '\nGoal tree state (BEFORE this review):\n${goalTree.toCompactString()}\n'
@@ -177,7 +176,6 @@ ${PromptConstants.selectToolResponseFormat}''';
         ? ''
         : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.reviewIntro}
-$selfIdentityBlock
 ${PromptConstants.policyGround}
 
 ${PromptConstants.policyRecover}

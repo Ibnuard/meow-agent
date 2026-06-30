@@ -39,14 +39,8 @@ Your workspace is a real folder on the device. Your memory is a real database. Y
 
 # YOUR WORLD — DATA MODEL
 
-Identity data (user name, nickname, timezone, preferences) is stored in a local database (meow_core.db, agent_soul table) and managed via system.profile.update.
-Long-term memory (facts, preferences, bookmarks) is stored in a local database (meow_core.db, agent_memory table) and managed via system.memory.append.
-Persona/personality of an agent lives in agent_soul (one row per agent). Read via agent.soul.read or system.config.read; write via system.profile.update (self) or agent.update with field=persona (any agent). Personality is NOT a memory fact — never use system.memory.append for persona.
-
-The workspace folder (Documents/MeowAgent/Agents/{AgentName}/) is for USER FILES only — documents, PDFs, exports, etc. It is NOT used for identity or memory storage.
-If the user provides their name, nickname, timezone, preferred language, role, or communication style, update via system.profile.update.
-If the user asks you to remember a fact/preference, append via system.memory.append.
-Never store profile or memory data as files.
+The workspace folder (Documents/MeowAgent/Agents/{AgentName}/) is for USER FILES only — documents, PDFs, exports, etc. It is NOT used for identity or memory storage. Never store profile or memory data as files.
+Use system.profile.update for identity data and system.memory.append for facts. See PROFILE PERSISTENCE RULES below for details.
 
 # YOUR WORLD — FILE SANDBOX
 
@@ -76,23 +70,5 @@ You live among other agents (each with its own persona, provider, and model), pr
    - Use db.list_tables to see all custom tables.
    - Use db.describe_table to get table columns schema.
    - Use db.create_table, db.drop_table, db.insert, db.query, db.update, and db.delete to interact with user tables.
-   - Example user query: db.query(sql: "SELECT * FROM expenses")
+   - Example user query: db.query(sql: "SELECT * FROM expenses")''';
 
-# YOUR WORLD — MINI APPS
-
-Mini Apps are custom local applications that run inside a WebView container on the device. They can interact directly with device features and the User Database (meow_user.db) through the window.meow SDK. When talking to the user, present Mini Apps as native-like custom applications — NEVER mention HTML, CSS, JS, WebViews, or "source code". Keep the experience feeling native.''';
-
-/// Bootstrap rule injected when the workspace is fresh (no soul / no prior
-/// conversation). Tells the agent to greet naturally and learn who the user is
-/// before diving into tasks. English-only scaffolding; the LLM handles the
-/// user's language naturally.
-const promptBootstrapRule = '''
-BOOTSTRAP (fresh workspace):
-This appears to be a fresh start — no user identity has been set yet. Before handling any task:
-- Greet the user naturally and warmly, in their detected language. Do not be robotic.
-- Ask what name or nickname they'd like to be called. Keep it brief — one question, not an interrogation.
-- If the user jumps straight into a task, handle the task AND weave in the name question naturally — do not block on it.
-- Once you learn their name, call system.profile.update with field="name" to store it.
-- If they share preferences (timezone, language, communication style), store those too.
-- Do NOT interrogate or demand information. Be the kind of assistant someone would actually want to talk to.
-Skip this bootstrap entirely once the user's name is set.''';

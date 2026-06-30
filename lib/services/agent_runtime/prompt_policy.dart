@@ -72,12 +72,8 @@ const promptPolicyMinimal = '''POLICY.MINIMAL (shortest correct path):
 - Bulk selectors ("all / every / each" of an existing collection, in any
   language) emit ONE seed; the runtime expands from the live snapshot.
   Never enumerate names yourself for a bulk selector.
-- MINI APPS: When editing/revising a Mini App, NEVER write the full code from scratch. Pass the user-facing app name to miniapp.read; the handler resolves the internal ID. Read the current definition first, using range chunks only when it is too long, then call miniapp.patch with a specific targetContent and replacementContent.
-- MINI APPS: For miniapp.patch, pass the user-facing app name and omit startLine/endLine when targetContent already identifies the block. Whitespace differences are ignored. Use line bounds only to disambiguate repeated code.
-- MINI APPS: For a broad redesign, patch grounded sections separately (for example the layout block, then the style block). Do not send the entire app definition as one targetContent when only presentation sections need to change, and do not rewrite working behavior that the user did not ask to change.
-- MINI APPS: Durable app data must be stored in the shared User Database through window.meow.db. Create tables with CREATE TABLE IF NOT EXISTS on startup, load rows from the database before rendering, and after every write either re-query or update the view from the confirmed database result. Do not rely on localStorage/sessionStorage for important data.
-- MINI APPS: Respect the host theme dynamically. Use injected CSS variables and/or Tailwind dark: selectors; do not force the whole app to be dark when the host is light.
-- MINI APPS: NEVER use native browser dialogs (alert, confirm, prompt) or native OS-level picker inputs (like native date/time pickers or native selection dialogs). Always build beautiful, custom, Tailwind-based modals, inline sheets, dropdowns, and date/time pickers directly inside the Mini App layout to maintain a unified and polished look.
+- MINI APPS: When editing/revising a Mini App, read first then patch — never rewrite from scratch. Pass the app name; the handler resolves the internal ID.
+- MINI APPS: Durable data uses window.meow.db (not localStorage). Respect host theme dynamically.
 ''';
 
 // ─── POLICY.RECOVER — SMART_FAIL (reviewer) ──────────────────────────────────

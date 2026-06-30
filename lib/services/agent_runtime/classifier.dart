@@ -307,12 +307,12 @@ class Classifier {
               '- NEVER set requires_tools=false to ask for permission — execute directly.\n'
         : '';
 
-    // Bootstrap rule: when the user hasn't introduced themselves yet (no name
-    // in soul), tell the classifier to set route=chat and handle the intro
-    // naturally instead of diving into tools. Only for interactive chat —
-    // workflows run unattended and should never block on intros.
+    // Introduction/bootstrap rule: when the user hasn't introduced themselves
+    // yet (no name in soul), inject the merged introduction gate so the
+    // classifier knows to set route=chat and handle the intro naturally.
+    // Only for interactive chat — workflows run unattended.
     final bootstrapBlock = (userNotIntroduced && !isWorkflowAutoExecute)
-        ? '\n\n${PromptConstants.bootstrapRule}'
+        ? '\n\n${PromptConstants.introductionGateRule}'
         : '';
 
     final activeTaskBlock = activeTaskContext.isNotEmpty
@@ -336,6 +336,14 @@ class Classifier {
                   '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}')
               .join('\n');
 
+    // Conditional mini-app code-gen policy — only when miniapp tools are in
+    // the available set. Saves ~800 tokens for non-miniapp tasks.
+    final toolNames = availableTools.map((t) => t.name).toList();
+    final miniAppBlock =
+        PromptConstants.toolsIncludeMiniApp(toolNames)
+        ? '\n${PromptConstants.miniAppRules}\n'
+        : '';
+
     final selectedSkillDetail = PredefinedSkillRegistry.skillDetailBlock(
       const [],
     );
@@ -357,18 +365,13 @@ class Classifier {
     return '''$promptClassifyIntro
 
 ${PromptConstants.systemRules(languageLabel, isWorkflowAutoExecute: isWorkflowAutoExecute)}
-
-${agentName.isEmpty ? '' : PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}
-Identity context (user profile stored in database):
-${workspace.soul}
-${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
 $predefinedSkillsBlock
 
 $ecosystemBlock
 
 Available tools:
 $toolsBlock
-$skillBlock$resolvedBlock
+$skillBlock$resolvedBlock$miniAppBlock
 
 Recent conversation:
 $historyBlock

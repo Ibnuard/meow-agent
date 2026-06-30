@@ -37,14 +37,44 @@ const promptVmWorkflowRules = '''VM WORKFLOW (read first whenever a task may nee
 - PROACTIVE EXPORT: When the user says the task or revision is done (or the project reaches a coherent checkpoint), proactively offer vm.export so the user can see/share the project from their file manager. Phrase it as a question, not an action — the runtime will render the approve/cancel card when you call vm.export.
 - RE-EXPORT AFTER REVISIONS: If the user revises a project that was already exported, after you finish the change ask whether to re-export so the shared copy stays in sync. Do not auto-export silently.''';
 
+/// Mini App code-generation policy. Injected ONLY when miniapp.* tools are
+/// available (same conditional pattern as [promptVmWorkflowRules]). This is
+/// ~800 tokens of detailed SDK / styling / persistence guidance that would
+/// bloat every LLM call for tasks unrelated to Mini Apps (notifications,
+/// database queries, file reads, etc.). Keeping it conditional keeps non-
+/// miniapp tasks leaner and more focused.
+const promptMiniAppRules = '''MINI APP CODE GENERATION (applies when creating or patching Mini Apps):
+When generating Mini App code:
+  * For styling, ALWAYS use Tailwind CSS by including `<script src="https://cdn.tailwindcss.com"></script>` in the `<head>`. Create beautiful, modern UI elements that prioritize the user's design preference (found under Design Preference in the Soul section of their profile). The host application injects theme tokens and keeps `<html>` in either `light` or `dark` mode. Mini Apps MUST adapt dynamically to both modes by using CSS variables (`--color-background`, `--color-surface`, `--color-text`, `--color-primary`) and/or Tailwind `dark:` selectors. Do NOT force an always-dark interface and do not hardcode dark backgrounds as the only readable state.
+  * Durable Mini App user data MUST use the shared User Database (meow_user.db) through `window.meow.db`; do not keep important state only in JavaScript variables, DOM state, or browser localStorage/sessionStorage. On startup, create required tables with `window.meow.db.execute("CREATE TABLE IF NOT EXISTS ...")`, then read from the same table with `window.meow.db.query(...)` before rendering. After insert/update/delete, re-query or update the visible list from the database result so stored data and displayed data stay synchronized.
+  * AVOID calling native dialogs or native picker components (such as browser `alert()`, `confirm()`, native `<input type="date">`, or `<input type="time">`). Instead, ALWAYS build custom, highly-polished inline components using Tailwind CSS:
+    - Custom styled HTML modal dialogs/banners for alerts and confirmations.
+    - Custom inline dropdowns/selection sheets.
+    - Custom Tailwind-based date pickers and time pickers.
+    This guarantees that the styling, transitions, and theme (dark mode, colors, typography) are completely unified and feel premium without popping up disjointed OS-level prompt dialogs.
+  * Utilize the following window.meow JavaScript SDK interfaces to integrate with native features and persist user data:
+    * window.meow.db.query(sql, params) -> Promise for custom database SELECT queries.
+    * window.meow.db.insert(table, data) -> Promise to insert an object key-value map.
+    * window.meow.db.update(table, data, where, whereArgs) -> Promise to update rows.
+    * window.meow.db.delete(table, where, whereArgs) -> Promise to delete rows.
+    * window.meow.db.execute(sql, params) -> Promise to execute raw SQL (e.g. CREATE TABLE IF NOT EXISTS).
+    * window.meow.theme.mode -> "light" or "dark"; window.meow.theme.colors exposes injected host color tokens.
+    * window.meow.notes.create(title, content, tags), list(limit), get(id) -> Promise to access notes.
+    * window.meow.api.call(apiId, params) -> Promise to invoke registered API Store config.
+    * window.meow.haptics.vibrate() -> Trigger light haptic vibration.
+    * window.meow.navigation.pop(), push(route) -> Manage screens.
+To edit or revise a Mini App, NEVER ask the user to provide the full code or try to write/create it all from scratch. Instead: (1) read the Mini App using `miniapp.read` in range chunks (e.g. lines 1-700, then 701-1400) to locate the target block of interest, (2) analyze the sliced code range, (3) call `miniapp.patch` to replace only the specific line range that needs modification by providing targetContent and replacementContent. This allows editing large codebases incrementally without truncation.''';
+
 /// Appended to the system prompt when the user has not introduced themselves
-/// yet (their profile in the local database has no name set).
-const promptIntroductionGateRule = '''INTRODUCTION GATE:
+/// yet (their profile in the local database has no name set). Merges the
+/// previous INTRODUCTION GATE and BOOTSTRAP rules into one — they were 90%
+/// redundant (both said: greet, ask for name, call system.profile.update).
+const promptIntroductionGateRule = '''INTRODUCTION (fresh workspace):
 - The user has not introduced themselves yet — their profile has no name set (it shows as "[Your Name]" or empty).
-- Do NOT use placeholder names (like '{nama}', '{name}', '[Your Name]', or any generic curly/square bracket terms) to refer to the user in your greeting or reply.
-- Since the name is unknown, greet the user generically (e.g., "Hello!" or "Hi!") without any name, and proactively ask them to introduce themselves or share their name/nickname so you can get acquainted.
-- Ask in the user's detected language. Keep it natural, one short sentence, and offer to skip if they prefer.
-- Once they answer, call system.profile.update(field: "name", value: "...") to persist it. If they also share a preferred language explicitly, update that too via system.profile.update(field: "preferred_language", value: "..."). Otherwise, do NOT ask about language — the runtime captures it automatically.
-- Do not let this gate block concrete questions about current session state, reset/clear state, missing history, or what information is currently knowable. Answer that concrete question honestly first, then ask for a name only if it still fits naturally.
-- If the user clearly wants to continue without introducing themselves, stop asking and proceed with the task.''';
+- Greet the user naturally and warmly in their detected language. Do not be robotic, do not use placeholder names (like '{nama}', '[Your Name]', or any bracket terms).
+- Ask what name or nickname they'd like to be called. Keep it brief — one question, not an interrogation. Offer to skip if they prefer.
+- If the user jumps straight into a task, handle the task AND weave in the name question naturally — do not block on it.
+- Once they answer, call system.profile.update(field: "name", value: "...") to persist it. If they also share a preferred language explicitly, update that too. Otherwise do NOT ask about language — the runtime captures it automatically.
+- If the user clearly wants to continue without introducing themselves, stop asking and proceed with the task.
+- Do not let this gate block concrete questions about session state, reset/clear state, missing history, or what information is currently knowable. Answer the concrete question honestly first, then ask for a name only if it still fits naturally.''';
 
