@@ -180,11 +180,25 @@ class ToolRouter {
     return null;
   }
 
+  /// Per-turn cache for permission-denied results. [permissionDeniedResult]
+  /// is called once by the loop pre-check and again inside [execute]/
+  /// [forceExecute], each time constructing a fresh [ToolPermissionPolicy] +
+  /// [PermissionManager]. Permission state does not change mid-turn, so cache
+  /// the result per toolName for the turn. Cleared by [clearPermissionCache]
+  /// at turn end (or simply dropped when the router is per-engine-instance).
+  final _permissionDeniedCache = <String, ToolExecutionResult?>{};
+
   Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
-    return ToolPermissionPolicy(
+    if (_permissionDeniedCache.containsKey(toolName)) {
+      return Future.value(_permissionDeniedCache[toolName]);
+    }
+    final future = ToolPermissionPolicy(
       moduleRepository,
       permissionManager: PermissionManager(),
     ).deniedResult(toolName);
+    // Memoize the resolved value for subsequent calls this turn.
+    future.then((r) => _permissionDeniedCache[toolName] = r);
+    return future;
   }
 
   /// Returns true when this is a `files.*` call whose target path lands

@@ -1081,6 +1081,8 @@ class ExecuteLoopRunner {
               questions: questions,
             ),
             lastToolName: toolRequest.name,
+            lastToolDef: definition,
+            lastResult: result,
           );
           if (verificationBlocker != null) return verificationBlocker;
           if (goalTree.isNotEmpty && goalTree.isComplete) {
@@ -1540,6 +1542,8 @@ class ExecuteLoopRunner {
               questions: questions,
             ),
             lastToolName: toolRequest.name,
+            lastToolDef: definition,
+            lastResult: result,
           );
           if (verificationBlocker != null) return verificationBlocker;
           // When the task ends on an answer/respond subgoal (e.g. "summarize the

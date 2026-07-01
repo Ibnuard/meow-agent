@@ -1400,11 +1400,18 @@ class AgentRuntimeEngine {
         requiredCapabilities: classifyResult.requiredCapabilities,
       );
 
-      await _maybeExtractMemory(
-        request: loopRequest,
-        client: client,
-        config: llmConfig,
-        logger: logger,
+      // Memory extraction is fire-and-forget — it writes to long-term memory
+      // for FUTURE turns and must never block the visible user response. The
+      // extractor issues an LLM call + DB writes; awaiting it here adds hidden
+      // latency to every tool-assisted turn. (Matches the contract documented
+      // in memory_extractor.dart and the idle-session summarizer pattern.)
+      unawaited(
+        _maybeExtractMemory(
+          request: loopRequest,
+          client: client,
+          config: llmConfig,
+          logger: logger,
+        ),
       );
 
       // Fast-path exhausted: retry in normal mode with the same plan/tree.
