@@ -482,6 +482,80 @@ void main() {
     expect(llm.countOf('review'), 0);
   });
 
+  test('S0d5 fresh request drops stale pending clarification context', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"files.list.notes","goal":"List notes folder contents",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["files"],'
+            '"missing_info":["follow up choice"],"subgoal_seeds":[],'
+            '"requested_item_count":null,"bulk_selector":false,'
+            '"task_relation":"none","strategy":"clarify",'
+            '"targets":[],"impacts":[],'
+            '"clarify_questions":["Folder notes kosong. Mau buat file baru di notes?"],'
+            '"main_goal":"List notes folder contents",'
+            '"completion_criteria":[],"subgoals":[],'
+            '"narrative":"","next_narrative":""}',
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"system.agents.create","goal":"Create agent Mars",'
+            '"requires_tools":true,"risk":"sensitive","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["create agent Mars"],'
+            '"requested_item_count":null,"bulk_selector":false,'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[{"subgoal_id":"sg1","operation":"create","entity_type":"agent","entity_label":"mars","selector":{"name":"mars"}}],'
+            '"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Create agent Mars",'
+            '"completion_criteria":["Agent Mars exists"],'
+            '"tool_call":{"name":"agent.create","args":{"name":"mars"}},'
+            '"subgoals":[{"id":"sg1","label":"Create agent Mars",'
+            '"required_slots":{"_operation":"create","name":"mars"},'
+            '"missing_slots":[],"status":"pending","toolHint":"agent.create"}],'
+            '"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"agent.create",'
+            '"args":{"name":"mars"},"risk":"sensitive",'
+            '"requires_confirmation":true},"narrative":""}',
+      ],
+      'verbalize.confirm': ['Buat agent mars?'],
+      'verbalize.preview': ['Agent baru bernama mars akan dibuat.'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'agent.create': const ToolExecutionResult(
+          success: true,
+          toolName: 'agent.create',
+          data: {'id': 'mars-id', 'name': 'mars'},
+        ),
+      },
+    );
+    final engine = buildEngine(llm: llm, router: router);
+
+    final first = await engine.run(
+      req('isi folder notes sekarang apa aja?'),
+      provider: provider(),
+    );
+    final second = await engine.run(
+      req('boleh minta tolong buatin agent baru bernama mars?'),
+      provider: provider(),
+    );
+
+    expect(first.state, AgentRuntimeState.askingUser);
+    expect(second.state, AgentRuntimeState.waitingConfirmation);
+    expect(second.pendingTool, 'agent.create');
+    expect(router.dispatchSequence, isEmpty);
+
+    final secondClassifyPrompt = llm.callLog
+        .where((call) => call.phase == 'classify')
+        .last
+        .lastUserContent;
+    expect(secondClassifyPrompt, contains('agent baru bernama mars'));
+    expect(secondClassifyPrompt, isNot(contains('Original user request')));
+    expect(secondClassifyPrompt, isNot(contains('folder notes')));
+  });
+
   test(
     'S0e clarify uses user-facing clarify question, not missing slot label',
     () async {

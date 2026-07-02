@@ -595,6 +595,18 @@ class AgentRuntimeEngine {
         _pendingClarifications.remove(request.agentId);
         pendingClarification = null;
       }
+      if (pendingClarification != null &&
+          _looksLikeClarificationContextSwitch(
+            currentMessage: request.userMessage,
+            pendingClarification: pendingClarification,
+          )) {
+        logger.logDivergence('pending_clarification_context_switch', {
+          'reason': 'low_overlap_with_pending_question',
+          'pending_original': pendingClarification.originalMessage,
+        });
+        _pendingClarifications.remove(request.agentId);
+        pendingClarification = null;
+      }
       final activeLedger = await ledgerDb.findActive(
         agentId: request.agentId,
         source: request.source == RequestSource.workflow
@@ -2209,6 +2221,42 @@ class AgentRuntimeEngine {
       if (name.isNotEmpty) names.add(name);
     }
     return names;
+  }
+
+  bool _looksLikeClarificationContextSwitch({
+    required String currentMessage,
+    required PendingClarification pendingClarification,
+  }) {
+    final currentTokens = _semanticTokens(currentMessage);
+    if (currentTokens.length < 4) return false;
+
+    final anchors = <String>[
+      pendingClarification.originalMessage,
+      ...pendingClarification.questions,
+    ];
+    var bestOverlap = 0.0;
+    for (final anchor in anchors) {
+      final anchorTokens = _semanticTokens(anchor);
+      if (anchorTokens.isEmpty) continue;
+      final shared = currentTokens.intersection(anchorTokens).length;
+      final overlap = shared / currentTokens.length;
+      if (overlap > bestOverlap) bestOverlap = overlap;
+    }
+    return bestOverlap <= 0.15;
+  }
+
+  Set<String> _semanticTokens(String text) {
+    final tokens = <String>{};
+    final matches = RegExp(
+      r'[\p{L}\p{N}_-]+',
+      unicode: true,
+    ).allMatches(text.toLowerCase());
+    for (final match in matches) {
+      final token = match.group(0)?.trim();
+      if (token == null || token.length < 3) continue;
+      tokens.add(token);
+    }
+    return tokens;
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({
