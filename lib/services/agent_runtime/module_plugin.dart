@@ -34,6 +34,7 @@ class ModuleToolContext {
     this.attachments = const [],
     this.modelSupportsVision = false,
     this.currentUserMessage = '',
+    this.currentSessionId = '',
     this.describeImage,
     this.allToolDefinitions = const [],
     this.coreAgentRepo,
@@ -56,6 +57,7 @@ class ModuleToolContext {
   final List<AttachedFile> attachments;
   final bool modelSupportsVision;
   final String currentUserMessage;
+  final String currentSessionId;
   final Future<String> Function({
     required AttachedFile image,
     required String prompt,

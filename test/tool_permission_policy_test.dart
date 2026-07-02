@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:meow_agent/core/storage/meow_database.dart';
 import 'package:meow_agent/features/modules/data/module_model.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
@@ -15,8 +16,9 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  setUp(() {
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await MeowDatabase.instance.resetForTesting();
   });
 
   Future<ModuleRepository> installDeviceContext({
@@ -99,5 +101,61 @@ void main() {
         ToolPermissionBlockReason.moduleDisabled.name,
       );
     });
+
+    test(
+      'files.list uses module toggle without Android storage gate',
+      () async {
+        await MeowDatabase.instance.resetForTesting();
+        final repo = ModuleRepository();
+        await repo.install(ModuleRegistry.files);
+        final module = (await repo.getInstalled()).singleWhere(
+          (m) => m.id == 'files',
+        );
+        await repo.update(
+          module.copyWith(
+            enabled: true,
+            settings: {...module.settings, 'allow_read': true},
+          ),
+        );
+
+        final router = ToolRouter(moduleRepository: repo);
+        final denied = await router.permissionDeniedResult('files.list');
+
+        expect(denied, isNull);
+      },
+    );
+
+    test(
+      'permission cache can be cleared after module state changes',
+      () async {
+        await MeowDatabase.instance.resetForTesting();
+        final repo = ModuleRepository();
+        final router = ToolRouter(moduleRepository: repo);
+
+        final beforeInstall = await router.permissionDeniedResult('files.list');
+        expect(beforeInstall, isNotNull);
+        expect(
+          beforeInstall!.data?['reason'],
+          ToolPermissionBlockReason.moduleMissing.name,
+        );
+
+        await repo.install(ModuleRegistry.files);
+        final module = (await repo.getInstalled()).singleWhere(
+          (m) => m.id == 'files',
+        );
+        await repo.update(
+          module.copyWith(
+            enabled: true,
+            settings: {...module.settings, 'allow_read': true},
+          ),
+        );
+
+        expect(await router.permissionDeniedResult('files.list'), isNotNull);
+
+        router.clearPermissionCache();
+
+        expect(await router.permissionDeniedResult('files.list'), isNull);
+      },
+    );
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -147,34 +149,18 @@ void main() {
 
   test('S0b introduction answer persists profile through agentic route', () async {
     final llm = ScriptedLlmClient({
-      'analyze': [
+      'classify': [
         '{"intent":"profile.update","goal":"save the user name",'
             '"requires_tools":true,"risk":"safe","detected_language":"en",'
             '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
             '"missing_info":[],"subgoal_seeds":["save the user name"],'
             '"task_relation":"none","narrative":"",'
-            '"next_narrative":"Next I need to save this identity detail."}',
-      ],
-      'reflect': [
-        '{"strategy":"direct_execute","goal_tree":{"main_goal":"save the user name",'
-            '"completion_criteria":["profile name saved"],"subgoals":[{"id":"sg1",'
-            '"label":"save the user name","required_slots":{},"missing_slots":[],'
-            '"status":"pending"}]},"narrative":""}',
-      ],
-      'plan': [
-        '{"main_goal":"save the user name","completion_criteria":["profile name saved"],'
+            '"next_narrative":"Next I need to save this identity detail.",'
+            '"main_goal":"save the user name","completion_criteria":["profile name saved"],'
+            '"tool_call":{"name":"system.profile.update","args":{"field":"name","value":"Wowo"}},'
             '"subgoals":[{"id":"sg1","label":"save the user name",'
             '"required_slots":{},"missing_slots":[],"status":"pending"}],'
             '"narrative":""}',
-      ],
-      'selectTool': [
-        '{"status":"tool_required","tool":{"name":"system.profile.update",'
-            '"args":{"field":"name","value":"Wowo"},"risk":"safe",'
-            '"requires_confirmation":false},"narrative":""}',
-      ],
-      'review': [
-        '{"status":"done","final_response":"Nice to meet you, Wowo.",'
-            '"subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
       ],
     });
     final router = ScriptedToolRouter(
@@ -202,17 +188,172 @@ void main() {
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
-    expect(res.finalMessage, contains('Wowo'));
-    expect(llm.phaseSequence, [
-      'analyze',
-      'reflect',
-      'plan',
-      'selectTool',
-      'review',
-    ]);
+    expect(res.finalMessage, 'Saved.');
+    expect(llm.phaseSequence, ['classify']);
     expect(router.dispatchSequence, ['system.profile.update']);
     expect(router.dispatchLog.single.args, {'field': 'name', 'value': 'Wowo'});
   });
+
+  test(
+    'S0c compound profile answer saves name and nickname without review',
+    () async {
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"intent":"profile.update","goal":"save user name and nickname",'
+              '"requires_tools":true,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["save user name","save nickname"],'
+              '"task_relation":"none","narrative":"","next_narrative":"",'
+              '"main_goal":"save user name and nickname","subgoals":[{"id":"sg1",'
+              '"label":"save user name","required_slots":{},"missing_slots":[],'
+              '"status":"pending"},{"id":"sg2","label":"save nickname",'
+              '"required_slots":{},"missing_slots":[],"status":"pending"}],'
+              '"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"name","value":"Nunu"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"nickname","value":"King"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'system.profile.update': const ToolExecutionResult(
+            success: true,
+            toolName: 'system.profile.update',
+            data: {'field': 'name', 'value': 'Nunu'},
+          ),
+        },
+      );
+      router.resultsByCall['system.profile.update'] = [
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Nunu'},
+        ),
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'King'},
+        ),
+      ];
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('namaku Nunu panggil aja King'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, 'Sudah kusimpan.');
+      expect(llm.phaseSequence, ['classify', 'selectTool', 'selectTool']);
+      expect(router.dispatchSequence, [
+        'system.profile.update',
+        'system.profile.update',
+      ]);
+      expect(router.dispatchLog[0].args, {'field': 'name', 'value': 'Nunu'});
+      expect(router.dispatchLog[1].args, {
+        'field': 'nickname',
+        'value': 'King',
+      });
+    },
+  );
+
+  test('S0d chat.send final response uses delivered content', () async {
+    const delivered =
+        'Berikut 5 data dari JSONPlaceholder:\n\n1. sunt aut facere\n2. qui est esse';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"send.chat","goal":"send API result to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.chat"],"tool_groups":["chat"],'
+            '"missing_info":[],"subgoal_seeds":["send API result to chat"],'
+            '"task_relation":"new_task","narrative":"","next_narrative":"",'
+            '"main_goal":"send API result to chat","subgoals":[{"id":"sg1",'
+            '"label":"send API result to chat","required_slots":{"_operation":"send"},'
+            '"missing_slots":[],"status":"pending"}],'
+            '"tool_call":{"name":"chat.send","args":{"content":${jsonEncode(delivered)}}}}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Sudah berhasil dikirim.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"Hasilnya sudah berhasil dikirim."}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 53,
+            'length': delivered.length,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kirim hasil api tadi ke chat'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(res.finalMessage, isNot(contains('berhasil dikirim')));
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['chat.send']);
+  });
+
+  test(
+    'S0e clarify uses user-facing clarify question, not missing slot label',
+    () async {
+      const question =
+          'Sudah beberapa kali aku kirim ulang ke chat ini, tapi belum muncul. Mau aku tampilkan datanya langsung di balasan ini?';
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"route":"agentic","direct_response":"",'
+              '"intent":"resend_jsonplaceholder_data_alternative",'
+              '"goal":"resend JSONPlaceholder data",'
+              '"requires_tools":false,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":[],"tool_groups":[],'
+              '"missing_info":["delivery method alternative"],'
+              '"subgoal_seeds":[],"task_relation":"continuation",'
+              '"strategy":"clarify","clarify_questions":[${jsonEncode(question)}],'
+              '"targets":[],"impacts":[],"main_goal":"resend JSONPlaceholder data",'
+              '"completion_criteria":[],"subgoals":[],"narrative":"",'
+              '"next_narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('coba kirim ulang lagi'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.askingUser);
+      expect(res.finalMessage, question);
+      expect(res.finalMessage, isNot('delivery method alternative'));
+      expect(
+        res.events.any(
+          (event) =>
+              event.type == 'stream_bubble' &&
+              event.data?['kind'] == 'decision_question' &&
+              event.message == question,
+        ),
+        isTrue,
+      );
+      expect(router.dispatchSequence, isEmpty);
+    },
+  );
 
   // ── Scenario 1: simple read ────────────────────────────────────────────
   // BASELINE phases: [analyze, reflect, selectTool, review,

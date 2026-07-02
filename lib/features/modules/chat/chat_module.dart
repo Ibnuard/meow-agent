@@ -85,6 +85,7 @@ class ChatModulePlugin extends ModulePlugin {
       final messageId = await service.addMessage(
         targetAgentId,
         ChatMessage(role: 'assistant', content: content),
+        sessionId: ctx.currentSessionId.isEmpty ? null : ctx.currentSessionId,
       );
 
       await UnreadService.instance.increment(targetAgentId);
@@ -95,7 +96,10 @@ class ChatModulePlugin extends ModulePlugin {
         data: {
           'agentId': targetAgentId,
           'messageId': messageId,
+          if (ctx.currentSessionId.isNotEmpty)
+            'sessionId': ctx.currentSessionId,
           'length': content.length,
+          'delivered_content': content,
         },
       );
     } catch (e) {

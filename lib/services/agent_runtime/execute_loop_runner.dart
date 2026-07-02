@@ -68,13 +68,22 @@ class ExecuteLoopRunner {
     required String memorySnapshot,
     RecoveryCoordinator? recovery,
     PostExecuteValidator? postExecuteValidator,
-    Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> Function()? rethink,
+    Future<
+      ({
+        Map<String, dynamic> plan,
+        GoalTree goalTree,
+        List<String> requiredCapabilities,
+      })?
+    >
+    Function()?
+    rethink,
     bool autoApproveSensitive = false,
     bool isWorkflowAutoExecute = false,
     List<Map<String, dynamic>>? initialPreviousResults,
     int initialStep = 1,
     int nullSelectionRecoveryCount = 0,
     bool fastPath = false,
+    Map<String, dynamic>? initialSelection,
     String? stableContext,
     List<String> requiredCapabilities = const [],
   }) async {
@@ -101,8 +110,9 @@ class ExecuteLoopRunner {
     // generates many tool results does not push the request out of the
     // selector's context — that causes goal drift. Provider-error sentinel
     // messages are stripped inside the slicer.
-    final loopRecentMsgs =
-        HistorySlicer.slice(messages: request.recentMessages);
+    final loopRecentMsgs = HistorySlicer.slice(
+      messages: request.recentMessages,
+    );
 
     // Adaptive budget: base + 2 steps per subgoal, hard-capped at maxSteps×3.
     // Fast-path tasks get a hard cap of 2 iterations — if exhausted, the caller
@@ -111,7 +121,10 @@ class ExecuteLoopRunner {
         ? 2
         : goalTree.isEmpty
         ? maxSteps
-        : (maxSteps + goalTree.subgoals.length * 2).clamp(maxSteps, maxSteps * 3);
+        : (maxSteps + goalTree.subgoals.length * 2).clamp(
+            maxSteps,
+            maxSteps * 3,
+          );
 
     for (var i = 0; i < adaptiveLimit; i++) {
       // Cooperative cancellation check.
@@ -139,7 +152,14 @@ class ExecuteLoopRunner {
       // If successful, synthesize a selection map that the rest of the loop
       // can process identically. Falls back to JSON on null.
       Map<String, dynamic>? selection;
-      if (fastPath && executor.config.supportsFunctionCalling) {
+      if (i == 0 && initialSelection != null) {
+        selection = initialSelection;
+        logger.logLlmDecision('selectTool.thin', selection);
+        emit(logger.events.last);
+      }
+      if (selection == null &&
+          fastPath &&
+          executor.config.supportsFunctionCalling) {
         final toolDefs = availableTools
             .map((desc) {
               final name = desc.split(':').first.replaceFirst('- ', '').trim();
@@ -184,7 +204,9 @@ class ExecuteLoopRunner {
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         goalTree: goalTree,
         recentMessages: loopRecentMsgs,
-        agentName: request.agentName.isNotEmpty ? request.agentName : request.agentId,
+        agentName: request.agentName.isNotEmpty
+            ? request.agentName
+            : request.agentId,
         agentId: request.agentId,
         stableContext: stableContext,
       );
@@ -192,7 +214,9 @@ class ExecuteLoopRunner {
 
       if (selection == null) {
         if (nullSelectionRecoveryCount >= 1) {
-          logger.logError('Repeated null tool selection. Aborting to prevent infinite loop.');
+          logger.logError(
+            'Repeated null tool selection. Aborting to prevent infinite loop.',
+          );
           await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
           return fail(_capabilityNotFoundMessage(), logger);
         }
@@ -228,7 +252,8 @@ class ExecuteLoopRunner {
         }
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return fail(
-          recovery?.giveUpMessage(_settingsLanguage()) ?? _capabilityNotFoundMessage(),
+          recovery?.giveUpMessage(_settingsLanguage()) ??
+              _capabilityNotFoundMessage(),
           logger,
         );
       }
@@ -243,7 +268,8 @@ class ExecuteLoopRunner {
         decision: status,
         languageCode: detectedLang.code,
       );
-      if (selectNarrative != rawSelectNarrative && rawSelectNarrative.isNotEmpty) {
+      if (selectNarrative != rawSelectNarrative &&
+          rawSelectNarrative.isNotEmpty) {
         logger.logDivergence('narrative_gate_override', {
           'phase': 'select_tool',
           'decision': status,
@@ -277,7 +303,8 @@ class ExecuteLoopRunner {
               });
               previousResults.add({
                 'step': currentStep,
-                'note': 'SYSTEM GATE: Selector returned done but '
+                'note':
+                    'SYSTEM GATE: Selector returned done but '
                     '$cap=false in codeInspection. '
                     'The required capability is missing. '
                     'You MUST call miniapp.patch to add it. '
@@ -293,7 +320,8 @@ class ExecuteLoopRunner {
         }
 
         final finalResponse =
-            selection['final_response'] as String? ?? _runtimePhrase('runtime_task_completed');
+            selection['final_response'] as String? ??
+            _runtimePhrase('runtime_task_completed');
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           final active = goalTree.nextActionable;
           if (active != null && _isAnswerOnlySubgoal(active)) {
@@ -303,9 +331,17 @@ class ExecuteLoopRunner {
         }
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
           // Count how many times LLM returned "done" without any tool executed.
-          final toolsExecutedSoFar = previousResults.where((r) => r.containsKey('tool')).length;
+          final toolsExecutedSoFar = previousResults
+              .where((r) => r.containsKey('tool'))
+              .length;
           final prematureDoneCount = previousResults
-              .where((r) => r['note']?.toString().contains('status=done but subgoals') == true)
+              .where(
+                (r) =>
+                    r['note']?.toString().contains(
+                      'status=done but subgoals',
+                    ) ==
+                    true,
+              )
               .length;
 
           // If LLM has said "done" 2+ times with zero tools executed, abort.
@@ -314,8 +350,14 @@ class ExecuteLoopRunner {
               'LLM returned status=done $prematureDoneCount times without '
               'executing any tool. Aborting to prevent infinite loop.',
             );
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-            return fail(_runtimePhrase('runtime_tool_selection_missing'), logger);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
+            return fail(
+              _runtimePhrase('runtime_tool_selection_missing'),
+              logger,
+            );
           }
 
           // Even AFTER a tool has run, a selector that keeps oscillating
@@ -341,7 +383,9 @@ class ExecuteLoopRunner {
 
           logger.logDivergence('premature_done_overridden', {
             'source': 'selector',
-            'remaining_subgoals': goalTree.subgoals.where((s) => !s.isTerminal).length,
+            'remaining_subgoals': goalTree.subgoals
+                .where((s) => !s.isTerminal)
+                .length,
             'step': currentStep,
           });
           logger.logError(
@@ -390,7 +434,9 @@ class ExecuteLoopRunner {
             isWorkflowAutoExecute: isWorkflowAutoExecute,
             questions: questions,
           ),
-          lastToolName: previousResults.isEmpty ? null : previousResults.last['tool'] as String?,
+          lastToolName: previousResults.isEmpty
+              ? null
+              : previousResults.last['tool'] as String?,
         );
         if (verificationBlocker != null) return verificationBlocker;
 
@@ -398,7 +444,10 @@ class ExecuteLoopRunner {
           _emitTaskLedger(emit, request, goalTree);
         }
         logger.logFinalResponse(finalResponse);
-        await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+        await _taskScope.archiveLedgerForRequest(
+          request,
+          LedgerStatus.completed,
+        );
         return AgentRuntimeResponse(
           finalMessage: finalResponse,
           success: true,
@@ -410,7 +459,8 @@ class ExecuteLoopRunner {
       if (status == 'ask_user') {
         return AgentRuntimeResponse(
           finalMessage:
-              selection['question'] as String? ?? _runtimePhrase('runtime_need_more_information'),
+              selection['question'] as String? ??
+              _runtimePhrase('runtime_need_more_information'),
           success: true,
           state: AgentRuntimeState.askingUser,
           events: logger.events,
@@ -451,7 +501,8 @@ class ExecuteLoopRunner {
         await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
         return fail(
           recovery?.giveUpMessage(_settingsLanguage()) ??
-              (selection['error'] as String? ?? _runtimePhrase('runtime_failed')),
+              (selection['error'] as String? ??
+                  _runtimePhrase('runtime_failed')),
           logger,
         );
       }
@@ -506,7 +557,8 @@ class ExecuteLoopRunner {
         // it only fires when the intent is in the map AND the chosen tool is
         // explicitly listed as off-path — unknown intents pass through.
         final guardIntent = (plan['intent'] ?? '').toString();
-        if (guardIntent.isNotEmpty && !offPathHinted.contains(toolRequest.name)) {
+        if (guardIntent.isNotEmpty &&
+            !offPathHinted.contains(toolRequest.name)) {
           final canonical = checkOffPath(guardIntent, toolRequest.name);
           if (canonical != null && canonical.isNotEmpty) {
             offPathHinted.add(toolRequest.name);
@@ -540,7 +592,9 @@ class ExecuteLoopRunner {
           if (!rePlanned) {
             rePlanned = true;
             stuck.reset();
-            logger.logError('Stuck loop detected (same call ×3). Forcing one re-plan.');
+            logger.logError(
+              'Stuck loop detected (same call ×3). Forcing one re-plan.',
+            );
             previousResults.add({
               'step': currentStep,
               'note':
@@ -611,7 +665,9 @@ class ExecuteLoopRunner {
 
         final definition = _toolRouter.getDefinition(toolRequest.name)!;
 
-        final permissionDenied = await _toolRouter.permissionDeniedResult(toolRequest.name);
+        final permissionDenied = await _toolRouter.permissionDeniedResult(
+          toolRequest.name,
+        );
         if (permissionDenied != null) {
           logger.logToolResult(permissionDenied);
           emit(logger.events.last);
@@ -622,7 +678,8 @@ class ExecuteLoopRunner {
           // context even after the live permission state has changed.
           final finalResponse =
               permissionDeniedResponseFor(permissionDenied) ??
-              (permissionDenied.error ?? _runtimePhrase('runtime_permission_denied'));
+              (permissionDenied.error ??
+                  _runtimePhrase('runtime_permission_denied'));
           final actions = permissionDeniedActionsFor(permissionDenied);
 
           // Park the task as a resumable pending action rather than discarding
@@ -631,7 +688,9 @@ class ExecuteLoopRunner {
           // THIS (recent) task resumes — instead of a stale older ledger being
           // grabbed by the continuation path. Only park when there is real
           // progress to resume; trivial single-shot reads just fail.
-          if (request.source == RequestSource.chat && goalTree.isNotEmpty && !goalTree.isComplete) {
+          if (request.source == RequestSource.chat &&
+              goalTree.isNotEmpty &&
+              !goalTree.isComplete) {
             final ledger = await _taskScope.persistLedgerAtGate(
               request: request,
               plan: plan,
@@ -669,7 +728,10 @@ class ExecuteLoopRunner {
             );
             _pendingActionsCallback?.call(request.agentId, pending);
           } else {
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
           }
           logger.logFinalResponse(finalResponse);
           return AgentRuntimeResponse(
@@ -702,8 +764,12 @@ class ExecuteLoopRunner {
         }
 
         // Check confirmation requirement.
-        final crossWs = await _toolRouter.requiresCrossWorkspaceConfirmation(toolRequest);
-        final mustConfirm = (definition.requiresConfirmation || crossWs) && !autoApproveSensitive;
+        final crossWs = await _toolRouter.requiresCrossWorkspaceConfirmation(
+          toolRequest,
+        );
+        final mustConfirm =
+            (definition.requiresConfirmation || crossWs) &&
+            !autoApproveSensitive;
         if (mustConfirm) {
           if (request.source == RequestSource.workflow) {
             logger.logStateChange(
@@ -712,7 +778,10 @@ class ExecuteLoopRunner {
               '${toolRequest.name}',
             );
             emit(logger.events.last);
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
             return AgentRuntimeResponse(
               finalMessage: '',
               success: false,
@@ -723,7 +792,10 @@ class ExecuteLoopRunner {
             );
           }
           state = AgentRuntimeState.waitingConfirmation;
-          logger.logStateChange(state, 'Tool requires confirmation: ${toolRequest.name}');
+          logger.logStateChange(
+            state,
+            'Tool requires confirmation: ${toolRequest.name}',
+          );
           emit(logger.events.last);
 
           // Render the confirmation summary and the operation preview
@@ -838,7 +910,10 @@ class ExecuteLoopRunner {
               language: detectedLang,
             );
             logger.logFinalResponse(finalMsg);
-            await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+            await _taskScope.archiveLedgerForRequest(
+              request,
+              LedgerStatus.completed,
+            );
             return AgentRuntimeResponse(
               finalMessage: finalMsg,
               success: true,
@@ -894,7 +969,9 @@ class ExecuteLoopRunner {
           final actions = permissionDeniedActionsFor(result);
           // Mirror the pre-flight gate: park a resumable ledger so the recent
           // task (not a stale one) resumes once the permission is granted.
-          if (request.source == RequestSource.chat && goalTree.isNotEmpty && !goalTree.isComplete) {
+          if (request.source == RequestSource.chat &&
+              goalTree.isNotEmpty &&
+              !goalTree.isComplete) {
             final ledger = await _taskScope.persistLedgerAtGate(
               request: request,
               plan: plan,
@@ -934,7 +1011,10 @@ class ExecuteLoopRunner {
               ),
             );
           } else {
-            await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+            await _taskScope.finishScopeForRequest(
+              request,
+              LedgerStatus.failed,
+            );
           }
           logger.logFinalResponse(permissionFinal);
           return AgentRuntimeResponse(
@@ -1021,8 +1101,13 @@ class ExecuteLoopRunner {
                   requiredCapabilities: recoveryDecision.requiredCapabilities,
                 );
               }
-              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
-              final unverifiedMessage = verification.userFacingMessage(detectedLang);
+              await _taskScope.finishScopeForRequest(
+                request,
+                LedgerStatus.failed,
+              );
+              final unverifiedMessage = verification.userFacingMessage(
+                detectedLang,
+              );
               logger.logFinalResponse(unverifiedMessage);
               return AgentRuntimeResponse(
                 finalMessage: unverifiedMessage,
@@ -1034,13 +1119,166 @@ class ExecuteLoopRunner {
           }
         }
 
+        // Delivery tools already performed the user-visible action. When the
+        // result carries the delivered body, it is stronger evidence than an
+        // LLM reviewer saying "sent"; finish locally and surface the body.
+        final deterministicDelivery =
+            result.success && _isDeliveryToolName(toolRequest.name)
+            ? _extractDeliveredContent(result, const <Map<String, dynamic>>[])
+            : null;
+        if (deterministicDelivery != null && deterministicDelivery.isNotEmpty) {
+          final active = goalTree.nextActionable;
+          if (active != null) {
+            active.status = SubgoalStatus.done;
+            active.resultRef = '${toolRequest.name}:$currentStep';
+            active.notes = 'delivery_completed';
+            _emitTaskLedger(emit, request, goalTree);
+          }
+
+          previousResults.add({
+            'step': currentStep,
+            'tool': toolRequest.name,
+            'result': _shrinkResult(result.data, toolName: toolRequest.name),
+          });
+
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+                lastToolDef: definition,
+                lastResult: result,
+              );
+          if (verificationBlocker != null) return verificationBlocker;
+
+          logger.logFinalResponse(deterministicDelivery);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
+          return AgentRuntimeResponse(
+            finalMessage: deterministicDelivery,
+            success: true,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+            actions: result.actions,
+          );
+        }
+
+        // Profile/SOUL writes are already verified by their tool result probe.
+        // Do not spend another reviewer LLM call asking whether the DB write
+        // happened; mark the active subgoal done and either continue to the
+        // next planned profile write or finish locally.
+        if (result.success &&
+            _isDeterministicProfileWrite(toolRequest, result)) {
+          final active = goalTree.nextActionable;
+          if (active != null) {
+            active.status = SubgoalStatus.done;
+            active.resultRef = '${toolRequest.name}:$currentStep';
+            active.notes = _profileWriteNote(result);
+            _emitTaskLedger(emit, request, goalTree);
+          }
+
+          previousResults.add({
+            'step': currentStep,
+            'tool': toolRequest.name,
+            'result': _shrinkResult(result.data, toolName: toolRequest.name),
+          });
+
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+                lastToolDef: definition,
+                lastResult: result,
+              );
+          if (verificationBlocker != null) return verificationBlocker;
+
+          final finalMessage = LanguageRegistry.phrase(
+            'runtime_profile_updated',
+            detectedLang.code,
+          );
+          logger.logFinalResponse(finalMessage);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
+          return AgentRuntimeResponse(
+            finalMessage: finalMessage,
+            success: true,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+            actions: result.actions,
+          );
+        }
+
         // Short-circuit for last step + retrieval.
         final shortCircuitActive = goalTree.nextActionable;
         final retrievalCompletesTree =
             result.success &&
             shortCircuitActive != null &&
             _isRetrievalTool(toolRequest.name) &&
-            _retrievalCanCompleteSubgoal(shortCircuitActive, toolRequest.name) &&
+            _retrievalCanCompleteSubgoal(
+              shortCircuitActive,
+              toolRequest.name,
+            ) &&
             // A PRECURSOR tool (vm.status, vm.list_plugins, app.resolve) is a
             // pre-flight check that must be FOLLOWED by an action — it can
             // never complete an action subgoal on its own. Without this guard
@@ -1048,42 +1286,48 @@ class ExecuteLoopRunner {
             // status is retrieval + the last planned step, so the action
             // subgoal gets force-marked done and the serve command never runs.
             !_isPrecursorTool(toolRequest.name) &&
-            !goalTree.subgoals.any((s) => !s.isTerminal && s.id != shortCircuitActive.id);
-        final wouldCompleteTree = goalTree.isEmpty || goalTree.isComplete || retrievalCompletesTree;
-        if (result.success && _isLastPlannedStep(plan, currentStep) && wouldCompleteTree) {
+            !goalTree.subgoals.any(
+              (s) => !s.isTerminal && s.id != shortCircuitActive.id,
+            );
+        final wouldCompleteTree =
+            goalTree.isEmpty || goalTree.isComplete || retrievalCompletesTree;
+        if (result.success &&
+            _isLastPlannedStep(plan, currentStep) &&
+            wouldCompleteTree) {
           if (retrievalCompletesTree) {
             shortCircuitActive.status = SubgoalStatus.done;
             shortCircuitActive.notes ??= 'retrieval_completed';
           }
-          final verificationBlocker = await _completionVerifier.blockIfUnverified(
-            request: request,
-            plan: plan,
-            goalTree: goalTree,
-            previousResults: previousResults,
-            currentStep: currentStep,
-            availableTools: availableTools,
-            memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
-            autoApproveSensitive: autoApproveSensitive,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            logger: logger,
-            parkTask: (questions) => _taskScope.parkForUserInput(
-              request: request,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: previousResults,
-              currentStep: currentStep,
-              availableTools: availableTools,
-              memorySnapshot: memorySnapshot,
-              detectedLangCode: detectedLang.code,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              questions: questions,
-            ),
-            lastToolName: toolRequest.name,
-            lastToolDef: definition,
-            lastResult: result,
-          );
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+                lastToolDef: definition,
+                lastResult: result,
+              );
           if (verificationBlocker != null) return verificationBlocker;
           if (goalTree.isNotEmpty && goalTree.isComplete) {
             _emitTaskLedger(emit, request, goalTree);
@@ -1112,10 +1356,14 @@ class ExecuteLoopRunner {
                   fallbackResult: result,
                   verbalizer: verbalizer,
                   language: detectedLang,
-                  targetGraph: (plan['runtime_target_graph'] as Map?)?.cast<String, dynamic>(),
+                  targetGraph: (plan['runtime_target_graph'] as Map?)
+                      ?.cast<String, dynamic>(),
                 );
           logger.logFinalResponse(localFinal);
-          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
           return AgentRuntimeResponse(
             finalMessage: localFinal,
             success: true,
@@ -1146,7 +1394,9 @@ class ExecuteLoopRunner {
           language: detectedLang.label,
           goalTree: goalTree,
           recentMessages: loopRecentMsgs,
-          agentName: request.agentName.isNotEmpty ? request.agentName : request.agentId,
+          agentName: request.agentName.isNotEmpty
+              ? request.agentName
+              : request.agentId,
           agentId: request.agentId,
           stableContext: stableContext,
         );
@@ -1154,7 +1404,9 @@ class ExecuteLoopRunner {
 
         var reviewStatus = review?['status'] as String? ?? '';
         final reportedReviewStatus = reviewStatus;
-        final reviewNextNarrative = (review?['next_narrative'] ?? '').toString().trim();
+        final reviewNextNarrative = (review?['next_narrative'] ?? '')
+            .toString()
+            .trim();
         if (reviewNextNarrative.isNotEmpty) {
           pendingNextNarrative = reviewNextNarrative;
         }
@@ -1183,7 +1435,10 @@ class ExecuteLoopRunner {
             reviewStatus == 'done' &&
             activeAfterRetrieval != null &&
             _isRetrievalTool(toolRequest.name) &&
-            !_retrievalCanCompleteSubgoal(activeAfterRetrieval, toolRequest.name)) {
+            !_retrievalCanCompleteSubgoal(
+              activeAfterRetrieval,
+              toolRequest.name,
+            )) {
           reviewStatus = 'continue';
           review?['status'] = 'continue';
           review?['reason'] =
@@ -1226,7 +1481,8 @@ class ExecuteLoopRunner {
             decision: reviewStatus,
             languageCode: detectedLang.code,
           );
-          if (reviewNarrative != rawReviewNarrative && rawReviewNarrative.isNotEmpty) {
+          if (reviewNarrative != rawReviewNarrative &&
+              rawReviewNarrative.isNotEmpty) {
             logger.logDivergence('narrative_gate_override', {
               'phase': 'review',
               'decision': reviewStatus,
@@ -1243,7 +1499,10 @@ class ExecuteLoopRunner {
                 kind: result.success ? 'tool_insight' : 'tool_failure',
                 phase: 'review',
                 message: milestoneNarrative,
-                evidenceRefs: [toolResultEvidenceRef, 'tool:${toolRequest.name}'],
+                evidenceRefs: [
+                  toolResultEvidenceRef,
+                  'tool:${toolRequest.name}',
+                ],
                 contextPolicy: result.success ? 'include' : 'exclude',
               )) {
             emit(logger.events.last);
@@ -1255,7 +1514,9 @@ class ExecuteLoopRunner {
           if (update != null) {
             var status = SubgoalStatusX.fromLabel(update['status'] as String?);
             if (!result.success && status == SubgoalStatus.done) {
-              status = reviewStatus == 'failed' ? SubgoalStatus.failed : SubgoalStatus.inProgress;
+              status = reviewStatus == 'failed'
+                  ? SubgoalStatus.failed
+                  : SubgoalStatus.inProgress;
             }
             final ok = goalTree.applyStatusUpdate(
               subgoalId: (update['id'] ?? '').toString(),
@@ -1309,7 +1570,9 @@ class ExecuteLoopRunner {
               if (entry is! Map) continue;
               final id = (entry['id'] ?? '').toString();
               if (id.isEmpty) continue;
-              final newStatus = SubgoalStatusX.fromLabel(entry['status'] as String?);
+              final newStatus = SubgoalStatusX.fromLabel(
+                entry['status'] as String?,
+              );
               final applied = goalTree.applyStatusUpdate(
                 subgoalId: id,
                 status: newStatus,
@@ -1353,8 +1616,12 @@ class ExecuteLoopRunner {
                 previousResults.add({
                   'step': currentStep,
                   'tool': toolRequest.name,
-                  'result': _shrinkResult(result.data, toolName: toolRequest.name),
-                  'note': 'SYSTEM GATE: Reviewer returned done but '
+                  'result': _shrinkResult(
+                    result.data,
+                    toolName: toolRequest.name,
+                  ),
+                  'note':
+                      'SYSTEM GATE: Reviewer returned done but '
                       '$cap=false in codeInspection. '
                       'The required capability is missing. '
                       'You MUST call miniapp.patch to add it. '
@@ -1407,7 +1674,8 @@ class ExecuteLoopRunner {
               'step': currentStep,
               'tool': toolRequest.name,
               'result': _shrinkResult(result.data, toolName: toolRequest.name),
-              'note': 'Setup-only tool succeeded; original action still pending.',
+              'note':
+                  'Setup-only tool succeeded; original action still pending.',
             });
             currentStep++;
             retryCount = 0;
@@ -1434,9 +1702,9 @@ class ExecuteLoopRunner {
               goalTree.isSingleAction &&
               goalTree.completionCriteria.isNotEmpty) {
             final alreadyReminded = previousResults.any(
-              (r) => (r['note'] ?? '')
-                  .toString()
-                  .contains('COMPLETION CRITERIA REMINDER'),
+              (r) => (r['note'] ?? '').toString().contains(
+                'COMPLETION CRITERIA REMINDER',
+              ),
             );
             if (!alreadyReminded) {
               final criteriaList = goalTree.completionCriteria
@@ -1466,9 +1734,12 @@ class ExecuteLoopRunner {
               previousResults.add({
                 'step': currentStep,
                 'tool': toolRequest.name,
-                'result':
-                    _shrinkResult(result.data, toolName: toolRequest.name),
-                'note': 'COMPLETION CRITERIA REMINDER: You returned '
+                'result': _shrinkResult(
+                  result.data,
+                  toolName: toolRequest.name,
+                ),
+                'note':
+                    'COMPLETION CRITERIA REMINDER: You returned '
                     'status=done but this task has unverified completion '
                     'criteria. Before returning done again, verify EACH '
                     'criterion against the tool results you have. If any '
@@ -1485,7 +1756,9 @@ class ExecuteLoopRunner {
           if (goalTree.isNotEmpty && !goalTree.isComplete) {
             logger.logDivergence('premature_done_overridden', {
               'source': 'reviewer',
-              'remaining_subgoals': goalTree.subgoals.where((s) => !s.isTerminal).length,
+              'remaining_subgoals': goalTree.subgoals
+                  .where((s) => !s.isTerminal)
+                  .length,
               'step': currentStep,
             });
             logger.logError(
@@ -1496,7 +1769,8 @@ class ExecuteLoopRunner {
               'step': currentStep,
               'tool': toolRequest.name,
               'result': _shrinkResult(result.data, toolName: toolRequest.name),
-              'note': 'Reviewer status=done overridden because subgoals remain.',
+              'note':
+                  'Reviewer status=done overridden because subgoals remain.',
             });
             currentStep++;
             retryCount = 0;
@@ -1515,36 +1789,38 @@ class ExecuteLoopRunner {
                   result: result,
                   language: detectedLang,
                 )
-              : review['final_response'] as String? ?? _runtimePhrase('runtime_task_completed');
-          final verificationBlocker = await _completionVerifier.blockIfUnverified(
-            request: request,
-            plan: plan,
-            goalTree: goalTree,
-            previousResults: previousResults,
-            currentStep: currentStep,
-            availableTools: availableTools,
-            memorySnapshot: memorySnapshot,
-            detectedLang: detectedLang,
-            autoApproveSensitive: autoApproveSensitive,
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            logger: logger,
-            parkTask: (questions) => _taskScope.parkForUserInput(
-              request: request,
-              plan: plan,
-              goalTree: goalTree,
-              previousResults: previousResults,
-              currentStep: currentStep,
-              availableTools: availableTools,
-              memorySnapshot: memorySnapshot,
-              detectedLangCode: detectedLang.code,
-              autoApproveSensitive: autoApproveSensitive,
-              isWorkflowAutoExecute: isWorkflowAutoExecute,
-              questions: questions,
-            ),
-            lastToolName: toolRequest.name,
-            lastToolDef: definition,
-            lastResult: result,
-          );
+              : review['final_response'] as String? ??
+                    _runtimePhrase('runtime_task_completed');
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+                lastToolDef: definition,
+                lastResult: result,
+              );
           if (verificationBlocker != null) return verificationBlocker;
           // When the task ends on an answer/respond subgoal (e.g. "summarize the
           // posts and tell me here"), the REVIEWER's final_response IS the
@@ -1562,7 +1838,10 @@ class ExecuteLoopRunner {
           // Deterministic source first: system.rtb / chat.send put the EXACT
           // delivered text in result.data. That text was literally shown to the
           // user, so echoing it as the final reply can never be wrong.
-          final deliveredContent = _extractDeliveredContent(result, previousResults);
+          final deliveredContent = _extractDeliveredContent(
+            result,
+            previousResults,
+          );
           final hasAnswerSubgoal = goalTree.subgoals.any(
             (s) => s.isTerminal && _isAnswerOnlySubgoal(s),
           );
@@ -1574,10 +1853,13 @@ class ExecuteLoopRunner {
             (s) => s.isTerminal && _isDeliverySubgoal(s),
           );
           final reviewAnswer = (review['final_response'] as String?)?.trim();
-          final hasSubstantiveAnswer = reviewAnswer != null && reviewAnswer.length > 12;
-          final completedFinal = (deliveredContent != null && deliveredContent.isNotEmpty)
+          final hasSubstantiveAnswer =
+              reviewAnswer != null && reviewAnswer.length > 12;
+          final completedFinal =
+              (deliveredContent != null && deliveredContent.isNotEmpty)
               ? deliveredContent
-              : ((hasAnswerSubgoal || hasDeliverySubgoal) && hasSubstantiveAnswer)
+              : ((hasAnswerSubgoal || hasDeliverySubgoal) &&
+                    hasSubstantiveAnswer)
               ? reviewAnswer
               : (goalTree.isNotEmpty &&
                         goalTree.subgoals
@@ -1600,7 +1882,10 @@ class ExecuteLoopRunner {
                       )
                     : finalResponse);
           logger.logFinalResponse(completedFinal);
-          await _taskScope.archiveLedgerForRequest(request, LedgerStatus.completed);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
           return AgentRuntimeResponse(
             finalMessage: completedFinal,
             success: true,
@@ -1613,14 +1898,21 @@ class ExecuteLoopRunner {
         if (reviewStatus == 'ask_user') {
           if (!result.success && !_failedToolCanAskUser(result)) {
             if (_isCapabilityBoundaryFailure(result)) {
-              await _taskScope.finishScopeForRequest(request, LedgerStatus.failed);
+              await _taskScope.finishScopeForRequest(
+                request,
+                LedgerStatus.failed,
+              );
               return fail(_capabilityNotFoundMessage(), logger);
             }
             reviewStatus = 'failed';
           } else {
             final question =
                 review['question'] as String? ??
-                await fallbackQuestionForToolFailure(result, detectedLang, verbalizer);
+                await fallbackQuestionForToolFailure(
+                  result,
+                  detectedLang,
+                  verbalizer,
+                );
             await _taskScope.parkForUserInput(
               request: request,
               plan: plan,
@@ -1743,9 +2035,24 @@ class ExecuteLoopRunner {
   // Recovery
   // ---------------------------------------------------------------------------
 
-  Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> _maybeRecover({
+  Future<
+    ({
+      Map<String, dynamic> plan,
+      GoalTree goalTree,
+      List<String> requiredCapabilities,
+    })?
+  >
+  _maybeRecover({
     required RecoveryCoordinator? recovery,
-    required Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?> Function()? rethink,
+    required Future<
+      ({
+        Map<String, dynamic> plan,
+        GoalTree goalTree,
+        List<String> requiredCapabilities,
+      })?
+    >
+    Function()?
+    rethink,
     required String reason,
     required RuntimeLogger logger,
     ToolCallRequest? failedTool,
@@ -1757,7 +2064,9 @@ class ExecuteLoopRunner {
     if (recovery == null || rethink == null) return null;
 
     final toolMarker = failedTool?.name ?? stageHint;
-    final argsSummary = failedTool == null ? errorSummary : _summarizeArgs(failedTool.args);
+    final argsSummary = failedTool == null
+        ? errorSummary
+        : _summarizeArgs(failedTool.args);
 
     recovery.recordAttemptFailure(
       RecoveryAttempt(
@@ -1769,7 +2078,9 @@ class ExecuteLoopRunner {
       ),
     );
 
-    final decision = recovery.evaluate(snapshotMaybeStale: reason == 'verification_unverified');
+    final decision = recovery.evaluate(
+      snapshotMaybeStale: reason == 'verification_unverified',
+    );
     if (decision != RecoveryDecision.rethinkAndReplan) {
       logger.logError(
         'Recovery decision=${decision.name} after $reason '
@@ -1931,8 +2242,10 @@ class ExecuteLoopRunner {
       if (!hasContent && !actionable) continue; // drop inert structural nodes
       kept.add({
         'id': n['id'],
-        if (text.isNotEmpty) 'text': text.length > 400 ? '${text.substring(0, 400)}…' : text,
-        if (desc.isNotEmpty) 'desc': desc.length > 200 ? '${desc.substring(0, 200)}…' : desc,
+        if (text.isNotEmpty)
+          'text': text.length > 400 ? '${text.substring(0, 400)}…' : text,
+        if (desc.isNotEmpty)
+          'desc': desc.length > 200 ? '${desc.substring(0, 200)}…' : desc,
         if (clickable) 'clickable': true,
         if (editable) 'editable': true,
         if (scrollable) 'scrollable': true,
@@ -1962,6 +2275,41 @@ class ExecuteLoopRunner {
     return _isRetrievalTool(toolName);
   }
 
+  bool _isDeterministicProfileWrite(
+    ToolCallRequest tool,
+    ToolExecutionResult result,
+  ) {
+    final data = result.data;
+    if (data == null || data.isEmpty) return false;
+    if (tool.name == 'system.profile.update') {
+      return _nonEmpty(data['field']) && _nonEmpty(data['value']);
+    }
+    if (tool.name == 'agent.update') {
+      return data['scope'] == 'soul' &&
+          _nonEmpty(data['field']) &&
+          _nonEmpty(data['value']);
+    }
+    return false;
+  }
+
+  bool _isDeliveryToolName(String toolName) =>
+      toolName == 'chat.send' || toolName == 'system.rtb';
+
+  String _profileWriteNote(ToolExecutionResult result) {
+    final data = result.data;
+    if (data == null) return 'profile_updated';
+    final field = (data['field'] ?? '').toString().trim();
+    if (field.isEmpty) return 'profile_updated';
+    return 'profile_updated:$field';
+  }
+
+  static bool _nonEmpty(Object? value) {
+    if (value == null) return false;
+    if (value is String) return value.trim().isNotEmpty;
+    if (value is Iterable || value is Map) return true;
+    return value.toString().trim().isNotEmpty;
+  }
+
   /// Tools that are PRE-FLIGHT checks gating a later action, never an outcome
   /// on their own. Their own descriptions say "use this BEFORE …". Treating a
   /// precursor result as task completion strands the real action (e.g. ending
@@ -1975,7 +2323,8 @@ class ExecuteLoopRunner {
   /// the permission-denied error code.
   String? permissionDeniedResponseFor(ToolExecutionResult result) {
     final data = result.data;
-    if (data == null || data['errorCode'] != ToolPermissionPolicy.permissionDeniedCode) {
+    if (data == null ||
+        data['errorCode'] != ToolPermissionPolicy.permissionDeniedCode) {
       return null;
     }
 
@@ -2017,7 +2366,8 @@ class ExecuteLoopRunner {
   /// Action buttons for ecosystem failures such as missing/disabled modules.
   List<ResultAction> permissionDeniedActionsFor(ToolExecutionResult result) {
     final data = result.data;
-    if (data == null || data['errorCode'] != ToolPermissionPolicy.permissionDeniedCode) {
+    if (data == null ||
+        data['errorCode'] != ToolPermissionPolicy.permissionDeniedCode) {
       return const [];
     }
 
@@ -2032,7 +2382,9 @@ class ExecuteLoopRunner {
     if (reason == ToolPermissionBlockReason.moduleMissing.name) {
       return [
         ResultAction(
-          label: LanguageRegistry.phrase('action_install_module', code, {'module': module}),
+          label: LanguageRegistry.phrase('action_install_module', code, {
+            'module': module,
+          }),
           icon: 'add_rounded',
           type: 'install_module',
           target: moduleId,
@@ -2043,7 +2395,9 @@ class ExecuteLoopRunner {
 
     return [
       ResultAction(
-        label: LanguageRegistry.phrase('action_open_module', code, {'module': module}),
+        label: LanguageRegistry.phrase('action_open_module', code, {
+          'module': module,
+        }),
         icon: 'extension_rounded',
         type: 'navigate',
         target: '/modules/$moduleId',
@@ -2091,7 +2445,9 @@ class ExecuteLoopRunner {
     return AgentRuntimeResponse(
       finalMessage: finalMsg,
       success: terminalSubgoals.isNotEmpty,
-      state: terminalSubgoals.isNotEmpty ? AgentRuntimeState.done : AgentRuntimeState.failed,
+      state: terminalSubgoals.isNotEmpty
+          ? AgentRuntimeState.done
+          : AgentRuntimeState.failed,
       events: logger.events,
     );
   }
@@ -2132,7 +2488,11 @@ class ExecuteLoopRunner {
     }
 
     // Single subgoal or empty tree: use the standard per-tool success path.
-    return await verbalizer.success(tool: fallbackTool, result: fallbackResult, language: language);
+    return await verbalizer.success(
+      tool: fallbackTool,
+      result: fallbackResult,
+      language: language,
+    );
   }
 
   void _emitTaskLedger(
@@ -2151,7 +2511,9 @@ class ExecuteLoopRunner {
       languageCode: _effectiveLanguageCode,
       originalUserMessage: request.userMessage,
       goalTree: goalTree,
-      status: goalTree.isComplete ? LedgerStatus.completed : LedgerStatus.active,
+      status: goalTree.isComplete
+          ? LedgerStatus.completed
+          : LedgerStatus.active,
     );
     emit(
       RuntimeEvent(
@@ -2163,7 +2525,11 @@ class ExecuteLoopRunner {
   }
 
   Map<String, String> _subgoalToSummary(Subgoal s) {
-    return {'label': s.label, 'status': s.status.name, 'result': (s.notes ?? '').trim()};
+    return {
+      'label': s.label,
+      'status': s.status.name,
+      'result': (s.notes ?? '').trim(),
+    };
   }
 
   /// Build a natural-language fallback question when a tool fails and the
@@ -2177,10 +2543,15 @@ class ExecuteLoopRunner {
     if (providers != null && providers.isNotEmpty) {
       final names = providers
           .whereType<Map>()
-          .map((p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString())
+          .map(
+            (p) => (p['nickname'] ?? p['name'] ?? p['model'] ?? '').toString(),
+          )
           .where((p) => p.trim().isNotEmpty)
           .join(', ');
-      return await verbalizer.providerDisambiguation(availableProviders: names, language: language);
+      return await verbalizer.providerDisambiguation(
+        availableProviders: names,
+        language: language,
+      );
     }
 
     final data = result.data;
@@ -2188,7 +2559,9 @@ class ExecuteLoopRunner {
     String? availableNames;
     String? triedName;
 
-    if (data != null && data['available'] is List && (data['available'] as List).isNotEmpty) {
+    if (data != null &&
+        data['available'] is List &&
+        (data['available'] as List).isNotEmpty) {
       final available = data['available'] as List;
       availableNames = available
           .whereType<Map>()
@@ -2196,7 +2569,9 @@ class ExecuteLoopRunner {
           .where((n) => n.trim().isNotEmpty)
           .join(', ');
       final tried = data['tried'];
-      triedName = tried is Map ? (tried['name'] ?? tried['id'] ?? '')?.toString() : null;
+      triedName = tried is Map
+          ? (tried['name'] ?? tried['id'] ?? '')?.toString()
+          : null;
     }
 
     return await verbalizer.fallbackQuestion(
@@ -2360,7 +2735,16 @@ class ExecuteLoopRunner {
   static bool _isCorrectiveSegment(String segment) {
     // Leading first token (the program), lowercased.
     final head = segment.split(RegExp(r'\s+')).first.toLowerCase();
-    const correctiveHeads = {'mkdir', 'cd', 'touch', 'chmod', 'chown', 'export', 'mount', 'ln'};
+    const correctiveHeads = {
+      'mkdir',
+      'cd',
+      'touch',
+      'chmod',
+      'chown',
+      'export',
+      'mount',
+      'ln',
+    };
     if (correctiveHeads.contains(head)) return true;
     // Package-manager install/update prep, e.g. `apt-get install`, `npm i`.
     final installer = RegExp(
@@ -2419,9 +2803,11 @@ class ExecuteLoopRunner {
   String _runtimePhrase(String key, [Map<String, String> params = const {}]) =>
       LanguageRegistry.phrase(key, _effectiveLanguageCode, params);
 
-  DetectedLanguage _settingsLanguage() => DetectedLanguage.fromAnalyzerCode(_effectiveLanguageCode);
+  DetectedLanguage _settingsLanguage() =>
+      DetectedLanguage.fromAnalyzerCode(_effectiveLanguageCode);
 
-  String _capabilityNotFoundMessage() => _runtimePhrase('runtime_capability_not_found');
+  String _capabilityNotFoundMessage() =>
+      _runtimePhrase('runtime_capability_not_found');
 
   String _capabilityBoundaryMessage(ToolExecutionResult result) {
     final messageKey = result.data?['messageKey']?.toString().trim();
@@ -2487,7 +2873,9 @@ class ExecuteLoopRunner {
         name == 'system.tools.list') {
       return true;
     }
-    if (name.startsWith('device.') && !name.endsWith('.set') && !name.contains('reconnect')) {
+    if (name.startsWith('device.') &&
+        !name.endsWith('.set') &&
+        !name.contains('reconnect')) {
       return true;
     }
     return false;
@@ -2497,7 +2885,10 @@ class ExecuteLoopRunner {
   /// a retrieval outcome. A read used to recover from a failed mutation is
   /// evidence for the next attempt, not proof that the mutation completed.
   bool _retrievalCanCompleteSubgoal(Subgoal subgoal, String toolName) {
-    final operation = _subgoalSlot(subgoal, const ['_operation', 'operation']).toLowerCase();
+    final operation = _subgoalSlot(subgoal, const [
+      '_operation',
+      'operation',
+    ]).toLowerCase();
     if (const {
       'read',
       'list',
@@ -2512,7 +2903,10 @@ class ExecuteLoopRunner {
       return true;
     }
 
-    final expectedTool = _subgoalSlot(subgoal, const ['tool', 'tool_name']).toLowerCase();
+    final expectedTool = _subgoalSlot(subgoal, const [
+      'tool',
+      'tool_name',
+    ]).toLowerCase();
     return expectedTool.isNotEmpty && expectedTool == toolName.toLowerCase();
   }
 
@@ -2542,25 +2936,27 @@ class ExecuteLoopRunner {
   /// verb — so [_isAnswerOnlySubgoal] misses it. Used at finalize so a
   /// "summarize and send" task surfaces the real content, not a label recap.
   bool _isDeliverySubgoal(Subgoal subgoal) {
-    final tool = _subgoalSlot(subgoal, const ['tool', 'tool_name']).toLowerCase();
+    final tool = _subgoalSlot(subgoal, const [
+      'tool',
+      'tool_name',
+    ]).toLowerCase();
     return tool == 'system.rtb' || tool == 'chat.send';
   }
 
-  /// Pull the literal user-facing text already delivered by `system.rtb` (which
-  /// puts the message in `data.pending_chat_message` with `message_delivered`).
+  /// Pull the literal user-facing text already delivered by a delivery tool.
   /// This is the exact text shown to the user, so echoing it as the final reply
   /// can never be wrong. Checks the live result first, then the most recent
   /// delivery in [previousResults]. Returns null when nothing was delivered.
-  ///
-  /// Note: `chat.send` does NOT carry its body in the result (only ids/length),
-  /// so it is not recoverable here — those flows fall back to the reviewer's
-  /// composed answer via the `hasDeliverySubgoal` gate.
   String? _extractDeliveredContent(
     ToolExecutionResult result,
     List<Map<String, dynamic>> previousResults,
   ) {
     String? fromData(Map? data) {
       if (data == null) return null;
+      for (final key in const ['delivered_content', 'content']) {
+        final m = (data[key] ?? '').toString().trim();
+        if (m.isNotEmpty) return m;
+      }
       if (data['message_delivered'] == true) {
         final m = (data['pending_chat_message'] ?? '').toString().trim();
         if (m.isNotEmpty) return m;
@@ -2591,7 +2987,10 @@ class ExecuteLoopRunner {
   }
 
   String _emptyResultMessage(String toolName) {
-    return LanguageRegistry.phrase(_emptyResultPhraseKey(toolName), _effectiveLanguageCode);
+    return LanguageRegistry.phrase(
+      _emptyResultPhraseKey(toolName),
+      _effectiveLanguageCode,
+    );
   }
 
   bool _failedToolCanAskUser(ToolExecutionResult result) {
@@ -2631,7 +3030,9 @@ class ExecuteLoopRunner {
   void Function(String agentId, PendingAction pending)? _pendingActionsCallback;
 
   /// Attach the pending-actions write callback. Called by the engine.
-  void attachPendingActionsCallback(void Function(String agentId, PendingAction pending) callback) {
+  void attachPendingActionsCallback(
+    void Function(String agentId, PendingAction pending) callback,
+  ) {
     _pendingActionsCallback = callback;
   }
 }

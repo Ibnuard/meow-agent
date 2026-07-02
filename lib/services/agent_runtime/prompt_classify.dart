@@ -25,7 +25,7 @@ Language priority for route="chat":
 const promptClassifyAnalyzeRules = '''ANALYZER RULES:
 - Set requires_tools=true when the current user message asks to inspect live/local state, use an attachment, mutate anything, control the device/apps, manage stored data, or answer from Meow Agent runtime state.
 - Set requires_tools=false only for ordinary chat, creative/opinion/explanatory responses that do not need live/local state, or requests that are missing required details.
-- If required details are missing or ambiguous, set requires_tools=false and put one or more short clarification questions in missing_info. Do not guess defaults.
+- If required details are missing or ambiguous, set requires_tools=false, put concise missing slot/gap labels in missing_info, and put the user-facing question in clarify_questions. Do not guess defaults.
 - The current user message takes priority over prior conversation tone/topic. A clear new action is a standalone request unless it is explicitly continuing a pending clarification.
 - Continuity applies only when the previous assistant asked for missing details and the current message plausibly fills those details.
 - Never silently repeat a completed multi-step task from history. Treat short overlapping follow-ups at face value; ask only when the current message is genuinely ambiguous.
@@ -99,7 +99,8 @@ const promptClassifyPlanRules = '''PLANNER RULES:
 - DELIVERY SUBGOALS: When the user explicitly asks to send/deliver the result as a message, include a dedicated subgoal for chat.send.
 - AUTHORITATIVE TARGETS: If "Resolved targets" are provided, those are concrete entities matched against the live system snapshot. Emit ONE subgoal per resolved target using the target's entity label verbatim.''';
 
-const promptClassifyResponseFormat = '''
+const promptClassifyResponseFormat =
+    '''
 Respond with ONLY valid JSON, no markdown, no explanation:
 
 {
@@ -112,7 +113,7 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   "detected_language": "ISO 639-1 code",
   "selected_skill_ids": ["meow.skill_id", "..."],
   "tool_groups": ["group enum", "..."],
-  "missing_info": ["clarifying question 1"],
+  "missing_info": ["missing slot or ambiguity label"],
   "subgoal_seeds": ["first user-visible outcome", "..."],
   "requested_item_count": null,
   "bulk_selector": false,
@@ -146,6 +147,10 @@ Respond with ONLY valid JSON, no markdown, no explanation:
   "main_goal": "single sentence summarizing the user's overall goal",
   "completion_criteria": ["observable condition 1", "observable condition 2"],
   "required_capabilities": ["usesUserDatabase", "initializesTables"],
+  "tool_call": {
+    "name": "exact tool name for the first immediate action, or null",
+    "args": {"arg": "value"}
+  },
   "subgoals": [
     {
       "id": "sg1",
@@ -163,8 +168,9 @@ Respond with ONLY valid JSON, no markdown, no explanation:
 Rules:
 - If route="chat", fill direct_response and leave strategy, targets, impacts, subgoals, completion_criteria empty/null.
 - If route="agentic" and missing_info has items, requires_tools MUST be false and strategy MUST be clarify.
+- missing_info is internal metadata, not chat copy. Keep each item as a short gap label, not a sentence to show the user.
 - If requires_tools=true, strategy must be direct_execute or auto_resolve (never clarify/block just because tone is friendly).
-- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly question in the user's language.
+- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly user-facing question in the user's language.
 - If strategy=block, block_reason MUST be filled.
 - impacts may be empty when nothing in the ecosystem is affected.
 - detected_language: ISO 639-1 code of the language the USER wrote in.
@@ -172,6 +178,7 @@ Rules:
 - tool_groups: compatibility fallback. Smallest set from: app, clipboard, device, notification, notes, files, calendar, workflow, system, database, miniapp, chat, communication, attachment, web.
 - task_relation: none/continuation/revision/new_task against ACTIVE TASK CONTEXT.
 - required_capabilities: list of capability strings the final result MUST have. Use "usesUserDatabase" when user asks for database/DB/persistent storage. Use "initializesTables" when user asks for table creation. Leave empty when no specific capability is required.
+- tool_call: set to null unless there is exactly one unambiguous immediate tool action. When filled, name MUST be an exact available tool name and args MUST match that tool's schema using only explicit user-provided values or non-creative defaults documented by the tool. Do not fill tool_call for multi-step tasks, missing slots, ambiguous targets, or if any confirmation/impact reasoning is still needed before the first action.
 - toolHint in subgoals: string representing the exact tool name (e.g. miniapp.read, miniapp.patch) expected to satisfy the subgoal, or null/absent if unknown.
 - $promptNarrativeFieldRule
 - $promptNextNarrativeFieldRule

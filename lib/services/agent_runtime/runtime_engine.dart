@@ -62,7 +62,6 @@ typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 /// Entity types whose targets are resolved against the live ecosystem snapshot.
 /// Only these may be passed to the planner as authoritative "resolved target"
 
-
 /// The main agentic runtime engine.
 /// Stateful: maintains pending actions per agent.
 class AgentRuntimeEngine {
@@ -191,8 +190,6 @@ class AgentRuntimeEngine {
       preFilteredSkills: preFilteredSkills,
     );
   }
-
-
 
   /// True if the user hasn't introduced themselves yet. Drives the
   /// introduction gate. Phase 7: reads `agent_soul.user_name` directly.
@@ -472,6 +469,7 @@ class AgentRuntimeEngine {
     emit(logger.events.last);
     final verbalizer = ToolVerbalizer(client: client, config: llmConfig);
     verbalizer.resetTurn();
+    toolRouter.clearPermissionCache();
     try {
       try {
         await _confirmation.maybeRestoreFromLedger(request.agentId);
@@ -571,6 +569,9 @@ class AgentRuntimeEngine {
         toolRouter.modelSupportsVision = true;
       }
       toolRouter.currentUserMessage = request.userMessage;
+      toolRouter.currentSessionId = (request.metadata['session_id'] ?? '')
+          .toString()
+          .trim();
       toolRouter.describeImage =
           ({required AttachedFile image, required String prompt}) async {
             final bytes = await File(image.path).readAsBytes();
@@ -616,8 +617,6 @@ class AgentRuntimeEngine {
         activeTaskContext =
             'pending clarification for: ${pendingClarification.originalMessage} (questions: ${pendingClarification.questions.join('; ')})';
       }
-
-
 
       await workspaceFolder.ensureFolder(wsName);
 
@@ -720,14 +719,15 @@ class AgentRuntimeEngine {
         recentMessages: recentMsgs,
         pendingAction: pending,
         recentToolMemory: _memory.formatForPrompt(request.agentId),
-            isWorkflowAutoExecute: isWorkflowAutoExecute,
-            activeTaskContext: activeTaskContext,
-            agentName: wsName,
-            agentId: request.agentId,
-            userNotIntroduced: userNotIntroduced,
-          );
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+        activeTaskContext: activeTaskContext,
+        agentName: wsName,
+        agentId: request.agentId,
+        userNotIntroduced: userNotIntroduced,
+      );
       // Handle chat route from the merged call.
-      if (classifyResult.isChatRoute && classifyResult.directResponse.isNotEmpty) {
+      if (classifyResult.isChatRoute &&
+          classifyResult.directResponse.isNotEmpty) {
         logger.logStateChange(AgentRuntimeState.done, 'Chat response');
         emit(logger.events.last);
         logger.logFinalResponse(classifyResult.directResponse);
@@ -894,7 +894,9 @@ class AgentRuntimeEngine {
             userMessage: effectiveUserMessage,
             workspace: workspace,
             snapshot: classifySnapshot,
-            availableTools: _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+            availableTools: _toolDefinitionsFor(
+              toolRouter.registeredTools.toSet(),
+            ),
             language: detectedLang,
             logger: logger,
             stableContext: stableContext,
@@ -958,13 +960,20 @@ class AgentRuntimeEngine {
           const <String>[];
       if (missingInfo.isNotEmpty) {
         state = AgentRuntimeState.askingUser;
-        final question = missingInfo.length == 1
-            ? missingInfo.first
-            : missingInfo.map((q) => '- $q').join('\n');
+        final clarifyQuestions = classifyResult.reflection.clarifyQuestions
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(growable: false);
+        final userQuestions = clarifyQuestions.isNotEmpty
+            ? clarifyQuestions
+            : missingInfo;
+        final question = userQuestions.length == 1
+            ? userQuestions.first
+            : userQuestions.map((q) => '- $q').join('\n');
         _pendingClarifications[request.agentId] = PendingClarification(
           originalMessage:
               pendingClarification?.originalMessage ?? request.userMessage,
-          questions: missingInfo,
+          questions: userQuestions,
           createdAt: DateTime.now(),
         );
         if (logger.logStreamBubble(
@@ -1247,7 +1256,8 @@ class AgentRuntimeEngine {
       // Plan already came from the merged classify call — no separate
       // LLM round-trip needed.
       var plan = classifyResult.plan;
-      if (plan['subgoals'] == null || (plan['subgoals'] as List?)?.isEmpty == true) {
+      if (plan['subgoals'] == null ||
+          (plan['subgoals'] as List?)?.isEmpty == true) {
         // Fallback: classify didn't emit subgoals, synthesize from analysis.
         logger.logError(
           'Classify returned empty plan; synthesizing fallback from analysis.',
@@ -1295,6 +1305,11 @@ class AgentRuntimeEngine {
       final goalTree = plannerGoalTree.isNotEmpty
           ? plannerGoalTree
           : GoalTree(mainGoal: effectiveUserMessage);
+      final initialSelection = _initialSelectionFromClassify(
+        classifyResult: classifyResult,
+        availableTools: availableTools,
+        logger: logger,
+      );
       if (targetGraph != null && targetGraph.isNotEmpty) {
         plan['runtime_target_graph'] = targetGraph.toJson();
       }
@@ -1315,7 +1330,13 @@ class AgentRuntimeEngine {
         snapshotBuilder: () async => _buildSnapshot(),
       );
       final capturedAnalysis = Map<String, dynamic>.from(analysis);
-      Future<({Map<String, dynamic> plan, GoalTree goalTree, List<String> requiredCapabilities})?>
+      Future<
+        ({
+          Map<String, dynamic> plan,
+          GoalTree goalTree,
+          List<String> requiredCapabilities,
+        })?
+      >
       rethink() async {
         try {
           // Rebuild the ecosystem snapshot fresh — tools executed since the
@@ -1372,7 +1393,11 @@ class AgentRuntimeEngine {
             userMessage: effectiveUserMessage,
             resolvedTargets: reTargetGraph.targets,
           );
-          return (plan: newPlan, goalTree: newTree, requiredCapabilities: reClassify.requiredCapabilities);
+          return (
+            plan: newPlan,
+            goalTree: newTree,
+            requiredCapabilities: reClassify.requiredCapabilities,
+          );
         } catch (e) {
           logger.logError('Recovery rethink failed', e);
           return null;
@@ -1396,6 +1421,7 @@ class AgentRuntimeEngine {
         autoApproveSensitive: autoApproveSensitive,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         fastPath: isFastPath,
+        initialSelection: initialSelection,
         stableContext: stableContext,
         requiredCapabilities: classifyResult.requiredCapabilities,
       );
@@ -2056,6 +2082,63 @@ class AgentRuntimeEngine {
       if (def != null) out.add(def);
     }
     return out;
+  }
+
+  Map<String, dynamic>? _initialSelectionFromClassify({
+    required ClassifyResult classifyResult,
+    required List<String> availableTools,
+    required RuntimeLogger logger,
+  }) {
+    final toolCall = classifyResult.toolCall;
+    if (toolCall == null) return null;
+    if (classifyResult.analysis['requires_tools'] != true) return null;
+
+    final missingInfo = classifyResult.analysis['missing_info'];
+    if (missingInfo is List && missingInfo.isNotEmpty) return null;
+
+    final name = (toolCall['name'] ?? '').toString().trim();
+    final args = toolCall['args'];
+    if (name.isEmpty || args is! Map<String, dynamic>) return null;
+
+    final definition = toolRouter.getDefinition(name);
+    if (definition == null || definition.hiddenFromModel) {
+      logger.logDivergence('thin_tool_rejected', {
+        'reason': definition == null ? 'unknown_tool' : 'hidden_tool',
+        'tool': name,
+      });
+      return null;
+    }
+
+    final availableNames = _toolNamesFromDescriptions(availableTools);
+    if (availableNames.isNotEmpty && !availableNames.contains(name)) {
+      logger.logDivergence('thin_tool_rejected', {
+        'reason': 'outside_available_surface',
+        'tool': name,
+      });
+      return null;
+    }
+
+    return {
+      'status': 'tool_required',
+      'tool': {
+        'name': name,
+        'args': args,
+        'risk': definition.risk,
+        'requires_confirmation': definition.requiresConfirmation,
+      },
+      'narrative': '',
+    };
+  }
+
+  Set<String> _toolNamesFromDescriptions(List<String> descriptions) {
+    final names = <String>{};
+    for (final desc in descriptions) {
+      final trimmed = desc.trim();
+      if (!trimmed.startsWith('- ')) continue;
+      final name = trimmed.substring(2).split(':').first.trim();
+      if (name.isNotEmpty) names.add(name);
+    }
+    return names;
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({

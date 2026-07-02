@@ -59,6 +59,18 @@ class ClassifyResult {
     }
     return const [];
   }
+
+  Map<String, dynamic>? get toolCall {
+    final value = raw['tool_call'];
+    if (value is! Map) return null;
+    final name = (value['name'] ?? '').toString().trim();
+    final args = value['args'] ?? value['arguments'];
+    if (name.isEmpty || args is! Map) return null;
+    return {
+      'name': name,
+      'args': args.map((key, value) => MapEntry(key.toString(), value)),
+    };
+  }
 }
 
 /// Merges analyze + reflect + plan into a single LLM call (L3 optimization).
@@ -74,11 +86,7 @@ class ClassifyResult {
 ///   // ... deterministic post-processing (tool narrowing, target resolution)
 ///   // ... execute loop with result.plan + result.reflection.goalTree
 class Classifier {
-  Classifier({
-    required this.client,
-    required this.config,
-    this.cancelToken,
-  });
+  Classifier({required this.client, required this.config, this.cancelToken});
 
   final OpenAiCompatibleClient client;
   final LlmProviderConfig config;
@@ -206,8 +214,10 @@ class Classifier {
     final directResponse = (json['direct_response'] ?? '').toString().trim();
     final goal = (json['goal'] ?? json['main_goal'] ?? userMessage).toString();
     final requiresTools = json['requires_tools'] ?? !isChat;
-    final detectedLanguage =
-        (json['detected_language'] ?? '').toString().trim().toLowerCase();
+    final detectedLanguage = (json['detected_language'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
     final taskRelation = (json['task_relation'] ?? 'none').toString();
     final mainGoal = (json['main_goal'] ?? goal).toString();
     final subgoalsJson = json['subgoals'] as List?;
@@ -228,6 +238,7 @@ class Classifier {
       'next_narrative': '',
       'route': route,
       'required_capabilities': const [],
+      'tool_call': null,
     };
 
     final goalTree = (subgoalsJson == null || subgoalsJson.isEmpty)
@@ -331,16 +342,17 @@ class Classifier {
     final toolsBlock = availableTools.isEmpty
         ? 'No tools available.'
         : availableTools
-              .map((t) =>
-                  '- ${t.name} (${t.risk}): ${t.description}'
-                  '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}')
+              .map(
+                (t) =>
+                    '- ${t.name} (${t.risk}): ${t.description}'
+                    '${t.inputSchema.isEmpty ? '' : ' · args: ${_schemaSummary(t.inputSchema)}'}',
+              )
               .join('\n');
 
     // Conditional mini-app code-gen policy — only when miniapp tools are in
     // the available set. Saves ~800 tokens for non-miniapp tasks.
     final toolNames = availableTools.map((t) => t.name).toList();
-    final miniAppBlock =
-        PromptConstants.toolsIncludeMiniApp(toolNames)
+    final miniAppBlock = PromptConstants.toolsIncludeMiniApp(toolNames)
         ? '\n${PromptConstants.miniAppRules}\n'
         : '';
 
@@ -425,9 +437,7 @@ $promptClassifyResponseFormat''';
     };
 
     // Build reflection output.
-    final strategy = ReflectionStrategyX.fromLabel(
-      json['strategy'] as String?,
-    );
+    final strategy = ReflectionStrategyX.fromLabel(json['strategy'] as String?);
 
     final treeJson = json['goal_tree'] as Map<String, dynamic>?;
     final goalTree = treeJson != null
@@ -488,13 +498,11 @@ $promptClassifyResponseFormat''';
   /// Build a goal tree from the merged JSON's subgoals array when the LLM
   /// didn't emit a separate goal_tree field.
   GoalTree _goalTreeFromMerged(Map<String, dynamic> json, String userMessage) {
-    final mainGoal = (json['main_goal'] ?? json['goal'] ?? userMessage).toString();
+    final mainGoal = (json['main_goal'] ?? json['goal'] ?? userMessage)
+        .toString();
     final subgoalsJson = json['subgoals'] as List?;
     if (subgoalsJson == null || subgoalsJson.isEmpty) {
-      return GoalTree.singleSubgoal(
-        mainGoal: mainGoal,
-        subgoalLabel: mainGoal,
-      );
+      return GoalTree.singleSubgoal(mainGoal: mainGoal, subgoalLabel: mainGoal);
     }
     return GoalTree.fromJson({
       'main_goal': mainGoal,
@@ -520,6 +528,7 @@ $promptClassifyResponseFormat''';
       raw: {
         'route': 'agentic',
         'requires_tools': hasActiveTask,
+        'tool_call': null,
       },
       analysis: {
         'intent': '',
@@ -536,6 +545,7 @@ $promptClassifyResponseFormat''';
         'next_narrative': '',
         'route': 'agentic',
         'required_capabilities': const [],
+        'tool_call': null,
       },
       reflection: ReflectionOutput(
         strategy: ReflectionStrategy.directExecute,

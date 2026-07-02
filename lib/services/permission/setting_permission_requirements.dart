@@ -10,14 +10,7 @@ import 'permission_manager.dart';
 ///
 /// To add a new gated setting: add one entry here. No other file edits needed.
 const Map<({String moduleId, String settingKey}), PermissionType>
-    settingPermissionRequirements = {
-  // ─── Files module — all keys require storage ─────────────────────────────
-  (moduleId: 'files', settingKey: 'allow_create'): PermissionType.storage,
-  (moduleId: 'files', settingKey: 'allow_read'): PermissionType.storage,
-  (moduleId: 'files', settingKey: 'allow_write'): PermissionType.storage,
-  (moduleId: 'files', settingKey: 'allow_delete'): PermissionType.storage,
-  (moduleId: 'files', settingKey: 'allow_organize'): PermissionType.storage,
-
+settingPermissionRequirements = {
   // ─── Notes module — same storage gate ────────────────────────────────────
   (moduleId: 'notes', settingKey: 'allow_create'): PermissionType.storage,
   (moduleId: 'notes', settingKey: 'allow_read'): PermissionType.storage,

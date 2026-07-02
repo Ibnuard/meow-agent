@@ -89,8 +89,7 @@ class LanguageRegistry {
       'permission_action_default': 'menjalankan aksi itu',
       'action_install_module': 'Pasang {module}',
       'action_open_module': 'Buka {module}',
-      'action_open_accessibility':
-          'Buka Pengaturan Aksesibilitas',
+      'action_open_accessibility': 'Buka Pengaturan Aksesibilitas',
       'accessibility_not_connected':
           'Layanan aksesibilitas Meow Agent belum aktif. Aktifkan dulu agar aku bisa mengontrol layar aplikasi lain.',
       'task_aborted_heads_up':
@@ -112,6 +111,7 @@ class LanguageRegistry {
       'runtime_vision_model_unsupported':
           'Model yang aktif belum mendukung input gambar. Silakan ganti agent ke model yang support vision, lalu coba lagi.',
       'runtime_task_completed': 'Tugas selesai.',
+      'runtime_profile_updated': 'Sudah kusimpan.',
       'runtime_need_more_information': 'Aku perlu informasi tambahan.',
       'runtime_tool_selection_missing':
           'Pemilihan tool tidak mengembalikan data tool.',
@@ -143,8 +143,7 @@ class LanguageRegistry {
           'Provider AI tidak merespons tepat waktu. Cek koneksi internet kamu atau coba lagi sebentar.',
       'runtime_provider_network_error':
           'Tidak bisa menghubungi provider AI. Cek koneksi internet kamu lalu coba lagi.',
-      'runtime_provider_cancelled':
-          'Permintaan ke provider AI dibatalkan.',
+      'runtime_provider_cancelled': 'Permintaan ke provider AI dibatalkan.',
       'runtime_provider_unknown_error':
           'Ada masalah saat menghubungi provider AI. Coba lagi sebentar — kalau terus terjadi, cek pengaturan Provider.',
       'app_agent_reading_screen': 'Membaca layar aplikasi...',
@@ -197,8 +196,7 @@ class LanguageRegistry {
       'permission_action_default': 'do that',
       'action_install_module': 'Install {module}',
       'action_open_module': 'Open {module}',
-      'action_open_accessibility':
-          'Open Accessibility Settings',
+      'action_open_accessibility': 'Open Accessibility Settings',
       'accessibility_not_connected':
           'Meow Agent accessibility service is not active. Enable it first so I can control other app screens.',
       'task_aborted_heads_up':
@@ -220,6 +218,7 @@ class LanguageRegistry {
       'runtime_vision_model_unsupported':
           'The active model does not support image input. Switch this agent to a vision-capable model, then try again.',
       'runtime_task_completed': 'Task completed.',
+      'runtime_profile_updated': 'Saved.',
       'runtime_need_more_information': 'Need more information.',
       'runtime_tool_selection_missing': 'Tool selection returned no tool data.',
       'runtime_permission_denied': 'Permission denied.',

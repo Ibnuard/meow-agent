@@ -78,6 +78,9 @@ class ToolRouter {
   /// User message for the current turn, used as the default image prompt.
   String currentUserMessage = '';
 
+  /// Active chat session id for tools that write chat messages.
+  String currentSessionId = '';
+
   Future<String> Function({
     required AttachedFile image,
     required String prompt,
@@ -188,6 +191,8 @@ class ToolRouter {
   /// at turn end (or simply dropped when the router is per-engine-instance).
   final _permissionDeniedCache = <String, ToolExecutionResult?>{};
 
+  void clearPermissionCache() => _permissionDeniedCache.clear();
+
   Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
     if (_permissionDeniedCache.containsKey(toolName)) {
       return Future.value(_permissionDeniedCache[toolName]);
@@ -297,6 +302,7 @@ class ToolRouter {
     attachments: attachments,
     modelSupportsVision: modelSupportsVision,
     currentUserMessage: currentUserMessage,
+    currentSessionId: currentSessionId,
     describeImage: describeImage,
     allToolDefinitions: _registry.values,
     coreAgentRepo: coreAgentRepo,
