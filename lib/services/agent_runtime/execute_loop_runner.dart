@@ -1,4 +1,6 @@
 import 'action_map.dart';
+import 'dart:convert';
+
 import 'completion_verifier.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
@@ -561,7 +563,9 @@ class ExecuteLoopRunner {
           );
         }
 
-        final toolRequest = ToolCallRequest.fromJson(toolJson);
+        final toolRequest = _normalizeToolRequestAliases(
+          ToolCallRequest.fromJson(toolJson),
+        );
 
         // ─── SOFT GUARD: canonical action map off-path detection ───────────
         // If the analyzer's intent maps to a canonical tool path and the
@@ -1131,6 +1135,88 @@ class ExecuteLoopRunner {
               );
             }
           }
+        }
+
+        // Mutations with a tool_result_data verification probe already carry
+        // their proof in the tool result (e.g. notes.create -> noteId). Treat
+        // that as deterministic completion for the active subgoal instead of
+        // asking the reviewer LLM to restate success. This also prevents a
+        // completed create from being selected again from the same tool hint.
+        if (result.success &&
+            _isVerifiedResultDataMutation(definition, result)) {
+          final active = goalTree.nextActionable;
+          if (active != null) {
+            active.status = SubgoalStatus.done;
+            active.resultRef = '${toolRequest.name}:$currentStep';
+            active.notes = 'mutation_verified';
+            _emitTaskLedger(emit, request, goalTree);
+          }
+
+          previousResults.add({
+            'step': currentStep,
+            'tool': toolRequest.name,
+            'result': _shrinkResult(result.data, toolName: toolRequest.name),
+          });
+
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
+          final verificationBlocker = await _completionVerifier
+              .blockIfUnverified(
+                request: request,
+                plan: plan,
+                goalTree: goalTree,
+                previousResults: previousResults,
+                currentStep: currentStep,
+                availableTools: availableTools,
+                memorySnapshot: memorySnapshot,
+                detectedLang: detectedLang,
+                autoApproveSensitive: autoApproveSensitive,
+                isWorkflowAutoExecute: isWorkflowAutoExecute,
+                logger: logger,
+                parkTask: (questions) => _taskScope.parkForUserInput(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLangCode: detectedLang.code,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  questions: questions,
+                ),
+                lastToolName: toolRequest.name,
+                lastToolDef: definition,
+                lastResult: result,
+              );
+          if (verificationBlocker != null) return verificationBlocker;
+
+          final finalMessage = await finalForCompletedTree(
+            goalTree: goalTree,
+            fallbackTool: toolRequest,
+            fallbackResult: result,
+            verbalizer: verbalizer,
+            language: detectedLang,
+            targetGraph: (plan['runtime_target_graph'] as Map?)
+                ?.cast<String, dynamic>(),
+          );
+          logger.logFinalResponse(finalMessage);
+          await _taskScope.archiveLedgerForRequest(
+            request,
+            LedgerStatus.completed,
+          );
+          return AgentRuntimeResponse(
+            finalMessage: finalMessage,
+            success: true,
+            state: AgentRuntimeState.done,
+            events: logger.events,
+            actions: result.actions,
+          );
         }
 
         // Delivery tools already performed the user-visible action. When the
@@ -2371,6 +2457,35 @@ class ExecuteLoopRunner {
     });
   }
 
+  ToolCallRequest _normalizeToolRequestAliases(ToolCallRequest request) {
+    final normalizedArgs = _normalizeToolArgAliases(request.name, request.args);
+    if (identical(normalizedArgs, request.args)) return request;
+    return ToolCallRequest(
+      name: request.name,
+      args: normalizedArgs,
+      risk: request.risk,
+      requiresConfirmation: request.requiresConfirmation,
+    );
+  }
+
+  Map<String, dynamic> _normalizeToolArgAliases(
+    String toolName,
+    Map<String, dynamic> args,
+  ) {
+    switch (toolName) {
+      case 'chat.send':
+      case 'notes.create':
+        final content = args['content']?.toString().trim();
+        if (content != null && content.isNotEmpty) return args;
+        for (final alias in const ['message', 'body', 'text']) {
+          final value = args[alias]?.toString().trim();
+          if (value == null || value.isEmpty) continue;
+          return {...args, 'content': value};
+        }
+    }
+    return args;
+  }
+
   Map<String, dynamic>? _argsForHintedSubgoal({
     required Subgoal subgoal,
     required String toolName,
@@ -2422,10 +2537,29 @@ class ExecuteLoopRunner {
         v == 'from_previous_results' ||
         v == 'previous_results' ||
         v == 'result_to_chat' ||
+        v == '...' ||
+        v == '…' ||
+        v == '<...>' ||
         RegExp(
           r'\b(tree|file|list|content|message|result|output|data|summary)\s+(output|result|content|message|data)?\s*(from|of)\s+sg[\w-]+\b',
         ).hasMatch(v) ||
         RegExp(r'\bsg\d+\b').hasMatch(v) && v.contains('output');
+  }
+
+  bool _isVerifiedResultDataMutation(
+    ToolDefinition definition,
+    ToolExecutionResult result,
+  ) {
+    final probe = definition.verificationProbe;
+    if (probe == null || probe.kind != 'tool_result_data') return false;
+    final data = result.data;
+    if (data == null) return false;
+    for (final key in probe.expectedDataKeys) {
+      final value = data[key];
+      if (value == null) return false;
+      if (value is String && value.trim().isEmpty) return false;
+    }
+    return probe.expectedDataKeys.isNotEmpty;
   }
 
   bool _canCompleteRetrievalSubgoal(Subgoal subgoal, String toolName) {
@@ -2463,6 +2597,9 @@ class ExecuteLoopRunner {
   }
 
   String? _composeResultSection(String toolName, Map result) {
+    if (toolName == 'web.api.call' || toolName == 'web.fetch') {
+      return _composeApiResult(result);
+    }
     if (toolName == 'system.workspace.schema') {
       return _composeWorkspaceSchema(result);
     }
@@ -2475,6 +2612,52 @@ class ExecuteLoopRunner {
     final content = _extractPrimaryTextResult(result);
     if (content != null && content.trim().isNotEmpty) return content.trim();
     return null;
+  }
+
+  String? _composeApiResult(Map result) {
+    final hasBody = result.containsKey('body');
+    final body = result['body'];
+    if (!hasBody || body == null) return null;
+
+    final heading = _runtimePhrase('runtime_api_result_heading');
+    final bodyHeading = _runtimePhrase('runtime_api_body_heading');
+    final statusLabel = _runtimePhrase('runtime_api_status_label');
+    final apiName = (result['api_name'] ?? '').toString().trim();
+    final status = result['status'];
+    final itemCount = _countApiItems(body);
+    final lines = <String>[
+      '**$heading**',
+      if (apiName.isNotEmpty) '- API: $apiName',
+      if (status != null) '- $statusLabel: $status',
+      if (itemCount != null)
+        '- ${itemCount == 1 ? _runtimePhrase('runtime_api_returned_one') : _runtimePhrase('runtime_api_returned_count', {'count': '$itemCount'})}',
+      '',
+      '**$bodyHeading**',
+      '```json',
+      _prettyJson(body),
+      '```',
+    ];
+    return lines.join('\n');
+  }
+
+  int? _countApiItems(Object? body) {
+    if (body is List) return body.length;
+    if (body is Map) {
+      for (final key in const ['data', 'items', 'results', 'posts']) {
+        final value = body[key];
+        if (value is List) return value.length;
+      }
+      return 1;
+    }
+    return body == null ? null : 1;
+  }
+
+  String _prettyJson(Object? value) {
+    try {
+      return const JsonEncoder.withIndent('  ').convert(value);
+    } catch (_) {
+      return value.toString();
+    }
   }
 
   String? _composeWorkspaceSchema(Map result) {

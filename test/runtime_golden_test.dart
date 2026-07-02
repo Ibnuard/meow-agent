@@ -311,6 +311,177 @@ void main() {
     expect(router.dispatchSequence, ['chat.send']);
   });
 
+  test('S0d2 chat.send message alias is normalized to content', () async {
+    const delivered = 'Berikut 5 data dari JSONPlaceholder.';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"send.chat","goal":"send API result to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.chat"],"tool_groups":["chat"],'
+            '"missing_info":[],"subgoal_seeds":["send API result to chat"],'
+            '"task_relation":"new_task","narrative":"","next_narrative":"",'
+            '"main_goal":"send API result to chat","subgoals":[{"id":"sg1",'
+            '"label":"send API result to chat","required_slots":{"_operation":"send"},'
+            '"missing_slots":[],"status":"pending"}],'
+            '"tool_call":{"name":"chat.send","args":{"message":${jsonEncode(delivered)}}}}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 54,
+            'length': delivered.length,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kirim hasil api tadi ke chat'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(router.dispatchSequence, ['chat.send']);
+    expect(router.dispatchLog.single.args['content'], delivered);
+  });
+
+  test('S0d3 API retrieval final response includes fetched payload', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"fetch.api.store","goal":"Fetch 3 data items from json example API",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["web"],'
+            '"missing_info":[],"subgoal_seeds":["fetch 3 data items"],'
+            '"requested_item_count":3,"bulk_selector":false,'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Fetch 3 data items from json example API",'
+            '"completion_criteria":["API data received"],'
+            '"tool_call":{"name":"web.api.list","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"List APIs","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"web.api.list"},'
+            '{"id":"sg2","label":"Call json example API","required_slots":{"_operation":"call","api":"json example"},"missing_slots":["api_id"],"status":"pending","toolHint":"web.api.call"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"web.api.call",'
+            '"args":{"api":"mr35oacg","endpoint_override":"?_limit=3"},'
+            '"risk":"safe","requires_confirmation":false},'
+            '"narrative":"Calling API now."}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'web.api.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'web.api.list',
+          data: {
+            'count': 1,
+            'apis': [
+              {
+                'id': 'mr35oacg',
+                'name': 'Sample Posts API',
+                'url': 'https://jsonplaceholder.typicode.com/posts/1',
+                'method': 'GET',
+                'dynamic_params': [],
+              },
+            ],
+          },
+        ),
+        'web.api.call': const ToolExecutionResult(
+          success: true,
+          toolName: 'web.api.call',
+          data: {
+            'api_name': 'Sample Posts API',
+            'status': 200,
+            'content_type': 'application/json; charset=utf-8',
+            'body': {
+              'userId': 1,
+              'id': 1,
+              'title':
+                  'sunt aut facere repellat provident occaecati excepturi optio reprehenderit',
+              'body': 'quia et suscipit',
+            },
+            'truncated': false,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('coba dong fetch api dari api store yg json example, 3 data aja'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Hasil API'));
+    expect(res.finalMessage, contains('Sample Posts API'));
+    expect(res.finalMessage, contains('sunt aut facere'));
+    expect(res.finalMessage, contains('"id": 1'));
+    expect(res.finalMessage, isNot(contains('berhasil')));
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['web.api.list', 'web.api.call']);
+  });
+
+  test('S0d4 verified note create does not duplicate from same tool hint', () async {
+    const content = '**Sample Posts API Result**\n\nTitle: sunt aut facere';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"save.to.note","goal":"Save API result to a note",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.notes"],"tool_groups":["notes"],'
+            '"missing_info":[],"subgoal_seeds":["Save API result"],'
+            '"task_relation":"continuation","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Save API result to a note",'
+            '"completion_criteria":["Note created with API result content"],'
+            '"tool_call":{"name":"notes.create","args":{"title":"Sample Posts API Result - 02/07/2026","content":${jsonEncode(content)}}},'
+            '"subgoals":[{"id":"sg1","label":"Create note with API result",'
+            '"required_slots":{"_operation":"create","title":"Sample Posts API Result - 02/07/2026","content":"..."},'
+            '"missing_slots":[],"status":"pending","toolHint":"notes.create"}],'
+            '"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"notes.create",'
+            '"args":{"title":"Sample Posts API Result - 02/07/2026","content":"..."},'
+            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+      ],
+      'verbalize.success': ['Udah saya simpen ke catatan.'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'notes.create': const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.create',
+          data: {'noteId': 'note_53149e6c', 'created': true},
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('goof tolong simpen ke catetan dong'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(router.dispatchCountOf('notes.create'), 1);
+    expect(router.dispatchLog.single.args['content'], content);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+  });
+
   test(
     'S0e clarify uses user-facing clarify question, not missing slot label',
     () async {

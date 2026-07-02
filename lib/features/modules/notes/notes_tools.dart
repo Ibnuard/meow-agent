@@ -30,7 +30,7 @@ class NotesTools {
     }
     try {
       final title = (args['title'] as String? ?? '').trim();
-      final content = (args['content'] as String? ?? '').trim();
+      final content = _contentFromArgs(args);
       if (title.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -66,6 +66,14 @@ class NotesTools {
         error: e.toString(),
       );
     }
+  }
+
+  String _contentFromArgs(Map<String, dynamic> args) {
+    for (final key in const ['content', 'body', 'message', 'text']) {
+      final value = args[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != '...' && value != '…') return value;
+    }
+    return '';
   }
 
   Future<ToolExecutionResult> executeListRecent(
@@ -349,15 +357,11 @@ class NotesTools {
       }
       final separator = (args['separator'] as String?) ?? '\n\n';
       final newContent = existing.content + separator + content;
-      final updated =
-          await _repo.updateNote(noteId, content: newContent);
+      final updated = await _repo.updateNote(noteId, content: newContent);
       return ToolExecutionResult(
         success: true,
         toolName: 'notes.append',
-        data: {
-          'noteId': updated.id,
-          'totalLength': updated.content.length,
-        },
+        data: {'noteId': updated.id, 'totalLength': updated.content.length},
       );
     } catch (e) {
       return ToolExecutionResult(

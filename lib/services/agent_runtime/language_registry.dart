@@ -121,6 +121,11 @@ class LanguageRegistry {
       'runtime_file_modified': 'Terakhir diubah',
       'runtime_directory_type': 'folder',
       'runtime_file_type_file': 'file',
+      'runtime_api_result_heading': 'Hasil API',
+      'runtime_api_body_heading': 'Data',
+      'runtime_api_status_label': 'Status HTTP',
+      'runtime_api_returned_one': 'API mengembalikan 1 item.',
+      'runtime_api_returned_count': 'API mengembalikan {count} item.',
       'runtime_result_summary_intro':
           'Saya sudah menyelesaikan permintaan ini. Berikut hasil lengkapnya:',
       'runtime_need_more_information': 'Aku perlu informasi tambahan.',
@@ -239,6 +244,11 @@ class LanguageRegistry {
       'runtime_file_modified': 'Modified',
       'runtime_directory_type': 'folder',
       'runtime_file_type_file': 'file',
+      'runtime_api_result_heading': 'API Result',
+      'runtime_api_body_heading': 'Data',
+      'runtime_api_status_label': 'HTTP status',
+      'runtime_api_returned_one': 'The API returned 1 item.',
+      'runtime_api_returned_count': 'The API returned {count} items.',
       'runtime_result_summary_intro':
           'I finished the request. Here are the full results:',
       'runtime_need_more_information': 'Need more information.',

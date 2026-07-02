@@ -680,6 +680,23 @@ class AgentRuntimeEngine {
         pendingAction: pending,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
+      final recentToolMemory = _memory.formatForPrompt(request.agentId);
+      final classifyToolNames = _classifyToolNamesFor(
+        request: request,
+        initialSelection: toolSelection,
+        activeLedgerToolNames: activeLedger == null
+            ? const <String>{}
+            : _toolNamesFromDescriptions(activeLedger.availableTools),
+        pendingAction: pending,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+      );
+      if (classifyToolNames.length < toolRouter.registeredTools.length) {
+        logger.logStateChange(
+          AgentRuntimeState.analyzing,
+          'Classifier tool surface narrowed before analysis: ${classifyToolNames.length}/${toolRouter.registeredTools.length}',
+        );
+        emit(logger.events.last);
+      }
       // Phase 2: ALWAYS start with the narrowed tool selection — even when
       // there is an active task context. The active task description is still
       // passed to the analyzer so it can classify task_relation, but the tool
@@ -708,23 +725,31 @@ class AgentRuntimeEngine {
       // Merged L3 call: routing + intent + strategy + goal tree in ONE LLM
       // round-trip. Replaces the old 3-phase analyze→reflect→plan sequence.
       // See codebase_analysis.md P0/L3.
+      final classifyStopwatch = Stopwatch()..start();
       final classifyResult = await classifyPhase.run(
         userMessage: effectiveUserMessage,
         workspace: workspace,
         snapshot: classifySnapshot,
-        availableTools: _toolDefinitionsFor(toolRouter.registeredTools.toSet()),
+        availableTools: _toolDefinitionsFor(classifyToolNames),
         language: detectedLang,
         logger: logger,
         stableContext: stableContext,
         recentMessages: recentMsgs,
         pendingAction: pending,
-        recentToolMemory: _memory.formatForPrompt(request.agentId),
+        recentToolMemory: recentToolMemory,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         activeTaskContext: activeTaskContext,
         agentName: wsName,
         agentId: request.agentId,
         userNotIntroduced: userNotIntroduced,
       );
+      classifyStopwatch.stop();
+      logger.logStateChange(
+        AgentRuntimeState.analyzing,
+        'User intent analyzed in ${classifyStopwatch.elapsedMilliseconds} ms '
+        '(classifier tools: ${classifyToolNames.length}/${toolRouter.registeredTools.length})',
+      );
+      emit(logger.events.last);
       // Handle chat route from the merged call.
       if (classifyResult.isChatRoute &&
           classifyResult.directResponse.isNotEmpty) {
@@ -2083,6 +2108,50 @@ class AgentRuntimeEngine {
       if (def != null) out.add(def);
     }
     return out;
+  }
+
+  Set<String> _classifyToolNamesFor({
+    required AgentRuntimeRequest request,
+    required ToolCatalogSelection initialSelection,
+    required Set<String> activeLedgerToolNames,
+    PendingAction? pendingAction,
+    required bool isWorkflowAutoExecute,
+  }) {
+    final full = toolRouter.registeredTools.toSet();
+    if (isWorkflowAutoExecute) return full;
+    if (pendingAction != null && initialSelection.toolNames.isNotEmpty) {
+      return initialSelection.toolNames;
+    }
+    if (activeLedgerToolNames.isNotEmpty) {
+      return activeLedgerToolNames;
+    }
+
+    final text = request.userMessage.trim();
+    final isShortFollowUpShape =
+        text.isNotEmpty &&
+        text.runes.length <= 48 &&
+        !text.contains('\n') &&
+        request.attachments.isEmpty;
+    if (!isShortFollowUpShape) return full;
+
+    final cutoff = DateTime.now().subtract(RuntimeMemory.promptRelevanceWindow);
+    final recentToolNames = _memory
+        .recent(request.agentId)
+        .where((entry) => entry.at.isAfter(cutoff))
+        .map((entry) => entry.toolName)
+        .where((name) => toolRouter.isRegistered(name))
+        .toSet();
+    if (recentToolNames.isEmpty) return full;
+
+    final narrowed = <String>{...recentToolNames};
+    for (final name in recentToolNames) {
+      final group = name.split('.').first;
+      narrowed.addAll(ToolCatalog.groups[group] ?? const <String>{});
+    }
+    // Short follow-ups after a retrieval often need to deliver or restate the
+    // previous result. Keeping chat.send visible avoids a second broad pass.
+    narrowed.addAll(ToolCatalog.groups['chat'] ?? const <String>{});
+    return narrowed.isEmpty ? full : narrowed;
   }
 
   Map<String, dynamic>? _initialSelectionFromClassify({

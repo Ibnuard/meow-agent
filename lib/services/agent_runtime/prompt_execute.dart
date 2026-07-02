@@ -63,6 +63,10 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
   NOT happen. Keep its active outcome open. Do not advance to a later outcome
   until the failed action succeeds or another available action verifiably
   establishes the exact same outcome.
+- Tool arguments MUST use the exact keys from the selected tool's Args schema.
+  Do not invent aliases such as "message" when the schema says "content".
+  When retrying a validation error like "Missing required field: X", the next
+  tool call MUST include key X with the intended value.
 - If the active subgoal has required_slots._operation="respond" or tool="none", do not call another tool. Return status="done" with final_response synthesized from previous successful results.
 - If the user asks about attached files, first inspect the attachments with the attachment tools, then answer only from successful attachment tool results. Use text reading for text files and image description for image files. Do not infer file contents from filenames or prior narrative.
 - LAUNCHING AN APP: To launch/open ANY app, use app.resolve(friendly_name) then app.open(package). If the user's ONLY goal is to open the app (no further interaction), return status="done" immediately after app.open succeeds.
@@ -101,6 +105,9 @@ CRITICAL RULES for empty / zero-result outcomes (READ CAREFULLY):
 - Do NOT switch to another tool unless a DIFFERENT tool is genuinely more likely to find what was missed (e.g. switching from notes.search to files.search when the user mentioned a file path). When in doubt, return done with the empty result.
 - Only return status="continue" when there are MORE subgoals to execute, not to re-attempt the same lookup.
 - Only return status="retry" when the failure was clearly transient (network blip, snapshot stale) AND the next attempt will use materially different args. Same args = no retry.
+- If a tool failed because a required field is missing, status="retry" is valid
+  only when the next attempt will use the exact missing field name from the
+  tool schema. Do not retry with the same alias or malformed argument shape.
 - Before returning status="failed" for a precondition the agent itself can fix (a target location/resource that an available tool can create), prefer status="continue" so the next step runs the corrective action and then re-attempts the original. Reserve status="failed" for failures no available tool can repair: a disabled module/permission/toggle, an unavailable capability, or a genuinely unrecoverable error.
 
 GROUNDING RULE for codeInspection data:
