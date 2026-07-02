@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
+
 import '../../../services/agent_runtime/module_plugin.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
+import '../../../services/llm/llm_error_mapper.dart';
 
 class AttachmentModulePlugin extends ModulePlugin {
   const AttachmentModulePlugin();
@@ -264,6 +267,17 @@ class AttachmentModulePlugin extends ModulePlugin {
           'description': description,
         },
       );
+    } on DioException catch (e) {
+      final failure = _visionFailureForDio(e);
+      return ToolExecutionResult(
+        success: false,
+        toolName: request.name,
+        error: failure.error,
+        data: {
+          ..._metadata(index, attachment, ctx.modelSupportsVision),
+          ...failure.data,
+        },
+      );
     } catch (e) {
       return ToolExecutionResult(
         success: false,
@@ -271,6 +285,80 @@ class AttachmentModulePlugin extends ModulePlugin {
         error: 'Failed to process the attached image: $e',
         data: _metadata(index, attachment, ctx.modelSupportsVision),
       );
+    }
+  }
+
+  ({String error, Map<String, dynamic> data}) _visionFailureForDio(
+    DioException e,
+  ) {
+    final statusCode = e.response?.statusCode;
+    if (statusCode == 404 || statusCode == 400) {
+      return (
+        error:
+            'The active model or provider endpoint does not support image input.',
+        data: {
+          'errorCode': 'vision_model_unsupported',
+          'failureKind': 'capability_boundary',
+          'messageKey': 'runtime_vision_model_unsupported',
+          'visionRequired': true,
+          'visionSupported': false,
+          'httpStatus': statusCode,
+        },
+      );
+    }
+
+    final transient =
+        e.type == DioExceptionType.connectionTimeout ||
+        e.type == DioExceptionType.sendTimeout ||
+        e.type == DioExceptionType.receiveTimeout ||
+        e.type == DioExceptionType.connectionError ||
+        statusCode == 429 ||
+        (statusCode != null && statusCode >= 500 && statusCode < 600);
+    return (
+      error: LlmErrorMapper.stripSentinel(
+        LlmErrorMapper.friendlyMessage(e, 'en'),
+      ),
+      data: {
+        'errorCode': 'vision_provider_error',
+        'failureKind': transient
+            ? 'transient_provider_error'
+            : 'provider_error',
+        'messageKey': _providerMessageKeyForDio(e),
+        'visionRequired': true,
+        'visionSupported': true,
+        'httpStatus': ?statusCode,
+      },
+    );
+  }
+
+  String _providerMessageKeyForDio(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+        return 'runtime_provider_timeout';
+      case DioExceptionType.connectionError:
+        return 'runtime_provider_network_error';
+      case DioExceptionType.cancel:
+        return 'runtime_provider_cancelled';
+      case DioExceptionType.badResponse:
+        switch (e.response?.statusCode) {
+          case 401:
+            return 'runtime_provider_auth_failed';
+          case 403:
+            return 'runtime_provider_forbidden';
+          case 429:
+            return 'runtime_provider_rate_limited';
+          default:
+            final status = e.response?.statusCode ?? 0;
+            if (status >= 500 && status < 600) {
+              return 'runtime_provider_server_error';
+            }
+            return 'runtime_provider_unknown_error';
+        }
+      case DioExceptionType.badCertificate:
+      case DioExceptionType.unknown:
+        return 'runtime_provider_unknown_error';
     }
   }
 
