@@ -2390,14 +2390,14 @@ class ExecuteLoopRunner {
       if (content == null || content.isEmpty) {
         final composed = _composeContentFromResults(previousResults);
         if (composed == null || composed.trim().isEmpty) return null;
-        args['content'] = composed;
+        args['content'] = _summarizeComposedResult(composed);
       }
     } else if (toolName == 'system.rtb') {
       final message = args['message']?.toString().trim();
       if (message == null || message.isEmpty) {
         final composed = _composeContentFromResults(previousResults);
         if (composed != null && composed.trim().isNotEmpty) {
-          args['message'] = composed;
+          args['message'] = _summarizeComposedResult(composed);
         }
       }
     }
@@ -2452,6 +2452,14 @@ class ExecuteLoopRunner {
     }
     if (sections.isEmpty) return null;
     return sections.join('\n\n');
+  }
+
+  String _summarizeComposedResult(String content) {
+    final body = content.trim();
+    final intro = _runtimePhrase('runtime_result_summary_intro');
+    if (body.isEmpty) return intro;
+    if (body.startsWith(intro)) return body;
+    return '$intro\n\n$body';
   }
 
   String? _composeResultSection(String toolName, Map result) {
@@ -2705,7 +2713,13 @@ class ExecuteLoopRunner {
                     s.status == SubgoalStatus.skipped,
               )
               .toList(growable: false);
-    final finalMsg = terminalSubgoals.isNotEmpty
+    final composed = _composeContentFromResults(previousResults);
+    final finalMsg =
+        terminalSubgoals.isNotEmpty &&
+            composed != null &&
+            composed.trim().isNotEmpty
+        ? _summarizeComposedResult(composed)
+        : terminalSubgoals.isNotEmpty
         ? await verbalizer.taskSummary(
             mainGoal: goalTree.mainGoal,
             completedSubgoals: terminalSubgoals

@@ -58,12 +58,12 @@ class OpenAiCompatibleClient {
   /// on mobile. Receive timeout is generous because long completions stream
   /// slowly; connect/send are tighter since they should be near-instant.
   static Dio _defaultDio() => Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 60),
-          receiveTimeout: const Duration(seconds: 300),
-          sendTimeout: const Duration(seconds: 60),
-        ),
-      );
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 300),
+      sendTimeout: const Duration(seconds: 60),
+    ),
+  );
 
   static const int _maxUsageRecords = 80;
   static final List<LlmRequestUsage> _usageRecords = [];
@@ -349,9 +349,13 @@ class OpenAiCompatibleClient {
     CancelToken? cancelToken,
   }) async {
     final estimatedInputTokens = estimateMessagesTokens(
-      messages.map((m) => Map<String, String>.from(
-        m.map((k, v) => MapEntry(k, v.toString())),
-      )).toList(),
+      messages
+          .map(
+            (m) => Map<String, String>.from(
+              m.map((k, v) => MapEntry(k, v.toString())),
+            ),
+          )
+          .toList(),
     );
 
     final response = await _postWithRetry<Map<String, dynamic>>(
@@ -484,6 +488,50 @@ class OpenAiCompatibleClient {
       ),
     );
     return _normalizeContent(content);
+  }
+
+  Future<List<String>> fetchModels({
+    required String baseUrl,
+    required String apiKey,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.getUri<dynamic>(
+      _resolve(baseUrl, '/models'),
+      options: Options(
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        },
+      ),
+      cancelToken: cancelToken,
+    );
+    return _extractModelIds(response.data);
+  }
+
+  static List<String> _extractModelIds(dynamic data) {
+    final rawItems = switch (data) {
+      {'data': final List items} => items,
+      {'models': final List items} => items,
+      {'items': final List items} => items,
+      final List items => items,
+      _ => const <dynamic>[],
+    };
+
+    final out = <String>[];
+    void add(dynamic value) {
+      final trimmed = value?.toString().trim() ?? '';
+      if (trimmed.isEmpty || out.contains(trimmed)) return;
+      out.add(trimmed);
+    }
+
+    for (final item in rawItems) {
+      if (item is String) {
+        add(item);
+      } else if (item is Map) {
+        add(item['id'] ?? item['name'] ?? item['model']);
+      }
+    }
+    return out;
   }
 
   /// Lightweight credential test: lists models and returns true on 2xx.

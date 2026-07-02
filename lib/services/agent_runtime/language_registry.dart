@@ -121,6 +121,8 @@ class LanguageRegistry {
       'runtime_file_modified': 'Terakhir diubah',
       'runtime_directory_type': 'folder',
       'runtime_file_type_file': 'file',
+      'runtime_result_summary_intro':
+          'Saya sudah menyelesaikan permintaan ini. Berikut hasil lengkapnya:',
       'runtime_need_more_information': 'Aku perlu informasi tambahan.',
       'runtime_tool_selection_missing':
           'Pemilihan tool tidak mengembalikan data tool.',
@@ -237,6 +239,8 @@ class LanguageRegistry {
       'runtime_file_modified': 'Modified',
       'runtime_directory_type': 'folder',
       'runtime_file_type_file': 'file',
+      'runtime_result_summary_intro':
+          'I finished the request. Here are the full results:',
       'runtime_need_more_information': 'Need more information.',
       'runtime_tool_selection_missing': 'Tool selection returned no tool data.',
       'runtime_permission_denied': 'Permission denied.',

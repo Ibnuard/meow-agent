@@ -131,7 +131,8 @@ class AppStrings {
   String get aboutBody => isId
       ? 'AI companion Android-native dengan multi-agent, app automation, workflow otomatis, notifikasi cerdas, dan modular tools.\n\nVersi 1.0.0'
       : 'Android-native AI companion with multi-agent, app automation, automated workflows, smart notifications, and modular tools.\n\nVersion 1.0.0';
-  String get checkForUpdates => isId ? 'Periksa Pembaruan' : 'Check for Updates';
+  String get checkForUpdates =>
+      isId ? 'Periksa Pembaruan' : 'Check for Updates';
   String get checkingForUpdates =>
       isId ? 'Memeriksa pembaruan...' : 'Checking for updates...';
   String get updateAvailable =>
@@ -198,8 +199,24 @@ class AppStrings {
   String get modelListHint => 'gpt-4o-mini';
   String get modelListRequired =>
       isId ? 'Model wajib diisi' : 'Model is required';
-  String get modelListHelper =>
-      isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.';
+  String get modelListHelper => isId
+      ? 'Tambahkan manual atau ambil otomatis dari /models.'
+      : 'Add models manually or fetch them from /models.';
+  String get fetchModels => isId ? 'Ambil /models' : 'Fetch /models';
+  String get fetchingModels =>
+      isId ? 'Mengambil model...' : 'Fetching models...';
+  String get selectFetchedModels => isId ? 'Pilih Model' : 'Select Models';
+  String fetchedModelsSubtitle(int count) => isId
+      ? '$count model ditemukan dari /models'
+      : '$count models found from /models';
+  String get noFetchedModels => isId
+      ? 'Tidak ada model yang ditemukan dari endpoint /models.'
+      : 'No models were found from the /models endpoint.';
+  String get fetchModelsFailed => isId
+      ? 'Gagal mengambil daftar model dari /models.'
+      : 'Failed to fetch models from /models.';
+  String addSelectedModels(int count) =>
+      isId ? 'Tambah $count model' : 'Add $count models';
   String modelTestValid(String model) =>
       isId ? 'Model "$model" tersedia ✓' : 'Model "$model" is available ✓';
   String modelTestInvalid(String model) => isId
@@ -347,53 +364,79 @@ class AppStrings {
   String get skillCreate => isId ? 'Buat Skill Baru' : 'Create New Skill';
   String get skillEdit => isId ? 'Edit Skill' : 'Edit Skill';
   String get skillTitleLabel => isId ? 'Judul Skill' : 'Skill Title';
-  String get skillTitleHint => isId ? 'Masukkan judul skill' : 'Enter skill title';
-  String get skillTitleRequired => isId ? 'Judul skill wajib diisi' : 'Skill title is required';
-  String get skillContentLabel => isId ? 'Konten Skill (Markdown)' : 'Skill Content (Markdown)';
+  String get skillTitleHint =>
+      isId ? 'Masukkan judul skill' : 'Enter skill title';
+  String get skillTitleRequired =>
+      isId ? 'Judul skill wajib diisi' : 'Skill title is required';
+  String get skillContentLabel =>
+      isId ? 'Konten Skill (Markdown)' : 'Skill Content (Markdown)';
   String get skillContentHint => isId
       ? 'Tulis instruksi/skill di sini menggunakan Markdown'
       : 'Write instruction/skill here using Markdown';
-  String get skillContentRequired => isId ? 'Konten skill wajib diisi' : 'Skill content is required';
-  String get skillGithubUrlLabel => isId ? 'GitHub URL (Opsional)' : 'GitHub URL (Optional)';
+  String get skillContentRequired =>
+      isId ? 'Konten skill wajib diisi' : 'Skill content is required';
+  String get skillGithubUrlLabel =>
+      isId ? 'GitHub URL (Opsional)' : 'GitHub URL (Optional)';
   String get skillGithubUrlHint => 'e.g. https://github.com/...';
   String get skillFetch => isId ? 'Ambil dari GitHub' : 'Fetch from GitHub';
   String get skillFetching => isId ? 'Mengambil...' : 'Fetching...';
-  String get skillFetchSuccess => isId ? 'Berhasil mengambil konten skill.' : 'Successfully fetched skill content.';
-  String get skillFetchError => isId ? 'Gagal mengambil konten dari URL.' : 'Failed to fetch content from URL.';
+  String get skillFetchSuccess => isId
+      ? 'Berhasil mengambil konten skill.'
+      : 'Successfully fetched skill content.';
+  String get skillFetchError => isId
+      ? 'Gagal mengambil konten dari URL.'
+      : 'Failed to fetch content from URL.';
   String get skillImport => isId ? 'Impor File (.md)' : 'Import File (.md)';
-  String get skillImportSuccess => isId ? 'Berhasil mengimpor file.' : 'Successfully imported file.';
-  String get skillImportError => isId ? 'Gagal mengimpor file.' : 'Failed to import file.';
+  String get skillImportSuccess =>
+      isId ? 'Berhasil mengimpor file.' : 'Successfully imported file.';
+  String get skillImportError =>
+      isId ? 'Gagal mengimpor file.' : 'Failed to import file.';
   String get skillAssignees => isId ? 'Penerima Skill' : 'Assignees';
   String get skillAssigneesDesc => isId
       ? 'Pilih agen yang menggunakan skill ini'
       : 'Select agents that will use this skill';
   String get skillEnabledLabel => isId ? 'Aktifkan Skill' : 'Enable Skill';
-  String get skillSaveSuccess => isId ? 'Skill berhasil disimpan.' : 'Skill successfully saved.';
+  String get skillSaveSuccess =>
+      isId ? 'Skill berhasil disimpan.' : 'Skill successfully saved.';
   String get skillDeleteConfirm => isId ? 'Hapus Skill?' : 'Delete Skill?';
   String get skillDeleteConfirmDesc => isId
       ? 'Apakah Anda yakin ingin menghapus skill ini?'
       : 'Are you sure you want to delete this skill?';
   String get skillDeleteButton => isId ? 'Hapus Skill' : 'Delete Skill';
   String get skillTabManual => isId ? 'Manual & Impor' : 'Manual & Import';
-  String get skillTabGithub => isId ? 'Otomatis via GitHub' : 'Automatic via GitHub';
-  String get skillGithubUrlRequired => isId ? 'URL GitHub wajib diisi' : 'GitHub URL is required';
-  String get skillDownloadedContentPreview => isId ? 'Konten Terunduh (Preview)' : 'Downloaded Content (Preview)';
-  String get skillBulkImportTitle => isId ? 'Pilih Skill untuk Diimpor' : 'Select Skills to Import';
-  String get skillBulkImportNoSelection => isId ? 'Pilih setidaknya satu skill.' : 'Select at least one skill.';
-  String get skillBulkImportSearching => isId ? 'Memindai repositori...' : 'Scanning repository...';
-  String skillBulkImportButton(int count) => isId ? 'Impor ($count) Skill' : 'Import ($count) Skills';
-  String skillBulkImportSuccess(int count) => isId ? 'Berhasil mengimpor $count skill.' : 'Successfully imported $count skills.';
+  String get skillTabGithub =>
+      isId ? 'Otomatis via GitHub' : 'Automatic via GitHub';
+  String get skillGithubUrlRequired =>
+      isId ? 'URL GitHub wajib diisi' : 'GitHub URL is required';
+  String get skillDownloadedContentPreview =>
+      isId ? 'Konten Terunduh (Preview)' : 'Downloaded Content (Preview)';
+  String get skillBulkImportTitle =>
+      isId ? 'Pilih Skill untuk Diimpor' : 'Select Skills to Import';
+  String get skillBulkImportNoSelection =>
+      isId ? 'Pilih setidaknya satu skill.' : 'Select at least one skill.';
+  String get skillBulkImportSearching =>
+      isId ? 'Memindai repositori...' : 'Scanning repository...';
+  String skillBulkImportButton(int count) =>
+      isId ? 'Impor ($count) Skill' : 'Import ($count) Skills';
+  String skillBulkImportSuccess(int count) => isId
+      ? 'Berhasil mengimpor $count skill.'
+      : 'Successfully imported $count skills.';
   String get miniAppDashboardTitle => isId ? 'Mini App' : 'Mini App';
-  String get miniAppDashboardEmpty => isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
+  String get miniAppDashboardEmpty =>
+      isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
   String get miniAppDashboardEmptyDesc => isId
       ? 'Minta agen untuk membuat Mini App pertamamu lewat chat!'
       : 'Ask the agent to create your first Mini App in chat!';
-  String get miniAppDeleteConfirm => isId ? 'Hapus Mini App?' : 'Delete Mini App?';
+  String get miniAppDeleteConfirm =>
+      isId ? 'Hapus Mini App?' : 'Delete Mini App?';
   String miniAppDeleteConfirmDesc(String name) => isId
       ? 'Apakah kamu yakin ingin menghapus Mini App "$name" secara permanen?'
       : 'Are you sure you want to permanently delete Mini App "$name"?';
-  String get miniAppDeleteSuccess => isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
-  String get miniAppDeleteError => isId ? 'Mini App tidak dapat dihapus.' : 'The Mini App could not be deleted.';
+  String get miniAppDeleteSuccess =>
+      isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
+  String get miniAppDeleteError => isId
+      ? 'Mini App tidak dapat dihapus.'
+      : 'The Mini App could not be deleted.';
   String get miniAppMaxHomeCountError => isId
       ? 'Maksimal 4 Mini App yang dapat ditampilkan di layar utama.'
       : 'A maximum of 4 Mini Apps can be shown on the home screen.';

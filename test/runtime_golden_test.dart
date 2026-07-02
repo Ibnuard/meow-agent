@@ -441,6 +441,7 @@ void main() {
       'chat.send',
     ]);
     final sent = router.dispatchLog.last.args['content'].toString();
+    expect(sent, contains('Saya sudah menyelesaikan'));
     expect(sent, contains('Skema Workspace'));
     expect(sent, contains('Daftar File'));
     expect(sent, contains('README.md'));
@@ -493,8 +494,79 @@ void main() {
     expect(router.dispatchSequence, ['files.tree', 'chat.send']);
     final sent = router.dispatchLog.last.args['content'].toString();
     expect(sent, isNot(contains('tree output from sg1')));
+    expect(sent, contains('Saya sudah menyelesaikan'));
     expect(sent, contains('Struktur Workspace'));
     expect(sent, contains('README.md'));
+  });
+
+  test('S0h retrieval-only tree and list finalizes with composed result', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"inspect_workspace_and_list_files",'
+            '"goal":"show workspace tree and file list",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.files"],"tool_groups":["files"],'
+            '"missing_info":[],"subgoal_seeds":["tree","list"],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"Memberikan gambaran struktur dan daftar file workspace",'
+            '"completion_criteria":["files.tree done","files.list done"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"dapatkan struktur pohon workspace","required_slots":{"_operation":"read"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"daftarkan semua file di workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.list"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const tree = '.\n├── notes/\n└── README.md';
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.tree',
+          data: {'tree': tree, 'root': '.'},
+        ),
+        'files.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.list',
+          data: {
+            'path': '/',
+            'count': 2,
+            'entries': [
+              {
+                'name': 'notes',
+                'type': 'directory',
+                'size': 128,
+                'modified': '2026-07-02T14:00:00',
+              },
+              {
+                'name': 'README.md',
+                'type': 'file',
+                'size': 64,
+                'modified': '2026-07-02T14:01:00',
+              },
+            ],
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Saya sudah menyelesaikan'));
+    expect(res.finalMessage, contains('Struktur Workspace'));
+    expect(res.finalMessage, contains('Daftar File'));
+    expect(res.finalMessage, contains('README.md'));
+    expect(res.finalMessage, isNot(contains('Berikut ringkasan')));
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['files.tree', 'files.list']);
   });
 
   // ── Scenario 1: simple read ────────────────────────────────────────────

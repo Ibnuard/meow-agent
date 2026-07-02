@@ -38,9 +38,11 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   final Set<String> _visionModels = {};
   final Set<String> _testingModels = {};
   CancelToken? _modelTestCancelToken;
+  CancelToken? _modelFetchCancelToken;
 
   bool _obscureKey = true;
   bool _testing = false;
+  bool _fetchingModels = false;
   bool _saving = false;
   String? _testResult;
   bool? _testSuccess;
@@ -83,6 +85,7 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   @override
   void dispose() {
     _modelTestCancelToken?.cancel();
+    _modelFetchCancelToken?.cancel();
     _nicknameController.dispose();
     _codenameController.dispose();
     _baseUrlController.dispose();
@@ -94,7 +97,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
   ProviderConfig _buildConfig() => ProviderConfig(
     id: _existingId,
     nickname: _nicknameController.text.trim(),
-    codename: _codenameController.text.trim().isEmpty ? null : _codenameController.text.trim().toUpperCase(),
+    codename: _codenameController.text.trim().isEmpty
+        ? null
+        : _codenameController.text.trim().toUpperCase(),
     baseUrl: _baseUrlController.text.trim(),
     apiKey: _apiKeyController.text.trim(),
     model: _models.firstOrNull ?? '',
@@ -113,16 +118,153 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
     _formKey.currentState?.validate();
   }
 
+  Future<void> _fetchModels() async {
+    if (_fetchingModels) return;
+    final baseUrl = _baseUrlController.text.trim();
+    final apiKey = _apiKeyController.text.trim();
+    if (baseUrl.isEmpty) {
+      _showSnack(s.baseUrlRequired);
+      return;
+    }
+    final uri = Uri.tryParse(baseUrl);
+    if (uri == null || !uri.hasScheme) {
+      _showSnack(s.baseUrlInvalid);
+      return;
+    }
+    if (apiKey.isEmpty) {
+      _showSnack(s.apiKeyRequired);
+      return;
+    }
+
+    setState(() => _fetchingModels = true);
+    _modelFetchCancelToken = CancelToken();
+    try {
+      final fetchedModels = await OpenAiCompatibleClient(dio: Dio())
+          .fetchModels(
+            baseUrl: baseUrl,
+            apiKey: apiKey,
+            cancelToken: _modelFetchCancelToken,
+          );
+      if (!mounted) return;
+      if (fetchedModels.isEmpty) {
+        _showSnack(s.noFetchedModels);
+        return;
+      }
+      final selectedModels = await _showFetchedModelsSheet(fetchedModels);
+      if (!mounted || selectedModels == null || selectedModels.isEmpty) return;
+      setState(() {
+        for (final model in selectedModels) {
+          if (!_models.contains(model)) _models.add(model);
+        }
+      });
+      _formKey.currentState?.validate();
+    } on DioException catch (e) {
+      if (!mounted || e.type == DioExceptionType.cancel) return;
+      _showSnack(s.fetchModelsFailed, backgroundColor: Colors.redAccent);
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack(s.fetchModelsFailed, backgroundColor: Colors.redAccent);
+    } finally {
+      if (mounted) setState(() => _fetchingModels = false);
+      _modelFetchCancelToken = null;
+    }
+  }
+
+  Future<List<String>?> _showFetchedModelsSheet(List<String> fetchedModels) {
+    final selectedModels = fetchedModels
+        .where((model) => !_models.contains(model))
+        .toSet();
+
+    return showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final cs = context.cs;
+            return MeowSheet(
+              title: s.selectFetchedModels,
+              subtitle: s.fetchedModelsSubtitle(fetchedModels.length),
+              contentPadding: EdgeInsets.zero,
+              footer: MeowPrimaryButton(
+                label: s.addSelectedModels(selectedModels.length),
+                icon: Icons.add_rounded,
+                onPressed: selectedModels.isEmpty
+                    ? null
+                    : () => Navigator.pop(
+                        sheetContext,
+                        selectedModels.toList(growable: false),
+                      ),
+              ),
+              children: [
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.42,
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                    itemCount: fetchedModels.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 4),
+                    itemBuilder: (context, index) {
+                      final model = fetchedModels[index];
+                      final isSelected = selectedModels.contains(model);
+                      return CheckboxListTile(
+                        value: isSelected,
+                        title: Text(
+                          model,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: cs.onSurface,
+                          ),
+                        ),
+                        secondary: Icon(
+                          Icons.memory_rounded,
+                          color: cs.primary,
+                        ),
+                        onChanged: (value) {
+                          setSheetState(() {
+                            if (value == true) {
+                              selectedModels.add(model);
+                            } else {
+                              selectedModels.remove(model);
+                            }
+                          });
+                        },
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showSnack(String message, {Color? backgroundColor}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: backgroundColor),
+    );
+  }
+
   Future<void> _testModel(String model) async {
     if (_testingModels.contains(model)) return;
     final baseUrl = _baseUrlController.text.trim();
     final apiKey = _apiKeyController.text.trim();
     if (baseUrl.isEmpty || apiKey.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.baseUrlRequired)),
-        );
-      }
+      _showSnack(baseUrl.isEmpty ? s.baseUrlRequired : s.apiKeyRequired);
       return;
     }
     setState(() => _testingModels.add(model));
@@ -136,7 +278,9 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
       final client = OpenAiCompatibleClient(dio: Dio());
       await client.chat(
         config: config,
-        messages: [{'role': 'user', 'content': 'ping'}],
+        messages: [
+          {'role': 'user', 'content': 'ping'},
+        ],
         phase: 'model_test',
         cancelToken: _modelTestCancelToken,
       );
@@ -392,8 +536,10 @@ class _AddProviderScreenState extends ConsumerState<AddProviderScreen> {
                         controller: _modelInputController,
                         strings: s,
                         onAdd: _addModel,
+                        onFetchModels: _fetchModels,
                         onRemove: _removeModel,
                         onTest: _testModel,
+                        fetchingModels: _fetchingModels,
                         testingModels: _testingModels,
                       ),
                     ],
@@ -524,8 +670,10 @@ class _ModelListEditor extends FormField<List<String>> {
     required TextEditingController controller,
     required AppStrings strings,
     required VoidCallback onAdd,
+    required VoidCallback onFetchModels,
     required ValueChanged<String> onRemove,
     required ValueChanged<String> onTest,
+    required bool fetchingModels,
     required Set<String> testingModels,
   }) : super(
          initialValue: models,
@@ -567,18 +715,21 @@ class _ModelListEditor extends FormField<List<String>> {
                              minimumSize: const Size(36, 36),
                              maximumSize: const Size(36, 36),
                              padding: EdgeInsets.zero,
-                             backgroundColor: hasText
-                                 ? cs.primary
-                                 : null,
-                             foregroundColor: hasText
-                                 ? cs.onPrimary
-                                 : null,
+                             backgroundColor: hasText ? cs.primary : null,
+                             foregroundColor: hasText ? cs.onPrimary : null,
                            ),
                          );
                        },
                      ),
                    ),
                  ),
+               ),
+               const SizedBox(height: 12),
+               MeowSecondaryButton(
+                 label: fetchingModels ? s.fetchingModels : s.fetchModels,
+                 icon: Icons.cloud_download_rounded,
+                 loading: fetchingModels,
+                 onPressed: fetchingModels ? null : onFetchModels,
                ),
                const SizedBox(height: 12),
                Wrap(
