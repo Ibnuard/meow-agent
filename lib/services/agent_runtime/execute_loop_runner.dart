@@ -152,10 +152,21 @@ class ExecuteLoopRunner {
       // If successful, synthesize a selection map that the rest of the loop
       // can process identically. Falls back to JSON on null.
       Map<String, dynamic>? selection;
+      var selectionEmitted = false;
       if (i == 0 && initialSelection != null) {
         selection = initialSelection;
         logger.logLlmDecision('selectTool.thin', selection);
         emit(logger.events.last);
+        selectionEmitted = true;
+      }
+      selection ??= _selectionFromCurrentSubgoal(
+        goalTree.nextActionable,
+        previousResults,
+      );
+      if (selection != null && !selectionEmitted) {
+        logger.logLlmDecision('selectTool.thin', selection);
+        emit(logger.events.last);
+        selectionEmitted = true;
       }
       if (selection == null &&
           fastPath &&
@@ -187,6 +198,7 @@ class ExecuteLoopRunner {
           };
           logger.logLlmDecision('selectTool', selection);
           emit(logger.events.last);
+          selectionEmitted = true;
         } else {
           logger.logDivergence('fc_fallback_to_json', {'step': currentStep});
         }
@@ -210,7 +222,9 @@ class ExecuteLoopRunner {
         agentId: request.agentId,
         stableContext: stableContext,
       );
-      emit(logger.events.last);
+      if (!selectionEmitted) {
+        emit(logger.events.last);
+      }
 
       if (selection == null) {
         if (nullSelectionRecoveryCount >= 1) {
@@ -1269,6 +1283,45 @@ class ExecuteLoopRunner {
           );
         }
 
+        // Retrieval subgoals that explicitly point at the executed tool are
+        // self-verifying: the tool result is the evidence. Do not ask an LLM
+        // reviewer to restate "continue"; mark the subgoal done and advance.
+        final deterministicRetrievalActive = goalTree.nextActionable;
+        if (result.success &&
+            deterministicRetrievalActive != null &&
+            _canCompleteRetrievalSubgoal(
+              deterministicRetrievalActive,
+              toolRequest.name,
+            )) {
+          deterministicRetrievalActive.status = SubgoalStatus.done;
+          deterministicRetrievalActive.resultRef =
+              '${toolRequest.name}:$currentStep';
+          deterministicRetrievalActive.notes ??= 'retrieval_completed';
+          _emitTaskLedger(emit, request, goalTree);
+
+          previousResults.add({
+            'step': currentStep,
+            'tool': toolRequest.name,
+            'result': _shrinkResult(result.data, toolName: toolRequest.name),
+          });
+
+          if (goalTree.isNotEmpty && !goalTree.isComplete) {
+            currentStep++;
+            retryCount = 0;
+            continue;
+          }
+
+          return await _finishFromResults(
+            request: request,
+            previousResults: previousResults,
+            goalTree: goalTree,
+            verbalizer: verbalizer,
+            detectedLang: detectedLang,
+            logger: logger,
+            emit: emit,
+          );
+        }
+
         // Short-circuit for last step + retrieval.
         final shortCircuitActive = goalTree.nextActionable;
         final retrievalCompletesTree =
@@ -2274,6 +2327,230 @@ class ExecuteLoopRunner {
     if (_isPrecursorTool(toolName)) return false;
     return _isRetrievalTool(toolName);
   }
+
+  Map<String, dynamic>? _selectionFromCurrentSubgoal(
+    Subgoal? subgoal,
+    List<Map<String, dynamic>> previousResults,
+  ) {
+    if (subgoal == null || subgoal.isTerminal) return null;
+    final toolName = (subgoal.toolHint ?? '').trim();
+    if (toolName.isEmpty) return null;
+    if (subgoal.missingSlots.isNotEmpty &&
+        !_canFillMissingSlots(toolName, subgoal.missingSlots)) {
+      return null;
+    }
+    final definition = _toolRouter.getDefinition(toolName);
+    if (definition == null || definition.hiddenFromModel) return null;
+
+    final args = _argsForHintedSubgoal(
+      subgoal: subgoal,
+      toolName: toolName,
+      previousResults: previousResults,
+    );
+    if (args == null) return null;
+
+    return {
+      'status': 'tool_required',
+      'tool': {
+        'name': toolName,
+        'args': args,
+        'risk': definition.risk,
+        'requires_confirmation': definition.requiresConfirmation,
+      },
+      'narrative': '',
+    };
+  }
+
+  bool _canFillMissingSlots(String toolName, List<String> missingSlots) {
+    if (toolName != 'chat.send' && toolName != 'system.rtb') return false;
+    return missingSlots.every((slot) {
+      final normalized = slot.trim().toLowerCase();
+      return normalized == 'content' ||
+          normalized == 'message' ||
+          normalized == 'body';
+    });
+  }
+
+  Map<String, dynamic>? _argsForHintedSubgoal({
+    required Subgoal subgoal,
+    required String toolName,
+    required List<Map<String, dynamic>> previousResults,
+  }) {
+    final args = <String, dynamic>{};
+    subgoal.requiredSlots.forEach((key, value) {
+      if (_isInternalSlotKey(key)) return;
+      if (value == null) return;
+      final text = value.toString().trim();
+      if (text.isEmpty || _isPlaceholderSlotValue(text)) return;
+      args[key] = value;
+    });
+
+    if (toolName == 'chat.send') {
+      final content = args['content']?.toString().trim();
+      if (content == null || content.isEmpty) {
+        final composed = _composeContentFromResults(previousResults);
+        if (composed == null || composed.trim().isEmpty) return null;
+        args['content'] = composed;
+      }
+    } else if (toolName == 'system.rtb') {
+      final message = args['message']?.toString().trim();
+      if (message == null || message.isEmpty) {
+        final composed = _composeContentFromResults(previousResults);
+        if (composed != null && composed.trim().isNotEmpty) {
+          args['message'] = composed;
+        }
+      }
+    }
+
+    return args;
+  }
+
+  bool _isInternalSlotKey(String key) {
+    final k = key.trim().toLowerCase();
+    return k.startsWith('_') ||
+        k == 'operation' ||
+        k == 'action' ||
+        k == 'tool' ||
+        k == 'tool_name';
+  }
+
+  bool _isPlaceholderSlotValue(String value) {
+    final v = value.trim().toLowerCase();
+    return v == 'combined_markdown' ||
+        v == 'combined_result' ||
+        v == 'combined_results' ||
+        v == 'from_previous_results' ||
+        v == 'previous_results' ||
+        v == 'result_to_chat' ||
+        RegExp(
+          r'\b(tree|file|list|content|message|result|output|data|summary)\s+(output|result|content|message|data)?\s*(from|of)\s+sg[\w-]+\b',
+        ).hasMatch(v) ||
+        RegExp(r'\bsg\d+\b').hasMatch(v) && v.contains('output');
+  }
+
+  bool _canCompleteRetrievalSubgoal(Subgoal subgoal, String toolName) {
+    if (!_isRetrievalTool(toolName) || _isPrecursorTool(toolName)) return false;
+    final hintedTool = (subgoal.toolHint ?? '').trim().toLowerCase();
+    if (hintedTool.isNotEmpty && hintedTool == toolName.toLowerCase()) {
+      return true;
+    }
+    return _retrievalCanCompleteSubgoal(subgoal, toolName);
+  }
+
+  String? _composeContentFromResults(
+    List<Map<String, dynamic>> previousResults,
+  ) {
+    final sections = <String>[];
+    for (final entry in previousResults) {
+      final tool = (entry['tool'] ?? '').toString();
+      final result = entry['result'];
+      if (result is! Map) continue;
+      final section = _composeResultSection(tool, result);
+      if (section != null && section.trim().isNotEmpty) {
+        sections.add(section.trim());
+      }
+    }
+    if (sections.isEmpty) return null;
+    return sections.join('\n\n');
+  }
+
+  String? _composeResultSection(String toolName, Map result) {
+    if (toolName == 'system.workspace.schema') {
+      return _composeWorkspaceSchema(result);
+    }
+    if (toolName == 'files.list') {
+      return _composeFileList(result);
+    }
+    if (toolName == 'files.tree') {
+      return _composeFileTree(result);
+    }
+    final content = _extractPrimaryTextResult(result);
+    if (content != null && content.trim().isNotEmpty) return content.trim();
+    return null;
+  }
+
+  String? _composeWorkspaceSchema(Map result) {
+    final architecture = result['architecture'];
+    if (architecture is! Map || architecture.isEmpty) return null;
+    final heading = _runtimePhrase('runtime_workspace_schema_heading');
+    final lines = <String>['**$heading**'];
+    for (final entry in architecture.entries) {
+      final label = entry.key.toString().trim();
+      final value = entry.value.toString().trim();
+      if (label.isEmpty || value.isEmpty) continue;
+      lines.add('- **$label:** $value');
+    }
+    return lines.length == 1 ? null : lines.join('\n');
+  }
+
+  String? _composeFileList(Map result) {
+    final entries = result['entries'];
+    if (entries is! List) return null;
+    final heading = _runtimePhrase('runtime_file_list_heading');
+    final nameHeading = _runtimePhrase('runtime_file_name');
+    final typeHeading = _runtimePhrase('runtime_file_kind');
+    final sizeHeading = _runtimePhrase('runtime_file_size');
+    final modifiedHeading = _runtimePhrase('runtime_file_modified');
+    final rows = <String>[
+      '**$heading**',
+      '',
+      '| $nameHeading | $typeHeading | $sizeHeading | $modifiedHeading |',
+      '|---|---:|---:|---|',
+    ];
+    for (final raw in entries.take(30)) {
+      if (raw is! Map) continue;
+      final name = _escapeMarkdownTableCell((raw['name'] ?? '').toString());
+      if (name.isEmpty) continue;
+      final typeRaw = (raw['type'] ?? '').toString();
+      final type = typeRaw == 'directory'
+          ? _runtimePhrase('runtime_directory_type')
+          : _runtimePhrase('runtime_file_type_file');
+      final size = (raw['size'] ?? '').toString();
+      final modified = _escapeMarkdownTableCell(
+        (raw['modified'] ?? '').toString(),
+      );
+      rows.add('| $name | $type | $size | $modified |');
+    }
+    final count = result['count'];
+    if (count is int && count > 30) {
+      rows.add('| ... | ... | ... | ... |');
+    }
+    return rows.length <= 4 ? null : rows.join('\n');
+  }
+
+  String? _composeFileTree(Map result) {
+    final tree = (result['tree'] ?? '').toString().trim();
+    if (tree.isEmpty) return null;
+    final heading = _runtimePhrase('runtime_file_tree_heading');
+    final note = (result['note'] ?? '').toString().trim();
+    return [
+      '**$heading**',
+      if (note.isNotEmpty) note,
+      '```text',
+      tree,
+      '```',
+    ].join('\n');
+  }
+
+  String? _extractPrimaryTextResult(Map result) {
+    for (final key in const [
+      'delivered_content',
+      'content',
+      'summary',
+      'text',
+      'message',
+      'answer',
+      'result',
+      'output',
+    ]) {
+      final value = result[key];
+      if (value is String && value.trim().isNotEmpty) return value.trim();
+    }
+    return null;
+  }
+
+  String _escapeMarkdownTableCell(String value) =>
+      value.replaceAll('|', r'\|').replaceAll('\n', ' ').trim();
 
   bool _isDeterministicProfileWrite(
     ToolCallRequest tool,

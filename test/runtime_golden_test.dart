@@ -355,6 +355,148 @@ void main() {
     },
   );
 
+  test('S0f workspace schema plus file list runs as thin tool-hint chain', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"workspace.inspect_and_share",'
+            '"goal":"send workspace schema and file list to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files","meow.chat"],'
+            '"tool_groups":["system","files","chat"],"missing_info":[],'
+            '"subgoal_seeds":["schema","files","send"],'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"send workspace schema and file list",'
+            '"completion_criteria":["chat receives schema and file list"],'
+            '"tool_call":{"name":"system.workspace.schema","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Retrieve workspace schema","required_slots":{"_operation":"read"},"missing_slots":[],"status":"pending","toolHint":"system.workspace.schema"},'
+            '{"id":"sg2","label":"List workspace files","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.list"},'
+            '{"id":"sg3","label":"Send combined result to chat","required_slots":{"_operation":"send","content":"combined_markdown"},"missing_slots":["content"],"status":"pending","toolHint":"chat.send"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const delivered = '**Skema Workspace**\n\n**Daftar File & Folder**';
+    final router = ScriptedToolRouter(
+      results: {
+        'system.workspace.schema': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.workspace.schema',
+          data: {
+            'architecture': {
+              'identity': 'Identity lives in SQLite.',
+              'memory': 'Memory lives in SQLite.',
+              'workspace': 'Workspace folder is for user files.',
+            },
+          },
+        ),
+        'files.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.list',
+          data: {
+            'path': '/',
+            'count': 2,
+            'entries': [
+              {
+                'name': 'notes',
+                'type': 'directory',
+                'size': 128,
+                'modified': '2026-07-02T14:00:00',
+              },
+              {
+                'name': 'README.md',
+                'type': 'file',
+                'size': 64,
+                'modified': '2026-07-02T14:01:00',
+              },
+            ],
+          },
+        ),
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 82,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, [
+      'system.workspace.schema',
+      'files.list',
+      'chat.send',
+    ]);
+    final sent = router.dispatchLog.last.args['content'].toString();
+    expect(sent, contains('Skema Workspace'));
+    expect(sent, contains('Daftar File'));
+    expect(sent, contains('README.md'));
+  });
+
+  test('S0g tree placeholder is composed from files.tree result', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"list_workspace_tree","goal":"send workspace tree to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.files"],"tool_groups":["files","chat"],'
+            '"missing_info":[],"subgoal_seeds":["tree","send"],'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"send workspace tree",'
+            '"completion_criteria":["workspace tree sent to chat"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Baca struktur folder workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"Kirim daftar file ke chat","required_slots":{"_operation":"send","content":"tree output from sg1"},"missing_slots":["content"],"status":"pending","toolHint":"chat.send"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const tree = '.\n├── notes/\n└── README.md';
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.tree',
+          data: {'tree': tree, 'root': '.'},
+        ),
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {'agentId': 'a1', 'messageId': 90, 'delivered_content': tree},
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['files.tree', 'chat.send']);
+    final sent = router.dispatchLog.last.args['content'].toString();
+    expect(sent, isNot(contains('tree output from sg1')));
+    expect(sent, contains('Struktur Workspace'));
+    expect(sent, contains('README.md'));
+  });
+
   // ── Scenario 1: simple read ────────────────────────────────────────────
   // BASELINE phases: [analyze, reflect, selectTool, review,
   //                   verbalize.answer_from_tool_result] = 5 calls.

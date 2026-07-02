@@ -2043,6 +2043,7 @@ class AgentRuntimeEngine {
             status: subgoal.status,
             resultRef: subgoal.resultRef,
             notes: subgoal.notes,
+            toolHint: subgoal.toolHint,
           ),
       ],
     );
