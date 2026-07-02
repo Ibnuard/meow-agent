@@ -88,6 +88,16 @@ void main() {
     expect(soul, isNotNull);
     expect(soul!.userName, 'Budi');
     expect(soul.userNickname, '[Optional Nickname]');
+
+    final aliasResult = await tools.executeProfileUpdate({
+      'field': 'user_nickname',
+      'value': 'Di',
+    });
+
+    expect(aliasResult.success, true);
+    expect(aliasResult.data?['field'], 'nickname');
+    final updatedSoul = await repo.get('current');
+    expect(updatedSoul!.userNickname, 'Di');
   });
 
   test('router registers core system tools', () {

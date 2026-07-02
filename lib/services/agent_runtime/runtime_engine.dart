@@ -2138,6 +2138,11 @@ class AgentRuntimeEngine {
       return activeLedgerToolNames;
     }
 
+    final keywordToolNames = _keywordToolNamesFor(request.userMessage);
+    if (keywordToolNames.isNotEmpty && keywordToolNames.length < full.length) {
+      return keywordToolNames;
+    }
+
     final text = request.userMessage.trim();
     final isShortFollowUpShape =
         text.isNotEmpty &&
@@ -2164,6 +2169,52 @@ class AgentRuntimeEngine {
     // previous result. Keeping chat.send visible avoids a second broad pass.
     narrowed.addAll(ToolCatalog.groups['chat'] ?? const <String>{});
     return narrowed.isEmpty ? full : narrowed;
+  }
+
+  Set<String> _keywordToolNamesFor(String message) {
+    final tokens = _semanticTokens(message).where((t) => t.length >= 4).toSet();
+    if (tokens.isEmpty) return const {};
+
+    final directMatches = <String>{};
+    for (final name in toolRouter.registeredTools) {
+      final def = toolRouter.getDefinition(name);
+      if (def == null || def.hiddenFromModel) continue;
+      final nameParts = name
+          .toLowerCase()
+          .split(RegExp(r'[^a-z0-9]+'))
+          .where((part) => part.length >= 3)
+          .toSet();
+      final description = def.description.toLowerCase();
+      var score = 0;
+      for (final token in tokens) {
+        if (nameParts.any(
+          (part) =>
+              part == token ||
+              part.contains(token) ||
+              (part.length >= 4 && token.contains(part)),
+        )) {
+          score += 3;
+        } else if (description.contains(token)) {
+          score += 1;
+        }
+      }
+      if (score >= 3) directMatches.add(name);
+    }
+    if (directMatches.isEmpty) return const {};
+
+    final expanded = <String>{...directMatches};
+    for (final entry in toolRouter.catalogGroups.entries) {
+      if (entry.value.any(directMatches.contains)) {
+        expanded.addAll(entry.value);
+      }
+    }
+    // A lexical hit on a very common word can still be too broad. Keep the
+    // surface only when it materially narrows the catalog.
+    final fullSize = toolRouter.registeredTools.length;
+    if (expanded.length >= fullSize || expanded.length > (fullSize * 0.6)) {
+      return const {};
+    }
+    return expanded;
   }
 
   Map<String, dynamic>? _initialSelectionFromClassify({

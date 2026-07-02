@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../data/module_repository.dart';
 import 'user_db_repository.dart';
@@ -5,8 +7,8 @@ import 'user_db_repository.dart';
 /// Executes user-database-related tool calls.
 class DbTools {
   DbTools({UserDbRepository? repository, ModuleRepository? moduleRepository})
-      : _repo = repository ?? UserDbRepository(),
-        _moduleRepository = moduleRepository ?? ModuleRepository();
+    : _repo = repository ?? UserDbRepository(),
+      _moduleRepository = moduleRepository ?? ModuleRepository();
 
   final UserDbRepository _repo;
   final ModuleRepository _moduleRepository;
@@ -19,7 +21,9 @@ class DbTools {
     return dbMod.settings[settingKey] ?? true;
   }
 
-  Future<ToolExecutionResult> executeListTables(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> executeListTables(
+    Map<String, dynamic> args,
+  ) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -43,7 +47,9 @@ class DbTools {
     }
   }
 
-  Future<ToolExecutionResult> executeDescribeTable(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> executeDescribeTable(
+    Map<String, dynamic> args,
+  ) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -82,7 +88,9 @@ class DbTools {
     }
   }
 
-  Future<ToolExecutionResult> executeCreateTable(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> executeCreateTable(
+    Map<String, dynamic> args,
+  ) async {
     if (!await _isAllowed('allow_create_table')) {
       return const ToolExecutionResult(
         success: false,
@@ -129,11 +137,23 @@ class DbTools {
           error: res.error ?? 'Failed to create table.',
         );
       }
+      final persisted = await _repo.describeTable(tableName);
+      final expectedColumns = columns.map((column) => column.name).toSet();
+      final actualColumns =
+          persisted?.columns.map((column) => column.name).toSet() ?? const {};
+      final verifiedColumns = expectedColumns.every(actualColumns.contains)
+          ? expectedColumns.length
+          : 0;
 
       return ToolExecutionResult(
         success: true,
         toolName: 'db.create_table',
-        data: {'created': true, 'table': tableName},
+        data: {
+          'created': true,
+          'table': persisted?.name ?? tableName,
+          'persisted': persisted != null,
+          'verifiedColumns': verifiedColumns,
+        },
         actions: const [
           ResultAction(
             label: 'Open Database Manager',
@@ -152,7 +172,9 @@ class DbTools {
     }
   }
 
-  Future<ToolExecutionResult> executeDropTable(Map<String, dynamic> args) async {
+  Future<ToolExecutionResult> executeDropTable(
+    Map<String, dynamic> args,
+  ) async {
     if (!await _isAllowed('allow_drop_table')) {
       return const ToolExecutionResult(
         success: false,
@@ -177,10 +199,15 @@ class DbTools {
           error: res.error ?? 'Failed to drop table.',
         );
       }
+      final persisted = await _repo.describeTable(tableName);
       return ToolExecutionResult(
         success: true,
         toolName: 'db.drop_table',
-        data: {'dropped': true, 'table': tableName},
+        data: {
+          'dropped': true,
+          'table': tableName,
+          'absent': persisted == null,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -225,10 +252,19 @@ class DbTools {
           error: res.error ?? 'Failed to insert row.',
         );
       }
+      final persisted = await _repo.rowById(tableName, res.id!);
+      final allFieldsMatch =
+          persisted.row != null && _storedDataMatches(persisted.row!, data);
       return ToolExecutionResult(
         success: true,
         toolName: 'db.insert',
-        data: {'inserted': true, 'id': res.id},
+        data: {
+          'inserted': true,
+          'id': res.id,
+          'table': tableName,
+          'persisted': allFieldsMatch,
+          'verifiedFields': allFieldsMatch ? data.length : 0,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -316,6 +352,11 @@ class DbTools {
         );
       }
 
+      final targetIds = await _repo.rowIdsMatching(
+        tableName,
+        whereClause: whereClause,
+        whereArgs: whereArgs,
+      );
       final res = await _repo.update(
         tableName,
         data,
@@ -329,10 +370,25 @@ class DbTools {
           error: res.error,
         );
       }
+      var verifiedRows = 0;
+      final ids = targetIds.ids ?? const <String>[];
+      if (res.updated > 0 && ids.isNotEmpty) {
+        for (final id in ids) {
+          final persisted = await _repo.rowById(tableName, id);
+          if (persisted.row != null &&
+              _storedDataMatches(persisted.row!, data)) {
+            verifiedRows++;
+          }
+        }
+      }
       return ToolExecutionResult(
         success: true,
         toolName: 'db.update',
-        data: {'updated': res.updated},
+        data: {
+          'updated': res.updated,
+          'table': tableName,
+          'verifiedRows': verifiedRows == res.updated ? verifiedRows : 0,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -371,6 +427,11 @@ class DbTools {
         );
       }
 
+      final targetIds = await _repo.rowIdsMatching(
+        tableName,
+        whereClause: whereClause,
+        whereArgs: whereArgs,
+      );
       final res = await _repo.delete(
         tableName,
         whereClause: whereClause,
@@ -383,10 +444,24 @@ class DbTools {
           error: res.error,
         );
       }
+      var verifiedDeleted = 0;
+      final ids = targetIds.ids ?? const <String>[];
+      if (res.deleted > 0 && ids.isNotEmpty) {
+        for (final id in ids) {
+          final persisted = await _repo.rowById(tableName, id);
+          if (persisted.row == null) verifiedDeleted++;
+        }
+      }
       return ToolExecutionResult(
         success: true,
         toolName: 'db.delete',
-        data: {'deleted': res.deleted},
+        data: {
+          'deleted': res.deleted,
+          'table': tableName,
+          'verifiedDeleted': verifiedDeleted == res.deleted
+              ? verifiedDeleted
+              : 0,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -395,5 +470,31 @@ class DbTools {
         error: e.toString(),
       );
     }
+  }
+
+  bool _storedDataMatches(
+    Map<String, dynamic> stored,
+    Map<String, dynamic> expected,
+  ) {
+    if (expected.isEmpty) return false;
+    for (final entry in expected.entries) {
+      if (!stored.containsKey(entry.key)) return false;
+      if (!_valuesMatch(_storedValue(entry.value), stored[entry.key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Object? _storedValue(Object? value) {
+    if (value is Map || value is List) return jsonEncode(value);
+    return value;
+  }
+
+  bool _valuesMatch(Object? expected, Object? actual) {
+    if (expected == actual) return true;
+    if (expected is num && actual is num) return expected == actual;
+    if (expected == null || actual == null) return false;
+    return expected.toString().trim() == actual.toString().trim();
   }
 }

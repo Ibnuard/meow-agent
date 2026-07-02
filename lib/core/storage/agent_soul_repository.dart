@@ -187,6 +187,22 @@ class AgentSoulRepository {
     'persona',
   ];
 
+  /// Convert storage-column aliases to the public tool API field key.
+  ///
+  /// The SQLite table uses `user_name` / `user_nickname`, while
+  /// `system.profile.update` exposes the shorter API keys `name` /
+  /// `nickname`. Keeping this mapping here prevents prompt/tool/schema drift.
+  static String canonicalProfileField(String field) {
+    switch (field.trim()) {
+      case 'user_name':
+        return 'name';
+      case 'user_nickname':
+        return 'nickname';
+      default:
+        return field.trim();
+    }
+  }
+
   /// Categories accepted by `system.memory.append`. Single source of truth
   /// shared between the schema-advertising tool and the validator.
   static const List<String> memoryCategories = [
@@ -288,14 +304,10 @@ class AgentSoulRepository {
   }
 
   String? _columnForField(String field) {
-    switch (field) {
+    switch (canonicalProfileField(field)) {
       case 'name':
         return 'user_name';
       case 'nickname':
-        return 'user_nickname';
-      case 'user_name':
-        return 'user_name';
-      case 'user_nickname':
         return 'user_nickname';
       case 'preferred_language':
         return 'preferred_language';

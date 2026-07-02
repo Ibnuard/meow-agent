@@ -59,18 +59,42 @@ class ScriptedLlmClient extends OpenAiCompatibleClient {
     List<String> imageDataUrls = const [],
     CancelToken? cancelToken,
   }) async {
-    callLog.add(ScriptedLlmCall(phase: phase, messages: messages));
+    final resolvedPhase = _resolvePhaseAlias(phase);
+    callLog.add(ScriptedLlmCall(phase: resolvedPhase, messages: messages));
 
-    final queue = _byPhase[phase];
+    final queue = _byPhase[resolvedPhase];
     if (queue == null || queue.isEmpty) {
       throw StateError(
         'ScriptedLlmClient: no scripted response for phase "$phase" '
-        '(call #${callLog.length}). Scripted phases: '
-        '${_byPhase.keys.toList()}. '
+        '(resolved "$resolvedPhase", call #${callLog.length}). '
+        'Scripted phases: ${_byPhase.keys.toList()}. '
         'An unexpected LLM call usually means the orchestration took a path '
         'the test did not anticipate.',
       );
     }
     return queue.removeFirst();
+  }
+
+  String _resolvePhaseAlias(String phase) {
+    switch (phase) {
+      case 'classify':
+        if ((_byPhase['chat_route']?.isNotEmpty ?? false)) {
+          return 'chat_route';
+        }
+        return phase;
+      case 'analyze':
+        if ((_byPhase['classify']?.isNotEmpty ?? false)) return 'classify';
+        if ((_byPhase['chat_route']?.isNotEmpty ?? false)) {
+          return 'chat_route';
+        }
+        return phase;
+      case 'select_tool':
+        if ((_byPhase['selectTool']?.isNotEmpty ?? false)) {
+          return 'selectTool';
+        }
+        return phase;
+      default:
+        return phase;
+    }
   }
 }

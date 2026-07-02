@@ -643,13 +643,15 @@ class WorkflowTools {
       oldWorkflow: existing,
       newWorkflow: updated,
     );
+    final persisted = await _repo.read(id);
 
     return ToolExecutionResult(
       success: true,
       toolName: 'workflow.toggle',
       data: {
         'id': id,
-        'enabled': enabled,
+        'enabled': persisted?.enabled ?? enabled,
+        'stateVerified': persisted?.enabled == enabled,
         if (scheduleWarning == null) 'scheduled': enabled,
         'scheduleWarning': ?scheduleWarning,
       },

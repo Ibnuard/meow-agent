@@ -123,7 +123,7 @@ class PostExecuteValidator {
       case 'snapshot_absent':
         return _verifySnapshot(tool, definition, probe);
       case 'tool_result_data':
-        return _verifyResultData(result, probe);
+        return _verifyResultData(tool, definition, result, probe);
       default:
         return PostExecuteVerification.skipped(
           'unknown_probe_kind:${probe.kind}',
@@ -189,6 +189,8 @@ class PostExecuteValidator {
   }
 
   PostExecuteVerification _verifyResultData(
+    ToolCallRequest tool,
+    ToolDefinition definition,
     ToolExecutionResult result,
     ToolVerificationProbe probe,
   ) {
@@ -223,12 +225,83 @@ class PostExecuteValidator {
         missing.add(key);
       }
     }
-    if (missing.isEmpty) return PostExecuteVerification.ok;
-    return PostExecuteVerification.unverified(
-      expectedEntity: missing.join(', '),
-      entityType: probe.entityType,
-      reason: 'tool_result_missing_keys:${missing.join(",")}',
-    );
+    if (missing.isNotEmpty) {
+      return PostExecuteVerification.unverified(
+        expectedEntity: missing.join(', '),
+        entityType: probe.entityType,
+        reason: 'tool_result_missing_keys:${missing.join(",")}',
+      );
+    }
+
+    final weakOutcomeKeys = probe.expectedDataKeys
+        .where((key) => !_isPositiveOutcomeValue(data[key]))
+        .toList(growable: false);
+    if (weakOutcomeKeys.isNotEmpty) {
+      return PostExecuteVerification.unverified(
+        expectedEntity: weakOutcomeKeys.join(', '),
+        entityType: probe.entityType,
+        reason: 'tool_result_non_positive:${weakOutcomeKeys.join(",")}',
+      );
+    }
+
+    final mismatch = _firstArgResultMismatch(tool, definition, data);
+    if (mismatch != null) {
+      return PostExecuteVerification.unverified(
+        expectedEntity: mismatch.key,
+        entityType: probe.entityType,
+        reason:
+            'tool_result_arg_mismatch:${mismatch.key}:expected=${mismatch.expected}:actual=${mismatch.actual}',
+      );
+    }
+
+    return PostExecuteVerification.ok;
+  }
+
+  bool _isPositiveOutcomeValue(Object? value) {
+    switch (value) {
+      case final bool b:
+        return b;
+      case final num n:
+        return n > 0;
+      case final String s:
+        return s.trim().isNotEmpty;
+      case final Iterable values:
+        return values.isNotEmpty;
+      case final Map map:
+        return map.isNotEmpty;
+      default:
+        return value != null;
+    }
+  }
+
+  _ArgResultMismatch? _firstArgResultMismatch(
+    ToolCallRequest tool,
+    ToolDefinition definition,
+    Map<String, dynamic> data,
+  ) {
+    final keys = <String>{
+      ...definition.selectorArgs,
+      ...tool.args.keys.where((key) => _isComparableArgValue(tool.args[key])),
+    };
+    for (final key in keys) {
+      if (!data.containsKey(key)) continue;
+      final expected = tool.args[key];
+      final actual = data[key];
+      if (!_valuesMatch(expected, actual)) {
+        return _ArgResultMismatch(key: key, expected: expected, actual: actual);
+      }
+    }
+    return null;
+  }
+
+  bool _isComparableArgValue(Object? value) {
+    return value == null || value is String || value is num || value is bool;
+  }
+
+  bool _valuesMatch(Object? expected, Object? actual) {
+    if (expected == actual) return true;
+    if (expected == null || actual == null) return false;
+    return expected.toString().trim() == actual.toString().trim();
   }
 
   /// Resolves the selector value used for snapshot lookup.
@@ -255,4 +328,16 @@ class PostExecuteValidator {
     }
     return '';
   }
+}
+
+class _ArgResultMismatch {
+  const _ArgResultMismatch({
+    required this.key,
+    required this.expected,
+    required this.actual,
+  });
+
+  final String key;
+  final Object? expected;
+  final Object? actual;
 }

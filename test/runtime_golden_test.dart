@@ -212,10 +212,10 @@ void main() {
         ],
         'selectTool': [
           '{"status":"tool_required","tool":{"name":"system.profile.update",'
-              '"args":{"field":"name","value":"Nunu"},"risk":"safe",'
+              '"args":{"field":"user_name","value":"Nunu"},"risk":"safe",'
               '"requires_confirmation":false},"narrative":""}',
           '{"status":"tool_required","tool":{"name":"system.profile.update",'
-              '"args":{"field":"nickname","value":"King"},"risk":"safe",'
+              '"args":{"field":"user_nickname","value":"King"},"risk":"safe",'
               '"requires_confirmation":false},"narrative":""}',
         ],
       });
@@ -464,7 +464,14 @@ void main() {
         'notes.create': const ToolExecutionResult(
           success: true,
           toolName: 'notes.create',
-          data: {'noteId': 'note_53149e6c', 'created': true},
+          data: {
+            'noteId': 'note_53149e6c',
+            'created': true,
+            'persisted': true,
+            'verifiedFields': 2,
+            'title': 'Sample Posts API Result - 02/07/2026',
+            'content': content,
+          },
         ),
       },
     );
@@ -1265,7 +1272,12 @@ void main() {
         'notes.create': const ToolExecutionResult(
           success: true,
           toolName: 'notes.create',
-          data: {'noteId': 'note_1', 'created': true},
+          data: {
+            'noteId': 'note_1',
+            'created': true,
+            'persisted': true,
+            'verifiedFields': 1,
+          },
         ),
       },
     );

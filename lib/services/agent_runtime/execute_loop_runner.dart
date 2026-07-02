@@ -1,6 +1,7 @@
 import 'action_map.dart';
 import 'dart:convert';
 
+import '../../core/storage/agent_soul_repository.dart';
 import 'completion_verifier.dart';
 import 'executor.dart';
 import 'goal_tree.dart';
@@ -2473,6 +2474,12 @@ class ExecuteLoopRunner {
     Map<String, dynamic> args,
   ) {
     switch (toolName) {
+      case 'system.profile.update':
+        final field = args['field']?.toString().trim();
+        if (field == null || field.isEmpty) return args;
+        final normalized = _normalizeProfileFieldAlias(field);
+        if (normalized == field) return args;
+        return {...args, 'field': normalized};
       case 'chat.send':
       case 'notes.create':
         final content = args['content']?.toString().trim();
@@ -2484,6 +2491,10 @@ class ExecuteLoopRunner {
         }
     }
     return args;
+  }
+
+  String _normalizeProfileFieldAlias(String field) {
+    return AgentSoulRepository.canonicalProfileField(field);
   }
 
   Map<String, dynamic>? _argsForHintedSubgoal({
@@ -2556,10 +2567,26 @@ class ExecuteLoopRunner {
     if (data == null) return false;
     for (final key in probe.expectedDataKeys) {
       final value = data[key];
-      if (value == null) return false;
-      if (value is String && value.trim().isEmpty) return false;
+      if (!_isPositiveVerificationValue(value)) return false;
     }
     return probe.expectedDataKeys.isNotEmpty;
+  }
+
+  bool _isPositiveVerificationValue(Object? value) {
+    switch (value) {
+      case final bool b:
+        return b;
+      case final num n:
+        return n > 0;
+      case final String s:
+        return s.trim().isNotEmpty;
+      case final Iterable values:
+        return values.isNotEmpty;
+      case final Map map:
+        return map.isNotEmpty;
+      default:
+        return value != null;
+    }
   }
 
   bool _canCompleteRetrievalSubgoal(Subgoal subgoal, String toolName) {
@@ -2935,6 +2962,10 @@ class ExecuteLoopRunner {
     required DetectedLanguage language,
     Map<String, dynamic>? targetGraph,
   }) async {
+    if (fallbackTool.name == 'system.profile.update') {
+      return _runtimePhrase('runtime_profile_updated');
+    }
+
     if (goalTree.isNotEmpty &&
         goalTree.subgoals
                 .where(

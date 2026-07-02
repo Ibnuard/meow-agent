@@ -127,6 +127,114 @@ class AppStrings {
       ? 'Pilih bahasa untuk tampilan aplikasi, respons Meow Agent, dan template agen baru.'
       : 'Choose language for the app UI, Meow Agent responses, and new agent templates.';
   String get llmDebugging => isId ? 'Debug LLM (Dev)' : 'LLM Debugging (Dev)';
+  String get runtimeBenchmarkTitle =>
+      isId ? 'Benchmark Runtime (Dev)' : 'Runtime Benchmark (Dev)';
+  String get runtimeBenchmarkSubtitle => isId
+      ? 'Halaman internal untuk melacak kasus akurasi runtime. Setiap kasus harus lolos lewat bukti deterministik, bukan klaim LLM.'
+      : 'Internal page for tracking runtime accuracy cases. Each case must pass through deterministic evidence, not LLM claims.';
+  String get runtimeBenchmarkGatesTitle =>
+      isId ? 'Gate Akurasi' : 'Accuracy Gates';
+  String get runtimeBenchmarkCasesTitle =>
+      isId ? 'Kasus Benchmark' : 'Benchmark Cases';
+  String runtimeBenchmarkGate(String key) => switch (key) {
+    'canonicalArgs' =>
+      isId
+          ? 'Argumen tool dinormalisasi ke kontrak kanonik sebelum dispatch.'
+          : 'Tool arguments are normalized to the canonical contract before dispatch.',
+    'postExecuteProbe' =>
+      isId
+          ? 'Setiap mutasi sukses harus punya bukti result yang positif dan cocok dengan argumen.'
+          : 'Every successful mutation must have positive result proof that matches its arguments.',
+    'doneGate' =>
+      isId
+          ? 'Status done hanya diterima setelah goal tree dan bukti tool sama-sama mendukung.'
+          : 'Done status is accepted only when the goal tree and tool evidence both support it.',
+    'toolNarrowing' =>
+      isId
+          ? 'Tool surface harus dipersempit dari intent dan skill agar model tidak memilih tool liar.'
+          : 'The tool surface must be narrowed from intent and skill so the model cannot wander.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseTitle(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId ? 'Profil: nama dan panggilan' : 'Profile: name and nickname',
+    'databaseZeroRows' =>
+      isId ? 'Database: mutasi nol baris' : 'Database: zero-row mutation',
+    'notePayloadIntegrity' =>
+      isId ? 'Catatan: integritas payload' : 'Notes: payload integrity',
+    'shortFollowUp' => isId ? 'Follow-up pendek' : 'Short follow-up',
+    'capabilityBoundary' => isId ? 'Batas kemampuan' : 'Capability boundary',
+    _ => key,
+  };
+  String runtimeBenchmarkCasePrompt(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Input: nama gw Nunu nah panggilannya King.'
+          : 'Input: my name is Nunu and my nickname is King.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Input: update baris database yang seharusnya cocok satu target.'
+          : 'Input: update a database row that should match one target.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Input: buat catatan dengan judul dan isi eksplisit.'
+          : 'Input: create a note with explicit title and body.',
+    'shortFollowUp' =>
+      isId
+          ? 'Input: update yang tadi, pakai konteks task aktif.'
+          : 'Input: update the previous one, using active task context.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Input: minta aksi yang tidak punya tool terdaftar.'
+          : 'Input: request an action with no registered tool.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseExpected(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Ekspektasi: dispatch field name=Nunu dan nickname=King; result field/value cocok.'
+          : 'Expected: dispatch field name=Nunu and nickname=King; result field/value match.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Ekspektasi: updated/deleted=0 tidak dianggap verified.'
+          : 'Expected: updated/deleted=0 is not considered verified.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Ekspektasi: noteId, created/updated/deleted, dan payload echo cocok dengan request.'
+          : 'Expected: noteId, created/updated/deleted, and echoed payload match the request.',
+    'shortFollowUp' =>
+      isId
+          ? 'Ekspektasi: task_relation tidak memutus task aktif tanpa bukti konteks baru.'
+          : 'Expected: task_relation does not drop the active task without evidence of a new context.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Ekspektasi: runtime gagal jujur tanpa bertanya detail yang tidak bisa menciptakan tool.'
+          : 'Expected: runtime fails honestly without asking for details that cannot create a tool.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseVerification(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Bukti: test system tool membaca ulang SQLite dan golden runtime memverifikasi final save.'
+          : 'Evidence: system tool test re-reads SQLite and runtime golden verifies the final save.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Bukti: post-execute validator menolak count nol dan completion gate menolak key non-positif.'
+          : 'Evidence: post-execute validator rejects zero counts and completion gate rejects non-positive keys.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Bukti: result tool mengembalikan noteId, status mutasi, dan echo payload untuk dicocokkan.'
+          : 'Evidence: tool results return noteId, mutation status, and echoed payload for comparison.',
+    'shortFollowUp' =>
+      isId
+          ? 'Bukti: tool narrowing memakai keyword intent sebelum fallback konteks follow-up pendek.'
+          : 'Evidence: tool narrowing uses intent keywords before short-follow-up context fallback.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Bukti: done gate dan reviewer butuh bukti tool, bukan klaim sukses dari model.'
+          : 'Evidence: done gate and reviewer require tool evidence, not success claims from the model.',
+    _ => key,
+  };
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';
   String get aboutBody => isId
       ? 'AI companion Android-native dengan multi-agent, app automation, workflow otomatis, notifikasi cerdas, dan modular tools.\n\nVersi 1.0.0'

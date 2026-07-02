@@ -17,7 +17,6 @@ import '../data/update_service.dart';
 import '../../chat/data/chat_notification_service.dart';
 import '../../modules/data/app_control_service.dart';
 
-
 import '../../providers/data/provider_repository.dart';
 import '../../agents/data/agent_repository.dart';
 import 'profile_import_sheet.dart';
@@ -35,7 +34,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _checkingUpdates = false;
   int _mascotTapCount = 0;
   static const int _mascotTapTarget = 10;
-
 
   void _onMascotTapped() {
     setState(() {
@@ -59,7 +57,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final cs = context.cs;
     final providersAsync = ref.watch(providerListProvider);
     final themeMode = ref.watch(themeModeProvider);
-    final isDark = themeMode == ThemeMode.dark ||
+    final isDark =
+        themeMode == ThemeMode.dark ||
         (themeMode == ThemeMode.system &&
             MediaQuery.platformBrightnessOf(context) == Brightness.dark);
     final appLanguage = ref.watch(appLanguageProvider);
@@ -128,8 +127,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  onTap: () =>
-                      _showSoundSheet(context, ref, strings),
+                  onTap: () => _showSoundSheet(context, ref, strings),
                 ),
               ],
             ),
@@ -184,6 +182,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ref.read(llmDebugModeProvider.notifier).toggle(v);
                     },
                   ),
+                  _SettingsTile(
+                    icon: Icons.science_outlined,
+                    label: strings.runtimeBenchmarkTitle,
+                    onTap: () => context.push(AppRoutes.runtimeBenchmark),
+                  ),
                 ],
                 _SettingsTile(
                   icon: Icons.system_update_rounded,
@@ -195,7 +198,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : null,
-                  onTap: _checkingUpdates ? null : () => _handleUpdateCheck(strings),
+                  onTap: _checkingUpdates
+                      ? null
+                      : () => _handleUpdateCheck(strings),
                 ),
                 _SettingsTile(
                   icon: Icons.info_outline_rounded,
@@ -205,7 +210,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     showDialog(
                       context: context,
                       builder: (dialogCtx) => AlertDialog(
-                        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+                        contentPadding: const EdgeInsets.fromLTRB(
+                          24,
+                          20,
+                          24,
+                          0,
+                        ),
                         content: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -235,9 +245,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Theme.of(dialogCtx)
-                                    .colorScheme
-                                    .onSurfaceVariant,
+                                color: Theme.of(
+                                  dialogCtx,
+                                ).colorScheme.onSurfaceVariant,
                                 height: 1.5,
                               ),
                             ),
@@ -272,7 +282,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       if (!mounted) return;
 
-      if (result.error != null && result.error!.isNotEmpty && !result.isUpdateAvailable) {
+      if (result.error != null &&
+          result.error!.isNotEmpty &&
+          !result.isUpdateAvailable) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${strings.updateFailed}: ${result.error}'),
@@ -296,7 +308,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
   }
 
-  void _showUpdateAvailableDialog(UpdateCheckResult result, AppStrings strings) {
+  void _showUpdateAvailableDialog(
+    UpdateCheckResult result,
+    AppStrings strings,
+  ) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -305,10 +320,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final cs = Theme.of(dialogCtx).colorScheme;
         final extras = dialogCtx.extras;
 
-
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 340),
             decoration: BoxDecoration(
@@ -332,13 +349,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 24,
+                      horizontal: 20,
+                    ),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF3B82F6),
-                          Color(0xFF8B5CF6),
-                        ],
+                        colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -384,7 +401,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             height: 1.5,
                           ),
                         ),
-                        if (result.releaseNotes != null && result.releaseNotes!.trim().isNotEmpty) ...[
+                        if (result.releaseNotes != null &&
+                            result.releaseNotes!.trim().isNotEmpty) ...[
                           const SizedBox(height: 16),
                           Container(
                             constraints: const BoxConstraints(maxHeight: 120),
@@ -423,7 +441,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(
-                                color: isDark ? extras.subtleBorder : const Color(0xFFD1D5DB),
+                                color: isDark
+                                    ? extras.subtleBorder
+                                    : const Color(0xFFD1D5DB),
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -445,7 +465,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             onPressed: () {
                               Navigator.pop(dialogCtx);
                               if (result.downloadUrl != null) {
-                                ref.read(appControlServiceProvider).openUrl(result.downloadUrl!);
+                                ref
+                                    .read(appControlServiceProvider)
+                                    .openUrl(result.downloadUrl!);
                               }
                             },
                             style: ElevatedButton.styleFrom(
@@ -486,10 +508,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final cs = Theme.of(dialogCtx).colorScheme;
         final extras = dialogCtx.extras;
 
-
         return Dialog(
           backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
           child: Container(
             constraints: const BoxConstraints(maxWidth: 340),
             decoration: BoxDecoration(
@@ -513,13 +537,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 24,
+                      horizontal: 20,
+                    ),
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          Color(0xFF10B981),
-                          Color(0xFF059669),
-                        ],
+                        colors: [Color(0xFF10B981), Color(0xFF059669)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -570,9 +594,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: OutlinedButton(
                         onPressed: () => Navigator.pop(dialogCtx),
                         style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 32),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 32,
+                          ),
                           side: BorderSide(
-                            color: isDark ? extras.subtleBorder : const Color(0xFFD1D5DB),
+                            color: isDark
+                                ? extras.subtleBorder
+                                : const Color(0xFFD1D5DB),
                           ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
@@ -603,7 +632,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     WidgetRef ref,
     AppLanguage current,
     AppStrings strings,
-
   ) async {
     final selected = await MeowDropdown.showSheet<AppLanguage>(
       context,
@@ -706,15 +734,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
       if (!mounted) return;
       if (result != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.profileExportSuccess)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(s.profileExportSuccess)));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.profileExportFailed)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(s.profileExportFailed)));
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -739,9 +767,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final snapshot = ProfileBackupService.decodeSnapshot(jsonStr);
       if (snapshot == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(s.profileImportInvalidFile)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(s.profileImportInvalidFile)));
         }
         return;
       }
@@ -750,9 +778,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final preview = await service.validate(snapshot);
       if (!preview.isValid) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(s.profileImportInvalidFile)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(s.profileImportInvalidFile)));
         }
         return;
       }
@@ -782,9 +810,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(s.profileImportInvalidFile)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(s.profileImportInvalidFile)));
       }
     } finally {
       if (mounted) setState(() => _importing = false);

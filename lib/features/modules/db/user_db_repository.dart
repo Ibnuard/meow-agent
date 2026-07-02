@@ -190,6 +190,62 @@ class UserDbRepository {
     }
   }
 
+  /// Reads a single row by the hidden stable `_id`.
+  Future<({Map<String, dynamic>? row, String? error})> rowById(
+    String tableName,
+    String id,
+  ) async {
+    if (!_validIdentifier(tableName)) {
+      return (row: null, error: 'Invalid table name: $tableName');
+    }
+    final db = await UserDatabase.instance.database;
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
+      return (row: null, error: 'Table not found: $tableName');
+    }
+    try {
+      final rows = await db.query(
+        resolvedName,
+        where: '_id = ?',
+        whereArgs: [id],
+        limit: 1,
+      );
+      return (row: rows.isEmpty ? null : rows.first, error: null);
+    } catch (e) {
+      return (row: null, error: e.toString());
+    }
+  }
+
+  /// Captures stable row IDs matching a predicate before a mutation.
+  Future<({List<String>? ids, String? error})> rowIdsMatching(
+    String tableName, {
+    required String whereClause,
+    required List<dynamic> whereArgs,
+  }) async {
+    if (!_validIdentifier(tableName)) {
+      return (ids: null, error: 'Invalid table name: $tableName');
+    }
+    final db = await UserDatabase.instance.database;
+    final resolvedName = await _resolveTableName(db, tableName);
+    if (resolvedName == null) {
+      return (ids: null, error: 'Table not found: $tableName');
+    }
+    try {
+      final rows = await db.query(
+        resolvedName,
+        columns: ['_id'],
+        where: whereClause,
+        whereArgs: whereArgs,
+      );
+      return (
+        ids: rows.map((row) => row['_id'].toString()).toList(),
+        error: null,
+      );
+    } catch (e) {
+      return (ids: null, error: e.toString());
+    }
+  }
+
   /// Runs a raw SELECT and returns rows as JSON-serializable maps.
   ///
   /// Only SELECT statements are allowed — any other statement type is rejected.
