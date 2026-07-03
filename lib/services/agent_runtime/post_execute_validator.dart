@@ -280,7 +280,9 @@ class PostExecuteValidator {
     Map<String, dynamic> data,
   ) {
     final keys = <String>{
-      ...definition.selectorArgs,
+      ...definition.selectorArgs.where(
+        (key) => _isComparableArgValue(tool.args[key]),
+      ),
       ...tool.args.keys.where((key) => _isComparableArgValue(tool.args[key])),
     };
     for (final key in keys) {
@@ -295,7 +297,7 @@ class PostExecuteValidator {
   }
 
   bool _isComparableArgValue(Object? value) {
-    return value == null || value is String || value is num || value is bool;
+    return value is String || value is num || value is bool;
   }
 
   bool _valuesMatch(Object? expected, Object? actual) {

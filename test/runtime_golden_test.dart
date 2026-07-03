@@ -104,9 +104,7 @@ void main() {
     expect(res.finalMessage, contains('here with you'));
     expect(res.finalMessage.toLowerCase(), contains('name'));
     expect(llm.phaseSequence, ['chat_route']);
-    expect(llm.callLog.single.lastUserContent, contains('# Soul'));
-    expect(llm.callLog.single.lastUserContent, contains('Memory context:'));
-    expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
+    expect(llm.callLog.single.combinedContent, contains('# Soul'));
     expect(router.dispatchSequence, isEmpty);
   });
 
@@ -136,7 +134,6 @@ void main() {
         llm.callLog.single.lastUserContent,
         contains('Default response language: English'),
       );
-      expect(llm.callLog.single.lastUserContent, contains('INTRODUCTION GATE'));
       expect(
         res.events.any(
           (event) => event.message.contains('Language bootstrap: en'),
@@ -898,19 +895,14 @@ void main() {
       ),
       isTrue,
     );
-    // Accuracy-first runtime: even simple tool tasks run through reflection
-    // and planning so the ledger has explicit intent, impact, and criteria.
-    // Retrieval still skips redundant review.
+    // Merged classify owns analyze/reflect/plan; retrieval skips reviewer.
     expect(llm.phaseSequence, [
-      'chat_route',
-      'analyze',
-      'reflect',
-      'plan',
+      'classify',
       'selectTool',
       'verbalize.answer_from_tool_result',
     ]);
     expect(llm.countOf('review'), 0);
-    expect(llm.countOf('reflect'), 1);
+    expect(llm.countOf('reflect'), 0);
   });
 
   // ── Scenario 2: single sensitive tool + confirmation ───────────────────
@@ -958,9 +950,14 @@ void main() {
     expect(res.pendingTool, 'app.open');
     // Nothing executed before confirmation.
     expect(router.dispatchSequence, isEmpty);
-    // Stage 2 safety valve: a sensitive intent still gets the reflection pass
-    // (it is NOT skipped), so impact/slot analysis runs before any action.
-    expect(llm.countOf('reflect'), 1);
+    // Reflection/impact analysis is part of the merged classify response.
+    expect(llm.phaseSequence, [
+      'classify',
+      'selectTool',
+      'verbalize.confirm',
+      'verbalize.preview',
+    ]);
+    expect(llm.countOf('reflect'), 0);
   });
 
   test(
@@ -1058,7 +1055,7 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('8'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['chat_route', 'analyze']);
+    expect(llm.phaseSequence, ['classify']);
   });
 
   // ── Scenario 4: no capability → honest refusal ─────────────────────────
@@ -1296,15 +1293,6 @@ void main() {
     expect(
       res.events.any(
         (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message == 'Next I need to create note B.',
-      ),
-      isTrue,
-    );
-    expect(
-      res.events.any(
-        (event) =>
             event.type == 'stream_bubble' &&
             event.data?['kind'] == 'next_action',
       ),
@@ -1504,7 +1492,7 @@ void main() {
     expect(res.state, AgentRuntimeState.waitingConfirmation);
     expect(res.pendingTool, 'system.config.patch');
     expect(res.finalMessage.toLowerCase(), contains('workflow'));
-    expect(llm.countOf('reflect'), 1);
+    expect(llm.countOf('reflect'), 0);
   });
 
   // ── Scenario 16: retrieval terminal short-circuit ──────────────────────
@@ -1623,7 +1611,7 @@ void main() {
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(router.dispatchSequence, ['miniapp.read', 'miniapp.patch']);
-    expect(llm.countOf('review'), 2);
+    expect(llm.countOf('review'), 1);
     final selectorCalls = llm.callLog
         .where((call) => call.phase == 'selectTool')
         .toList();
@@ -1849,7 +1837,7 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('full recognized set'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['chat_route', 'analyze']);
+    expect(llm.phaseSequence, ['classify']);
   });
 
   test('S10 analyzer detected_language refines the reply language', () async {

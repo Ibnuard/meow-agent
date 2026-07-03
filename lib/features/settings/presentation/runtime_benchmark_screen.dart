@@ -4,16 +4,33 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
 import '../../../app/widgets/widgets.dart';
+import '../../providers/data/provider_config.dart';
+import '../../providers/data/provider_repository.dart';
 import '../data/app_language_provider.dart';
+import '../data/runtime_benchmark_runner.dart';
 
-class RuntimeBenchmarkScreen extends ConsumerWidget {
+class RuntimeBenchmarkScreen extends ConsumerStatefulWidget {
   const RuntimeBenchmarkScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RuntimeBenchmarkScreen> createState() =>
+      _RuntimeBenchmarkScreenState();
+}
+
+class _RuntimeBenchmarkScreenState
+    extends ConsumerState<RuntimeBenchmarkScreen> {
+  final _runner = RuntimeBenchmarkRunner();
+  final Map<RuntimeBenchmarkCase, RuntimeBenchmarkResult> _results = {};
+  String? _selectedProviderId;
+  bool _running = false;
+
+  @override
+  Widget build(BuildContext context) {
     final langPref = ref.watch(appLanguageProvider);
     final s = AppStrings(resolveLanguageCode(langPref));
     final cs = context.cs;
+    final providersAsync = ref.watch(providerListProvider);
+    final summary = RuntimeBenchmarkRunner.summarize(_results);
 
     return Scaffold(
       appBar: AppBar(
@@ -24,45 +41,216 @@ class RuntimeBenchmarkScreen extends ConsumerWidget {
         ),
         title: Text(s.runtimeBenchmarkTitle),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        children: [
-          Text(
-            s.runtimeBenchmarkSubtitle,
-            style: TextStyle(
-              color: cs.onSurfaceVariant,
-              fontSize: 13,
-              height: 1.45,
+      body: providersAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, _) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              error.toString(),
+              style: TextStyle(color: cs.error, fontSize: 13),
             ),
           ),
-          const SizedBox(height: 18),
-          MeowSection(
-            title: s.runtimeBenchmarkGatesTitle,
-            padding: EdgeInsets.zero,
-            bottomSpacing: 0,
-            child: Column(
-              children: RuntimeBenchmarkGate.values
+        ),
+        data: (providers) {
+          final provider = _selectedProvider(providers);
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            children: [
+              Text(
+                s.runtimeBenchmarkSubtitle,
+                style: TextStyle(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 13,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 16),
+              _SummaryCard(
+                strings: s,
+                summary: summary,
+                provider: provider,
+                providers: providers,
+                onProviderChanged: _running
+                    ? null
+                    : (id) => setState(() => _selectedProviderId = id),
+                onRunAll: provider == null || _running
+                    ? null
+                    : () => _runAll(provider),
+              ),
+              const SizedBox(height: 18),
+              MeowSection(
+                title: s.runtimeBenchmarkGatesTitle,
+                padding: EdgeInsets.zero,
+                bottomSpacing: 0,
+                child: Column(
+                  children: RuntimeBenchmarkGate.values
+                      .map(
+                        (gate) =>
+                            _GateRow(label: s.runtimeBenchmarkGate(gate.name)),
+                      )
+                      .toList(),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                s.runtimeBenchmarkCasesTitle,
+                style: TextStyle(
+                  color: cs.onSurface,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
+              for (final testCase in RuntimeBenchmarkCase.values) ...[
+                _BenchmarkCaseCard(
+                  testCase: testCase,
+                  result:
+                      _results[testCase] ??
+                      RuntimeBenchmarkResult.idle(testCase),
+                  strings: s,
+                  running: _running,
+                  providerAvailable: provider != null,
+                  onRun: provider == null || _running
+                      ? null
+                      : () => _runOne(testCase, provider),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  ProviderConfig? _selectedProvider(List<ProviderConfig> providers) {
+    if (providers.isEmpty) return null;
+    final selectedId = _selectedProviderId;
+    if (selectedId != null) {
+      for (final provider in providers) {
+        if (provider.id == selectedId && provider.isComplete) return provider;
+      }
+    }
+    for (final provider in providers) {
+      if (provider.isComplete) return provider;
+    }
+    return providers.first;
+  }
+
+  Future<void> _runAll(ProviderConfig provider) async {
+    setState(() => _running = true);
+    for (final testCase in RuntimeBenchmarkCase.values) {
+      if (!mounted) return;
+      setState(() {
+        _results[testCase] = RuntimeBenchmarkResult.running(testCase);
+      });
+      final result = await _runner.runCase(
+        caseId: testCase,
+        provider: provider,
+      );
+      if (!mounted) return;
+      setState(() => _results[testCase] = result);
+    }
+    if (!mounted) return;
+    setState(() => _running = false);
+  }
+
+  Future<void> _runOne(
+    RuntimeBenchmarkCase testCase,
+    ProviderConfig provider,
+  ) async {
+    setState(() {
+      _running = true;
+      _results[testCase] = RuntimeBenchmarkResult.running(testCase);
+    });
+    final result = await _runner.runCase(caseId: testCase, provider: provider);
+    if (!mounted) return;
+    setState(() {
+      _results[testCase] = result;
+      _running = false;
+    });
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.strings,
+    required this.summary,
+    required this.provider,
+    required this.providers,
+    required this.onProviderChanged,
+    required this.onRunAll,
+  });
+
+  final AppStrings strings;
+  final RuntimeBenchmarkSummary summary;
+  final ProviderConfig? provider;
+  final List<ProviderConfig> providers;
+  final ValueChanged<String?>? onProviderChanged;
+  final VoidCallback? onRunAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final completeProviders = providers
+        .where((provider) => provider.isComplete)
+        .toList(growable: false);
+    return MeowCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.speed_rounded, size: 22, color: cs.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  strings.runtimeBenchmarkScoreSummary(
+                    summary.passed,
+                    summary.total,
+                    summary.score,
+                  ),
+                  style: TextStyle(
+                    color: cs.onSurface,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (completeProviders.isEmpty)
+            Text(
+              strings.runtimeBenchmarkNoProvider,
+              style: TextStyle(color: cs.error, fontSize: 13, height: 1.35),
+            )
+          else
+            MeowDropdown<String>(
+              label: strings.runtimeBenchmarkProviderLabel,
+              value: provider?.id,
+              strings: strings,
+              enabled: onProviderChanged != null,
+              options: completeProviders
                   .map(
-                    (gate) =>
-                        _GateRow(label: s.runtimeBenchmarkGate(gate.name)),
+                    (provider) => MeowDropdownOption<String>(
+                      value: provider.id,
+                      label: provider.nickname,
+                      subtitle: provider.model,
+                    ),
                   )
                   .toList(),
+              onChanged: onProviderChanged ?? (_) {},
             ),
+          const SizedBox(height: 12),
+          MeowPrimaryButton(
+            label: strings.runtimeBenchmarkRunAll,
+            icon: Icons.play_arrow_rounded,
+            loading: summary.running,
+            onPressed: onRunAll,
           ),
-          const SizedBox(height: 18),
-          Text(
-            s.runtimeBenchmarkCasesTitle,
-            style: TextStyle(
-              color: cs.onSurface,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          for (final testCase in RuntimeBenchmarkCase.values) ...[
-            _BenchmarkCaseCard(testCase: testCase, strings: s),
-            const SizedBox(height: 10),
-          ],
         ],
       ),
     );
@@ -97,14 +285,26 @@ class _GateRow extends StatelessWidget {
 }
 
 class _BenchmarkCaseCard extends StatelessWidget {
-  const _BenchmarkCaseCard({required this.testCase, required this.strings});
+  const _BenchmarkCaseCard({
+    required this.testCase,
+    required this.result,
+    required this.strings,
+    required this.running,
+    required this.providerAvailable,
+    required this.onRun,
+  });
 
   final RuntimeBenchmarkCase testCase;
+  final RuntimeBenchmarkResult result;
   final AppStrings strings;
+  final bool running;
+  final bool providerAvailable;
+  final VoidCallback? onRun;
 
   @override
   Widget build(BuildContext context) {
     final cs = context.cs;
+    final statusColor = _statusColor(context, result.status);
     return MeowCard(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -123,6 +323,11 @@ class _BenchmarkCaseCard extends StatelessWidget {
                     fontWeight: FontWeight.w800,
                   ),
                 ),
+              ),
+              const SizedBox(width: 8),
+              _StatusPill(
+                label: _statusLabel(strings, result.status),
+                color: statusColor,
               ),
             ],
           ),
@@ -159,7 +364,166 @@ class _BenchmarkCaseCard extends StatelessWidget {
               ),
             ],
           ),
+          if (result.status != RuntimeBenchmarkStatus.idle) ...[
+            const SizedBox(height: 10),
+            _ResultDetails(result: result, strings: strings),
+          ],
+          const SizedBox(height: 12),
+          MeowSecondaryButton(
+            label: strings.runtimeBenchmarkRunOne,
+            icon: Icons.play_circle_outline_rounded,
+            loading: result.status == RuntimeBenchmarkStatus.running,
+            onPressed: running || !providerAvailable ? null : onRun,
+          ),
         ],
+      ),
+    );
+  }
+
+  Color _statusColor(BuildContext context, RuntimeBenchmarkStatus status) {
+    final cs = context.cs;
+    return switch (status) {
+      RuntimeBenchmarkStatus.passed => cs.primary,
+      RuntimeBenchmarkStatus.failed => cs.error,
+      RuntimeBenchmarkStatus.error => cs.error,
+      RuntimeBenchmarkStatus.running => cs.tertiary,
+      RuntimeBenchmarkStatus.idle => cs.onSurfaceVariant,
+    };
+  }
+
+  String _statusLabel(AppStrings strings, RuntimeBenchmarkStatus status) =>
+      switch (status) {
+        RuntimeBenchmarkStatus.idle => strings.runtimeBenchmarkStatusIdle,
+        RuntimeBenchmarkStatus.running => strings.runtimeBenchmarkStatusRunning,
+        RuntimeBenchmarkStatus.passed => strings.runtimeBenchmarkStatusPassed,
+        RuntimeBenchmarkStatus.failed => strings.runtimeBenchmarkStatusFailed,
+        RuntimeBenchmarkStatus.error => strings.runtimeBenchmarkStatusError,
+      };
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 74),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+}
+
+class _ResultDetails extends StatelessWidget {
+  const _ResultDetails({required this.result, required this.strings});
+
+  final RuntimeBenchmarkResult result;
+  final AppStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    final tools = result.dispatchSequence.isEmpty
+        ? '-'
+        : result.dispatchSequence.join(' -> ');
+    final phases = result.llmPhases.isEmpty
+        ? '-'
+        : result.llmPhases.join(' -> ');
+    final state = result.state?.name ?? '-';
+    final duration = result.duration == null
+        ? ''
+        : strings.runtimeBenchmarkDurationMs(result.duration!.inMilliseconds);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: context.extras.inputFill,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.extras.inputBorder),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DetailLine(
+              label: strings.runtimeBenchmarkStateLabel,
+              value: duration.isEmpty ? state : '$state - $duration',
+            ),
+            _DetailLine(
+              label: strings.runtimeBenchmarkToolsLabel,
+              value: tools,
+            ),
+            _DetailLine(
+              label: strings.runtimeBenchmarkLlmLabel,
+              value: strings.runtimeBenchmarkLlmUsage(
+                result.llmCallCount,
+                result.inputTokens,
+                result.outputTokens,
+              ),
+            ),
+            _DetailLine(
+              label: strings.runtimeBenchmarkPhasesLabel,
+              value: phases,
+            ),
+            if (result.reason.isNotEmpty)
+              _DetailLine(
+                label: strings.runtimeBenchmarkReasonLabel,
+                value: result.reason,
+              ),
+            if (result.finalMessage.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  '${strings.runtimeBenchmarkMessageLabel}: ${result.finalMessage}',
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: cs.onSurfaceVariant,
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailLine extends StatelessWidget {
+  const _DetailLine({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        '$label: $value',
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11, height: 1.3),
       ),
     );
   }
@@ -170,12 +534,4 @@ enum RuntimeBenchmarkGate {
   postExecuteProbe,
   doneGate,
   toolNarrowing,
-}
-
-enum RuntimeBenchmarkCase {
-  profileNameNickname,
-  databaseZeroRows,
-  notePayloadIntegrity,
-  shortFollowUp,
-  capabilityBoundary,
 }

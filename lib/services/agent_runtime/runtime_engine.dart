@@ -1257,12 +1257,6 @@ class AgentRuntimeEngine {
           events: logger.events,
         );
       }
-      // Accuracy-first runtime: interactive tool tasks always pass through the
-      // planner so the ledger has explicit subgoals, slots, completion
-      // criteria, and a reviewable plan. Function-calling fast-path remains
-      // disabled from this entry point; it is only kept inside the loop runner
-      // for callers that explicitly opt into it later.
-      const isFastPath = false;
       state = AgentRuntimeState.planning;
       logger.logStateChange(state, 'Creating execution plan');
       emit(logger.events.last);
@@ -1347,6 +1341,20 @@ class AgentRuntimeEngine {
         availableTools: availableTools,
         logger: logger,
       );
+      final isFastPath = _canUseSingleToolFastPath(
+        classifyResult: classifyResult,
+        goalTree: goalTree,
+        initialSelection: initialSelection,
+        activeTaskContext: activeTaskContext,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+      );
+      if (isFastPath) {
+        logger.logStateChange(
+          AgentRuntimeState.planning,
+          'Single-tool fast lane enabled from classifier tool_call',
+        );
+        emit(logger.events.last);
+      }
       if (targetGraph != null && targetGraph.isNotEmpty) {
         plan['runtime_target_graph'] = targetGraph.toJson();
       }
@@ -2261,6 +2269,44 @@ class AgentRuntimeEngine {
       },
       'narrative': '',
     };
+  }
+
+  bool _canUseSingleToolFastPath({
+    required ClassifyResult classifyResult,
+    required GoalTree goalTree,
+    required Map<String, dynamic>? initialSelection,
+    required String activeTaskContext,
+    required bool isWorkflowAutoExecute,
+  }) {
+    if (initialSelection == null) return false;
+    if (isWorkflowAutoExecute) return false;
+    if (activeTaskContext.isNotEmpty) return false;
+    if (classifyResult.degraded) return false;
+    if (classifyResult.requiredCapabilities.isNotEmpty) return false;
+
+    final missingInfo = classifyResult.analysis['missing_info'];
+    if (missingInfo is List && missingInfo.isNotEmpty) return false;
+
+    final impacts = classifyResult.raw['impacts'];
+    if (impacts is List && impacts.isNotEmpty) return false;
+
+    final subgoals = goalTree.subgoals;
+    if (subgoals.length > 1) return false;
+    if (classifyResult.raw['bulk_selector'] == true) return false;
+    final requestedCount = classifyResult.raw['requested_item_count'];
+    if (requestedCount is num && requestedCount > 1) return false;
+
+    final tool = initialSelection['tool'];
+    if (tool is! Map) return false;
+    final name = (tool['name'] ?? '').toString().trim();
+    if (name.isEmpty) return false;
+    final definition = toolRouter.getDefinition(name);
+    if (definition == null || definition.hiddenFromModel) return false;
+    if (definition.requiresConfirmation) return false;
+    if (definition.risk == 'sensitive' || definition.risk == 'dangerous') {
+      return false;
+    }
+    return true;
   }
 
   Set<String> _toolNamesFromDescriptions(List<String> descriptions) {

@@ -130,12 +130,42 @@ class AppStrings {
   String get runtimeBenchmarkTitle =>
       isId ? 'Benchmark Runtime (Dev)' : 'Runtime Benchmark (Dev)';
   String get runtimeBenchmarkSubtitle => isId
-      ? 'Halaman internal untuk melacak kasus akurasi runtime. Setiap kasus harus lolos lewat bukti deterministik, bukan klaim LLM.'
-      : 'Internal page for tracking runtime accuracy cases. Each case must pass through deterministic evidence, not LLM claims.';
+      ? 'Jalankan real LLM call terhadap runtime engine dengan tool result ter-script. Skor menunjukkan case mana yang lolos dan gagal.'
+      : 'Run real LLM calls against the runtime engine with scripted tool results. The score shows which cases pass and fail.';
   String get runtimeBenchmarkGatesTitle =>
       isId ? 'Gate Akurasi' : 'Accuracy Gates';
   String get runtimeBenchmarkCasesTitle =>
       isId ? 'Kasus Benchmark' : 'Benchmark Cases';
+  String get runtimeBenchmarkRunAll => isId ? 'Jalankan Semua' : 'Run All';
+  String get runtimeBenchmarkRunOne => isId ? 'Jalankan Case' : 'Run Case';
+  String get runtimeBenchmarkNoProvider => isId
+      ? 'Tambahkan provider LLM dulu sebelum menjalankan benchmark.'
+      : 'Add an LLM provider before running the benchmark.';
+  String get runtimeBenchmarkProviderLabel =>
+      isId ? 'Provider Benchmark' : 'Benchmark Provider';
+  String runtimeBenchmarkScoreSummary(int passed, int total, int score) => isId
+      ? '$passed/$total lolos - skor $score'
+      : '$passed/$total passed - score $score';
+  String get runtimeBenchmarkStatusIdle => isId ? 'Belum jalan' : 'Idle';
+  String get runtimeBenchmarkStatusRunning => isId ? 'Sedang jalan' : 'Running';
+  String get runtimeBenchmarkStatusPassed => isId ? 'Lolos' : 'Passed';
+  String get runtimeBenchmarkStatusFailed => isId ? 'Gagal' : 'Failed';
+  String get runtimeBenchmarkStatusError => isId ? 'Error' : 'Error';
+  String get runtimeBenchmarkStateLabel => isId ? 'State' : 'State';
+  String get runtimeBenchmarkToolsLabel => isId ? 'Tool' : 'Tools';
+  String get runtimeBenchmarkLlmLabel => isId ? 'LLM' : 'LLM';
+  String get runtimeBenchmarkPhasesLabel => isId ? 'Phase' : 'Phases';
+  String runtimeBenchmarkLlmUsage(
+    int calls,
+    int inputTokens,
+    int outputTokens,
+  ) => isId
+      ? '$calls call - in $inputTokens / out $outputTokens token'
+      : '$calls calls - in $inputTokens / out $outputTokens tokens';
+  String get runtimeBenchmarkReasonLabel => isId ? 'Catatan' : 'Note';
+  String get runtimeBenchmarkMessageLabel =>
+      isId ? 'Pesan akhir' : 'Final message';
+  String runtimeBenchmarkDurationMs(int ms) => isId ? '${ms}ms' : '${ms}ms';
   String runtimeBenchmarkGate(String key) => switch (key) {
     'canonicalArgs' =>
       isId
@@ -164,6 +194,20 @@ class AppStrings {
       isId ? 'Catatan: integritas payload' : 'Notes: payload integrity',
     'shortFollowUp' => isId ? 'Follow-up pendek' : 'Short follow-up',
     'capabilityBoundary' => isId ? 'Batas kemampuan' : 'Capability boundary',
+    'simpleBattery' => isId ? 'Baca baterai' : 'Battery read',
+    'createNote' => isId ? 'Buat catatan' : 'Create note',
+    'noCapabilitySms' =>
+      isId ? 'Batas kemampuan SMS' : 'SMS capability boundary',
+    'ambiguousTimer' =>
+      isId ? 'Timer ambigu tanpa tool' : 'Ambiguous timer without tool',
+    'multiNote' => isId ? 'Multi catatan' : 'Multiple notes',
+    'indonesianBattery' =>
+      isId ? 'Baca baterai Indonesia' : 'Indonesian battery read',
+    'listAgents' => isId ? 'Daftar agen' : 'List agents',
+    'emptySearch' => isId ? 'Pencarian kosong jujur' : 'Honest empty search',
+    'failedNote' => isId ? 'Tool catatan gagal' : 'Failed note tool',
+    'directResponse' =>
+      isId ? 'Jawaban langsung tanpa tool' : 'Direct response without tool',
     _ => key,
   };
   String runtimeBenchmarkCasePrompt(String key) => switch (key) {
@@ -187,6 +231,44 @@ class AppStrings {
       isId
           ? 'Input: minta aksi yang tidak punya tool terdaftar.'
           : 'Input: request an action with no registered tool.',
+    'simpleBattery' =>
+      isId ? 'Input: berapa sisa baterai?' : 'Input: how much battery is left?',
+    'createNote' =>
+      isId
+          ? 'Input: buat catatan Shopping List berisi milk and eggs.'
+          : 'Input: create a Shopping List note with milk and eggs.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Input: kirim SMS, sementara tidak ada tool SMS.'
+          : 'Input: send an SMS while no SMS tool exists.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Input: set timer tanpa detail dan tanpa tool timer.'
+          : 'Input: set timer with no details and no timer tool.',
+    'multiNote' =>
+      isId
+          ? 'Input: buat tiga catatan dari satu instruksi.'
+          : 'Input: create three notes from one instruction.',
+    'indonesianBattery' =>
+      isId
+          ? 'Input: berapa baterai aku sekarang?'
+          : 'Input: Indonesian battery question.',
+    'listAgents' =>
+      isId
+          ? 'Input: tanya daftar agen yang terpasang.'
+          : 'Input: ask which agents are installed.',
+    'emptySearch' =>
+      isId
+          ? 'Input: cari catatan yang hasilnya kosong.'
+          : 'Input: search notes with an empty result.',
+    'failedNote' =>
+      isId
+          ? 'Input: buat catatan, tetapi tool gagal.'
+          : 'Input: create a note, but the tool fails.',
+    'directResponse' =>
+      isId
+          ? 'Input: pertanyaan identitas yang tidak butuh tool.'
+          : 'Input: identity question that needs no tool.',
     _ => key,
   };
   String runtimeBenchmarkCaseExpected(String key) => switch (key) {
@@ -210,6 +292,46 @@ class AppStrings {
       isId
           ? 'Ekspektasi: runtime gagal jujur tanpa bertanya detail yang tidak bisa menciptakan tool.'
           : 'Expected: runtime fails honestly without asking for details that cannot create a tool.',
+    'simpleBattery' =>
+      isId
+          ? 'Ekspektasi: device.battery dipanggil dan angka hasil disebut.'
+          : 'Expected: device.battery is called and the result number is mentioned.',
+    'createNote' =>
+      isId
+          ? 'Ekspektasi: notes.create selesai dengan bukti persisted.'
+          : 'Expected: notes.create completes with persisted proof.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Ekspektasi: tidak klaim SMS terkirim dan tidak dispatch tool SMS.'
+          : 'Expected: no SMS sent claim and no SMS tool dispatch.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Ekspektasi: tidak dispatch tool untuk request yang mustahil/ambigu.'
+          : 'Expected: no tool dispatch for an impossible or ambiguous request.',
+    'multiNote' =>
+      isId
+          ? 'Ekspektasi: bertanya klarifikasi atau membuat beberapa catatan.'
+          : 'Expected: asks clarification or creates multiple notes.',
+    'indonesianBattery' =>
+      isId
+          ? 'Ekspektasi: bahasa Indonesia tetap memilih device.battery.'
+          : 'Expected: Indonesian input still selects device.battery.',
+    'listAgents' =>
+      isId
+          ? 'Ekspektasi: agent.list dipakai dan jawaban menyebut data hasil.'
+          : 'Expected: agent.list is used and the answer cites returned data.',
+    'emptySearch' =>
+      isId
+          ? 'Ekspektasi: hasil kosong diterima tanpa retry loop.'
+          : 'Expected: empty result is accepted without a retry loop.',
+    'failedNote' =>
+      isId
+          ? 'Ekspektasi: kegagalan tool tidak dinarasikan sebagai sukses.'
+          : 'Expected: tool failure is not narrated as success.',
+    'directResponse' =>
+      isId
+          ? 'Ekspektasi: dijawab langsung tanpa dispatch tool.'
+          : 'Expected: answered directly without tool dispatch.',
     _ => key,
   };
   String runtimeBenchmarkCaseVerification(String key) => switch (key) {
@@ -233,6 +355,46 @@ class AppStrings {
       isId
           ? 'Bukti: done gate dan reviewer butuh bukti tool, bukan klaim sukses dari model.'
           : 'Evidence: done gate and reviewer require tool evidence, not success claims from the model.',
+    'simpleBattery' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi device.battery dan final message memuat 72.'
+          : 'Evidence: dispatch sequence contains device.battery and final message includes 72.',
+    'createNote' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi notes.create dan state done.'
+          : 'Evidence: dispatch sequence contains notes.create and state is done.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Bukti: tidak ada tool bernama SMS dan pesan akhir tidak mengklaim terkirim.'
+          : 'Evidence: no SMS-named tool and final message does not claim sent.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Bukti: dispatch sequence kosong.'
+          : 'Evidence: dispatch sequence is empty.',
+    'multiNote' =>
+      isId
+          ? 'Bukti: state askingUser diterima, atau minimal dua notes.create saat done.'
+          : 'Evidence: askingUser is accepted, or at least two notes.create calls when done.',
+    'indonesianBattery' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi device.battery.'
+          : 'Evidence: dispatch sequence contains device.battery.',
+    'listAgents' =>
+      isId
+          ? 'Bukti: agent.list dipakai dan nama dari result muncul di jawaban.'
+          : 'Evidence: agent.list is used and returned names appear in the answer.',
+    'emptySearch' =>
+      isId
+          ? 'Bukti: notes.search hanya dipanggil satu kali.'
+          : 'Evidence: notes.search is called exactly once.',
+    'failedNote' =>
+      isId
+          ? 'Bukti: pesan akhir tidak mengandung klaim created/saved/successfully.'
+          : 'Evidence: final message contains no created/saved/successfully claim.',
+    'directResponse' =>
+      isId
+          ? 'Bukti: state done dan dispatch sequence kosong.'
+          : 'Evidence: state is done and dispatch sequence is empty.',
     _ => key,
   };
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';

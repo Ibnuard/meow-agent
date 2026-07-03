@@ -336,7 +336,7 @@ class ExecuteLoopRunner {
           continue;
         }
 
-        final finalResponse =
+        final rawFinalResponse =
             selection['final_response'] as String? ??
             _runtimePhrase('runtime_task_completed');
         if (goalTree.isNotEmpty && !goalTree.isComplete) {
@@ -456,6 +456,12 @@ class ExecuteLoopRunner {
               : previousResults.last['tool'] as String?,
         );
         if (verificationBlocker != null) return verificationBlocker;
+
+        final composedFinal = _composeContentFromResults(previousResults);
+        final finalResponse =
+            composedFinal != null && composedFinal.trim().isNotEmpty
+            ? _summarizeComposedResult(composedFinal)
+            : rawFinalResponse;
 
         if (goalTree.isNotEmpty && goalTree.isComplete) {
           _emitTaskLedger(emit, request, goalTree);
@@ -1398,6 +1404,32 @@ class ExecuteLoopRunner {
             continue;
           }
 
+          if (_canAnswerDirectlyFromLastResult(goalTree) &&
+              shouldAnswerFromToolResult(
+                toolName: toolRequest.name,
+                userMessage: request.userMessage,
+                result: result,
+              )) {
+            final finalMsg = await verbalizer.answerFromToolResult(
+              userMessage: request.userMessage,
+              tool: toolRequest,
+              result: result,
+              language: detectedLang,
+            );
+            logger.logFinalResponse(finalMsg);
+            await _taskScope.archiveLedgerForRequest(
+              request,
+              LedgerStatus.completed,
+            );
+            return AgentRuntimeResponse(
+              finalMessage: finalMsg,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+              actions: result.actions,
+            );
+          }
+
           return await _finishFromResults(
             request: request,
             previousResults: previousResults,
@@ -1479,11 +1511,12 @@ class ExecuteLoopRunner {
             emit(logger.events.last);
           }
           final localFinal =
-              shouldAnswerFromToolResult(
-                toolName: toolRequest.name,
-                userMessage: request.userMessage,
-                result: result,
-              )
+              _canAnswerDirectlyFromLastResult(goalTree) &&
+                  shouldAnswerFromToolResult(
+                    toolName: toolRequest.name,
+                    userMessage: request.userMessage,
+                    result: result,
+                  )
               ? await verbalizer.answerFromToolResult(
                   userMessage: request.userMessage,
                   tool: toolRequest,
@@ -1840,7 +1873,11 @@ class ExecuteLoopRunner {
           // reviewer keeps oscillating).
           if (result.success &&
               goalTree.isSingleAction &&
-              goalTree.completionCriteria.isNotEmpty) {
+              goalTree.completionCriteria.isNotEmpty &&
+              !_resultSatisfiesCompletionCriteria(
+                goalTree.completionCriteria,
+                result,
+              )) {
             final alreadyReminded = previousResults.any(
               (r) => (r['note'] ?? '').toString().contains(
                 'COMPLETION CRITERIA REMINDER',
@@ -1918,11 +1955,12 @@ class ExecuteLoopRunner {
           }
 
           final finalResponse =
-              shouldAnswerFromToolResult(
-                toolName: toolRequest.name,
-                userMessage: request.userMessage,
-                result: result,
-              )
+              _canAnswerDirectlyFromLastResult(goalTree) &&
+                  shouldAnswerFromToolResult(
+                    toolName: toolRequest.name,
+                    userMessage: request.userMessage,
+                    result: result,
+                  )
               ? await verbalizer.answerFromToolResult(
                   userMessage: request.userMessage,
                   tool: toolRequest,
@@ -2415,6 +2453,19 @@ class ExecuteLoopRunner {
     return _isRetrievalTool(toolName);
   }
 
+  bool _canAnswerDirectlyFromLastResult(GoalTree goalTree) {
+    if (goalTree.isEmpty) return true;
+    final terminalSubgoals = goalTree.subgoals
+        .where(
+          (s) =>
+              s.status == SubgoalStatus.done ||
+              s.status == SubgoalStatus.failed ||
+              s.status == SubgoalStatus.skipped,
+        )
+        .length;
+    return terminalSubgoals <= 1;
+  }
+
   Map<String, dynamic>? _selectionFromCurrentSubgoal(
     Subgoal? subgoal,
     List<Map<String, dynamic>> previousResults,
@@ -2422,10 +2473,6 @@ class ExecuteLoopRunner {
     if (subgoal == null || subgoal.isTerminal) return null;
     final toolName = (subgoal.toolHint ?? '').trim();
     if (toolName.isEmpty) return null;
-    if (subgoal.missingSlots.isNotEmpty &&
-        !_canFillMissingSlots(toolName, subgoal.missingSlots)) {
-      return null;
-    }
     final definition = _toolRouter.getDefinition(toolName);
     if (definition == null || definition.hiddenFromModel) return null;
 
@@ -2435,6 +2482,10 @@ class ExecuteLoopRunner {
       previousResults: previousResults,
     );
     if (args == null) return null;
+    if (subgoal.missingSlots.isNotEmpty &&
+        !_missingSlotsSatisfied(toolName, subgoal.missingSlots, args)) {
+      return null;
+    }
 
     return {
       'status': 'tool_required',
@@ -2455,6 +2506,25 @@ class ExecuteLoopRunner {
       return normalized == 'content' ||
           normalized == 'message' ||
           normalized == 'body';
+    });
+  }
+
+  bool _missingSlotsSatisfied(
+    String toolName,
+    List<String> missingSlots,
+    Map<String, dynamic> args,
+  ) {
+    if (_canFillMissingSlots(toolName, missingSlots)) return true;
+    return missingSlots.every((slot) {
+      final normalized = slot.trim().toLowerCase();
+      if (normalized.isEmpty) return true;
+      final direct = args[slot] ?? args[normalized];
+      if (direct != null && direct.toString().trim().isNotEmpty) return true;
+      if (normalized == 'api_id') {
+        final api = args['api_id'] ?? args['api'];
+        return api != null && api.toString().trim().isNotEmpty;
+      }
+      return false;
     });
   }
 
@@ -2587,6 +2657,55 @@ class ExecuteLoopRunner {
       default:
         return value != null;
     }
+  }
+
+  bool _resultSatisfiesCompletionCriteria(
+    List<String> criteria,
+    ToolExecutionResult result,
+  ) {
+    final data = result.data;
+    if (!result.success || data == null || data.isEmpty) return false;
+    if (criteria.isEmpty) return true;
+
+    final positiveEvidence = data.entries
+        .where((entry) => _isPositiveVerificationValue(entry.value))
+        .toList(growable: false);
+    if (positiveEvidence.isEmpty) return false;
+
+    return criteria.every((criterion) {
+      final normalizedCriterion = _normalizeEvidenceToken(criterion);
+      if (normalizedCriterion.isEmpty) return false;
+      return positiveEvidence.any((entry) {
+        final key = _normalizeEvidenceToken(entry.key);
+        if (key.isNotEmpty &&
+            (normalizedCriterion.contains(key) ||
+                normalizedCriterion.contains(_stemEvidenceToken(key)))) {
+          return true;
+        }
+        final value = entry.value;
+        if (value is String) {
+          final normalizedValue = _normalizeEvidenceToken(value);
+          return normalizedValue.isNotEmpty &&
+              normalizedCriterion.contains(normalizedValue);
+        }
+        return false;
+      });
+    });
+  }
+
+  String _normalizeEvidenceToken(Object? value) => (value ?? '')
+      .toString()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
+  String _stemEvidenceToken(String value) {
+    if (value.endsWith('ed') && value.length > 3) {
+      return value.substring(0, value.length - 2);
+    }
+    if (value.endsWith('d') && value.length > 2) {
+      return value.substring(0, value.length - 1);
+    }
+    return value;
   }
 
   bool _canCompleteRetrievalSubgoal(Subgoal subgoal, String toolName) {
@@ -2964,6 +3083,14 @@ class ExecuteLoopRunner {
   }) async {
     if (fallbackTool.name == 'system.profile.update') {
       return _runtimePhrase('runtime_profile_updated');
+    }
+
+    final composed = _composeResultSection(
+      fallbackTool.name,
+      fallbackResult.data ?? const <String, dynamic>{},
+    );
+    if (composed != null && composed.trim().isNotEmpty) {
+      return _summarizeComposedResult(composed);
     }
 
     if (goalTree.isNotEmpty &&
