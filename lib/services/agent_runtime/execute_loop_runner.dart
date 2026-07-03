@@ -95,7 +95,6 @@ class ExecuteLoopRunner {
     var currentStep = initialStep;
     var retryCount = 0;
     var rePlanned = false;
-    var pendingNextNarrative = (plan['next_narrative'] ?? '').toString().trim();
     final stuck = StuckDetector();
     // Soft-guard: track tools we've already hinted about so a stubborn
     // selector that re-picks the same off-path tool falls through instead of
@@ -143,14 +142,6 @@ class ExecuteLoopRunner {
       var state = AgentRuntimeState.selectingTool;
       logger.logStateChange(state, 'Selecting tool (step $currentStep)');
       emit(logger.events.last);
-      final choosingNarrative = pendingNextNarrative.isNotEmpty
-          ? pendingNextNarrative
-          : NarrativeNarrator.narrateNext('choosing', detectedLang.code);
-      pendingNextNarrative = '';
-      if (logger.logPreActionNarrative('choosing', choosingNarrative)) {
-        emit(logger.events.last);
-      }
-
       // Fast-path: try native function calling before JSON selector.
       // If successful, synthesize a selection map that the rest of the loop
       // can process identically. Falls back to JSON on null.
@@ -274,8 +265,6 @@ class ExecuteLoopRunner {
           logger,
         );
       }
-      final selectionEvidenceRef = 'runtime_event:${logger.events.last.id}';
-
       // Extract status BEFORE emitting narrative so we can gate it against
       // the actual decision (kills "Got it, doing X" + status=ask_user desync).
       final status = selection['status'] as String? ?? '';
@@ -957,25 +946,6 @@ class ExecuteLoopRunner {
           continue;
         }
 
-        // The tool is now registry-validated, permission-checked, preflighted,
-        // and cleared for execution. Only at this boundary is a specific
-        // pre-action narrative truthful.
-        final executeNarrative = selectNarrative.trim().isNotEmpty
-            ? selectNarrative
-            : NarrativeNarrator.narrateNext('executing', detectedLang.code);
-        if (logger.logStreamBubble(
-          kind: 'next_action',
-          phase: 'select_tool',
-          message: executeNarrative,
-          evidenceRefs: [selectionEvidenceRef, 'tool:${toolRequest.name}'],
-          contextPolicy: 'exclude',
-        )) {
-          emit(logger.events.last);
-        }
-        if (logger.logPreActionNarrative('executing', executeNarrative)) {
-          emit(logger.events.last);
-        }
-
         // Execute tool.
         state = AgentRuntimeState.executingTool;
         logger.logStateChange(state, 'Executing ${toolRequest.name}');
@@ -1557,12 +1527,6 @@ class ExecuteLoopRunner {
           if (goalTree.isNotEmpty && goalTree.isComplete) {
             _emitTaskLedger(emit, request, goalTree);
           }
-          if (logger.logPreActionNarrative(
-            'composing',
-            NarrativeNarrator.narrateNext('composing', detectedLang.code),
-          )) {
-            emit(logger.events.last);
-          }
           final localFinal =
               _canAnswerDirectlyFromLastResult(goalTree) &&
                   shouldAnswerFromToolResult(
@@ -1603,12 +1567,6 @@ class ExecuteLoopRunner {
         state = AgentRuntimeState.reviewing;
         logger.logStateChange(state, 'Reviewing tool result');
         emit(logger.events.last);
-        if (logger.logPreActionNarrative(
-          'reviewing',
-          NarrativeNarrator.narrateNext('reviewing', detectedLang.code),
-        )) {
-          emit(logger.events.last);
-        }
 
         final review = await executor.review(
           result: result,
@@ -1630,12 +1588,6 @@ class ExecuteLoopRunner {
 
         var reviewStatus = review?['status'] as String? ?? '';
         final reportedReviewStatus = reviewStatus;
-        final reviewNextNarrative = (review?['next_narrative'] ?? '')
-            .toString()
-            .trim();
-        if (reviewNextNarrative.isNotEmpty) {
-          pendingNextNarrative = reviewNextNarrative;
-        }
         // A failed tool can never finalize as "done" — the action did not
         // happen. Force the reviewer's hand: ask the user only when there is
         // genuine ambiguity the loop can't resolve.
@@ -1719,17 +1671,18 @@ class ExecuteLoopRunner {
                   reportedReviewStatus != 'done' &&
                   rawReviewNarrative.trim().isNotEmpty
               ? rawReviewNarrative
-              : reviewNarrative;
-          if (milestoneNarrative.isNotEmpty &&
+              : '';
+          if (!result.success &&
+              milestoneNarrative.isNotEmpty &&
               logger.logStreamBubble(
-                kind: result.success ? 'tool_insight' : 'tool_failure',
+                kind: 'tool_failure',
                 phase: 'review',
                 message: milestoneNarrative,
                 evidenceRefs: [
                   toolResultEvidenceRef,
                   'tool:${toolRequest.name}',
                 ],
-                contextPolicy: result.success ? 'include' : 'exclude',
+                contextPolicy: 'exclude',
               )) {
             emit(logger.events.last);
           }
@@ -3687,8 +3640,26 @@ class ExecuteLoopRunner {
       final providers = data['providers'];
       if (providers is List && providers.isNotEmpty) return true;
     }
+    if (_isDisabledModuleOrPermissionFailure(result)) return true;
     final error = (result.error ?? '').toLowerCase();
     return error.contains('required') || error.contains('missing');
+  }
+
+  bool _isDisabledModuleOrPermissionFailure(ToolExecutionResult result) {
+    final data = result.data;
+    if (data != null &&
+        data['errorCode'] == ToolPermissionPolicy.permissionDeniedCode) {
+      return true;
+    }
+
+    final text = '${result.error ?? ''} ${result.toolName}'.toLowerCase();
+    if (text.contains('module is disabled')) return true;
+    if (text.contains('module disabled')) return true;
+    if (text.contains('setting_disabled')) return true;
+    if (text.contains('module_disabled')) return true;
+    if (text.contains('permission denied')) return true;
+    if (text.contains('not allowed')) return true;
+    return false;
   }
 
   bool _isCapabilityBoundaryFailure(ToolExecutionResult result) {

@@ -6,6 +6,7 @@ library;
 
 import 'prompt_context.dart'
     show promptNarrativeFieldRule, promptNextNarrativeFieldRule;
+import 'prompt_policy.dart' show promptHelpfulAskUserRule;
 
 const promptClassifyIntro =
     'You are an AI agent runtime classifier running on an Android device. '
@@ -15,6 +16,12 @@ const promptClassifyRouteRules = '''UNIFIED ROUTING:
 - If this is ordinary chat (conversational, creative, explanatory, opinion-based, or general knowledge that does NOT require live app/device/system/database/file state and does NOT ask to mutate anything) → set route="chat", requires_tools=false, and write the full response in direct_response.
 - If this needs tools (inspect live/local state, use an attachment, mutate anything, control the device/apps, manage stored data, or answer from Meow Agent runtime state) → set route="agentic", requires_tools=true.
 - If unsure → route="agentic". Do not guess that a tool is unnecessary.
+
+Context priority:
+- The current user message is the authoritative source of intent.
+- Fresh structured tool/memory context is second: use it only when it directly resolves a reference in the current message.
+- Conversation history is last: use it for continuity, pronouns, answers to your previous question, and language hints, but never let it replace a clear new request.
+- If the current message is short and follows an assistant question, treat it as a possible answer/continuation before assuming there is no context.
 
 Language priority for route="chat":
 - If the current user message has a deterministic language, answer in that language.
@@ -170,7 +177,8 @@ Rules:
 - If route="agentic" and missing_info has items, requires_tools MUST be false and strategy MUST be clarify.
 - missing_info is internal metadata, not chat copy. Keep each item as a short gap label, not a sentence to show the user.
 - If requires_tools=true, strategy must be direct_execute or auto_resolve (never clarify/block just because tone is friendly).
-- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly user-facing question in the user's language.
+- If strategy=clarify, clarify_questions MUST contain exactly one short, friendly, actionable user-facing question in the user's language.
+$promptHelpfulAskUserRule
 - If strategy=block, block_reason MUST be filled.
 - impacts may be empty when nothing in the ecosystem is affected.
 - detected_language: ISO 639-1 code of the language the USER wrote in.

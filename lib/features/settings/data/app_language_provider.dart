@@ -215,6 +215,7 @@ class AppStrings {
       isId ? 'Batas kemampuan SMS' : 'SMS capability boundary',
     'ambiguousTimer' =>
       isId ? 'Timer ambigu tanpa tool' : 'Ambiguous timer without tool',
+    'initialAskUserGate' => isId ? 'Ask user dulu' : 'Ask user first',
     'multiNote' => isId ? 'Multi catatan' : 'Multiple notes',
     'indonesianBattery' =>
       isId ? 'Baca baterai Indonesia' : 'Indonesian battery read',
@@ -268,6 +269,10 @@ class AppStrings {
       isId
           ? 'Input: set timer tanpa detail dan tanpa tool timer.'
           : 'Input: set timer with no details and no timer tool.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Input: buat catatan tanpa judul atau isi.'
+          : 'Input: create a note without title or content.',
     'multiNote' =>
       isId
           ? 'Input: buat tiga catatan dari satu instruksi.'
@@ -343,6 +348,10 @@ class AppStrings {
       isId
           ? 'Ekspektasi: tidak dispatch tool untuk request yang mustahil/ambigu.'
           : 'Expected: no tool dispatch for an impossible or ambiguous request.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Ekspektasi: keputusan ask_user menghentikan loop sebelum tool dipanggil.'
+          : 'Expected: ask_user decision stops the loop before any tool call.',
     'multiNote' =>
       isId
           ? 'Ekspektasi: bertanya klarifikasi atau membuat beberapa catatan.'
@@ -418,6 +427,10 @@ class AppStrings {
       isId
           ? 'Bukti: dispatch sequence kosong.'
           : 'Evidence: dispatch sequence is empty.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Bukti: state askingUser dan dispatch sequence kosong.'
+          : 'Evidence: state is askingUser and dispatch sequence is empty.',
     'multiNote' =>
       isId
           ? 'Bukti: state askingUser diterima, atau minimal dua notes.create saat done.'

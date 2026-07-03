@@ -197,6 +197,57 @@ void main() {
     );
   });
 
+  test('S0a2 short reply after assistant question keeps recent context', () async {
+    const question =
+        'Files module belum aktif. Mau aktifkan dulu supaya aku bisa baca struktur workspace, atau lanjut cek kemampuan saja?';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"system.capabilities_and_workspace.retry",'
+            '"goal":"retry workspace/capability request with context",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files"],'
+            '"tool_groups":["system","files"],'
+            '"missing_info":["user choice"],"subgoal_seeds":[],'
+            '"task_relation":"continuation","strategy":"clarify",'
+            '"clarify_questions":[${jsonEncode(question)}],'
+            '"targets":[],"impacts":[],"main_goal":"Retry workspace/capability request",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'coba lagi',
+        recentMessages: [
+          ChatMessage(
+            role: 'user',
+            content:
+                'kemampuan kamu bisa ngapain aja dan workspace file kamu gimana?',
+          ),
+          ChatMessage(role: 'assistant', content: question),
+        ],
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.callLog.single.combinedContent, contains(question));
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'divergence' &&
+            event.data?['kind'] == 'context_light_chat_route',
+      ),
+      isFalse,
+    );
+    expect(router.dispatchSequence, isEmpty);
+  });
+
   test('S0b introduction answer persists profile through agentic route', () async {
     final llm = ScriptedLlmClient({
       'classify': [
@@ -314,6 +365,59 @@ void main() {
       });
     },
   );
+
+  test('S0b3 single profile update does not duplicate narrative bubbles', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"profile.update","goal":"update nickname to Om",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["update nickname"],'
+            '"task_relation":"none",'
+            '"narrative":"Lu mau ganti panggilan dari King jadi Om.",'
+            '"next_narrative":"Gas langsung update nickname ke Om.",'
+            '"main_goal":"update nickname to Om","completion_criteria":["nickname is Om"],'
+            '"tool_call":{"name":"system.profile.update",'
+            '"args":{"field":"nickname","value":"Om"}},'
+            '"subgoals":[{"id":"sg1","label":"update nickname",'
+            '"required_slots":{"field":"nickname","value":"Om"},'
+            '"missing_slots":[],"status":"pending"}]}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Udah, panggilan kamu sekarang Om.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"Sistem bilang nickname sudah ke-update ke Om.",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.profile.update': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'Om', 'persisted': true},
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('ganti panggilan aku jadi Om dong'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Om'));
+    expect(router.dispatchSequence, ['system.profile.update']);
+    expect(res.events.where((event) => event.type == 'stream_bubble'), isEmpty);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'narrative' && event.data?['mode'] == 'pre_action',
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'S0c compound profile answer saves name and nickname without review',
@@ -722,9 +826,53 @@ void main() {
               event.data?['kind'] == 'decision_question' &&
               event.message == question,
         ),
-        isTrue,
+        isFalse,
       );
       expect(router.dispatchSequence, isEmpty);
+    },
+  );
+
+  test(
+    'S0e2 raw missing_info is verbalized as ask_user, not stream bubble',
+    () async {
+      const question =
+          'Files module belum aktif. Mau aktifkan dulu supaya aku bisa baca struktur workspace, atau lanjut cek kemampuan saja?';
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"route":"agentic","direct_response":"",'
+              '"intent":"system.capabilities_and_workspace",'
+              '"goal":"list capabilities and workspace tree",'
+              '"requires_tools":false,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system","meow.files"],'
+              '"tool_groups":["system","files"],'
+              '"missing_info":["Files module belum aktif"],'
+              '"subgoal_seeds":[],"task_relation":"none",'
+              '"strategy":"clarify","clarify_questions":[],'
+              '"targets":[],"impacts":[],"main_goal":"List kemampuan agent dan struktur workspace",'
+              '"completion_criteria":[],"subgoals":[],"narrative":"",'
+              '"next_narrative":""}',
+        ],
+        'verbalize.fallback_question': [question],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(llm: llm, router: router).run(
+        req('kemampuan kamu bisa ngapain aja dan workspace file kamu gimana?'),
+        provider: provider(),
+      );
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.askingUser);
+      expect(res.finalMessage, question);
+      expect(router.dispatchSequence, isEmpty);
+      expect(
+        res.events.any(
+          (event) =>
+              event.type == 'stream_bubble' &&
+              event.data?['kind'] == 'decision_question',
+        ),
+        isFalse,
+      );
     },
   );
 
@@ -942,6 +1090,65 @@ void main() {
     expect(router.dispatchSequence, ['files.tree', 'files.list']);
   });
 
+  test('S0i disabled module ask_user stops before partial fallback work', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"system.capabilities_and_workspace","goal":"list capabilities and workspace tree",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files"],'
+            '"tool_groups":["system","files"],"missing_info":[],'
+            '"subgoal_seeds":["read workspace tree","list capabilities"],'
+            '"task_relation":"none","narrative":"","next_narrative":"",'
+            '"main_goal":"List kemampuan agent dan struktur workspace",'
+            '"completion_criteria":["workspace tree returned","capabilities returned"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Ambil struktur workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"Ambil list capabilities","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"system.tools.list"}'
+            ']}',
+      ],
+      'review': [
+        '{"status":"ask_user",'
+            '"question":"Files module sedang nonaktif. Mau enable dulu Files module agar aku bisa tampilkan struktur workspace, atau lanjut capability saja?",'
+            '"subgoal_update":{"id":"sg1","status":"in_progress","notes":"files.tree gagal karena module disabled"},'
+            '"narrative":"Files tree gagal karena Files module disabled.",'
+            '"next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.tools.list","args":{},'
+            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: false,
+          toolName: 'files.tree',
+          error: 'Files module is disabled or read not allowed.',
+        ),
+        'system.tools.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.tools.list',
+          data: {'count': 126, 'tools': []},
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req(
+        'kamu bisa ngapain aja dan struktur workspace files gimana?',
+        agentId: 'disabled-files-agent',
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(res.finalMessage.toLowerCase(), contains('files module'));
+    expect(router.dispatchSequence, ['files.tree']);
+    expect(llm.countOf('selectTool'), 0);
+  });
+
   // ── Scenario 1: simple read ────────────────────────────────────────────
   // BASELINE phases: [analyze, reflect, selectTool, review,
   //                   verbalize.answer_from_tool_result] = 5 calls.
@@ -1003,21 +1210,9 @@ void main() {
     expect(
       res.events.any(
         (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message ==
-                'Next I need to inspect the current battery reading.',
+            event.type == 'narrative' && event.data?['mode'] == 'pre_action',
       ),
-      isTrue,
-    );
-    expect(
-      res.events.any(
-        (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message == 'I will read the current battery state now.',
-      ),
-      isTrue,
+      isFalse,
     );
     // Merged classify owns analyze/reflect/plan; retrieval skips reviewer.
     expect(llm.phaseSequence, [
@@ -1180,6 +1375,11 @@ void main() {
     expect(res.finalMessage, contains('8'));
     expect(router.dispatchSequence, isEmpty);
     expect(llm.phaseSequence, ['classify']);
+    expect(
+      llm.callLog.single.combinedContent,
+      contains('HELPFUL ASK-USER STYLE'),
+    );
+    expect(llm.callLog.single.combinedContent, contains('examples'));
   });
 
   // ── Scenario 4: no capability → honest refusal ─────────────────────────
@@ -1457,7 +1657,7 @@ void main() {
             event.type == 'stream_bubble' &&
             event.data?['kind'] == 'next_action',
       ),
-      true,
+      false,
     );
   });
 

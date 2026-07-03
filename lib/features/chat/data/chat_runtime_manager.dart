@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/agent_runtime/i18n_fallback.dart';
 import '../../../services/agent_runtime/language_detector.dart';
-import '../../../services/agent_runtime/narrative_narrator.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/agent_runtime/task_ledger.dart';
@@ -219,8 +218,10 @@ class ChatRuntimeManager extends ChangeNotifier {
     final data = event.data ?? const <String, dynamic>{};
     final kind = data['kind']?.toString();
     if (kind == 'analysis_summary' ||
+        kind == 'plan_summary' ||
         kind == 'decision_summary' ||
-        kind == 'next_action') {
+        kind == 'next_action' ||
+        kind == 'tool_insight') {
       return;
     }
     final previous = _streamBubbleWrites[agentId] ?? Future<void>.value();
@@ -456,10 +457,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         debugMessages: [],
         clearPending: true,
         clearLiveCheckpoints: true,
-        narrativeMessage: NarrativeNarrator.narrate(
-          'understanding',
-          await _languageForUserMessage(agentId, userMessage),
-        ),
+        clearNarrative: true,
       ),
     );
 
@@ -887,10 +885,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         debugMessages: [],
         clearPending: true,
         clearLiveCheckpoints: true,
-        narrativeMessage: NarrativeNarrator.narrate(
-          'executing',
-          await _runtimeFallbackLanguage(agentId),
-        ),
+        clearNarrative: true,
       ),
     );
 
@@ -1205,16 +1200,6 @@ class ChatRuntimeManager extends ChangeNotifier {
   String? _narrativeFromEvent(RuntimeEvent event) {
     if (event.type == 'narrative') {
       return _cleanNarrativeCandidate(event.message);
-    }
-
-    if (event.type == 'stream_bubble') {
-      final kind = event.data?['kind']?.toString();
-      if (kind == 'analysis_summary' ||
-          kind == 'decision_summary' ||
-          kind == 'next_action') {
-        return _cleanNarrativeCandidate(event.message);
-      }
-      return null;
     }
 
     if (event.type != 'llm_decision') return null;

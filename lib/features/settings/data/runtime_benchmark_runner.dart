@@ -22,6 +22,7 @@ enum RuntimeBenchmarkCase {
   createNote,
   noCapabilitySms,
   ambiguousTimer,
+  initialAskUserGate,
   multiNote,
   indonesianBattery,
   listAgents,
@@ -669,6 +670,35 @@ final Map<RuntimeBenchmarkCase, _BenchmarkCaseSpec> _specs = {
         passed
             ? 'no tool dispatched'
             : 'ambiguous impossible timer used a tool',
+      );
+    },
+  ),
+  RuntimeBenchmarkCase.initialAskUserGate: _BenchmarkCaseSpec(
+    languageCode: 'id',
+    message: 'buat catatan',
+    results: const {
+      'notes.create': ToolExecutionResult(
+        success: true,
+        toolName: 'notes.create',
+        data: {
+          'noteId': 'should-not-run',
+          'title': 'Untitled',
+          'created': true,
+          'persisted': true,
+          'verifiedFields': 1,
+        },
+      ),
+    },
+    evaluate: (response, router) {
+      final passed =
+          response.state == AgentRuntimeState.askingUser &&
+          response.success &&
+          router.dispatchSequence.isEmpty;
+      return _BenchmarkVerdict(
+        passed,
+        passed
+            ? 'initial ask_user stopped before tool dispatch'
+            : 'expected ask_user before any tool dispatch',
       );
     },
   ),

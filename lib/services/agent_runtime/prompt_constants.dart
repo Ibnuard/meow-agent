@@ -110,6 +110,7 @@ $_sharedSystemRules
   // ─── Policy blocks (delegated to prompt_policy.dart) ───────────────────────
 
   static const policyAsk = promptPolicyAsk;
+  static const helpfulAskUserRule = promptHelpfulAskUserRule;
   static const policyGround = promptPolicyGround;
   static const policyMinimal = promptPolicyMinimal;
   static const policyRecover = promptPolicyRecover;
@@ -215,9 +216,8 @@ $_sharedSystemRules
   static String classifySimplifiedFallback({
     required String userMessage,
     String activeTaskContext = '',
-  }) =>
-      promptClassifySimplifiedFallback(
-        userMessage: userMessage,
-        activeTaskContext: activeTaskContext,
-      );
+  }) => promptClassifySimplifiedFallback(
+    userMessage: userMessage,
+    activeTaskContext: activeTaskContext,
+  );
 }

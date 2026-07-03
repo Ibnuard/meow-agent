@@ -6,6 +6,7 @@ import 'prompt_context.dart'
         promptNarrativeFieldRule,
         promptNextNarrativeFieldRule,
         promptToolResultTrust;
+import 'prompt_policy.dart' show promptHelpfulAskUserRule;
 
 // ─── Tool Selector ───────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ If you need more info from the user:
   "question": "what you need to know",
   "narrative": ""
 }
+$promptHelpfulAskUserRule
 
 CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - A previous result with success=false is authoritative proof that action did
@@ -197,6 +199,7 @@ If you need user input:
   "narrative": "",
   "next_narrative": ""
 }
+$promptHelpfulAskUserRule
 
 If unrecoverable:
 {

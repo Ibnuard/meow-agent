@@ -11,6 +11,7 @@ import '../../features/modules/data/module_repository.dart';
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
 import '../../features/agents/data/agent_repository.dart';
+import '../../features/chat/data/chat_history_service.dart';
 import '../../features/settings/data/app_language_provider.dart';
 import '../../features/providers/data/provider_config.dart';
 import '../../features/providers/data/provider_repository.dart';
@@ -794,8 +795,6 @@ class AgentRuntimeEngine {
       }
       // Extract analysis-level fields for downstream deterministic logic.
       var analysis = classifyResult.analysis;
-      emit(logger.events.last);
-      final analysisEvidenceRef = 'runtime_event:${logger.events.last.id}';
       final analyzeNarrative = (analysis['narrative'] ?? '').toString();
       // Gate: if missing_info is non-empty, the runtime will ask a clarifying
       // question. Override optimistic LLM narrative with deterministic phrase.
@@ -809,17 +808,6 @@ class AgentRuntimeEngine {
           'reason': 'missing_info_present',
           'missing_count': earlyMissingInfo.length,
         });
-      }
-      if (earlyMissingInfo.isEmpty && gatedAnalyzeNarrative.isNotEmpty) {
-        if (logger.logStreamBubble(
-          kind: 'analysis_summary',
-          phase: 'analyze',
-          message: gatedAnalyzeNarrative,
-          evidenceRefs: [analysisEvidenceRef],
-          contextPolicy: 'exclude',
-        )) {
-          emit(logger.events.last);
-        }
       }
       final analyzerLangCode = (analysis['detected_language'] ?? '')
           .toString()
@@ -1021,24 +1009,20 @@ class AgentRuntimeEngine {
         final userQuestions = clarifyQuestions.isNotEmpty
             ? clarifyQuestions
             : missingInfo;
-        final question = userQuestions.length == 1
-            ? userQuestions.first
-            : userQuestions.map((q) => '- $q').join('\n');
+        final question = clarifyQuestions.isNotEmpty
+            ? (userQuestions.length == 1
+                  ? userQuestions.first
+                  : userQuestions.map((q) => '- $q').join('\n'))
+            : await verbalizer.fallbackQuestion(
+                error: missingInfo.join('; '),
+                language: detectedLang,
+              );
         _pendingClarifications[request.agentId] = PendingClarification(
           originalMessage:
               pendingClarification?.originalMessage ?? request.userMessage,
           questions: userQuestions,
           createdAt: DateTime.now(),
         );
-        if (logger.logStreamBubble(
-          kind: 'decision_question',
-          phase: 'analyze',
-          message: question,
-          evidenceRefs: [analysisEvidenceRef],
-          contextPolicy: 'include',
-        )) {
-          emit(logger.events.last);
-        }
         logger.logFinalResponse(question);
         return AgentRuntimeResponse(
           finalMessage: question,
@@ -1070,26 +1054,7 @@ class AgentRuntimeEngine {
       }
       ReflectionOutput? reflection;
       TargetResolutionGraph? targetGraph;
-      var pendingNextNarrative = (analysis['next_narrative'] ?? '')
-          .toString()
-          .trim();
-      String takeNextNarrative(String fallbackPhase) {
-        final llmNarrative = pendingNextNarrative;
-        pendingNextNarrative = '';
-        return llmNarrative.isNotEmpty
-            ? llmNarrative
-            : NarrativeNarrator.narrateNext(fallbackPhase, detectedLang.code);
-      }
-
       final analyzerSaysToolsForReflect = analysis['requires_tools'] == true;
-      if (analyzerSaysToolsForReflect && !isWorkflowAutoExecute) {
-        if (logger.logPreActionNarrative(
-          'reflecting',
-          takeNextNarrative('reflecting'),
-        )) {
-          emit(logger.events.last);
-        }
-      }
       // Reflection already came from the merged classify call — no separate
       // LLM round-trip needed. Just run deterministic target resolution.
       final shouldReflect =
@@ -1108,7 +1073,6 @@ class AgentRuntimeEngine {
         );
         reflection = targetResolution.reflection;
         targetGraph = targetResolution.graph;
-        pendingNextNarrative = reflection.nextNarrative.trim();
         logger.logLlmDecision('reflect', reflection.toJson());
         emit(logger.events.last);
         final reflectionEvidenceRefs = <String>[
@@ -1142,16 +1106,13 @@ class AgentRuntimeEngine {
             });
           }
           if (!reflection.degraded &&
+              reflection.impacts.isNotEmpty &&
               logger.logStreamBubble(
-                kind: reflection.impacts.isEmpty
-                    ? 'decision_summary'
-                    : 'impact',
+                kind: 'impact',
                 phase: 'reflect',
                 message: gatedReflect,
                 evidenceRefs: reflectionEvidenceRefs,
-                contextPolicy: reflection.impacts.isEmpty
-                    ? 'exclude'
-                    : 'include',
+                contextPolicy: 'include',
               )) {
             emit(logger.events.last);
           }
@@ -1164,15 +1125,6 @@ class AgentRuntimeEngine {
             questions: reflection.clarifyQuestions,
             createdAt: DateTime.now(),
           );
-          if (logger.logStreamBubble(
-            kind: 'decision_question',
-            phase: 'reflect',
-            message: question,
-            evidenceRefs: reflectionEvidenceRefs,
-            contextPolicy: 'include',
-          )) {
-            emit(logger.events.last);
-          }
           logger.logFinalResponse(question);
           return AgentRuntimeResponse(
             finalMessage: question,
@@ -1203,13 +1155,6 @@ class AgentRuntimeEngine {
         state = AgentRuntimeState.done;
         logger.logStateChange(state, 'Direct response (no tools needed)');
         emit(logger.events.last);
-        if (logger.logPreActionNarrative(
-          'composing',
-          takeNextNarrative('composing'),
-        )) {
-          emit(logger.events.last);
-        }
-
         final analyzerDirectResponse = (analysis['direct_response'] ?? '')
             .toString()
             .trim();
@@ -1277,12 +1222,6 @@ class AgentRuntimeEngine {
       state = AgentRuntimeState.planning;
       logger.logStateChange(state, 'Creating execution plan');
       emit(logger.events.last);
-      if (logger.logPreActionNarrative(
-        'planning',
-        takeNextNarrative('planning'),
-      )) {
-        emit(logger.events.last);
-      }
       _logEvent(
         agentId: request.agentId,
         eventType: 'state_change',
@@ -1316,29 +1255,6 @@ class AgentRuntimeEngine {
         );
       }
       _attachSelectedSkillContext(plan, analysis);
-      final planEvidenceRef = 'runtime_event:${logger.events.last.id}';
-      final planNarrative = (plan['narrative'] ?? '').toString();
-      final planLabels = (plan['subgoals'] as List? ?? const [])
-          .whereType<Map>()
-          .map((subgoal) => (subgoal['label'] ?? '').toString().trim())
-          .where((label) => label.isNotEmpty)
-          .toList(growable: false);
-      final planBubble = [
-        if (planNarrative.trim().isNotEmpty) planNarrative.trim(),
-        if (planLabels.length > 1)
-          planLabels.map((label) => '• $label').join('\n'),
-      ].join('\n\n');
-      if (planBubble.isNotEmpty) {
-        if (logger.logStreamBubble(
-          kind: 'plan_summary',
-          phase: 'plan',
-          message: planBubble,
-          evidenceRefs: [planEvidenceRef],
-          contextPolicy: 'exclude',
-        )) {
-          emit(logger.events.last);
-        }
-      }
       final plannerGoalTree = _buildGoalTree(
         plan: plan,
         analysis: analysis,
@@ -2387,6 +2303,9 @@ class AgentRuntimeEngine {
     if (text.isEmpty || text.length > 40) return false;
     final tokens = _semanticTokens(text);
     if (tokens.isEmpty || tokens.length > 3) return false;
+    if (_latestAssistantTurnAskedQuestion(request.recentMessages)) {
+      return false;
+    }
 
     // Short messages with explicit structure are often commands/references,
     // not social openers: keep normal history for those.
@@ -2397,6 +2316,17 @@ class AgentRuntimeEngine {
       return false;
     }
     return true;
+  }
+
+  bool _latestAssistantTurnAskedQuestion(List<ChatMessage> messages) {
+    for (final message in messages.reversed) {
+      if (!message.includeInRuntimeContext) continue;
+      if (message.role == 'user') return false;
+      if (message.role != 'assistant') continue;
+      if (message.actions.isNotEmpty) return true;
+      return message.content.trim().endsWith('?');
+    }
+    return false;
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({

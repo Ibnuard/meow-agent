@@ -753,6 +753,7 @@ Rules:
       '- Reply in ${language.label} (${language.code}). Match this language exactly.',
       '- Speak naturally as a helpful assistant. Never expose internal tool names or IDs.',
       '- 1–2 short sentences. End with a clear question.',
+      PromptConstants.helpfulAskUserRule,
       if (triedName != null && availableNames != null)
         '- If options are available, ask the user to pick from them.',
       if (error.contains('required') || error.contains('is required'))
