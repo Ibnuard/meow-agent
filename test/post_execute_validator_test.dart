@@ -111,4 +111,49 @@ void main() {
       expect(result.isOk, true);
     },
   );
+
+  test(
+    'tool_result_data accepts harmless terminal punctuation in echoed text',
+    () async {
+      final result = await validator().verify(
+        tool: const ToolCallRequest(
+          name: 'notes.create',
+          args: {'title': 'Launch Plan', 'content': 'Ship benchmark UI'},
+          risk: 'safe',
+          requiresConfirmation: false,
+        ),
+        definition: const ToolDefinition(
+          name: 'notes.create',
+          description: 'Create note',
+          risk: 'safe',
+          requiresConfirmation: false,
+          selectorArgs: ['title'],
+          verificationProbe: ToolVerificationProbe(
+            kind: 'tool_result_data',
+            entityType: 'note',
+            expectedDataKeys: [
+              'noteId',
+              'created',
+              'persisted',
+              'verifiedFields',
+            ],
+          ),
+        ),
+        result: const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.create',
+          data: {
+            'noteId': 'bench-note-1',
+            'title': 'Launch Plan',
+            'content': 'Ship benchmark UI.',
+            'created': true,
+            'persisted': true,
+            'verifiedFields': 2,
+          },
+        ),
+      );
+
+      expect(result.isOk, true);
+    },
+  );
 }

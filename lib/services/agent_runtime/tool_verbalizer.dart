@@ -192,7 +192,8 @@ Reply with the answer only. No JSON, no quotes.''';
     // Safety net: if the model echoed the prompt structure (rare on capable
     // models, common on weak ones), fall back to extracting the primary
     // human-readable field from the result data.
-    if (_looksLikePromptEcho(raw)) {
+    if (_looksLikePromptEcho(raw) ||
+        _looksLikeGenericSuccessFallback(raw, language.code)) {
       final extracted = _extractPrimaryText(result.data);
       if (extracted != null && extracted.isNotEmpty) {
         _turnCache[cacheKey] = extracted;
@@ -221,11 +222,23 @@ Reply with the answer only. No JSON, no quotes.''';
     return hits >= 2;
   }
 
+  static bool _looksLikeGenericSuccessFallback(String raw, String code) {
+    final answer = _normalizeShortAnswer(raw);
+    if (answer.isEmpty) return true;
+    final fallback = _normalizeShortAnswer(I18nFallback.get('success', code));
+    return answer == fallback;
+  }
+
+  static String _normalizeShortAnswer(String value) =>
+      value.trim().toLowerCase().replaceAll(RegExp(r'[\s.!?]+'), ' ').trim();
+
   /// Pull the most user-relevant text field out of arbitrary tool result
   /// data. Tries a small ordered list of common field names. This is
   /// shape-based, not tool-specific.
   static String? _extractPrimaryText(Map<String, dynamic>? data) {
     if (data == null || data.isEmpty) return null;
+    final structured = _extractStructuredSummary(data);
+    if (structured != null && structured.isNotEmpty) return structured;
     const preferredKeys = [
       'description',
       'summary',
@@ -246,6 +259,65 @@ Reply with the answer only. No JSON, no quotes.''';
       if (v is String && v.trim().length > 20) return v.trim();
     }
     return null;
+  }
+
+  static String? _extractStructuredSummary(Map<String, dynamic> data) {
+    final directAgents = _namesFromAgentList(data['agents']);
+    if (directAgents.isNotEmpty) return directAgents.join(', ');
+
+    final config = data['config'];
+    if (config is Map) {
+      final configAgents = _namesFromAgentList(config['agents']);
+      if (configAgents.isNotEmpty) return configAgents.join(', ');
+    }
+
+    for (final key in const [
+      'workflows',
+      'items',
+      'notes',
+      'files',
+      'events',
+      'matches',
+    ]) {
+      final labels = _labelsFromMapList(data[key]);
+      if (labels.isNotEmpty) return labels.join(', ');
+    }
+
+    final rows = data['rows'];
+    if (rows is List && rows.isNotEmpty) {
+      return jsonEncode(rows.take(10).toList(growable: false));
+    }
+
+    final results = data['results'];
+    if (results is List && results.isNotEmpty) {
+      return jsonEncode(results.take(10).toList(growable: false));
+    }
+    return null;
+  }
+
+  static List<String> _labelsFromMapList(Object? value) {
+    if (value is! List) return const [];
+    final labels = <String>[];
+    for (final item in value.take(10)) {
+      if (item is! Map) continue;
+      final label =
+          (item['title'] ?? item['name'] ?? item['label'] ?? item['id'] ?? '')
+              .toString()
+              .trim();
+      if (label.isNotEmpty) labels.add(label);
+    }
+    return labels;
+  }
+
+  static List<String> _namesFromAgentList(Object? value) {
+    if (value is! List) return const [];
+    final names = <String>[];
+    for (final item in value) {
+      if (item is! Map) continue;
+      final name = (item['name'] ?? item['agent_name'] ?? '').toString().trim();
+      if (name.isNotEmpty) names.add(name);
+    }
+    return names;
   }
 
   /// Message shown when the user rejects a pending action.

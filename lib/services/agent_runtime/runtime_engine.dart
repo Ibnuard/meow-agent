@@ -702,6 +702,23 @@ class AgentRuntimeEngine {
         pendingAction: pending,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
       );
+      final contextLightChat = _shouldUseContextLightChatRoute(
+        request: request,
+        effectiveUserMessage: effectiveUserMessage,
+        activeTaskContext: activeTaskContext,
+        pendingAction: pending,
+      );
+      final classifierRecentMessages = contextLightChat
+          ? const <Map<String, String>>[]
+          : recentMsgs;
+      final classifierToolMemory = contextLightChat ? '' : recentToolMemory;
+      if (contextLightChat) {
+        logger.logDivergence('context_light_chat_route', {
+          'reason': 'short_standalone_message',
+          'recent_messages_suppressed': recentMsgs.length,
+          'tool_memory_suppressed': recentToolMemory.isNotEmpty,
+        });
+      }
       if (classifyToolNames.length < toolRouter.registeredTools.length) {
         logger.logStateChange(
           AgentRuntimeState.analyzing,
@@ -746,9 +763,9 @@ class AgentRuntimeEngine {
         language: detectedLang,
         logger: logger,
         stableContext: stableContext,
-        recentMessages: recentMsgs,
+        recentMessages: classifierRecentMessages,
         pendingAction: pending,
-        recentToolMemory: recentToolMemory,
+        recentToolMemory: classifierToolMemory,
         isWorkflowAutoExecute: isWorkflowAutoExecute,
         activeTaskContext: activeTaskContext,
         agentName: wsName,
@@ -2354,6 +2371,32 @@ class AgentRuntimeEngine {
       tokens.add(token);
     }
     return tokens;
+  }
+
+  bool _shouldUseContextLightChatRoute({
+    required AgentRuntimeRequest request,
+    required String effectiveUserMessage,
+    required String activeTaskContext,
+    required PendingAction? pendingAction,
+  }) {
+    if (request.source != RequestSource.chat) return false;
+    if (activeTaskContext.isNotEmpty || pendingAction != null) return false;
+    if (request.attachments.isNotEmpty) return false;
+
+    final text = effectiveUserMessage.trim();
+    if (text.isEmpty || text.length > 40) return false;
+    final tokens = _semanticTokens(text);
+    if (tokens.isEmpty || tokens.length > 3) return false;
+
+    // Short messages with explicit structure are often commands/references,
+    // not social openers: keep normal history for those.
+    if (RegExp(
+      r'[\d/@#\\]|https?://|[._-]{2,}',
+      caseSensitive: false,
+    ).hasMatch(text)) {
+      return false;
+    }
+    return true;
   }
 
   Map<String, dynamic> _fallbackPlanFromAnalysis({

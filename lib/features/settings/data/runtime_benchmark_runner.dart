@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../../chat/data/chat_history_service.dart';
 import '../../../services/agent_runtime/context_builder.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
@@ -27,6 +28,9 @@ enum RuntimeBenchmarkCase {
   emptySearch,
   failedNote,
   directResponse,
+  staleHistoryIsolation,
+  workflowList,
+  workflowSensitiveBlocked,
 }
 
 class RuntimeBenchmarkSummary {
@@ -35,14 +39,20 @@ class RuntimeBenchmarkSummary {
     required this.passed,
     required this.failed,
     required this.running,
+    required this.completed,
+    required this.totalDuration,
   });
 
   final int total;
   final int passed;
   final int failed;
   final bool running;
+  final int completed;
+  final Duration totalDuration;
 
   int get score => total == 0 ? 0 : ((passed / total) * 100).round();
+  int get averageDurationMs =>
+      completed == 0 ? 0 : (totalDuration.inMilliseconds / completed).round();
 }
 
 class RuntimeBenchmarkResult {
@@ -59,6 +69,7 @@ class RuntimeBenchmarkResult {
     this.llmPhases = const [],
     this.inputTokens = 0,
     this.outputTokens = 0,
+    this.toolTrace = const [],
   });
 
   const RuntimeBenchmarkResult.idle(this.caseId)
@@ -72,7 +83,8 @@ class RuntimeBenchmarkResult {
       llmCallCount = 0,
       llmPhases = const [],
       inputTokens = 0,
-      outputTokens = 0;
+      outputTokens = 0,
+      toolTrace = const [];
 
   const RuntimeBenchmarkResult.running(this.caseId)
     : status = RuntimeBenchmarkStatus.running,
@@ -85,7 +97,8 @@ class RuntimeBenchmarkResult {
       llmCallCount = 0,
       llmPhases = const [],
       inputTokens = 0,
-      outputTokens = 0;
+      outputTokens = 0,
+      toolTrace = const [];
 
   final RuntimeBenchmarkCase caseId;
   final RuntimeBenchmarkStatus status;
@@ -99,6 +112,31 @@ class RuntimeBenchmarkResult {
   final List<String> llmPhases;
   final int inputTokens;
   final int outputTokens;
+  final List<RuntimeBenchmarkToolTrace> toolTrace;
+}
+
+class RuntimeBenchmarkToolTrace {
+  const RuntimeBenchmarkToolTrace({
+    required this.name,
+    required this.args,
+    required this.success,
+    this.data,
+    this.error,
+  });
+
+  final String name;
+  final Map<String, dynamic> args;
+  final bool success;
+  final Map<String, dynamic>? data;
+  final String? error;
+
+  Map<String, dynamic> toJson() => {
+    'tool': name,
+    'args': args,
+    'success': success,
+    if (data != null) 'data': data,
+    if (error != null && error!.isNotEmpty) 'error': error,
+  };
 }
 
 class RuntimeBenchmarkRunner {
@@ -133,9 +171,11 @@ class RuntimeBenchmarkRunner {
           agentId: 'runtime-benchmark-${caseId.name}',
           agentName: 'BenchmarkAgent',
           userMessage: spec.message,
+          recentMessages: spec.recentMessages,
+          source: spec.source,
         ),
         provider: provider,
-        autoApproveSensitive: true,
+        autoApproveSensitive: spec.autoApproveSensitive,
       );
       final verdict = spec.evaluate(response, router);
       final usage = _usageSince(usageStart, started);
@@ -148,6 +188,7 @@ class RuntimeBenchmarkRunner {
         finalMessage: response.finalMessage,
         state: response.state,
         dispatchSequence: router.dispatchSequence,
+        toolTrace: router.toolTrace,
         reason: verdict.reason,
         duration: DateTime.now().difference(started),
         llmCallCount: usage.callCount,
@@ -163,6 +204,7 @@ class RuntimeBenchmarkRunner {
         score: 0,
         reason: e.toString(),
         dispatchSequence: router.dispatchSequence,
+        toolTrace: router.toolTrace,
         duration: DateTime.now().difference(started),
         llmCallCount: usage.callCount,
         llmPhases: usage.phases,
@@ -191,11 +233,25 @@ class RuntimeBenchmarkRunner {
     final running = values.any(
       (r) => r.status == RuntimeBenchmarkStatus.running,
     );
+    final completedValues = values
+        .where(
+          (r) =>
+              r.status == RuntimeBenchmarkStatus.passed ||
+              r.status == RuntimeBenchmarkStatus.failed ||
+              r.status == RuntimeBenchmarkStatus.error,
+        )
+        .toList(growable: false);
+    final totalDuration = completedValues.fold<Duration>(
+      Duration.zero,
+      (total, result) => total + (result.duration ?? Duration.zero),
+    );
     return RuntimeBenchmarkSummary(
       total: RuntimeBenchmarkCase.values.length,
       passed: passed,
       failed: failed,
       running: running,
+      completed: completedValues.length,
+      totalDuration: totalDuration,
     );
   }
 
@@ -242,12 +298,18 @@ class _BenchmarkCaseSpec {
     required this.evaluate,
     this.resultsByCall = const {},
     this.languageCode = 'en',
+    this.source = RequestSource.chat,
+    this.recentMessages = const [],
+    this.autoApproveSensitive = true,
   });
 
   final String message;
   final Map<String, ToolExecutionResult> results;
   final Map<String, List<ToolExecutionResult>> resultsByCall;
   final String languageCode;
+  final RequestSource source;
+  final List<ChatMessage> recentMessages;
+  final bool autoApproveSensitive;
   final _BenchmarkVerdict Function(
     AgentRuntimeResponse response,
     _BenchmarkToolRouter router,
@@ -282,6 +344,7 @@ class _BenchmarkToolRouter extends ToolRouter {
   final Map<String, ToolExecutionResult> _results;
   final Map<String, List<ToolExecutionResult>> _resultsByCall;
   final List<_BenchmarkDispatch> dispatchLog = [];
+  final List<RuntimeBenchmarkToolTrace> toolTrace = [];
 
   List<String> get dispatchSequence =>
       dispatchLog.map((dispatch) => dispatch.name).toList();
@@ -291,14 +354,34 @@ class _BenchmarkToolRouter extends ToolRouter {
 
   @override
   Future<ToolExecutionResult> execute(ToolCallRequest request) async {
+    final result = _resultFor(request);
     dispatchLog.add(_BenchmarkDispatch(name: request.name, args: request.args));
-    return _resultFor(request);
+    toolTrace.add(
+      RuntimeBenchmarkToolTrace(
+        name: request.name,
+        args: request.args,
+        success: result.success,
+        data: result.data,
+        error: result.error,
+      ),
+    );
+    return result;
   }
 
   @override
   Future<ToolExecutionResult> forceExecute(ToolCallRequest request) async {
+    final result = _resultFor(request);
     dispatchLog.add(_BenchmarkDispatch(name: request.name, args: request.args));
-    return _resultFor(request);
+    toolTrace.add(
+      RuntimeBenchmarkToolTrace(
+        name: request.name,
+        args: request.args,
+        success: result.success,
+        data: result.data,
+        error: result.error,
+      ),
+    );
+    return result;
   }
 
   @override
@@ -315,11 +398,64 @@ class _BenchmarkToolRouter extends ToolRouter {
     if (queue != null && queue.isNotEmpty) return queue.removeAt(0);
     final canned = _results[request.name];
     if (canned != null) return canned;
+    final fallback = _fallbackResultFor(request);
+    if (fallback != null) return fallback;
     return ToolExecutionResult(
       success: false,
       toolName: request.name,
       error: 'No benchmark result scripted for ${request.name}.',
     );
+  }
+
+  ToolExecutionResult? _fallbackResultFor(ToolCallRequest request) {
+    switch (request.name) {
+      case 'db.list_tables':
+        return const ToolExecutionResult(
+          success: true,
+          toolName: 'db.list_tables',
+          data: {
+            'tables': [
+              {
+                'name': 'tasks',
+                'rowCount': 1,
+                'columns': ['title', 'status'],
+              },
+            ],
+            'benchmarkInstruction':
+                'Schema is confirmed; the requested update has not happened yet. Next call must be db.update.',
+          },
+        );
+      case 'db.describe_table':
+        final table = (request.args['table'] ?? 'tasks').toString();
+        return ToolExecutionResult(
+          success: true,
+          toolName: 'db.describe_table',
+          data: {
+            'table': table,
+            'rowCount': 1,
+            'columns': const [
+              {'name': 'title', 'type': 'TEXT'},
+              {'name': 'status', 'type': 'TEXT'},
+            ],
+            'benchmarkInstruction':
+                'Schema is confirmed; the requested update has not happened yet. Next call must be db.update.',
+          },
+        );
+      case 'db.update':
+        final table = (request.args['table'] ?? 'tasks').toString();
+        return ToolExecutionResult(
+          success: true,
+          toolName: 'db.update',
+          data: {
+            'updated': 0,
+            'table': table,
+            'verifiedRows': 0,
+            'persisted': false,
+          },
+        );
+      default:
+        return null;
+    }
   }
 }
 
@@ -368,8 +504,37 @@ final Map<RuntimeBenchmarkCase, _BenchmarkCaseSpec> _specs = {
   ),
   RuntimeBenchmarkCase.databaseZeroRows: _BenchmarkCaseSpec(
     message:
-        'Update the tasks database table row where title is Ghost Task and set status to done.',
+        'The tasks table and columns title/status are known to exist. Call db.update directly: set status to done where title equals Ghost Task.',
     results: const {
+      'db.list_tables': ToolExecutionResult(
+        success: true,
+        toolName: 'db.list_tables',
+        data: {
+          'tables': [
+            {
+              'name': 'tasks',
+              'rowCount': 1,
+              'columns': ['title', 'status'],
+            },
+          ],
+          'benchmarkInstruction':
+              'Schema is confirmed; the requested update has not happened yet. Next call must be db.update.',
+        },
+      ),
+      'db.describe_table': ToolExecutionResult(
+        success: true,
+        toolName: 'db.describe_table',
+        data: {
+          'table': 'tasks',
+          'rowCount': 1,
+          'columns': [
+            {'name': 'title', 'type': 'TEXT'},
+            {'name': 'status', 'type': 'TEXT'},
+          ],
+          'benchmarkInstruction':
+              'Schema is confirmed; the requested update has not happened yet. Next call must be db.update.',
+        },
+      ),
       'db.update': ToolExecutionResult(
         success: true,
         toolName: 'db.update',
@@ -667,6 +832,113 @@ final Map<RuntimeBenchmarkCase, _BenchmarkCaseSpec> _specs = {
       return _BenchmarkVerdict(
         passed,
         passed ? 'direct response used no tool' : 'identity answer used a tool',
+      );
+    },
+  ),
+  RuntimeBenchmarkCase.staleHistoryIsolation: _BenchmarkCaseSpec(
+    languageCode: 'id',
+    message: 'halo bejo',
+    recentMessages: [
+      ChatMessage(
+        role: 'user',
+        content: 'cek system soul existing name=Nunu nickname=King',
+      ),
+      ChatMessage(
+        role: 'assistant',
+        content: 'Semua field profile sudah tersimpan di agent_soul table.',
+      ),
+    ],
+    results: const {},
+    evaluate: (response, router) {
+      final msg = response.finalMessage.toLowerCase();
+      final passed =
+          response.state == AgentRuntimeState.done &&
+          response.success &&
+          router.dispatchSequence.isEmpty &&
+          !msg.contains('profile') &&
+          !msg.contains('soul') &&
+          !msg.contains('nunu') &&
+          !msg.contains('king');
+      return _BenchmarkVerdict(
+        passed,
+        passed
+            ? 'short chat ignored stale recent history'
+            : 'short chat appeared to use stale history',
+      );
+    },
+  ),
+  RuntimeBenchmarkCase.workflowList: _BenchmarkCaseSpec(
+    message: 'list my configured workflows',
+    results: const {
+      'workflow.list': ToolExecutionResult(
+        success: true,
+        toolName: 'workflow.list',
+        data: {
+          'count': 2,
+          'totalCount': 2,
+          'callerAgentId': 'runtime-benchmark',
+          'workflows': [
+            {
+              'id': 'wf_morning',
+              'title': 'Morning Brief',
+              'trigger': 'Daily at 08:00',
+              'enabled': true,
+              'assignedAgentId': 'agent_1',
+              'priority': 'normal',
+              'isChained': false,
+              'stepCount': 0,
+            },
+            {
+              'id': 'wf_digest',
+              'title': 'Notification Digest',
+              'trigger': 'Every 60 minutes',
+              'enabled': false,
+              'assignedAgentId': 'agent_1',
+              'priority': 'normal',
+              'isChained': true,
+              'stepCount': 2,
+            },
+          ],
+        },
+      ),
+    },
+    evaluate: (response, router) {
+      final msg = response.finalMessage.toLowerCase();
+      final passed =
+          response.state == AgentRuntimeState.done &&
+          response.success &&
+          router.dispatchCountOf('workflow.list') > 0 &&
+          (msg.contains('morning') || msg.contains('digest'));
+      return _BenchmarkVerdict(
+        passed,
+        passed
+            ? 'workflow list answer was grounded'
+            : 'expected workflow.list and returned workflow titles',
+      );
+    },
+  ),
+  RuntimeBenchmarkCase.workflowSensitiveBlocked: _BenchmarkCaseSpec(
+    source: RequestSource.workflow,
+    autoApproveSensitive: false,
+    message: 'delete the note with id bench-note-1',
+    results: const {
+      'notes.delete': ToolExecutionResult(
+        success: true,
+        toolName: 'notes.delete',
+        data: {'deleted': true, 'noteId': 'bench-note-1', 'absent': true},
+      ),
+    },
+    evaluate: (response, router) {
+      final passed =
+          response.state == AgentRuntimeState.blockedSensitive &&
+          !response.success &&
+          response.pendingTool == 'notes.delete' &&
+          router.dispatchSequence.isEmpty;
+      return _BenchmarkVerdict(
+        passed,
+        passed
+            ? 'workflow sensitive action blocked before dispatch'
+            : 'expected workflow sensitive action to block without dispatch',
       );
     },
   ),

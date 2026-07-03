@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/theme.dart';
@@ -22,6 +25,7 @@ class _RuntimeBenchmarkScreenState
   final _runner = RuntimeBenchmarkRunner();
   final Map<RuntimeBenchmarkCase, RuntimeBenchmarkResult> _results = {};
   String? _selectedProviderId;
+  String? _selectedModel;
   bool _running = false;
 
   @override
@@ -54,6 +58,12 @@ class _RuntimeBenchmarkScreenState
         ),
         data: (providers) {
           final provider = _selectedProvider(providers);
+          final selectedModel = provider == null
+              ? null
+              : _selectedModelFor(provider);
+          final benchmarkProvider = provider == null || selectedModel == null
+              ? null
+              : provider.copyWith(model: selectedModel);
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
             children: [
@@ -70,13 +80,21 @@ class _RuntimeBenchmarkScreenState
                 strings: s,
                 summary: summary,
                 provider: provider,
+                selectedModel: selectedModel,
                 providers: providers,
+                results: _results,
                 onProviderChanged: _running
                     ? null
-                    : (id) => setState(() => _selectedProviderId = id),
-                onRunAll: provider == null || _running
+                    : (id) => setState(() {
+                        _selectedProviderId = id;
+                        _selectedModel = null;
+                      }),
+                onModelChanged: _running
                     ? null
-                    : () => _runAll(provider),
+                    : (model) => setState(() => _selectedModel = model),
+                onRunAll: benchmarkProvider == null || _running
+                    ? null
+                    : () => _runAll(benchmarkProvider),
               ),
               const SizedBox(height: 18),
               MeowSection(
@@ -110,10 +128,10 @@ class _RuntimeBenchmarkScreenState
                       RuntimeBenchmarkResult.idle(testCase),
                   strings: s,
                   running: _running,
-                  providerAvailable: provider != null,
-                  onRun: provider == null || _running
+                  providerAvailable: benchmarkProvider != null,
+                  onRun: benchmarkProvider == null || _running
                       ? null
-                      : () => _runOne(testCase, provider),
+                      : () => _runOne(testCase, benchmarkProvider),
                 ),
                 const SizedBox(height: 10),
               ],
@@ -136,6 +154,15 @@ class _RuntimeBenchmarkScreenState
       if (provider.isComplete) return provider;
     }
     return providers.first;
+  }
+
+  String? _selectedModelFor(ProviderConfig provider) {
+    if (provider.models.isEmpty) return null;
+    final selected = (_selectedModel ?? '').trim();
+    if (selected.isNotEmpty && provider.models.contains(selected)) {
+      return selected;
+    }
+    return provider.effectiveModel(provider.model);
   }
 
   Future<void> _runAll(ProviderConfig provider) async {
@@ -178,16 +205,22 @@ class _SummaryCard extends StatelessWidget {
     required this.strings,
     required this.summary,
     required this.provider,
+    required this.selectedModel,
     required this.providers,
+    required this.results,
     required this.onProviderChanged,
+    required this.onModelChanged,
     required this.onRunAll,
   });
 
   final AppStrings strings;
   final RuntimeBenchmarkSummary summary;
   final ProviderConfig? provider;
+  final String? selectedModel;
   final List<ProviderConfig> providers;
+  final Map<RuntimeBenchmarkCase, RuntimeBenchmarkResult> results;
   final ValueChanged<String?>? onProviderChanged;
+  final ValueChanged<String?>? onModelChanged;
   final VoidCallback? onRunAll;
 
   @override
@@ -222,6 +255,8 @@ class _SummaryCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 14),
+          _TimingLine(strings: strings, summary: summary),
+          const SizedBox(height: 14),
           if (completeProviders.isEmpty)
             Text(
               strings.runtimeBenchmarkNoProvider,
@@ -244,6 +279,28 @@ class _SummaryCard extends StatelessWidget {
                   .toList(),
               onChanged: onProviderChanged ?? (_) {},
             ),
+          if (provider case final selectedProvider?
+              when selectedProvider.models.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            MeowDropdown<String>(
+              label: strings.runtimeBenchmarkModelLabel,
+              value: selectedModel,
+              strings: strings,
+              enabled: onModelChanged != null,
+              options: selectedProvider.models
+                  .map(
+                    (model) => MeowDropdownOption<String>(
+                      value: model,
+                      label: model,
+                      subtitle: model == selectedProvider.model
+                          ? strings.runtimeBenchmarkDefaultModel
+                          : null,
+                    ),
+                  )
+                  .toList(),
+              onChanged: onModelChanged ?? (_) {},
+            ),
+          ],
           const SizedBox(height: 12),
           MeowPrimaryButton(
             label: strings.runtimeBenchmarkRunAll,
@@ -251,8 +308,78 @@ class _SummaryCard extends StatelessWidget {
             loading: summary.running,
             onPressed: onRunAll,
           ),
+          const SizedBox(height: 8),
+          MeowSecondaryButton(
+            label: strings.copyAllResults,
+            icon: Icons.copy_all_rounded,
+            onPressed: summary.completed == 0
+                ? null
+                : () => _copyAllReports(context),
+          ),
         ],
       ),
+    );
+  }
+
+  Future<void> _copyAllReports(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: _allReportsText()));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(strings.copiedToClipboard)));
+  }
+
+  String _allReportsText() {
+    final providerLabel = provider?.nickname ?? '-';
+    final modelLabel = selectedModel ?? provider?.model ?? '-';
+    final lines = <String>[
+      '# ${strings.runtimeBenchmarkTitle}',
+      '- ${strings.runtimeBenchmarkProviderLabel}: $providerLabel',
+      '- ${strings.runtimeBenchmarkModelLabel}: $modelLabel',
+      '- ${strings.runtimeBenchmarkScoreLabel}: ${summary.passed}/${summary.total} (${summary.score})',
+      '- ${strings.runtimeBenchmarkStateLabel}: ${summary.completed}/${summary.total}',
+      '- ${strings.runtimeBenchmarkMessageLabel}: ${strings.runtimeBenchmarkTimingSummary(summary.completed, summary.totalDuration.inMilliseconds, summary.averageDurationMs)}',
+      '',
+      for (final id in RuntimeBenchmarkCase.values)
+        _benchmarkResultReportText(
+          strings,
+          results[id] ?? RuntimeBenchmarkResult.idle(id),
+        ),
+    ];
+    return lines.join('\n\n');
+  }
+}
+
+class _TimingLine extends StatelessWidget {
+  const _TimingLine({required this.strings, required this.summary});
+
+  final AppStrings strings;
+  final RuntimeBenchmarkSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = context.cs;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.timer_outlined, size: 18, color: cs.tertiary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            strings.runtimeBenchmarkTimingSummary(
+              summary.completed,
+              summary.totalDuration.inMilliseconds,
+              summary.averageDurationMs,
+            ),
+            style: TextStyle(
+              color: cs.onSurfaceVariant,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -326,7 +453,7 @@ class _BenchmarkCaseCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               _StatusPill(
-                label: _statusLabel(strings, result.status),
+                label: _benchmarkStatusLabel(strings, result.status),
                 color: statusColor,
               ),
             ],
@@ -390,15 +517,6 @@ class _BenchmarkCaseCard extends StatelessWidget {
       RuntimeBenchmarkStatus.idle => cs.onSurfaceVariant,
     };
   }
-
-  String _statusLabel(AppStrings strings, RuntimeBenchmarkStatus status) =>
-      switch (status) {
-        RuntimeBenchmarkStatus.idle => strings.runtimeBenchmarkStatusIdle,
-        RuntimeBenchmarkStatus.running => strings.runtimeBenchmarkStatusRunning,
-        RuntimeBenchmarkStatus.passed => strings.runtimeBenchmarkStatusPassed,
-        RuntimeBenchmarkStatus.failed => strings.runtimeBenchmarkStatusFailed,
-        RuntimeBenchmarkStatus.error => strings.runtimeBenchmarkStatusError,
-      };
 }
 
 class _StatusPill extends StatelessWidget {
@@ -501,12 +619,96 @@ class _ResultDetails extends StatelessWidget {
                   ),
                 ),
               ),
+            if (result.status != RuntimeBenchmarkStatus.running) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: () => _copyReport(context),
+                  icon: const Icon(Icons.copy_rounded, size: 16),
+                  label: Text(strings.copyResult),
+                  style: TextButton.styleFrom(
+                    foregroundColor: cs.primary,
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+
+  Future<void> _copyReport(BuildContext context) async {
+    await Clipboard.setData(
+      ClipboardData(text: _benchmarkResultReportText(strings, result)),
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(strings.copiedToClipboard)));
+  }
 }
+
+String _benchmarkResultReportText(
+  AppStrings strings,
+  RuntimeBenchmarkResult result,
+) {
+  final state = result.state?.name ?? '-';
+  final tools = result.dispatchSequence.isEmpty
+      ? '-'
+      : result.dispatchSequence.join(' -> ');
+  final phases = result.llmPhases.isEmpty ? '-' : result.llmPhases.join(' -> ');
+  final duration = result.duration == null
+      ? ''
+      : strings.runtimeBenchmarkDurationMs(result.duration!.inMilliseconds);
+  final trace = result.toolTrace
+      .map((entry) => entry.toJson())
+      .toList(growable: false);
+  final traceText = trace.isEmpty
+      ? '-'
+      : const JsonEncoder.withIndent('  ').convert(trace);
+  final lines = <String>[
+    '# ${strings.runtimeBenchmarkCaseTitle(result.caseId.name)}',
+    '- ${strings.runtimeBenchmarkStatusLabel}: ${_benchmarkStatusLabel(strings, result.status)}',
+    '- ${strings.runtimeBenchmarkScoreLabel}: ${result.score}',
+    '- ${strings.runtimeBenchmarkStateLabel}: ${duration.isEmpty ? state : '$state - $duration'}',
+    '- ${strings.runtimeBenchmarkToolsLabel}: $tools',
+    '- ${strings.runtimeBenchmarkLlmLabel}: ${strings.runtimeBenchmarkLlmUsage(result.llmCallCount, result.inputTokens, result.outputTokens)}',
+    '- ${strings.runtimeBenchmarkPhasesLabel}: $phases',
+    '',
+    strings.runtimeBenchmarkCasePrompt(result.caseId.name),
+    strings.runtimeBenchmarkCaseExpected(result.caseId.name),
+    strings.runtimeBenchmarkCaseVerification(result.caseId.name),
+    if (result.reason.isNotEmpty) '',
+    if (result.reason.isNotEmpty)
+      '${strings.runtimeBenchmarkReasonLabel}: ${result.reason}',
+    if (result.finalMessage.trim().isNotEmpty) '',
+    if (result.finalMessage.trim().isNotEmpty)
+      '${strings.runtimeBenchmarkMessageLabel}: ${result.finalMessage}',
+    '',
+    '${strings.runtimeBenchmarkToolTraceLabel}:',
+    if (trace.isEmpty) traceText else '```json',
+    if (trace.isNotEmpty) traceText,
+    if (trace.isNotEmpty) '```',
+  ];
+  return lines.join('\n');
+}
+
+String _benchmarkStatusLabel(
+  AppStrings strings,
+  RuntimeBenchmarkStatus status,
+) => switch (status) {
+  RuntimeBenchmarkStatus.idle => strings.runtimeBenchmarkStatusIdle,
+  RuntimeBenchmarkStatus.running => strings.runtimeBenchmarkStatusRunning,
+  RuntimeBenchmarkStatus.passed => strings.runtimeBenchmarkStatusPassed,
+  RuntimeBenchmarkStatus.failed => strings.runtimeBenchmarkStatusFailed,
+  RuntimeBenchmarkStatus.error => strings.runtimeBenchmarkStatusError,
+};
 
 class _DetailLine extends StatelessWidget {
   const _DetailLine({required this.label, required this.value});

@@ -1300,17 +1300,111 @@ class ExecuteLoopRunner {
           );
         }
 
-        // Profile/SOUL writes are already verified by their tool result probe.
-        // Do not spend another reviewer LLM call asking whether the DB write
-        // happened; mark the active subgoal done and either continue to the
-        // next planned profile write or finish locally.
+        // Multi-subgoal profile/SOUL writes are already verified by their tool
+        // result probe, so advance deterministically. A single coarse profile
+        // subgoal still goes through review so the reviewer can compare the
+        // original request against the one field that was actually persisted.
         if (result.success &&
             _isDeterministicProfileWrite(toolRequest, result)) {
-          final active = goalTree.nextActionable;
-          if (active != null) {
-            active.status = SubgoalStatus.done;
-            active.resultRef = '${toolRequest.name}:$currentStep';
-            active.notes = _profileWriteNote(result);
+          if (goalTree.isSingleAction) {
+            logger.logDivergence('profile_write_review_required', {
+              'tool': toolRequest.name,
+              'field': result.data?['field']?.toString() ?? '',
+              'step': currentStep,
+            });
+          } else {
+            final active = goalTree.nextActionable;
+            if (active != null) {
+              active.status = SubgoalStatus.done;
+              active.resultRef = '${toolRequest.name}:$currentStep';
+              active.notes = _profileWriteNote(result);
+              _emitTaskLedger(emit, request, goalTree);
+            }
+
+            previousResults.add({
+              'step': currentStep,
+              'tool': toolRequest.name,
+              'result': _shrinkResult(result.data, toolName: toolRequest.name),
+            });
+
+            if (goalTree.isNotEmpty && !goalTree.isComplete) {
+              currentStep++;
+              retryCount = 0;
+              continue;
+            }
+
+            final verificationBlocker = await _completionVerifier
+                .blockIfUnverified(
+                  request: request,
+                  plan: plan,
+                  goalTree: goalTree,
+                  previousResults: previousResults,
+                  currentStep: currentStep,
+                  availableTools: availableTools,
+                  memorySnapshot: memorySnapshot,
+                  detectedLang: detectedLang,
+                  autoApproveSensitive: autoApproveSensitive,
+                  isWorkflowAutoExecute: isWorkflowAutoExecute,
+                  logger: logger,
+                  parkTask: (questions) => _taskScope.parkForUserInput(
+                    request: request,
+                    plan: plan,
+                    goalTree: goalTree,
+                    previousResults: previousResults,
+                    currentStep: currentStep,
+                    availableTools: availableTools,
+                    memorySnapshot: memorySnapshot,
+                    detectedLangCode: detectedLang.code,
+                    autoApproveSensitive: autoApproveSensitive,
+                    isWorkflowAutoExecute: isWorkflowAutoExecute,
+                    questions: questions,
+                  ),
+                  lastToolName: toolRequest.name,
+                  lastToolDef: definition,
+                  lastResult: result,
+                );
+            if (verificationBlocker != null) return verificationBlocker;
+
+            final finalMessage = LanguageRegistry.phrase(
+              'runtime_profile_updated',
+              detectedLang.code,
+            );
+            logger.logFinalResponse(finalMessage);
+            await _taskScope.archiveLedgerForRequest(
+              request,
+              LedgerStatus.completed,
+            );
+            return AgentRuntimeResponse(
+              finalMessage: finalMessage,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+              actions: result.actions,
+            );
+          }
+        }
+
+        // Read-only lookups can legitimately return zero matches. Treat that
+        // as a completed answer for single lookup tasks instead of asking the
+        // reviewer/selector to keep searching with slightly different args.
+        final emptyLookupActive = goalTree.nextActionable;
+        final emptyLookupCompletes =
+            result.success &&
+            isReadOnlyLookup(toolRequest.name) &&
+            !_isPrecursorTool(toolRequest.name) &&
+            isEffectivelyEmpty(result.data) &&
+            (goalTree.isEmpty ||
+                goalTree.subgoals.length <= 1 ||
+                (emptyLookupActive != null &&
+                    _canCompleteRetrievalSubgoal(
+                      emptyLookupActive,
+                      toolRequest.name,
+                    )));
+        if (emptyLookupCompletes) {
+          if (emptyLookupActive != null) {
+            emptyLookupActive.status = SubgoalStatus.done;
+            emptyLookupActive.resultRef = '${toolRequest.name}:$currentStep';
+            emptyLookupActive.notes ??= 'empty_lookup_completed';
             _emitTaskLedger(emit, request, goalTree);
           }
 
@@ -1320,48 +1414,7 @@ class ExecuteLoopRunner {
             'result': _shrinkResult(result.data, toolName: toolRequest.name),
           });
 
-          if (goalTree.isNotEmpty && !goalTree.isComplete) {
-            currentStep++;
-            retryCount = 0;
-            continue;
-          }
-
-          final verificationBlocker = await _completionVerifier
-              .blockIfUnverified(
-                request: request,
-                plan: plan,
-                goalTree: goalTree,
-                previousResults: previousResults,
-                currentStep: currentStep,
-                availableTools: availableTools,
-                memorySnapshot: memorySnapshot,
-                detectedLang: detectedLang,
-                autoApproveSensitive: autoApproveSensitive,
-                isWorkflowAutoExecute: isWorkflowAutoExecute,
-                logger: logger,
-                parkTask: (questions) => _taskScope.parkForUserInput(
-                  request: request,
-                  plan: plan,
-                  goalTree: goalTree,
-                  previousResults: previousResults,
-                  currentStep: currentStep,
-                  availableTools: availableTools,
-                  memorySnapshot: memorySnapshot,
-                  detectedLangCode: detectedLang.code,
-                  autoApproveSensitive: autoApproveSensitive,
-                  isWorkflowAutoExecute: isWorkflowAutoExecute,
-                  questions: questions,
-                ),
-                lastToolName: toolRequest.name,
-                lastToolDef: definition,
-                lastResult: result,
-              );
-          if (verificationBlocker != null) return verificationBlocker;
-
-          final finalMessage = LanguageRegistry.phrase(
-            'runtime_profile_updated',
-            detectedLang.code,
-          );
+          final finalMessage = _emptyResultMessage(toolRequest.name);
           logger.logFinalResponse(finalMessage);
           await _taskScope.archiveLedgerForRequest(
             request,
@@ -2631,6 +2684,7 @@ class ExecuteLoopRunner {
     ToolDefinition definition,
     ToolExecutionResult result,
   ) {
+    if (definition.name == 'system.profile.update') return false;
     final probe = definition.verificationProbe;
     if (probe == null || probe.kind != 'tool_result_data') return false;
     final data = result.data;

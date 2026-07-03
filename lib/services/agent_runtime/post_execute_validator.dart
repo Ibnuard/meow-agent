@@ -303,7 +303,15 @@ class PostExecuteValidator {
   bool _valuesMatch(Object? expected, Object? actual) {
     if (expected == actual) return true;
     if (expected == null || actual == null) return false;
-    return expected.toString().trim() == actual.toString().trim();
+    final expectedText = expected.toString().trim();
+    final actualText = actual.toString().trim();
+    if (expectedText == actualText) return true;
+    return _canonicalTextValue(expectedText) == _canonicalTextValue(actualText);
+  }
+
+  String _canonicalTextValue(String value) {
+    final collapsed = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return collapsed.replaceFirst(RegExp(r'[\s.!?。！？]+$'), '').trim();
   }
 
   /// Resolves the selector value used for snapshot lookup.

@@ -193,13 +193,17 @@ class AgentSoulRepository {
   /// `system.profile.update` exposes the shorter API keys `name` /
   /// `nickname`. Keeping this mapping here prevents prompt/tool/schema drift.
   static String canonicalProfileField(String field) {
-    switch (field.trim()) {
+    final normalized = field.trim().toLowerCase().replaceAll(
+      RegExp(r'[\s-]+'),
+      '_',
+    );
+    switch (normalized) {
       case 'user_name':
         return 'name';
       case 'user_nickname':
         return 'nickname';
       default:
-        return field.trim();
+        return normalized;
     }
   }
 

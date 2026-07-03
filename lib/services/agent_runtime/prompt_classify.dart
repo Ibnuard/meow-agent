@@ -179,6 +179,7 @@ Rules:
 - task_relation: none/continuation/revision/new_task against ACTIVE TASK CONTEXT.
 - required_capabilities: list of capability strings the final result MUST have. Use "usesUserDatabase" when user asks for database/DB/persistent storage. Use "initializesTables" when user asks for table creation. Leave empty when no specific capability is required.
 - tool_call: set to null unless there is exactly one unambiguous immediate tool action. When filled, name MUST be an exact available tool name and args MUST match that tool's schema using only explicit user-provided values or non-creative defaults documented by the tool. Do not fill tool_call for multi-step tasks, missing slots, ambiguous targets, or if any confirmation/impact reasoning is still needed before the first action.
+- For profile updates, each distinct profile field is a separate immediate action. If the user provides more than one profile field in the same message, set tool_call=null and emit one subgoal per field.
 - toolHint in subgoals: string representing the exact tool name (e.g. miniapp.read, miniapp.patch) expected to satisfy the subgoal, or null/absent if unknown.
 - $promptNarrativeFieldRule
 - $promptNextNarrativeFieldRule

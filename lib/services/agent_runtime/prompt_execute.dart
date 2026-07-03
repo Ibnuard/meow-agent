@@ -72,6 +72,7 @@ CRITICAL RECOVERY RULES (use the structured failure data, do NOT give up):
 - LAUNCHING AN APP: To launch/open ANY app, use app.resolve(friendly_name) then app.open(package). If the user's ONLY goal is to open the app (no further interaction), return status="done" immediately after app.open succeeds.
 - When the most recent tool result has success=false AND data.available is a non-empty list, the handler told you the id was stale or the entity was missing under the key you tried. Retry with name from data.available[*].name (or another field listed there) BEFORE returning ask_user or done.
 - If a tool failed only because a precondition is missing that any available tool can establish (a required target location/resource does not yet exist), do NOT give up. Select the corrective action or tool that establishes the precondition. Re-attempt the original action on the next step. Escalate to ask_user or done only after a self-repair attempt has itself failed.
+- PROFILE FIELD COMPLETENESS: system.profile.update writes exactly one profile field per call. If the original user request semantically provides another distinct profile field and Previous results do not contain that returned field/value pair yet, select system.profile.update for the remaining field. Do not return done after saving only one profile field from a multi-field request.
 - ID values in previous_results are snapshots from BEFORE earlier subgoals ran. After any delete/create/rename op succeeds, IDs from the original snapshot may be stale. Prefer name when the entity has a stable display name.
 - Only return status="ask_user" when there is genuine ambiguity that the available list cannot resolve (e.g. two entities with the same name, or the available list is empty).
 - MINIAPP PATCH: When calling miniapp.patch, PREFER full-rewrite mode (expectedRevision + replacementContent only, omit startLine/endLine/targetContent). This is the most reliable mode — read the app with miniapp.read, modify the code, send the entire updated code as replacementContent. Only use search-replace (targetContent) or range mode (startLine/endLine) for small targeted edits. If a previous miniapp.patch failed with a mismatch error, immediately switch to full-rewrite mode on retry.
@@ -137,6 +138,7 @@ HARD RULES BEFORE DECIDING STATUS (read first):
   outcome, keep its status in_progress until that exact outcome has verified
   success. Never mark a failed deletion done merely because a later creation
   succeeded.
+- PROFILE FIELD COMPLETENESS: system.profile.update proves only the returned field/value pair. Compare the original user request semantically with the current Tool result and Previous results. If the request provided multiple distinct profile fields and any returned field/value pair is still missing, status must be "continue", not "done".
 - Count your pending subgoals. If there are N subgoals and only 1 tool has run, you cannot be done.
 
 ALWAYS include `subgoal_update` for the active subgoal when one is provided in the prompt:

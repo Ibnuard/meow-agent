@@ -98,6 +98,16 @@ void main() {
     expect(aliasResult.data?['field'], 'nickname');
     final updatedSoul = await repo.get('current');
     expect(updatedSoul!.userNickname, 'Di');
+
+    final spacedAliasResult = await tools.executeProfileUpdate({
+      'field': 'User Nickname',
+      'value': 'King',
+    });
+
+    expect(spacedAliasResult.success, true);
+    expect(spacedAliasResult.data?['field'], 'nickname');
+    final spacedAliasSoul = await repo.get('current');
+    expect(spacedAliasSoul!.userNickname, 'King');
   });
 
   test('router registers core system tools', () {

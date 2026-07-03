@@ -144,6 +144,59 @@ void main() {
     },
   );
 
+  test('S0a short standalone greeting suppresses stale history', () async {
+    final llm = ScriptedLlmClient({
+      'chat_route': [
+        '{"route":"chat","detected_language":"id",'
+            '"direct_response":"Halo Bejo! Ada yang bisa kubantu?",'
+            '"reason":"short standalone greeting"}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'halo bejo',
+        recentMessages: [
+          ChatMessage(
+            role: 'user',
+            content: 'cek system soul existing name=Nunu nickname=King',
+          ),
+          ChatMessage(
+            role: 'assistant',
+            content: 'Semua field profile sudah tersimpan di agent_soul table.',
+          ),
+        ],
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Halo'));
+    expect(llm.phaseSequence, ['chat_route']);
+    expect(
+      llm.callLog.single.combinedContent,
+      contains('Recent conversation:\nNo prior conversation.'),
+    );
+    expect(
+      llm.callLog.single.combinedContent,
+      isNot(contains('cek system soul existing')),
+    );
+    expect(
+      llm.callLog.single.combinedContent,
+      isNot(contains('Semua field profile')),
+    );
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'divergence' &&
+            event.data?['kind'] == 'context_light_chat_route',
+      ),
+      true,
+    );
+  });
+
   test('S0b introduction answer persists profile through agentic route', () async {
     final llm = ScriptedLlmClient({
       'classify': [
@@ -158,6 +211,11 @@ void main() {
             '"subgoals":[{"id":"sg1","label":"save the user name",'
             '"required_slots":{},"missing_slots":[],"status":"pending"}],'
             '"narrative":""}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Saved.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"","next_narrative":""}',
       ],
     });
     final router = ScriptedToolRouter(
@@ -186,10 +244,76 @@ void main() {
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(res.finalMessage, 'Saved.');
-    expect(llm.phaseSequence, ['classify']);
+    expect(llm.phaseSequence, ['classify', 'review']);
     expect(router.dispatchSequence, ['system.profile.update']);
     expect(router.dispatchLog.single.args, {'field': 'name', 'value': 'Wowo'});
   });
+
+  test(
+    'S0b2 profile fast lane reviewer catches missing second field',
+    () async {
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"intent":"profile.update","goal":"save the user name and nickname",'
+              '"requires_tools":true,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["save user profile"],'
+              '"task_relation":"none","narrative":"","next_narrative":"",'
+              '"main_goal":"save the user name and nickname",'
+              '"completion_criteria":[],'
+              '"tool_call":{"name":"system.profile.update",'
+              '"args":{"field":"name","value":"Nunu"}},'
+              '"subgoals":[{"id":"sg1","label":"save user profile",'
+              '"required_slots":{},"missing_slots":[],"status":"pending"}]}',
+        ],
+        'review': [
+          '{"status":"continue","reason":"nickname still needs saving",'
+              '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+              '"narrative":"","next_narrative":""}',
+          '{"status":"done","final_response":"Sudah kusimpan.",'
+              '"subgoal_update":{"id":"sg1","status":"done"},'
+              '"narrative":"","next_narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"nickname","value":"King"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+      router.resultsByCall['system.profile.update'] = [
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Nunu'},
+        ),
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'King'},
+        ),
+      ];
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('nama gw Nunu nah panggilannya King'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, 'Sudah kusimpan.');
+      expect(llm.phaseSequence, ['classify', 'review', 'selectTool', 'review']);
+      expect(router.dispatchSequence, [
+        'system.profile.update',
+        'system.profile.update',
+      ]);
+      expect(router.dispatchLog[0].args, {'field': 'name', 'value': 'Nunu'});
+      expect(router.dispatchLog[1].args, {
+        'field': 'nickname',
+        'value': 'King',
+      });
+    },
+  );
 
   test(
     'S0c compound profile answer saves name and nickname without review',
@@ -1148,6 +1272,43 @@ void main() {
     expect(router.dispatchCountOf('notes.search'), 1);
   });
 
+  test('S8b empty lookup finalizes locally without reviewer loop', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"notes.search","goal":"find notes","requires_tools":true,'
+            '"risk":"safe","detected_language":"en",'
+            '"selected_skill_ids":["meow.notes"],"tool_groups":["notes"],'
+            '"missing_info":[],"subgoal_seeds":["search notes"],'
+            '"task_relation":"none","narrative":"","next_narrative":"",'
+            '"main_goal":"find notes","completion_criteria":["search done"],'
+            '"tool_call":{"name":"notes.search","args":{"query":"quantum physics"}},'
+            '"subgoals":[{"id":"sg1","label":"search notes",'
+            '"required_slots":{"_operation":"search","tool":"notes.search"},'
+            '"missing_slots":[],"status":"pending","toolHint":"notes.search"}]}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'notes.search': const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.search',
+          data: {'count': 0, 'results': []},
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('find my notes about quantum physics'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('No notes'));
+    expect(router.dispatchSequence, ['notes.search']);
+    expect(llm.phaseSequence, ['classify']);
+  });
+
   // ── Scenario 9: failed tool → honest failure, not claimed done ─────────
   // The reviewer returns `failed`; the engine attempts ONE recovery rethink
   // (re-reflect + re-plan + re-loop), the retry fails again, recovery is
@@ -1549,6 +1710,56 @@ void main() {
     // Review phase was skipped (retrieval terminal short-circuit).
     expect(llm.countOf('review'), 0);
   });
+
+  test(
+    'S16a generic retrieval verbalization falls back to result data',
+    () async {
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"system.agents.list","goal":"list agents",'
+              '"requires_tools":true,"risk":"safe","tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["list agents"],'
+              '"task_relation":"none","narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.config.read",'
+              '"args":{},"risk":"safe","requires_confirmation":false},'
+              '"narrative":""}',
+        ],
+        'verbalize.answer_from_tool_result': ['Done.'],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'system.config.read': const ToolExecutionResult(
+            success: true,
+            toolName: 'system.config.read',
+            data: {
+              'config': {
+                'agents': [
+                  {'id': 'a1', 'name': 'Mina Chan'},
+                  {'id': 'a2', 'name': 'Kai'},
+                ],
+              },
+              'schemaVersion': 1,
+              'valid': true,
+            },
+          ),
+        },
+      );
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('what agents do I have?'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, contains('Mina Chan'));
+      expect(res.finalMessage, contains('Kai'));
+      expect(router.dispatchCountOf('system.config.read'), 1);
+      expect(llm.countOf('review'), 0);
+    },
+  );
 
   test('S16b recovery read cannot complete an update subgoal', () async {
     final longCode = 'BEGIN-${List.filled(1000, 'x').join()}-END';

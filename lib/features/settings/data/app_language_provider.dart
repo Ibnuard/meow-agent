@@ -143,16 +143,31 @@ class AppStrings {
       : 'Add an LLM provider before running the benchmark.';
   String get runtimeBenchmarkProviderLabel =>
       isId ? 'Provider Benchmark' : 'Benchmark Provider';
+  String get runtimeBenchmarkModelLabel =>
+      isId ? 'Model Benchmark' : 'Benchmark Model';
+  String get runtimeBenchmarkDefaultModel =>
+      isId ? 'Model default' : 'Default model';
   String runtimeBenchmarkScoreSummary(int passed, int total, int score) => isId
       ? '$passed/$total lolos - skor $score'
       : '$passed/$total passed - score $score';
+  String runtimeBenchmarkTimingSummary(
+    int completed,
+    int totalMs,
+    int averageMs,
+  ) => isId
+      ? '$completed case selesai - total $totalMs ms - rata-rata $averageMs ms/case'
+      : '$completed cases completed - total $totalMs ms - average $averageMs ms/case';
   String get runtimeBenchmarkStatusIdle => isId ? 'Belum jalan' : 'Idle';
   String get runtimeBenchmarkStatusRunning => isId ? 'Sedang jalan' : 'Running';
   String get runtimeBenchmarkStatusPassed => isId ? 'Lolos' : 'Passed';
   String get runtimeBenchmarkStatusFailed => isId ? 'Gagal' : 'Failed';
   String get runtimeBenchmarkStatusError => isId ? 'Error' : 'Error';
   String get runtimeBenchmarkStateLabel => isId ? 'State' : 'State';
+  String get runtimeBenchmarkStatusLabel => isId ? 'Status' : 'Status';
+  String get runtimeBenchmarkScoreLabel => isId ? 'Skor' : 'Score';
   String get runtimeBenchmarkToolsLabel => isId ? 'Tool' : 'Tools';
+  String get runtimeBenchmarkToolTraceLabel =>
+      isId ? 'Trace tool' : 'Tool trace';
   String get runtimeBenchmarkLlmLabel => isId ? 'LLM' : 'LLM';
   String get runtimeBenchmarkPhasesLabel => isId ? 'Phase' : 'Phases';
   String runtimeBenchmarkLlmUsage(
@@ -208,6 +223,14 @@ class AppStrings {
     'failedNote' => isId ? 'Tool catatan gagal' : 'Failed note tool',
     'directResponse' =>
       isId ? 'Jawaban langsung tanpa tool' : 'Direct response without tool',
+    'staleHistoryIsolation' =>
+      isId ? 'History lama tidak kebawa' : 'Stale history isolation',
+    'workflowList' =>
+      isId ? 'Daftar workflow grounded' : 'Grounded workflow list',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Workflow: aksi sensitif diblokir'
+          : 'Workflow: sensitive action blocked',
     _ => key,
   };
   String runtimeBenchmarkCasePrompt(String key) => switch (key) {
@@ -269,6 +292,18 @@ class AppStrings {
       isId
           ? 'Input: pertanyaan identitas yang tidak butuh tool.'
           : 'Input: identity question that needs no tool.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Input: sapaan pendek setelah history lama tentang soul/profile.'
+          : 'Input: short greeting after old soul/profile history.',
+    'workflowList' =>
+      isId
+          ? 'Input: minta daftar workflow yang terpasang.'
+          : 'Input: ask for configured workflows.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Input: workflow background mencoba aksi sensitif tanpa allow-sensitive.'
+          : 'Input: background workflow attempts a sensitive action without allow-sensitive.',
     _ => key,
   };
   String runtimeBenchmarkCaseExpected(String key) => switch (key) {
@@ -332,6 +367,18 @@ class AppStrings {
       isId
           ? 'Ekspektasi: dijawab langsung tanpa dispatch tool.'
           : 'Expected: answered directly without tool dispatch.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Ekspektasi: recent chat lama tidak memengaruhi sapaan pendek.'
+          : 'Expected: stale recent chat does not influence a short greeting.',
+    'workflowList' =>
+      isId
+          ? 'Ekspektasi: workflow.list dipakai dan jawaban menyebut workflow dari result.'
+          : 'Expected: workflow.list is used and the answer cites returned workflows.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Ekspektasi: workflow masuk state blockedSensitive sebelum tool sensitif dispatch.'
+          : 'Expected: workflow enters blockedSensitive before sensitive tool dispatch.',
     _ => key,
   };
   String runtimeBenchmarkCaseVerification(String key) => switch (key) {
@@ -395,6 +442,18 @@ class AppStrings {
       isId
           ? 'Bukti: state done dan dispatch sequence kosong.'
           : 'Evidence: state is done and dispatch sequence is empty.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Bukti: dispatch kosong dan pesan akhir tidak menyebut profile/soul lama.'
+          : 'Evidence: no dispatch and final message does not mention stale profile/soul context.',
+    'workflowList' =>
+      isId
+          ? 'Bukti: workflow.list dipanggil dan title dari result muncul.'
+          : 'Evidence: workflow.list is called and returned titles appear.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Bukti: pendingTool ada, tetapi dispatch sequence tetap kosong.'
+          : 'Evidence: pendingTool is set while dispatch sequence remains empty.',
     _ => key,
   };
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';
@@ -1308,6 +1367,7 @@ class AppStrings {
       : 'Module actions and agent runs will appear here.';
 
   String get copyResult => isId ? 'Salin Hasil' : 'Copy Result';
+  String get copyAllResults => isId ? 'Salin Semua Hasil' : 'Copy All Results';
   String get save => isId ? 'Simpan' : 'Save';
   String get copiedToClipboard =>
       isId ? 'Disalin ke clipboard.' : 'Copied to clipboard.';
