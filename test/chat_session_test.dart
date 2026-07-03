@@ -238,6 +238,7 @@ void main() {
         ChatMessageKind.fromLabel('tool_failure'),
         ChatMessageKind.toolFailure,
       );
+      expect(ChatMessageKind.fromLabel('quick_ack'), ChatMessageKind.quickAck);
     });
   });
 

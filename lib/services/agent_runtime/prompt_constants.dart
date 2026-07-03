@@ -4,6 +4,7 @@ import 'prompt_context.dart';
 import 'prompt_execute.dart';
 import 'prompt_policy.dart';
 import 'prompt_profile_rules.dart';
+import 'prompt_quick_ack.dart';
 import 'prompt_system.dart';
 import 'prompt_workflow.dart';
 
@@ -119,6 +120,16 @@ $_sharedSystemRules
   // ─── Profile / soul persistence (delegated) ───────────────────────────────
 
   static const profilePersistenceRules = promptProfilePersistenceRules;
+
+  static List<Map<String, String>> quickAckMessages({
+    required String agentName,
+    required String languageCode,
+    required String userMessage,
+  }) => promptQuickAckMessages(
+    agentName: agentName,
+    languageCode: languageCode,
+    userMessage: userMessage,
+  );
 
   // ─── System markdown map (delegated to prompt_agents.dart) ─────────────
 

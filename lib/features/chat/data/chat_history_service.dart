@@ -407,7 +407,8 @@ enum ChatMessageKind {
   nextAction,
   toolInsight,
   toolFailure,
-  decisionQuestion;
+  decisionQuestion,
+  quickAck;
 
   String get label => switch (this) {
     ChatMessageKind.conversation => 'conversation',
@@ -419,6 +420,7 @@ enum ChatMessageKind {
     ChatMessageKind.toolInsight => 'tool_insight',
     ChatMessageKind.toolFailure => 'tool_failure',
     ChatMessageKind.decisionQuestion => 'decision_question',
+    ChatMessageKind.quickAck => 'quick_ack',
   };
 
   static ChatMessageKind fromLabel(String? raw) => switch (raw) {
@@ -430,6 +432,7 @@ enum ChatMessageKind {
     'tool_insight' => ChatMessageKind.toolInsight,
     'tool_failure' => ChatMessageKind.toolFailure,
     'decision_question' => ChatMessageKind.decisionQuestion,
+    'quick_ack' => ChatMessageKind.quickAck,
     _ => ChatMessageKind.conversation,
   };
 }
