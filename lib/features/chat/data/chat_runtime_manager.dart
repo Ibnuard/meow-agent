@@ -28,6 +28,7 @@ import 'token_usage_service.dart';
 import 'unread_service.dart';
 
 const _taskLedgerSentinelPrefix = '[[TASK_LEDGER]]';
+const _quickAckTimeout = Duration(seconds: 8);
 
 @visibleForTesting
 bool shouldPersistTaskLedgerSnapshot(
@@ -346,7 +347,7 @@ class ChatRuntimeManager extends ChangeNotifier {
             ),
           )
           .timeout(
-            const Duration(milliseconds: 1800),
+            _quickAckTimeout,
             onTimeout: () {
               cancelToken.cancel('quick_ack_timeout');
               return '';
@@ -385,7 +386,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           agentId: agentId,
           type: 'quick_ack',
           message: message,
-          data: {'source': 'llm', 'timeoutMs': 1800},
+          data: {'source': 'llm', 'timeoutMs': _quickAckTimeout.inMilliseconds},
         ),
       );
     }
