@@ -3,20 +3,16 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 
 import '../../../services/agent_runtime/i18n_fallback.dart';
 import '../../../services/agent_runtime/language_detector.dart';
-import '../../../services/agent_runtime/prompt_constants.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/agent_runtime/task_ledger.dart';
 import '../../../services/llm/llm_error_mapper.dart';
-import '../../../services/llm/openai_compatible_client.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../providers/data/provider_config.dart';
 import '../../providers/data/provider_repository.dart';
-import '../../settings/data/llm_provider_config.dart';
 import '../../settings/data/llm_debug_provider.dart';
 import '../../settings/data/notification_sound_provider.dart';
 import 'chat_history_service.dart';
@@ -28,7 +24,6 @@ import 'token_usage_service.dart';
 import 'unread_service.dart';
 
 const _taskLedgerSentinelPrefix = '[[TASK_LEDGER]]';
-const _quickAckTimeout = Duration(seconds: 8);
 
 @visibleForTesting
 bool shouldPersistTaskLedgerSnapshot(
@@ -37,13 +32,6 @@ bool shouldPersistTaskLedgerSnapshot(
 }) {
   if (ledger == null) return false;
   return awaitingConfirmation || ledger.goalTree.subgoals.length > 1;
-}
-
-class _QuickAckPayload {
-  const _QuickAckPayload({required this.mode, required this.ack});
-
-  final String mode;
-  final String ack;
 }
 
 /// Per-agent runtime state. Survives ChatScreen disposal so navigating away
@@ -147,7 +135,6 @@ class ChatRuntimeManager extends ChangeNotifier {
   final ChatHistoryService history;
   final ChatRuntimeLogService runtimeLog;
   final Ref ref;
-  final OpenAiCompatibleClient _quickAckClient = OpenAiCompatibleClient();
 
   final Map<String, ChatRuntimeSession> _sessions = {};
   final Map<String, Future<void>> _runtimeLogWrites = {};
@@ -155,7 +142,6 @@ class ChatRuntimeManager extends ChangeNotifier {
   final Map<String, List<ChatMessage>> _streamedMessages = {};
   final Map<String, Set<String>> _persistedStreamEventIds = {};
   final Map<String, Future<void>> _sendQueues = {};
-  final Map<String, String> _quickAckRunIds = {};
 
   /// Agents whose current in-flight send was cancelled by the user.
   /// Used to suppress trailing events and empty responses that arrive
@@ -179,7 +165,6 @@ class ChatRuntimeManager extends ChangeNotifier {
     } else {
       _cancelledSends.remove(agentId);
     }
-    _quickAckRunIds.remove(agentId);
     await _flushRuntimeLog(agentId);
     _set(agentId, ChatRuntimeSession(agentId: agentId));
   }
@@ -293,172 +278,6 @@ class ChatRuntimeManager extends ChangeNotifier {
     await pending;
     if (identical(_streamBubbleWrites[agentId], pending)) {
       _streamBubbleWrites.remove(agentId);
-    }
-  }
-
-  void _maybeStartQuickAck({
-    required String agentId,
-    required String agentName,
-    required ProviderConfig provider,
-    required String userMessage,
-    required List<ChatMessage> recentMessages,
-    required List<AttachedFile> attachments,
-    required String runId,
-  }) {
-    if (!_shouldStartQuickAck(userMessage, recentMessages, attachments)) {
-      return;
-    }
-    _quickAckRunIds[agentId] = runId;
-    unawaited(
-      _emitQuickAck(
-        agentId: agentId,
-        agentName: agentName,
-        provider: provider,
-        userMessage: userMessage,
-        runId: runId,
-      ),
-    );
-  }
-
-  Future<void> _emitQuickAck({
-    required String agentId,
-    required String agentName,
-    required ProviderConfig provider,
-    required String userMessage,
-    required String runId,
-  }) async {
-    final languageCode = await _languageForUserMessage(agentId, userMessage);
-    if (_quickAckRunIds[agentId] != runId) return;
-    if (_cancelledSends.contains(agentId)) return;
-    if (!sessionFor(agentId).isRunning) return;
-
-    final cancelToken = CancelToken();
-    String raw;
-    try {
-      raw = await _quickAckClient
-          .chat(
-            config: _toLlmProviderConfig(provider),
-            phase: 'quick_ack',
-            cancelToken: cancelToken,
-            messages: PromptConstants.quickAckMessages(
-              agentName: agentName,
-              languageCode: languageCode,
-              userMessage: userMessage,
-            ),
-          )
-          .timeout(
-            _quickAckTimeout,
-            onTimeout: () {
-              cancelToken.cancel('quick_ack_timeout');
-              return '';
-            },
-          );
-    } catch (_) {
-      return;
-    }
-
-    final payload = _parseQuickAckPayload(raw);
-    if (payload == null || payload.mode != 'agentic') return;
-    final message = _cleanQuickAckOutput(payload.ack);
-    if (message == null) return;
-    if (_quickAckRunIds[agentId] != runId) return;
-    if (_cancelledSends.contains(agentId)) return;
-    if (!sessionFor(agentId).isRunning) return;
-
-    _queueStreamBubble(
-      agentId: agentId,
-      runId: runId,
-      event: RuntimeEvent(
-        type: 'stream_bubble',
-        message: message,
-        data: const {
-          'kind': 'quick_ack',
-          'phase': 'quick_ack',
-          'evidence_refs': <String>[],
-          'context_policy': 'exclude',
-        },
-      ),
-    );
-    if (ref.read(llmDebugModeProvider)) {
-      _queueRuntimeLog(
-        agentId,
-        () => runtimeLog.appendRawEvent(
-          agentId: agentId,
-          type: 'quick_ack',
-          message: message,
-          data: {'source': 'llm', 'timeoutMs': _quickAckTimeout.inMilliseconds},
-        ),
-      );
-    }
-  }
-
-  bool _shouldStartQuickAck(
-    String userMessage,
-    List<ChatMessage> recentMessages,
-    List<AttachedFile> attachments,
-  ) {
-    final text = userMessage.trim();
-    if (text.isEmpty) return false;
-    if (attachments.isNotEmpty) return true;
-
-    final tokens = RegExp(
-      r'[\p{L}\p{N}_-]+',
-      unicode: true,
-    ).allMatches(text).length;
-    if (_latestAssistantTurnAskedQuestion(recentMessages)) return true;
-    if (text.length <= 40 && tokens <= 3) return false;
-    return true;
-  }
-
-  bool _latestAssistantTurnAskedQuestion(List<ChatMessage> messages) {
-    for (final message in messages.reversed) {
-      if (!message.includeInRuntimeContext) continue;
-      if (message.role == 'user') return false;
-      if (message.role != 'assistant') continue;
-      if (message.actions.isNotEmpty) return true;
-      return message.content.trim().endsWith('?');
-    }
-    return false;
-  }
-
-  LlmProviderConfig _toLlmProviderConfig(ProviderConfig provider) =>
-      LlmProviderConfig(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-        model: provider.model,
-        supportsFunctionCalling: provider.supportsFunctionCallingFor(
-          provider.model,
-        ),
-      );
-
-  String? _cleanQuickAckOutput(String raw) {
-    var text = raw.trim();
-    if (text.isEmpty) return null;
-    if (text.startsWith('```')) return null;
-    if (text.startsWith('{') || text.startsWith('[')) return null;
-    if ((text.startsWith('"') && text.endsWith('"')) ||
-        (text.startsWith("'") && text.endsWith("'"))) {
-      text = text.substring(1, text.length - 1).trim();
-    }
-    if (text.isEmpty) return null;
-    final firstLine = text.split(RegExp(r'[\r\n]+')).first.trim();
-    if (firstLine.isEmpty) return null;
-    return firstLine.length > 180
-        ? '${firstLine.substring(0, 180).trim()}...'
-        : firstLine;
-  }
-
-  _QuickAckPayload? _parseQuickAckPayload(String raw) {
-    final text = raw.trim();
-    if (text.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(text);
-      if (decoded is! Map) return null;
-      final mode = (decoded['mode'] ?? '').toString().trim().toLowerCase();
-      final ack = (decoded['ack'] ?? '').toString().trim();
-      return _QuickAckPayload(mode: mode, ack: ack);
-    } catch (_) {
-      return null;
     }
   }
 
@@ -659,16 +478,6 @@ class ChatRuntimeManager extends ChangeNotifier {
     final runId =
         'run-${userMsg.id ?? userMsg.clientId ?? DateTime.now().microsecondsSinceEpoch}';
 
-    _maybeStartQuickAck(
-      agentId: agentId,
-      agentName: agentName,
-      provider: provider,
-      userMessage: userMessage,
-      recentMessages: recentMessages,
-      attachments: attachments,
-      runId: runId,
-    );
-
     try {
       var runtimeRecentMessages = recentMessages;
       try {
@@ -743,7 +552,6 @@ class ChatRuntimeManager extends ChangeNotifier {
           }
         },
       );
-      _quickAckRunIds.remove(agentId);
 
       if (debugMode) {
         await _flushRuntimeLog(agentId);
@@ -877,7 +685,6 @@ class ChatRuntimeManager extends ChangeNotifier {
         ),
       );
     } catch (e) {
-      _quickAckRunIds.remove(agentId);
       await _flushStreamBubbles(agentId);
       // Don't post an error if the user explicitly cancelled.
       if (_cancelledSends.contains(agentId)) {
@@ -1349,7 +1156,6 @@ class ChatRuntimeManager extends ChangeNotifier {
     final s = sessionFor(agentId);
     if (!s.isRunning) return;
     _cancelledSends.add(agentId);
-    _quickAckRunIds.remove(agentId);
     final debugMode = ref.read(llmDebugModeProvider);
     if (debugMode) {
       _queueRuntimeLog(

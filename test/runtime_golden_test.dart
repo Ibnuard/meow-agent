@@ -104,7 +104,11 @@ void main() {
     expect(res.finalMessage, contains('here with you'));
     expect(res.finalMessage.toLowerCase(), contains('name'));
     expect(llm.phaseSequence, ['chat_route']);
-    expect(llm.callLog.single.combinedContent, contains('# Soul'));
+    expect(
+      llm.callLog.single.combinedContent,
+      contains('"mode":"chat|agentic"'),
+    );
+    expect(llm.callLog.single.combinedContent, isNot(contains('# Soul')));
     expect(router.dispatchSequence, isEmpty);
   });
 
@@ -131,8 +135,8 @@ void main() {
       expect(res.finalMessage, startsWith('Hello'));
       expect(llm.phaseSequence, ['chat_route']);
       expect(
-        llm.callLog.single.lastUserContent,
-        contains('Default response language: English'),
+        llm.callLog.single.combinedContent,
+        contains('language hint "en"'),
       );
       expect(
         res.events.any(
@@ -177,7 +181,7 @@ void main() {
     expect(llm.phaseSequence, ['chat_route']);
     expect(
       llm.callLog.single.combinedContent,
-      contains('Recent conversation:\nNo prior conversation.'),
+      isNot(contains('Recent conversation:')),
     );
     expect(
       llm.callLog.single.combinedContent,
@@ -193,7 +197,7 @@ void main() {
             event.type == 'divergence' &&
             event.data?['kind'] == 'context_light_chat_route',
       ),
-      true,
+      false,
     );
   });
 
@@ -245,6 +249,104 @@ void main() {
       ),
       isFalse,
     );
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0a3 quick route agentic emits ack then enters classifier', () async {
+    const question = 'Storage Info belum aktif. Mau aku buka pengaturannya?';
+    final llm = ScriptedLlmClient({
+      'quick_route': [
+        '{"mode":"agentic","ack":"Aku cek dulu ya.","direct_response":""}',
+      ],
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"device.storage.status","goal":"check storage",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.device"],"tool_groups":["device"],'
+            '"missing_info":["storage permission"],"subgoal_seeds":[],"task_relation":"none",'
+            '"strategy":"clarify","clarify_questions":[${jsonEncode(question)}],'
+            '"targets":[],"impacts":[],"main_goal":"Check storage",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kalo penyimpanan aku gimana?'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(llm.phaseSequence, ['quick_route', 'classify']);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.message == 'Aku cek dulu ya.' &&
+            event.data?['kind'] == 'quick_ack' &&
+            event.data?['phase'] == 'quick_route',
+      ),
+      true,
+    );
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0a4 malformed quick route falls through without ack bubble', () async {
+    final llm = ScriptedLlmClient({
+      'quick_route': ['not json'],
+      'classify': [
+        '{"route":"chat","direct_response":"Halo! Aku di sini.",'
+            '"intent":"chat","goal":"chat","requires_tools":false,'
+            '"risk":"safe","detected_language":"id","selected_skill_ids":[],'
+            '"tool_groups":[],"missing_info":[],"subgoal_seeds":[],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"chat",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('halo'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.finalMessage, contains('Halo'));
+    expect(llm.phaseSequence, ['quick_route', 'classify']);
+    expect(res.events.where((event) => event.type == 'stream_bubble'), isEmpty);
+  });
+
+  test('S0a5 workflow source bypasses quick route gate', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"chat","direct_response":"Workflow noted.",'
+            '"intent":"workflow.note","goal":"note","requires_tools":false,'
+            '"risk":"safe","detected_language":"en","selected_skill_ids":[],'
+            '"tool_groups":[],"missing_info":[],"subgoal_seeds":[],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"note",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      const AgentRuntimeRequest(
+        agentId: 'a1',
+        agentName: 'TestAgent',
+        userMessage: 'workflow ping',
+        source: RequestSource.workflow,
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(llm.phaseSequence, ['classify']);
     expect(router.dispatchSequence, isEmpty);
   });
 

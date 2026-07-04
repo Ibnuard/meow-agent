@@ -64,9 +64,15 @@ class ScriptedLlmClient extends OpenAiCompatibleClient {
     CancelToken? cancelToken,
   }) async {
     final resolvedPhase = _resolvePhaseAlias(phase);
+    final queue = _byPhase[resolvedPhase];
+    if (resolvedPhase == 'quick_route' && (queue == null || queue.isEmpty)) {
+      throw StateError(
+        'ScriptedLlmClient: no scripted quick_route response; simulating gate fallback.',
+      );
+    }
+
     callLog.add(ScriptedLlmCall(phase: resolvedPhase, messages: messages));
 
-    final queue = _byPhase[resolvedPhase];
     if (queue == null || queue.isEmpty) {
       if (phase == 'classify') {
         final synthesized = _synthesizeClassifyFromLegacyPhases();
@@ -85,6 +91,11 @@ class ScriptedLlmClient extends OpenAiCompatibleClient {
 
   String _resolvePhaseAlias(String phase) {
     switch (phase) {
+      case 'quick_route':
+        if ((_byPhase['chat_route']?.isNotEmpty ?? false)) {
+          return 'chat_route';
+        }
+        return phase;
       case 'classify':
         if ((_byPhase['chat_route']?.isNotEmpty ?? false)) {
           return 'chat_route';

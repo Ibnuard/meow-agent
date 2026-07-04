@@ -121,11 +121,21 @@ $_sharedSystemRules
 
   static const profilePersistenceRules = promptProfilePersistenceRules;
 
+  static List<Map<String, String>> quickRouteMessages({
+    required String agentName,
+    required String languageCode,
+    required String userMessage,
+  }) => promptQuickRouteMessages(
+    agentName: agentName,
+    languageCode: languageCode,
+    userMessage: userMessage,
+  );
+
   static List<Map<String, String>> quickAckMessages({
     required String agentName,
     required String languageCode,
     required String userMessage,
-  }) => promptQuickAckMessages(
+  }) => quickRouteMessages(
     agentName: agentName,
     languageCode: languageCode,
     userMessage: userMessage,

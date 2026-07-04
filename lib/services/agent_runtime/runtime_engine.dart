@@ -60,6 +60,23 @@ import '../../features/modules/workflows/workflow_repository.dart';
 /// Callback for real-time event streaming.
 typedef RuntimeEventCallback = void Function(RuntimeEvent event);
 
+const _quickRouteTimeout = Duration(seconds: 8);
+
+class _QuickRouteDecision {
+  const _QuickRouteDecision({
+    required this.mode,
+    required this.ack,
+    required this.directResponse,
+  });
+
+  final String mode;
+  final String ack;
+  final String directResponse;
+
+  bool get isChat => mode == 'chat' && directResponse.isNotEmpty;
+  bool get isAgentic => mode == 'agentic';
+}
+
 /// Entity types whose targets are resolved against the live ecosystem snapshot.
 /// Only these may be passed to the planner as authoritative "resolved target"
 
@@ -438,13 +455,6 @@ class AgentRuntimeEngine {
       supportsPromptCaching: true,
     );
     final client = _client;
-    unawaited(
-      _maybeSummarizeIdleSession(
-        request: request,
-        client: client,
-        config: llmConfig,
-      ),
-    );
     final executor = Executor(
       client: client,
       config: llmConfig,
@@ -532,6 +542,70 @@ class AgentRuntimeEngine {
           if (pendingResponse != null) return pendingResponse;
         }
       }
+      var pendingClarification = _pendingClarifications[request.agentId];
+      if (pendingClarification != null && pendingClarification.isExpired) {
+        _pendingClarifications.remove(request.agentId);
+        pendingClarification = null;
+      }
+      final activeLedger = await ledgerDb.findActive(
+        agentId: request.agentId,
+        source: request.source == RequestSource.workflow
+            ? LedgerSource.workflow
+            : LedgerSource.chat,
+        maxAge: request.source == RequestSource.workflow
+            ? null
+            : const Duration(hours: 6),
+      );
+
+      if (_shouldRunQuickRouteGate(
+        request: request,
+        isWorkflowAutoExecute: isWorkflowAutoExecute,
+        pending: pending,
+        pendingClarification: pendingClarification,
+        activeLedger: activeLedger,
+        restartFromOriginalMessage: restartFromOriginalMessage,
+      )) {
+        final quickRoute = await _runQuickRouteGate(
+          request: request,
+          client: client,
+          config: llmConfig,
+          detectedLang: detectedLang,
+          logger: logger,
+          emit: emit,
+        );
+        if (quickRoute != null) {
+          if (quickRoute.isChat) {
+            logger.logStateChange(
+              AgentRuntimeState.done,
+              'Quick route chat response',
+            );
+            emit(logger.events.last);
+            logger.logFinalResponse(quickRoute.directResponse);
+            return AgentRuntimeResponse(
+              finalMessage: quickRoute.directResponse,
+              success: true,
+              state: AgentRuntimeState.done,
+              events: logger.events,
+            );
+          }
+          if (quickRoute.isAgentic) {
+            _emitQuickRouteAck(
+              decision: quickRoute,
+              logger: logger,
+              emit: emit,
+            );
+          }
+        }
+      }
+
+      unawaited(
+        _maybeSummarizeIdleSession(
+          request: request,
+          client: client,
+          config: llmConfig,
+        ),
+      );
+
       final wsName = request.agentName.isNotEmpty
           ? request.agentName
           : request.agentId;
@@ -591,11 +665,6 @@ class AgentRuntimeEngine {
       // many tool results would otherwise push the request out of context.
       // Provider-error sentinel messages are stripped inside the slicer.
       final recentMsgs = HistorySlicer.slice(messages: request.recentMessages);
-      var pendingClarification = _pendingClarifications[request.agentId];
-      if (pendingClarification != null && pendingClarification.isExpired) {
-        _pendingClarifications.remove(request.agentId);
-        pendingClarification = null;
-      }
       if (pendingClarification != null &&
           _looksLikeClarificationContextSwitch(
             currentMessage: request.userMessage,
@@ -608,18 +677,6 @@ class AgentRuntimeEngine {
         _pendingClarifications.remove(request.agentId);
         pendingClarification = null;
       }
-      final activeLedger = await ledgerDb.findActive(
-        agentId: request.agentId,
-        source: request.source == RequestSource.workflow
-            ? LedgerSource.workflow
-            : LedgerSource.chat,
-        // Age guard: a task parked for hours must not silently re-anchor an
-        // unrelated new turn. Workflows run unattended on a schedule, so the
-        // guard only applies to interactive chat ledgers.
-        maxAge: request.source == RequestSource.workflow
-            ? null
-            : const Duration(hours: 6),
-      );
       String activeTaskContext = '';
       if (activeLedger != null) {
         activeTaskContext = activeLedger.describeForUser();
@@ -2025,6 +2082,120 @@ class AgentRuntimeEngine {
           ),
       ],
     );
+  }
+
+  bool _shouldRunQuickRouteGate({
+    required AgentRuntimeRequest request,
+    required bool isWorkflowAutoExecute,
+    required PendingAction? pending,
+    required PendingClarification? pendingClarification,
+    required TaskLedger? activeLedger,
+    required String? restartFromOriginalMessage,
+  }) {
+    if (request.source != RequestSource.chat) return false;
+    if (isWorkflowAutoExecute) return false;
+    if (request.userMessage.trim().isEmpty) return false;
+    if (request.attachments.isNotEmpty) return false;
+    if (pending != null) return false;
+    if (pendingClarification != null) return false;
+    if (activeLedger != null) return false;
+    if (restartFromOriginalMessage != null) return false;
+    return true;
+  }
+
+  Future<_QuickRouteDecision?> _runQuickRouteGate({
+    required AgentRuntimeRequest request,
+    required OpenAiCompatibleClient client,
+    required LlmProviderConfig config,
+    required DetectedLanguage detectedLang,
+    required RuntimeLogger logger,
+    required void Function(RuntimeEvent) emit,
+  }) async {
+    final quickCancelToken = CancelToken();
+    String raw;
+    try {
+      raw = await client
+          .chat(
+            config: config,
+            phase: 'quick_route',
+            cancelToken: quickCancelToken,
+            messages: PromptConstants.quickRouteMessages(
+              agentName: request.agentName,
+              languageCode: detectedLang.code,
+              userMessage: request.userMessage,
+            ),
+          )
+          .timeout(
+            _quickRouteTimeout,
+            onTimeout: () {
+              quickCancelToken.cancel('quick_route_timeout');
+              return '';
+            },
+          );
+    } catch (e) {
+      logger.logError('Quick route gate failed; continuing agentic runtime', e);
+      return null;
+    }
+
+    final parsed = JsonUtils.tryParseObject(raw);
+    if (parsed == null) {
+      if (raw.trim().isNotEmpty) {
+        logger.logError('Quick route gate returned invalid JSON');
+      }
+      return null;
+    }
+
+    logger.logLlmDecision(
+      'quick_route',
+      parsed,
+      version: PromptConstants.promptVersion,
+    );
+    emit(logger.events.last);
+
+    final mode = (parsed['mode'] ?? parsed['route'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (mode != 'chat' && mode != 'agentic') return null;
+    return _QuickRouteDecision(
+      mode: mode,
+      ack: (parsed['ack'] ?? '').toString().trim(),
+      directResponse: (parsed['direct_response'] ?? '').toString().trim(),
+    );
+  }
+
+  void _emitQuickRouteAck({
+    required _QuickRouteDecision decision,
+    required RuntimeLogger logger,
+    required void Function(RuntimeEvent) emit,
+  }) {
+    final ack = _cleanQuickAckOutput(decision.ack);
+    if (ack == null) return;
+    if (logger.logStreamBubble(
+      kind: 'quick_ack',
+      phase: 'quick_route',
+      message: ack,
+      contextPolicy: 'exclude',
+    )) {
+      emit(logger.events.last);
+    }
+  }
+
+  String? _cleanQuickAckOutput(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return null;
+    if (text.startsWith('```')) return null;
+    if (text.startsWith('{') || text.startsWith('[')) return null;
+    if ((text.startsWith('"') && text.endsWith('"')) ||
+        (text.startsWith("'") && text.endsWith("'"))) {
+      text = text.substring(1, text.length - 1).trim();
+    }
+    if (text.isEmpty) return null;
+    final firstLine = text.split(RegExp(r'[\r\n]+')).first.trim();
+    if (firstLine.isEmpty) return null;
+    return firstLine.length > 180
+        ? '${firstLine.substring(0, 180).trim()}...'
+        : firstLine;
   }
 
   Future<EcosystemSnapshot> _buildSnapshot() async {

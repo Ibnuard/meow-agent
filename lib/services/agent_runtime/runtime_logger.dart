@@ -144,6 +144,7 @@ class RuntimeLogger {
       'delivery',
       'task_progress',
       'warning',
+      'quick_ack',
     }.contains(kind);
   }
 
