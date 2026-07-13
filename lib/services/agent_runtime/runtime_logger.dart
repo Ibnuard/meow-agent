@@ -30,6 +30,7 @@ class RuntimeLogger {
   static const int _narrativeWindow = 6;
   final List<String> _recentNarratives = [];
   final List<String> _recentStreamBubbleKeys = [];
+  final List<String> _recentStreamBubbleTexts = [];
   String? _lastPreActionPhase;
   String? _lastPreActionNarrative;
 
@@ -99,12 +100,23 @@ class RuntimeLogger {
   }) {
     final text = message.trim();
     if (text.isEmpty) return false;
+    if (!_isImportantStreamBubbleKind(kind)) return false;
     final norm = _normalizeNarrative(text);
+    for (final prior in _recentStreamBubbleTexts) {
+      if (prior == norm) return false;
+      if (norm.length >= 16 && (prior.contains(norm) || norm.contains(prior))) {
+        return false;
+      }
+    }
     final dedupeKey = [kind, phase, norm, ...evidenceRefs].join('|');
     if (_recentStreamBubbleKeys.contains(dedupeKey)) return false;
     _recentStreamBubbleKeys.add(dedupeKey);
+    _recentStreamBubbleTexts.add(norm);
     if (_recentStreamBubbleKeys.length > _narrativeWindow) {
       _recentStreamBubbleKeys.removeAt(0);
+    }
+    if (_recentStreamBubbleTexts.length > _narrativeWindow) {
+      _recentStreamBubbleTexts.removeAt(0);
     }
     _events.add(
       RuntimeEvent(
@@ -119,6 +131,21 @@ class RuntimeLogger {
       ),
     );
     return true;
+  }
+
+  bool _isImportantStreamBubbleKind(String kind) {
+    return const {
+      'impact',
+      'tool_failure',
+      'capability_boundary',
+      'permission_blocked',
+      'workflow_blocked',
+      'artifact_ready',
+      'delivery',
+      'task_progress',
+      'warning',
+      'quick_ack',
+    }.contains(kind);
   }
 
   void logStateChange(AgentRuntimeState state, String message) {

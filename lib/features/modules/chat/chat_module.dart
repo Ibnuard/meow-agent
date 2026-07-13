@@ -63,7 +63,7 @@ class ChatModulePlugin extends ModulePlugin {
     ModuleToolContext ctx,
   ) async {
     try {
-      final content = (args['content'] ?? '').toString().trim();
+      final content = _contentFromArgs(args);
       if (content.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -85,6 +85,7 @@ class ChatModulePlugin extends ModulePlugin {
       final messageId = await service.addMessage(
         targetAgentId,
         ChatMessage(role: 'assistant', content: content),
+        sessionId: ctx.currentSessionId.isEmpty ? null : ctx.currentSessionId,
       );
 
       await UnreadService.instance.increment(targetAgentId);
@@ -95,7 +96,10 @@ class ChatModulePlugin extends ModulePlugin {
         data: {
           'agentId': targetAgentId,
           'messageId': messageId,
+          if (ctx.currentSessionId.isNotEmpty)
+            'sessionId': ctx.currentSessionId,
           'length': content.length,
+          'delivered_content': content,
         },
       );
     } catch (e) {
@@ -105,6 +109,14 @@ class ChatModulePlugin extends ModulePlugin {
         error: e.toString(),
       );
     }
+  }
+
+  String _contentFromArgs(Map<String, dynamic> args) {
+    for (final key in const ['content', 'message', 'body', 'text']) {
+      final value = args[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty) return value;
+    }
+    return '';
   }
 
   Future<String?> _resolveTargetAgentId(

@@ -54,6 +54,21 @@ void main() {
       expect(analyzerDescriptions, isNot(contains('system.agents.create')));
       expect(analyzerDescriptions, isNot(contains('system.modules.toggle')));
     });
+
+    test('every mutating operation declares a verification probe', () {
+      final missing = <String>[];
+      for (final name in router.registeredTools) {
+        final def = router.getDefinition(name);
+        if (def == null || def.isRetrieval || def.operation.isEmpty) continue;
+        if (def.verificationProbe == null) missing.add(name);
+      }
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            'Mutating tools must prove post-state via verificationProbe: $missing',
+      );
+    });
   });
 
   group('NotesModulePlugin migration', () {

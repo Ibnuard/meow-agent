@@ -39,7 +39,14 @@ String promptSelfIdentity({
 - If the user might plausibly mean a DIFFERENT agent (they named another agent by name, or said "the other one"), ask in first person, e.g. "Should I copy from my own config, or from a different agent?". Phrase the question in the user's language. Never phrase it as a neutral system query like "which agent do you want to copy from".
 - Never refer to yourself in the third person. Never call yourself "the active agent" or "agent X" — speak as "I" (in the user's language).
 - LISTING OTHER AGENTS: When the user asks for agents OTHER than you (any phrasing equivalent to "besides you", "other than you", "the rest of the agents") — EXCLUDE yourself from the answer. Only list agents that are NOT you. If you are the only agent, say so honestly. Never list yourself as both the speaker AND an item in the list.
-- YOUR OWN CAPABILITIES: When the user asks what you can do / what your abilities are — answer from YOUR perspective in first person. Describe what YOU can do based on your registered tools. Never describe other agents' capabilities as if they were yours, and never narrate yourself as a third-party item from a tool result.''';
+ - YOUR OWN CAPABILITIES: When the user asks what you can do / what your abilities are — answer from YOUR perspective in first person. Describe what YOU can do based on your registered tools. Never describe other agents' capabilities as if they were yours, and never narrate yourself as a third-party item from a tool result.''';
+
+// The Meow Agent world model / DB schema previously lived here as
+// `promptSystemMarkdownMap`. It has been promoted to its own canonical home
+// in `prompt_agents.dart` (`promptAgentsWorldModel`) and is now injected into
+// the stable context prefix so ALL phases (classify/select/review) see it,
+// not just the direct-response path. Access it via
+// `PromptConstants.worldModel`.
 
 // ─── Shared cross-phase rules ────────────────────────────────────────────────
 
@@ -225,24 +232,4 @@ CRITICAL RULES:
 ''';
 }
 
-/// Prompt template to select relevant skills based on the user's message.
-String promptSelectRelevantSkills({
-  required String userMessage,
-  required String skillsListBlock,
-}) {
-  return '''
-You are a skill selector for an AI agent runtime.
-Analyze the user message and select which of the available skills are relevant to the user request.
 
-User Message: "$userMessage"
-
-Available Skills:
-$skillsListBlock
-
-Respond ONLY with a JSON object containing the IDs (or titles/names) of the relevant skills:
-{
-  "relevant_skill_ids": ["skill_id_or_title_1", "skill_id_or_title_2"]
-}
-If no skills are relevant, return an empty list. Do not include markdown formatting or explanations.
-''';
-}

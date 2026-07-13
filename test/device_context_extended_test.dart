@@ -5,8 +5,15 @@ import 'package:meow_agent/features/modules/device_context/device_context_models
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/tool_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
   group('device.charging', () {
     test('success — parses charging info correctly', () {
       final raw = {

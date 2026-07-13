@@ -211,7 +211,9 @@ extension SystemToolsWorkspace on SystemTools {
         );
       }
 
-      final field = (args['field'] as String? ?? '').trim();
+      final field = AgentSoulRepository.canonicalProfileField(
+        (args['field'] as String? ?? '').trim(),
+      );
       final value = (args['value'] as String? ?? '').trim();
       if (field.isEmpty || value.isEmpty) {
         return const ToolExecutionResult(

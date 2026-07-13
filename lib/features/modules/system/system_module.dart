@@ -1,3 +1,4 @@
+import '../../../core/storage/agent_soul_repository.dart';
 import '../../../services/agent_runtime/module_plugin.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/agent_runtime/system_tools.dart';
@@ -29,7 +30,7 @@ class SystemModulePlugin extends ModulePlugin {
   ];
 
   @override
-  List<ToolDefinition> get toolDefinitions => const [
+  List<ToolDefinition> get toolDefinitions => [
     ToolDefinition(
       name: 'system.self',
       description:
@@ -81,7 +82,7 @@ class SystemModulePlugin extends ModulePlugin {
       requiresConfirmation: false,
       inputSchema: {
         'field':
-            'string (required: name|nickname|preferred_language|timezone|work_role|main_project|communication_style|design_preference)',
+            'string (required: ${AgentSoulRepository.profileFields.join('|')}; use these API field keys exactly. SQLite columns user_name/user_nickname map to name/nickname but are not valid field args)',
         'value': 'string (required)',
       },
       operation: 'update',

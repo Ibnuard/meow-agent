@@ -83,9 +83,9 @@ void main() {
 
     setUp(() async {
       repo = UserDbRepository();
-      try {
-        await repo.dropTable('expenses');
-      } catch (_) {}
+      for (final table in await repo.listTables()) {
+        await repo.dropTable(table.name);
+      }
     });
 
     tearDown(() async {

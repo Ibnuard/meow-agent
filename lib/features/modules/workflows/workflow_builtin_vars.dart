@@ -169,8 +169,7 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
   // ─── Actions ──────────────────────────────────────────────────────────────
   BuiltInVariable(
     key: 'push_nofif',
-    descriptionId:
-        'Kirim notifikasi push ke perangkat kamu',
+    descriptionId: 'Kirim notifikasi push ke perangkat kamu',
     descriptionEn: 'Send a push notification to your device',
     category: BuiltInCategory.action,
     exampleValue: '[push notification target]',
@@ -201,9 +200,27 @@ const List<BuiltInVariable> kWorkflowBuiltInVariables = [
     category: BuiltInCategory.triggerNotification,
   ),
   BuiltInVariable(
+    key: 'notif_title',
+    descriptionId: 'Judul notifikasi',
+    descriptionEn: 'Notification title',
+    category: BuiltInCategory.triggerNotification,
+  ),
+  BuiltInVariable(
+    key: 'notif_app',
+    descriptionId: 'Nama aplikasi pengirim notifikasi',
+    descriptionEn: 'Notification source app',
+    category: BuiltInCategory.triggerNotification,
+  ),
+  BuiltInVariable(
     key: 'notif_sender',
     descriptionId: 'Pengirim + aplikasi (mis. Andi via WhatsApp)',
     descriptionEn: 'Sender + app (e.g. Andi via WhatsApp)',
+    category: BuiltInCategory.triggerNotification,
+  ),
+  BuiltInVariable(
+    key: 'notif_keyword',
+    descriptionId: 'Kata kunci yang cocok saat trigger notifikasi',
+    descriptionEn: 'Matched keyword for notification triggers',
     category: BuiltInCategory.triggerNotification,
   ),
 
@@ -465,8 +482,7 @@ class WorkflowBuiltInVars {
     // Prepend an instruction header so the agent treats the embedded
     // API_RESPONSE blocks as ground truth, not as missing context.
     if (resolvedNames.isNotEmpty) {
-      resolved =
-          PromptConstants.workflowApiContext(resolvedNames) + resolved;
+      resolved = PromptConstants.workflowApiContext(resolvedNames) + resolved;
     }
 
     return resolved;

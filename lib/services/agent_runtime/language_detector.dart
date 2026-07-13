@@ -7,8 +7,8 @@
 ///   2. For Latin script: heuristic word-probing across the many Latin
 ///      languages is unreliable and privileges whichever languages have a
 ///      hardcoded word list, so we DO NOT guess here. We return the caller's
-///      [fallbackCode] (the user's app setting) as a provisional, low-confidence
-///      value.
+///      [fallbackCode] from the runtime language-priority chain as a provisional,
+///      low-confidence value.
 ///
 /// The AUTHORITATIVE per-turn language comes from the analyzer LLM, which
 /// natively knows the user's language. The engine refines [DetectedLanguage]
@@ -64,7 +64,7 @@ class LanguageDetector {
   /// Detect the language of [userMessage].
   ///
   /// [fallbackCode] is used for Latin-script text and when detection is
-  /// ambiguous (typically the user's app language setting).
+  /// ambiguous. The runtime owns the fallback priority chain.
   DetectedLanguage detect({
     required String userMessage,
     required String fallbackCode,
@@ -92,9 +92,9 @@ class LanguageDetector {
 
     // Latin script: do NOT guess between Latin languages here. Word-probe
     // heuristics privilege whichever languages have a hardcoded list and
-    // mis-detect the rest. Return the caller's fallback (app setting) as a
-    // low-confidence provisional value; the analyzer's `detected_language`
-    // refines it authoritatively for this turn.
+    // mis-detect the rest. Return the caller's fallback as a low-confidence
+    // provisional value; the analyzer's `detected_language` refines it
+    // authoritatively for this turn.
     return _fallback(fallbackCode);
   }
 

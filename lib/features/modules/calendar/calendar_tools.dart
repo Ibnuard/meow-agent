@@ -371,9 +371,7 @@ class CalendarTools {
 
   // ─── calendar.upcoming ───────────────────────────────────────────────────
 
-  Future<ToolExecutionResult> executeUpcoming(
-    Map<String, dynamic> args,
-  ) async {
+  Future<ToolExecutionResult> executeUpcoming(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -385,8 +383,7 @@ class CalendarTools {
       final days = (args['days'] as num?)?.toInt().clamp(1, 90) ?? 7;
       final now = DateTime.now();
       final until = now.add(Duration(days: days));
-      final events =
-          await _repo.listEvents(from: now, to: until, limit: 200);
+      final events = await _repo.listEvents(from: now, to: until, limit: 200);
       // Group by date for readability.
       final byDate = <String, List<Map<String, dynamic>>>{};
       for (final e in events) {
@@ -402,11 +399,7 @@ class CalendarTools {
       return ToolExecutionResult(
         success: true,
         toolName: 'calendar.upcoming',
-        data: {
-          'days': days,
-          'count': events.length,
-          'byDate': byDate,
-        },
+        data: {'days': days, 'count': events.length, 'byDate': byDate},
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -439,8 +432,7 @@ class CalendarTools {
           error: 'startTime is required (ISO8601).',
         );
       }
-      final durationMinutes =
-          (args['durationMinutes'] as num?)?.toInt() ?? 60;
+      final durationMinutes = (args['durationMinutes'] as num?)?.toInt() ?? 60;
       final end = start.add(Duration(minutes: durationMinutes));
       final overlapping = await _repo.listEvents(from: start, to: end);
       return ToolExecutionResult(
@@ -452,12 +444,14 @@ class CalendarTools {
           'hasConflict': overlapping.isNotEmpty,
           'count': overlapping.length,
           'conflicts': overlapping
-              .map((e) => {
-                    'id': e.id,
-                    'title': e.title,
-                    'startTime': e.startTime.toIso8601String(),
-                    'endTime': e.endTime.toIso8601String(),
-                  })
+              .map(
+                (e) => {
+                  'id': e.id,
+                  'title': e.title,
+                  'startTime': e.startTime.toIso8601String(),
+                  'endTime': e.endTime.toIso8601String(),
+                },
+              )
               .toList(),
         },
       );
@@ -472,9 +466,7 @@ class CalendarTools {
 
   // ─── calendar.free_slot ──────────────────────────────────────────────────
 
-  Future<ToolExecutionResult> executeFreeSlot(
-    Map<String, dynamic> args,
-  ) async {
+  Future<ToolExecutionResult> executeFreeSlot(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -483,8 +475,7 @@ class CalendarTools {
       );
     }
     try {
-      final durationMinutes =
-          (args['durationMinutes'] as num?)?.toInt() ?? 60;
+      final durationMinutes = (args['durationMinutes'] as num?)?.toInt() ?? 60;
       final withinDays =
           (args['withinDays'] as num?)?.toInt().clamp(1, 30) ?? 7;
       final dayStartHour =
@@ -495,8 +486,7 @@ class CalendarTools {
           (args['maxResults'] as num?)?.toInt().clamp(1, 20) ?? 5;
       final now = DateTime.now();
       final until = now.add(Duration(days: withinDays));
-      final events =
-          await _repo.listEvents(from: now, to: until, limit: 500);
+      final events = await _repo.listEvents(from: now, to: until, limit: 500);
       final slots = <Map<String, dynamic>>[];
       DateTime cursor = now;
       // Walk forward day-by-day inside working hours.
@@ -520,11 +510,15 @@ class CalendarTools {
           slotStart = slotStart.add(Duration(minutes: 15 - mod));
         }
         // Events for the day, sorted.
-        final todayEvents = events
-            .where((e) =>
-                e.startTime.isBefore(dayEnd) && e.endTime.isAfter(dayStart))
-            .toList()
-          ..sort((a, b) => a.startTime.compareTo(b.startTime));
+        final todayEvents =
+            events
+                .where(
+                  (e) =>
+                      e.startTime.isBefore(dayEnd) &&
+                      e.endTime.isAfter(dayStart),
+                )
+                .toList()
+              ..sort((a, b) => a.startTime.compareTo(b.startTime));
         for (final event in todayEvents) {
           if (slots.length >= maxResults) break;
           final gap = event.startTime.difference(slotStart);
@@ -577,9 +571,7 @@ class CalendarTools {
 
   /// Associates a note with an event by adding a `note:<id>` tag.
   /// No new schema needed — we reuse the existing event tags column.
-  Future<ToolExecutionResult> executeLinkNote(
-    Map<String, dynamic> args,
-  ) async {
+  Future<ToolExecutionResult> executeLinkNote(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_update')) {
       return const ToolExecutionResult(
         success: false,
@@ -608,13 +600,15 @@ class CalendarTools {
       final tag = 'note:$noteId';
       final newTags = {...event.tags, tag}.toList();
       await _repo.updateEvent(eventId, tags: newTags);
+      final persisted = await _repo.getEvent(eventId);
       return ToolExecutionResult(
         success: true,
         toolName: 'calendar.link_note',
         data: {
           'eventId': eventId,
           'noteId': noteId,
-          'linkedTags': newTags,
+          'linkedTags': persisted?.tags ?? newTags,
+          'stateVerified': persisted?.tags.contains(tag) ?? false,
         },
       );
     } catch (e) {

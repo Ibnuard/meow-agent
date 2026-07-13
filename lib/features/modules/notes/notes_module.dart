@@ -45,7 +45,7 @@ class NotesModulePlugin extends ModulePlugin {
       verificationProbe: ToolVerificationProbe(
         kind: 'tool_result_data',
         entityType: 'note',
-        expectedDataKeys: ['noteId'],
+        expectedDataKeys: ['noteId', 'created', 'persisted', 'verifiedFields'],
       ),
     ),
     ToolDefinition(
@@ -90,7 +90,7 @@ class NotesModulePlugin extends ModulePlugin {
       verificationProbe: ToolVerificationProbe(
         kind: 'tool_result_data',
         entityType: 'note',
-        expectedDataKeys: ['updated'],
+        expectedDataKeys: ['updated', 'noteId', 'persisted', 'verifiedFields'],
       ),
     ),
     ToolDefinition(
@@ -105,7 +105,7 @@ class NotesModulePlugin extends ModulePlugin {
       verificationProbe: ToolVerificationProbe(
         kind: 'tool_result_data',
         entityType: 'note',
-        expectedDataKeys: ['deleted'],
+        expectedDataKeys: ['deleted', 'noteId', 'absent'],
       ),
     ),
     ToolDefinition(
@@ -129,6 +129,11 @@ class NotesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'note',
       selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated', 'noteId', 'stateVerified'],
+      ),
     ),
     ToolDefinition(
       name: 'notes.unpin',
@@ -139,6 +144,11 @@ class NotesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'note',
       selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated', 'noteId', 'stateVerified'],
+      ),
     ),
     ToolDefinition(
       name: 'notes.archive',
@@ -150,6 +160,11 @@ class NotesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'note',
       selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated', 'noteId', 'stateVerified'],
+      ),
     ),
     ToolDefinition(
       name: 'notes.unarchive',
@@ -160,6 +175,11 @@ class NotesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'note',
       selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated', 'noteId', 'stateVerified'],
+      ),
     ),
     ToolDefinition(
       name: 'notes.append',
@@ -175,6 +195,11 @@ class NotesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'note',
       selectorArgs: ['noteId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'note',
+        expectedDataKeys: ['updated', 'noteId', 'stateVerified'],
+      ),
     ),
   ];
 

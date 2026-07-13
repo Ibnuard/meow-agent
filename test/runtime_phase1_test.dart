@@ -1,9 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:meow_agent/services/agent_runtime/classifier.dart';
+import 'package:meow_agent/services/agent_runtime/ecosystem_snapshot.dart';
 import 'package:meow_agent/services/agent_runtime/i18n_fallback.dart';
 import 'package:meow_agent/services/agent_runtime/language_detector.dart';
 import 'package:meow_agent/services/agent_runtime/pending_action.dart';
-import 'package:meow_agent/services/agent_runtime/prompt_templates.dart';
 import 'package:meow_agent/services/agent_runtime/runtime_models.dart';
 import 'package:meow_agent/services/agent_runtime/workspace_loader.dart';
 
@@ -461,13 +462,28 @@ Name: [Your Name]
     });
   });
 
-  group('PromptTemplates active task relation', () {
+  group('Classifier active task relation', () {
     test('pending action prompt allows unrelated messages to become new_task', () {
-      final prompt = PromptTemplates.analyzePrompt(
+      final prompt = Classifier.buildPrompt(
         userMessage: 'bikinin 2 agen baru dengan nama bumi dan mars',
         workspace: const AgentWorkspace(soul: 'Preferred Language: Indonesian'),
-        availableTools: const ['- system.agents.create: Create an agent'],
-        languageCode: 'id',
+        snapshot: EcosystemSnapshot(
+          agents: const [],
+          workflows: const [],
+          providers: const [],
+          modules: const [],
+          builtAt: DateTime.now(),
+        ),
+        availableTools: const [
+          ToolDefinition(
+            name: 'system.agents.create',
+            description: 'Create an agent',
+            risk: 'safe',
+            requiresConfirmation: false,
+          ),
+        ],
+        language: DetectedLanguage.fromAnalyzerCode('id'),
+        recentMessages: const [],
         pendingAction: PendingAction(
           toolName: 'system.agents.delete',
           toolArgs: const {'name': 'HotDog'},

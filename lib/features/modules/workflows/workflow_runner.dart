@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -10,6 +11,8 @@ import '../../agents/data/agent_repository.dart';
 import '../../chat/data/chat_history_service.dart';
 import '../../chat/data/chat_messages_notifier.dart';
 import '../../chat/data/unread_service.dart';
+import '../notification_intelligence/notification_models.dart';
+import '../notification_intelligence/notification_repository.dart';
 import '../../providers/data/provider_repository.dart';
 import 'workflow_builtin_vars.dart';
 import 'workflow_foreground_service.dart';
@@ -61,7 +64,7 @@ class WorkflowRunner {
     _timer?.cancel();
     _scheduleNextCheck();
     // Also run immediately on start.
-    _checkAndRun();
+    checkAndRun();
   }
 
   /// Stop the runner.
@@ -69,6 +72,15 @@ class WorkflowRunner {
     _timer?.cancel();
     _timer = null;
     _executionQueue.clear();
+  }
+
+  /// Await execution queue drain and workflow completion.
+  Future<void> waitUntilIdle() async {
+    while (_processingQueue ||
+        _runningWorkflows.isNotEmpty ||
+        _executionQueue.isNotEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
   }
 
   /// Dynamic scheduling: calculate time until next due workflow.
@@ -95,13 +107,13 @@ class WorkflowRunner {
     }
 
     _timer = Timer(interval, () {
-      _checkAndRun();
+      checkAndRun();
       _scheduleNextCheck();
     });
   }
 
   /// Check all enabled workflows and enqueue any that are due.
-  Future<void> _checkAndRun() async {
+  Future<void> checkAndRun() async {
     final workflows = await _repo.listEnabledByPriority();
     final now = DateTime.now();
 
@@ -173,8 +185,8 @@ class WorkflowRunner {
   /// Check if a workflow is due to run now.
   bool _isDue(WorkflowModel wf, DateTime now) {
     if (wf.trigger.type == TriggerType.interval) {
-      if (wf.lastRun == null) return true;
-      final elapsed = now.difference(wf.lastRun!).inSeconds;
+      final lastTime = wf.lastRun ?? wf.createdAt;
+      final elapsed = now.difference(lastTime).inSeconds;
       return elapsed >= (wf.trigger.intervalMinutes ?? 60) * 60;
     }
 
@@ -229,7 +241,7 @@ class WorkflowRunner {
 
     try {
       final engine = _ref.read(agentRuntimeEngineProvider);
-      final agents = _ref.read(agentListProvider);
+      final agents = await _ref.read(agentRepositoryProvider).loadAll();
       final providerRepo = _ref.read(providerRepositoryProvider);
       final providers = await providerRepo.loadAll();
 
@@ -255,6 +267,8 @@ class WorkflowRunner {
         );
         return;
       }
+      final runtimeTriggerVars =
+          await _triggerVarsWithScheduledNotificationContext(wf, triggerVars);
 
       if (wf.isChained) {
         // ─── Chained Workflow Execution ─────────────────────────────────────
@@ -267,7 +281,7 @@ class WorkflowRunner {
           capturedEvents,
           stopwatch,
           notifId,
-          triggerVars,
+          runtimeTriggerVars,
         );
       } else {
         // ─── Single-Step Execution ──────────────────────────────────────────
@@ -279,7 +293,7 @@ class WorkflowRunner {
           capturedEvents,
           stopwatch,
           notifId,
-          triggerVars,
+          runtimeTriggerVars,
         );
       }
     } on TimeoutException {
@@ -339,7 +353,9 @@ class WorkflowRunner {
       wf.prompt,
       substituteVars,
     );
-    final apiResolved = await WorkflowBuiltInVars.resolveApiReferences(resolvedPrompt);
+    final apiResolved = await WorkflowBuiltInVars.resolveApiReferences(
+      resolvedPrompt,
+    );
     final prompt = _wrapWithTriggerContext(apiResolved, triggerVars);
 
     // When triggered by a notification, exclude reading tools (data is inline)
@@ -798,7 +814,10 @@ class WorkflowRunner {
             .timeout(Duration(seconds: _effectiveTimeout(step.timeoutSeconds)));
 
         stepStopwatch.stop();
-        previousResult = response.finalMessage;
+        previousResult = _enrichStepHandoff(
+          response.finalMessage,
+          response.previousResults,
+        );
         runtimeVars['step_${step.id}_result'] = previousResult;
         // Record this step's output for @stepN references by later steps.
         stepOutputs[i + 1] = previousResult;
@@ -808,8 +827,7 @@ class WorkflowRunner {
         // actions" toggle is off. This is terminal regardless of onFailure.
         if (response.state == AgentRuntimeState.blockedSensitive) {
           final tool = response.pendingTool ?? _s.workflowSensitiveFallbackTool;
-          final reason =
-              _s.workflowSensitiveBlocked(i + 1, tool);
+          final reason = _s.workflowSensitiveBlocked(i + 1, tool);
           previousResult = reason;
           stepResults.add(
             StepResult(
@@ -931,9 +949,10 @@ class WorkflowRunner {
               stepOutputs[i + 1] = previousResult;
 
               if (retryResponse.state == AgentRuntimeState.blockedSensitive) {
-                final tool = retryResponse.pendingTool ?? _s.workflowSensitiveFallbackTool;
-                final reason =
-                    _s.workflowSensitiveBlocked(i + 1, tool);
+                final tool =
+                    retryResponse.pendingTool ??
+                    _s.workflowSensitiveFallbackTool;
+                final reason = _s.workflowSensitiveBlocked(i + 1, tool);
                 previousResult = reason;
                 chainFailed = true;
                 stepResults.last = StepResult(
@@ -1165,18 +1184,179 @@ class WorkflowRunner {
     required int stepIndex,
     required int totalSteps,
     required String userInstruction,
-  }) =>
-      PromptConstants.workflowChainedUserMessage(
-        stepIndex: stepIndex,
-        totalSteps: totalSteps,
-        userInstruction: userInstruction,
-      );
+  }) => PromptConstants.workflowChainedUserMessage(
+    stepIndex: stepIndex,
+    totalSteps: totalSteps,
+    userInstruction: userInstruction,
+  );
 
   String _previousStepInstructionMarker(int stepIndex) =>
       PromptConstants.workflowPreviousStepMarker(stepIndex);
 
   String _earlierStepMarker(int stepNumber) =>
       PromptConstants.workflowEarlierStepMarker(stepNumber);
+
+  /// Enrich a step's verbalized narrative with the structured result data of
+  /// the last tool that ran in that step.
+  ///
+  /// Previously the chain handed only [response.finalMessage] (a verbalized
+  /// sentence) to the next step. A step returning `{"rows": [...]}` became a
+  /// natural-language sentence, and the next step had to re-parse (or re-fetch)
+  /// that data — a major accuracy loss for data-handoff chains (DB → send,
+  /// read → patch).
+  ///
+  /// This appends a delimited, compact JSON block carrying the last tool's
+  /// name + its result map so the next step's selector can read the real
+  /// structured values (ids, rows, revisions) directly. The narrative stays
+  /// first so the analyzer still keys on the instruction, not the payload.
+  /// Bounded to [_maxStructuredHandoffChars] so it never explodes context.
+  static const int _maxStructuredHandoffChars = 2400;
+
+  String _enrichStepHandoff(
+    String narrative,
+    List<Map<String, dynamic>>? previousResults,
+  ) {
+    if (narrative.isEmpty) return narrative;
+    if (previousResults == null || previousResults.isEmpty) return narrative;
+
+    Map<String, dynamic>? lastResult;
+    String? lastTool;
+    for (var i = previousResults.length - 1; i >= 0; i--) {
+      final entry = previousResults[i];
+      final result = entry['result'];
+      final tool = (entry['tool'] ?? '').toString();
+      if (result is Map && result.isNotEmpty && tool.isNotEmpty) {
+        lastResult = Map<String, dynamic>.from(result);
+        lastTool = tool;
+        break;
+      }
+    }
+    if (lastResult == null || lastTool == null) return narrative;
+
+    final encoded = jsonEncode({
+      'tool': lastTool,
+      'data': lastResult,
+    });
+    final capped = encoded.length > _maxStructuredHandoffChars
+        ? '${encoded.substring(0, _maxStructuredHandoffChars)}…(+${encoded.length - _maxStructuredHandoffChars} chars)'
+        : encoded;
+
+    return '$narrative\n\n[STRUCTURED RESULT — last tool output from the previous step. Use these real values (ids, rows, revisions, etc.) directly; do NOT re-fetch or re-parse them.]\n$capped\n[/STRUCTURED RESULT]';
+  }
+
+
+  /// Notification built-ins that can be resolved either from a live
+  /// notification event or from recent notification context for scheduled and
+  /// interval workflows.
+  static const _notificationContextKeys = {
+    'notif',
+    'notif_app',
+    'notif_title',
+    'notif_body',
+    'notif_sender',
+    'notif_keyword',
+  };
+
+  Future<Map<String, String>> _triggerVarsWithScheduledNotificationContext(
+    WorkflowModel wf,
+    Map<String, String> triggerVars,
+  ) async {
+    if ((triggerVars['notif'] ?? '').trim().isNotEmpty) return triggerVars;
+    final scheduled =
+        wf.trigger.type == TriggerType.schedule ||
+        wf.trigger.type == TriggerType.interval;
+    if (!scheduled || !_workflowReferencesNotificationContext(wf)) {
+      return triggerVars;
+    }
+
+    final recent = await _ref
+        .read(notificationRepositoryProvider)
+        .getRecent(limit: 10);
+    if (recent.error != null) {
+      return {
+        ...triggerVars,
+        'notif': '[recent notifications unavailable: ${recent.error}]',
+        'notif_app': '',
+        'notif_title': '',
+        'notif_body': '',
+        'notif_sender': '',
+        'notif_keyword': '',
+      };
+    }
+    return {
+      ...triggerVars,
+      ..._recentNotificationVars(recent.data ?? const []),
+    };
+  }
+
+  bool _workflowReferencesNotificationContext(WorkflowModel wf) {
+    if (_textReferencesNotificationContext(wf.prompt)) return true;
+    for (final step in wf.steps) {
+      if (_textReferencesNotificationContext(step.prompt) ||
+          _textReferencesNotificationContext(step.condition ?? '')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _textReferencesNotificationContext(String text) {
+    if (text.isEmpty) return false;
+    for (final key in _notificationContextKeys) {
+      if (RegExp('(?<![\\w@])@$key\\b').hasMatch(text) ||
+          text.contains('{{$key}}')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Map<String, String> _recentNotificationVars(List<NotificationInfo> recent) {
+    if (recent.isEmpty) {
+      return const {
+        'notif': '[no recent notifications available]',
+        'notif_app': '',
+        'notif_title': '',
+        'notif_body': '',
+        'notif_sender': '',
+        'notif_keyword': '',
+      };
+    }
+
+    String lineFor(NotificationInfo n) {
+      final title = (n.title ?? '').trim();
+      final body = (n.text ?? '').trim();
+      final head = title.isEmpty ? n.appName : '${n.appName} — $title';
+      return body.isEmpty ? head : '$head: $body';
+    }
+
+    final latest = recent.first;
+    final titles = recent
+        .map((n) => (n.title ?? '').trim())
+        .where((v) => v.isNotEmpty)
+        .join('\n');
+    final bodies = recent
+        .map((n) => (n.text ?? '').trim())
+        .where((v) => v.isNotEmpty)
+        .join('\n');
+    final apps = recent
+        .map((n) => n.appName.trim())
+        .where((v) => v.isNotEmpty)
+        .toSet();
+    final latestTitle = (latest.title ?? '').trim();
+    final sender = latestTitle.isEmpty
+        ? latest.appName
+        : '$latestTitle via ${latest.appName}';
+
+    return {
+      'notif': recent.map(lineFor).join('\n'),
+      'notif_app': apps.join(', '),
+      'notif_title': titles,
+      'notif_body': bodies,
+      'notif_sender': sender,
+      'notif_keyword': '',
+    };
+  }
 
   /// Trigger-var keys that, when referenced in a user's prompt, should be
   /// masked with a reference marker rather than substituted with the live
@@ -1186,6 +1366,7 @@ class WorkflowRunner {
     'notif_app',
     'notif_title',
     'notif_body',
+    'notif_sender',
     'notif_keyword',
     'app_name',
     'app_package',
@@ -1225,9 +1406,10 @@ class WorkflowRunner {
     return out;
   }
 
-  /// Prepend a `[TRIGGER CONTEXT]` block describing the notification that
-  /// fired this workflow. Tells the agent the data is inline so it doesn't
-  /// go hunting for tools to fetch chat / notification history.
+  /// Prepend a `[TRIGGER CONTEXT]` block describing notification context.
+  /// For notification-event triggers this is the notification that fired the
+  /// workflow; for schedule/interval triggers it is recent notification
+  /// context explicitly requested through `@notif*` built-ins.
   ///
   /// No-op when there's no notification trigger context.
   String _wrapWithTriggerContext(
@@ -1343,10 +1525,7 @@ class WorkflowRunner {
     );
 
     if (wf.sendToChat) {
-      await _injectToChat(
-        wf.agentId,
-        _s.workflowFailedStatus(wf.title, error),
-      );
+      await _injectToChat(wf.agentId, _s.workflowFailedStatus(wf.title, error));
     }
   }
 
@@ -1366,7 +1545,9 @@ class WorkflowRunner {
       try {
         _ref
             .read(chatMessagesProvider(agentId).notifier)
-            .addMessage(ChatMessage(id: id, role: 'assistant', content: message));
+            .addMessage(
+              ChatMessage(id: id, role: 'assistant', content: message),
+            );
       } catch (_) {
         // Notifier may not exist if no one is watching this agent's chat.
       }

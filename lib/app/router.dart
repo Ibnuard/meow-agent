@@ -17,6 +17,7 @@ import '../features/modules/notes/note_editor_screen.dart';
 import '../features/modules/notes/notes_list_screen.dart';
 import '../features/providers/presentation/add_provider_screen.dart';
 import '../features/providers/presentation/provider_list_screen.dart';
+import '../features/settings/presentation/runtime_benchmark_screen.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/miniapp/presentation/miniapp_list_screen.dart';
 import '../features/miniapp/presentation/miniapp_runner_screen.dart';
@@ -58,6 +59,7 @@ class AppRoutes {
   static const skillsList = '/skills';
   static const skillNew = '/skills/new';
   static const skillEdit = '/skills/:id';
+  static const runtimeBenchmark = '/dev/runtime-benchmark';
 }
 
 final goRouterProvider = Provider<GoRouter>((ref) {
@@ -202,6 +204,11 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           return SkillEditorScreen(skillId: id);
         },
       ),
+      GoRoute(
+        path: AppRoutes.runtimeBenchmark,
+        name: 'runtimeBenchmark',
+        builder: (context, state) => const RuntimeBenchmarkScreen(),
+      ),
 
       // Main app shell with bottom navigation.
       ShellRoute(
@@ -210,30 +217,26 @@ final goRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.home,
             name: 'home',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: HomeScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: HomeScreen()),
           ),
           GoRoute(
             path: AppRoutes.activity,
             name: 'activity',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: ActivityScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: ActivityScreen()),
           ),
           GoRoute(
             path: AppRoutes.agents,
             name: 'agents',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: AgentListScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: AgentListScreen()),
           ),
           GoRoute(
             path: AppRoutes.settings,
             name: 'settings',
-            pageBuilder: (context, state) => const NoTransitionPage(
-              child: SettingsScreen(),
-            ),
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: SettingsScreen()),
           ),
         ],
       ),

@@ -36,11 +36,14 @@ class EcosystemSnapshot {
 
   /// Heuristic: should the reflector receive the snapshot?
   /// True if any cross-entity relationship exists (workflows referencing
-  /// agents) OR if there are 2+ agents (potential rename/delete impact).
-  /// Falls through to false for trivial single-agent setups so we don't
-  /// burn tokens unnecessarily.
+  /// agents) OR if there are 2+ agents/providers (potential rename/delete
+  /// impact). Providers included so provider-management tasks (rename,
+  /// switch, list) can see the available endpoints even on single-agent
+  /// setups. Falls through to false for trivial single-agent, single-
+  /// provider, all-modules-enabled setups so we don't burn tokens.
   bool get isRelevantForReflection =>
       agents.length >= 2 ||
+      providers.length >= 2 ||
       workflows.isNotEmpty ||
       modules.any((m) => !m.enabled);
 

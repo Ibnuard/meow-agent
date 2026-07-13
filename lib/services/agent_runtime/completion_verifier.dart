@@ -86,9 +86,10 @@ class CompletionVerifier {
         return _blockGeneric(logger, detectedLang, parkTask);
       }
       for (final key in probe.expectedDataKeys) {
-        if (!data.containsKey(key) || data[key] == null) {
+        if (!data.containsKey(key) ||
+            !_isPositiveVerificationValue(data[key])) {
           logger.logDivergence('verifier_blocked', {
-            'reason': 'missing_key',
+            'reason': 'missing_or_non_positive_key',
             'key': key,
             'tool': lastToolName ?? '',
           });
@@ -124,6 +125,23 @@ class CompletionVerifier {
     // No verification data available — pass through. The reviewer will
     // catch logical failures via its own status check.
     return null;
+  }
+
+  bool _isPositiveVerificationValue(Object? value) {
+    switch (value) {
+      case final bool b:
+        return b;
+      case final num n:
+        return n > 0;
+      case final String s:
+        return s.trim().isNotEmpty;
+      case final Iterable values:
+        return values.isNotEmpty;
+      case final Map map:
+        return map.isNotEmpty;
+      default:
+        return value != null;
+    }
   }
 
   Future<AgentRuntimeResponse> _blockGeneric(

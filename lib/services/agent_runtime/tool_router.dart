@@ -1,5 +1,6 @@
 import '../../core/storage/agent_repository.dart' as core_agents;
 import '../../core/storage/agent_memory_repository.dart' as core_memory;
+import '../../core/storage/agent_skills_repository.dart' as core_skills;
 import '../../core/storage/agent_soul_repository.dart' as core_soul;
 import '../../core/storage/app_settings_repository.dart';
 import '../../core/storage/module_entry_repository.dart';
@@ -37,6 +38,7 @@ class ToolRouter {
     this.coreProviderRepo,
     this.coreSoulRepo,
     this.coreMemoryRepo,
+    this.coreSkillsRepo,
     this.secureStorage,
   }) : moduleRepository = moduleRepository ?? ModuleRepository();
 
@@ -55,6 +57,9 @@ class ToolRouter {
   final core_soul.AgentSoulRepository? coreSoulRepo;
   final core_memory.AgentMemoryRepository? coreMemoryRepo;
 
+  /// Skills repository for the skills module plugin (skills.* tools).
+  final core_skills.AgentSkillsRepository? coreSkillsRepo;
+
   /// Secure storage for provider API keys (mirrors the UI provider repo).
   final SecureStorageService? secureStorage;
 
@@ -72,6 +77,9 @@ class ToolRouter {
 
   /// User message for the current turn, used as the default image prompt.
   String currentUserMessage = '';
+
+  /// Active chat session id for tools that write chat messages.
+  String currentSessionId = '';
 
   Future<String> Function({
     required AttachedFile image,
@@ -175,11 +183,27 @@ class ToolRouter {
     return null;
   }
 
+  /// Per-turn cache for permission-denied results. [permissionDeniedResult]
+  /// is called once by the loop pre-check and again inside [execute]/
+  /// [forceExecute], each time constructing a fresh [ToolPermissionPolicy] +
+  /// [PermissionManager]. Permission state does not change mid-turn, so cache
+  /// the result per toolName for the turn. Cleared by [clearPermissionCache]
+  /// at turn end (or simply dropped when the router is per-engine-instance).
+  final _permissionDeniedCache = <String, ToolExecutionResult?>{};
+
+  void clearPermissionCache() => _permissionDeniedCache.clear();
+
   Future<ToolExecutionResult?> permissionDeniedResult(String toolName) {
-    return ToolPermissionPolicy(
+    if (_permissionDeniedCache.containsKey(toolName)) {
+      return Future.value(_permissionDeniedCache[toolName]);
+    }
+    final future = ToolPermissionPolicy(
       moduleRepository,
       permissionManager: PermissionManager(),
     ).deniedResult(toolName);
+    // Memoize the resolved value for subsequent calls this turn.
+    future.then((r) => _permissionDeniedCache[toolName] = r);
+    return future;
   }
 
   /// Returns true when this is a `files.*` call whose target path lands
@@ -278,12 +302,14 @@ class ToolRouter {
     attachments: attachments,
     modelSupportsVision: modelSupportsVision,
     currentUserMessage: currentUserMessage,
+    currentSessionId: currentSessionId,
     describeImage: describeImage,
     allToolDefinitions: _registry.values,
     coreAgentRepo: coreAgentRepo,
     coreProviderRepo: coreProviderRepo,
     coreSoulRepo: coreSoulRepo,
     coreMemoryRepo: coreMemoryRepo,
+    coreSkillsRepo: coreSkillsRepo,
     secureStorage: secureStorage,
   );
 

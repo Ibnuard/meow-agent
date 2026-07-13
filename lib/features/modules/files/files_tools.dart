@@ -570,10 +570,17 @@ class FilesTools {
         }
         await _copyDirectory(dir, Directory(resolvedTo));
       }
+      final copiedFileExists = await File(resolvedTo).exists();
+      final copiedDirExists = await Directory(resolvedTo).exists();
       return ToolExecutionResult(
         success: true,
         toolName: 'files.copy',
-        data: {'copied': true, 'from': from, 'to': to},
+        data: {
+          'copied': true,
+          'from': from,
+          'to': to,
+          'persisted': copiedFileExists || copiedDirExists,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -616,6 +623,13 @@ class FilesTools {
           error: 'path is required.',
         );
       }
+      if (content.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'files.append',
+          error: 'content is required.',
+        );
+      }
       final resolved = await _resolveSafePath(path);
       if (resolved == null) {
         return const ToolExecutionResult(
@@ -635,10 +649,15 @@ class FilesTools {
       }
       await file.writeAsString(content, mode: FileMode.append);
       final stat = await file.stat();
+      final persisted = await file.readAsString();
       return ToolExecutionResult(
         success: true,
         toolName: 'files.append',
-        data: {'path': path, 'size': stat.size},
+        data: {
+          'path': path,
+          'size': stat.size,
+          'stateVerified': persisted.endsWith(content),
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -651,9 +670,7 @@ class FilesTools {
 
   // ─── files.metadata ────────────────────────────────────────────────────────
 
-  Future<ToolExecutionResult> executeMetadata(
-    Map<String, dynamic> args,
-  ) async {
+  Future<ToolExecutionResult> executeMetadata(Map<String, dynamic> args) async {
     if (!await _isAllowed('allow_read')) {
       return const ToolExecutionResult(
         success: false,
@@ -688,9 +705,7 @@ class FilesTools {
       }
       final stat = await FileStat.stat(resolved);
       final isDir = entityType == FileSystemEntityType.directory;
-      final ext = path.contains('.')
-          ? path.split('.').last.toLowerCase()
-          : '';
+      final ext = path.contains('.') ? path.split('.').last.toLowerCase() : '';
       String? mime;
       int? lineCount;
       if (!isDir) {
@@ -756,15 +771,15 @@ class FilesTools {
       String? resolvedRoot;
       String? fallbackNote;
       if (wantsOwnWorkspace) {
-        resolvedRoot =
-            (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+        resolvedRoot = (await WorkspacePaths.getAgentWorkspace(agentName)).path;
       } else {
         resolvedRoot = await _resolveSafePath(rawRoot);
         if (resolvedRoot == null || !await Directory(resolvedRoot).exists()) {
           // Read-only fallback to own workspace so the search still produces
           // useful output when the LLM passes a stale or absolute path.
-          resolvedRoot =
-              (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+          resolvedRoot = (await WorkspacePaths.getAgentWorkspace(
+            agentName,
+          )).path;
           fallbackNote =
               'Path "$rawRoot" not found inside MeowAgent root; searched current agent workspace instead.';
         }
@@ -786,8 +801,10 @@ class FilesTools {
             );
       final results = <Map<String, dynamic>>[];
       final lowerQuery = query.toLowerCase();
-      await for (final entity
-          in dir.list(recursive: true, followLinks: false)) {
+      await for (final entity in dir.list(
+        recursive: true,
+        followLinks: false,
+      )) {
         if (results.length >= maxResults) break;
         if (entity is! File) continue;
         final name = entity.path.split(Platform.pathSeparator).last;
@@ -861,8 +878,7 @@ class FilesTools {
       String? fallbackNote;
       String displayedRoot = rawRoot.isEmpty ? '.' : rawRoot;
       if (wantsOwnWorkspace) {
-        resolvedRoot =
-            (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+        resolvedRoot = (await WorkspacePaths.getAgentWorkspace(agentName)).path;
         displayedRoot = '.';
       } else {
         resolvedRoot = await _resolveSafePath(rawRoot);
@@ -871,8 +887,9 @@ class FilesTools {
           // misformatted path from system.self / earlier tool output.
           // Show the agent's own workspace so the user gets useful context
           // instead of a hard failure.
-          resolvedRoot =
-              (await WorkspacePaths.getAgentWorkspace(agentName)).path;
+          resolvedRoot = (await WorkspacePaths.getAgentWorkspace(
+            agentName,
+          )).path;
           fallbackNote =
               'Path "$rawRoot" not found inside MeowAgent root; falling back to current agent workspace.';
           displayedRoot = '.';
@@ -923,7 +940,6 @@ class FilesTools {
         r == 'self';
   }
 
-
   Future<void> _writeTree(
     Directory dir,
     StringBuffer buf,
@@ -956,9 +972,32 @@ class FilesTools {
   // ─── helpers ───────────────────────────────────────────────────────────────
 
   static const Set<String> _textualExt = {
-    'md', 'txt', 'json', 'yaml', 'yml', 'csv', 'tsv', 'log',
-    'dart', 'js', 'ts', 'py', 'java', 'kt', 'rb', 'go', 'rs',
-    'html', 'css', 'xml', 'sh', 'bat', 'env', 'ini', 'toml', 'conf',
+    'md',
+    'txt',
+    'json',
+    'yaml',
+    'yml',
+    'csv',
+    'tsv',
+    'log',
+    'dart',
+    'js',
+    'ts',
+    'py',
+    'java',
+    'kt',
+    'rb',
+    'go',
+    'rs',
+    'html',
+    'css',
+    'xml',
+    'sh',
+    'bat',
+    'env',
+    'ini',
+    'toml',
+    'conf',
   };
 
   bool _isTextual(String ext) => _textualExt.contains(ext);

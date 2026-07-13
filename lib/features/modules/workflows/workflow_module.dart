@@ -188,6 +188,11 @@ class WorkflowModulePlugin extends ModulePlugin {
       targetEntity: 'workflow',
       selectorArgs: ['id', 'title'],
       postconditions: {'workflow_enabled': 'enabled'},
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'workflow',
+        expectedDataKeys: ['id', 'stateVerified'],
+      ),
     ),
   ];
 

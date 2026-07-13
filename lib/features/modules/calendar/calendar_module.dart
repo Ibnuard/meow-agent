@@ -163,6 +163,11 @@ class CalendarModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'calendar_event',
       selectorArgs: ['eventId'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'calendar_event',
+        expectedDataKeys: ['eventId', 'noteId', 'stateVerified'],
+      ),
     ),
   ];
 
