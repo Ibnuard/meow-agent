@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:meow_agent/features/chat/data/chat_history_service.dart';
 import 'package:meow_agent/features/providers/data/provider_config.dart';
 import 'package:meow_agent/services/agent_runtime/context_builder.dart';
 import 'package:meow_agent/services/agent_runtime/goal_tree.dart';
@@ -14,9 +17,10 @@ import 'support/scripted_llm_client.dart';
 import 'support/scripted_tool_router.dart';
 
 class PermissionDeniedRouter extends ScriptedToolRouter {
-  PermissionDeniedRouter({required Map<String, ToolExecutionResult> deniedByTool})
-    : _deniedByTool = deniedByTool,
-      super(results: const {});
+  PermissionDeniedRouter({
+    required Map<String, ToolExecutionResult> deniedByTool,
+  }) : _deniedByTool = deniedByTool,
+       super(results: const {});
 
   final Map<String, ToolExecutionResult> _deniedByTool;
 
@@ -41,24 +45,1211 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
-  ProviderConfig provider() =>
-      ProviderConfig(nickname: 'test', baseUrl: 'http://localhost', apiKey: 'k', model: 'm');
+  ProviderConfig provider() => ProviderConfig(
+    nickname: 'test',
+    baseUrl: 'http://localhost',
+    apiKey: 'k',
+    model: 'm',
+  );
 
   AgentRuntimeEngine buildEngine({
     required ScriptedLlmClient llm,
     required ScriptedToolRouter router,
     TaskLedgerDatabase? ledgerDb,
+    String languageCode = 'en',
   }) => AgentRuntimeEngine(
     workspaceFolder: FakeWorkspaceFolderService(),
     toolRouter: router,
     contextBuilder: ContextBuilder(),
-    languageCode: 'en',
+    languageCode: languageCode,
     llmClient: llm,
     ledgerDb: ledgerDb,
   );
 
   AgentRuntimeRequest req(String message, {String agentId = 'a1'}) =>
-      AgentRuntimeRequest(agentId: agentId, agentName: 'TestAgent', userMessage: message);
+      AgentRuntimeRequest(
+        agentId: agentId,
+        agentName: 'TestAgent',
+        userMessage: message,
+      );
+
+  AgentRuntimeRequest reqWithHistory(
+    String message, {
+    String agentId = 'a1',
+    List<ChatMessage> recentMessages = const [],
+  }) => AgentRuntimeRequest(
+    agentId: agentId,
+    agentName: 'TestAgent',
+    userMessage: message,
+    recentMessages: recentMessages,
+  );
+
+  test('S0 ordinary chat exits through fast chat route', () async {
+    final llm = ScriptedLlmClient({
+      'chat_route': [
+        '{"route":"chat","detected_language":"en",'
+            '"direct_response":"Hi! I am here with you. What name or nickname would you like me to use?",'
+            '"reason":"ordinary conversational message"}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('hey, can we just talk for a second?'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('here with you'));
+    expect(res.finalMessage.toLowerCase(), contains('name'));
+    expect(llm.phaseSequence, ['chat_route']);
+    expect(
+      llm.callLog.single.combinedContent,
+      contains('"mode":"chat|agentic"'),
+    );
+    expect(llm.callLog.single.combinedContent, isNot(contains('# Soul')));
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test(
+    'S0 ambiguous fresh chat defaults to English before app language setting',
+    () async {
+      final llm = ScriptedLlmClient({
+        'chat_route': [
+          '{"route":"chat","detected_language":"en",'
+              '"direct_response":"Hello! What name or nickname would you like me to use?",'
+              '"reason":"short ambiguous greeting uses default language"}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+        languageCode: 'id',
+      ).run(req('halo'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, startsWith('Hello'));
+      expect(llm.phaseSequence, ['chat_route']);
+      expect(
+        llm.callLog.single.combinedContent,
+        contains('language hint "en"'),
+      );
+      expect(
+        res.events.any(
+          (event) => event.message.contains('Language bootstrap: en'),
+        ),
+        true,
+      );
+      expect(router.dispatchSequence, isEmpty);
+    },
+  );
+
+  test('S0a short standalone greeting suppresses stale history', () async {
+    final llm = ScriptedLlmClient({
+      'chat_route': [
+        '{"route":"chat","detected_language":"id",'
+            '"direct_response":"Halo Bejo! Ada yang bisa kubantu?",'
+            '"reason":"short standalone greeting"}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'halo bejo',
+        recentMessages: [
+          ChatMessage(
+            role: 'user',
+            content: 'cek system soul existing name=Nunu nickname=King',
+          ),
+          ChatMessage(
+            role: 'assistant',
+            content: 'Semua field profile sudah tersimpan di agent_soul table.',
+          ),
+        ],
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Halo'));
+    expect(llm.phaseSequence, ['chat_route']);
+    expect(
+      llm.callLog.single.combinedContent,
+      isNot(contains('Recent conversation:')),
+    );
+    expect(
+      llm.callLog.single.combinedContent,
+      isNot(contains('cek system soul existing')),
+    );
+    expect(
+      llm.callLog.single.combinedContent,
+      isNot(contains('Semua field profile')),
+    );
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'divergence' &&
+            event.data?['kind'] == 'context_light_chat_route',
+      ),
+      false,
+    );
+  });
+
+  test('S0a2 short reply after assistant question keeps recent context', () async {
+    const question =
+        'Files module belum aktif. Mau aktifkan dulu supaya aku bisa baca struktur workspace, atau lanjut cek kemampuan saja?';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"system.capabilities_and_workspace.retry",'
+            '"goal":"retry workspace/capability request with context",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files"],'
+            '"tool_groups":["system","files"],'
+            '"missing_info":["user choice"],"subgoal_seeds":[],'
+            '"task_relation":"continuation","strategy":"clarify",'
+            '"clarify_questions":[${jsonEncode(question)}],'
+            '"targets":[],"impacts":[],"main_goal":"Retry workspace/capability request",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'coba lagi',
+        recentMessages: [
+          ChatMessage(
+            role: 'user',
+            content:
+                'kemampuan kamu bisa ngapain aja dan workspace file kamu gimana?',
+          ),
+          ChatMessage(role: 'assistant', content: question),
+        ],
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.callLog.single.combinedContent, contains(question));
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'divergence' &&
+            event.data?['kind'] == 'context_light_chat_route',
+      ),
+      isFalse,
+    );
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0a3 quick route agentic emits ack then enters classifier', () async {
+    const question = 'Storage Info belum aktif. Mau aku buka pengaturannya?';
+    final llm = ScriptedLlmClient({
+      'quick_route': [
+        '{"mode":"agentic","ack":"Aku cek dulu ya.","direct_response":""}',
+      ],
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"device.storage.status","goal":"check storage",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.device"],"tool_groups":["device"],'
+            '"missing_info":["storage permission"],"subgoal_seeds":[],"task_relation":"none",'
+            '"strategy":"clarify","clarify_questions":[${jsonEncode(question)}],'
+            '"targets":[],"impacts":[],"main_goal":"Check storage",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kalo penyimpanan aku gimana?'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(llm.phaseSequence, ['quick_route', 'classify']);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.message == 'Aku cek dulu ya.' &&
+            event.data?['kind'] == 'quick_ack' &&
+            event.data?['phase'] == 'quick_route',
+      ),
+      true,
+    );
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0a4 malformed quick route falls through without ack bubble', () async {
+    final llm = ScriptedLlmClient({
+      'quick_route': ['not json'],
+      'classify': [
+        '{"route":"chat","direct_response":"Halo! Aku di sini.",'
+            '"intent":"chat","goal":"chat","requires_tools":false,'
+            '"risk":"safe","detected_language":"id","selected_skill_ids":[],'
+            '"tool_groups":[],"missing_info":[],"subgoal_seeds":[],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"chat",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('halo'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.finalMessage, contains('Halo'));
+    expect(llm.phaseSequence, ['quick_route', 'classify']);
+    expect(res.events.where((event) => event.type == 'stream_bubble'), isEmpty);
+  });
+
+  test('S0a5 workflow source bypasses quick route gate', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"chat","direct_response":"Workflow noted.",'
+            '"intent":"workflow.note","goal":"note","requires_tools":false,'
+            '"risk":"safe","detected_language":"en","selected_skill_ids":[],'
+            '"tool_groups":[],"missing_info":[],"subgoal_seeds":[],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"note",'
+            '"completion_criteria":[],"subgoals":[],"narrative":"",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(results: const {});
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      const AgentRuntimeRequest(
+        agentId: 'a1',
+        agentName: 'TestAgent',
+        userMessage: 'workflow ping',
+        source: RequestSource.workflow,
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(llm.phaseSequence, ['classify']);
+    expect(router.dispatchSequence, isEmpty);
+  });
+
+  test('S0b introduction answer persists profile through agentic route', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"profile.update","goal":"save the user name",'
+            '"requires_tools":true,"risk":"safe","detected_language":"en",'
+            '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["save the user name"],'
+            '"task_relation":"none","narrative":"",'
+            '"next_narrative":"Next I need to save this identity detail.",'
+            '"main_goal":"save the user name","completion_criteria":["profile name saved"],'
+            '"tool_call":{"name":"system.profile.update","args":{"field":"name","value":"Wowo"}},'
+            '"subgoals":[{"id":"sg1","label":"save the user name",'
+            '"required_slots":{},"missing_slots":[],"status":"pending"}],'
+            '"narrative":""}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Saved.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"","next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.profile.update': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Wowo'},
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      reqWithHistory(
+        'my name is Wowo',
+        recentMessages: [
+          ChatMessage(
+            role: 'assistant',
+            content: 'Hello! What name or nickname would you like me to use?',
+          ),
+        ],
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, 'Saved.');
+    expect(llm.phaseSequence, ['classify', 'review']);
+    expect(router.dispatchSequence, ['system.profile.update']);
+    expect(router.dispatchLog.single.args, {'field': 'name', 'value': 'Wowo'});
+  });
+
+  test(
+    'S0b2 profile fast lane reviewer catches missing second field',
+    () async {
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"intent":"profile.update","goal":"save the user name and nickname",'
+              '"requires_tools":true,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["save user profile"],'
+              '"task_relation":"none","narrative":"","next_narrative":"",'
+              '"main_goal":"save the user name and nickname",'
+              '"completion_criteria":[],'
+              '"tool_call":{"name":"system.profile.update",'
+              '"args":{"field":"name","value":"Nunu"}},'
+              '"subgoals":[{"id":"sg1","label":"save user profile",'
+              '"required_slots":{},"missing_slots":[],"status":"pending"}]}',
+        ],
+        'review': [
+          '{"status":"continue","reason":"nickname still needs saving",'
+              '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+              '"narrative":"","next_narrative":""}',
+          '{"status":"done","final_response":"Sudah kusimpan.",'
+              '"subgoal_update":{"id":"sg1","status":"done"},'
+              '"narrative":"","next_narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"nickname","value":"King"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+      router.resultsByCall['system.profile.update'] = [
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Nunu'},
+        ),
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'King'},
+        ),
+      ];
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('nama gw Nunu nah panggilannya King'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, 'Sudah kusimpan.');
+      expect(llm.phaseSequence, ['classify', 'review', 'selectTool', 'review']);
+      expect(router.dispatchSequence, [
+        'system.profile.update',
+        'system.profile.update',
+      ]);
+      expect(router.dispatchLog[0].args, {'field': 'name', 'value': 'Nunu'});
+      expect(router.dispatchLog[1].args, {
+        'field': 'nickname',
+        'value': 'King',
+      });
+    },
+  );
+
+  test('S0b3 single profile update does not duplicate narrative bubbles', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"profile.update","goal":"update nickname to Om",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["update nickname"],'
+            '"task_relation":"none",'
+            '"narrative":"Lu mau ganti panggilan dari King jadi Om.",'
+            '"next_narrative":"Gas langsung update nickname ke Om.",'
+            '"main_goal":"update nickname to Om","completion_criteria":["nickname is Om"],'
+            '"tool_call":{"name":"system.profile.update",'
+            '"args":{"field":"nickname","value":"Om"}},'
+            '"subgoals":[{"id":"sg1","label":"update nickname",'
+            '"required_slots":{"field":"nickname","value":"Om"},'
+            '"missing_slots":[],"status":"pending"}]}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Udah, panggilan kamu sekarang Om.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"Sistem bilang nickname sudah ke-update ke Om.",'
+            '"next_narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'system.profile.update': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'Om', 'persisted': true},
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('ganti panggilan aku jadi Om dong'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Om'));
+    expect(router.dispatchSequence, ['system.profile.update']);
+    expect(res.events.where((event) => event.type == 'stream_bubble'), isEmpty);
+    expect(
+      res.events.any(
+        (event) =>
+            event.type == 'narrative' && event.data?['mode'] == 'pre_action',
+      ),
+      isFalse,
+    );
+  });
+
+  test(
+    'S0c compound profile answer saves name and nickname without review',
+    () async {
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"intent":"profile.update","goal":"save user name and nickname",'
+              '"requires_tools":true,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system"],"tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["save user name","save nickname"],'
+              '"task_relation":"none","narrative":"","next_narrative":"",'
+              '"main_goal":"save user name and nickname","subgoals":[{"id":"sg1",'
+              '"label":"save user name","required_slots":{},"missing_slots":[],'
+              '"status":"pending"},{"id":"sg2","label":"save nickname",'
+              '"required_slots":{},"missing_slots":[],"status":"pending"}],'
+              '"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"user_name","value":"Nunu"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+          '{"status":"tool_required","tool":{"name":"system.profile.update",'
+              '"args":{"field":"user_nickname","value":"King"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'system.profile.update': const ToolExecutionResult(
+            success: true,
+            toolName: 'system.profile.update',
+            data: {'field': 'name', 'value': 'Nunu'},
+          ),
+        },
+      );
+      router.resultsByCall['system.profile.update'] = [
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'name', 'value': 'Nunu'},
+        ),
+        const ToolExecutionResult(
+          success: true,
+          toolName: 'system.profile.update',
+          data: {'field': 'nickname', 'value': 'King'},
+        ),
+      ];
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('namaku Nunu panggil aja King'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, 'Sudah kusimpan.');
+      expect(llm.phaseSequence, ['classify', 'selectTool', 'selectTool']);
+      expect(router.dispatchSequence, [
+        'system.profile.update',
+        'system.profile.update',
+      ]);
+      expect(router.dispatchLog[0].args, {'field': 'name', 'value': 'Nunu'});
+      expect(router.dispatchLog[1].args, {
+        'field': 'nickname',
+        'value': 'King',
+      });
+    },
+  );
+
+  test('S0d chat.send final response uses delivered content', () async {
+    const delivered =
+        'Berikut 5 data dari JSONPlaceholder:\n\n1. sunt aut facere\n2. qui est esse';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"send.chat","goal":"send API result to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.chat"],"tool_groups":["chat"],'
+            '"missing_info":[],"subgoal_seeds":["send API result to chat"],'
+            '"task_relation":"new_task","narrative":"","next_narrative":"",'
+            '"main_goal":"send API result to chat","subgoals":[{"id":"sg1",'
+            '"label":"send API result to chat","required_slots":{"_operation":"send"},'
+            '"missing_slots":[],"status":"pending"}],'
+            '"tool_call":{"name":"chat.send","args":{"content":${jsonEncode(delivered)}}}}',
+      ],
+      'review': [
+        '{"status":"done","final_response":"Sudah berhasil dikirim.",'
+            '"subgoal_update":{"id":"sg1","status":"done"},'
+            '"narrative":"Hasilnya sudah berhasil dikirim."}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 53,
+            'length': delivered.length,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kirim hasil api tadi ke chat'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(res.finalMessage, isNot(contains('berhasil dikirim')));
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['chat.send']);
+  });
+
+  test('S0d2 chat.send message alias is normalized to content', () async {
+    const delivered = 'Berikut 5 data dari JSONPlaceholder.';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"send.chat","goal":"send API result to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.chat"],"tool_groups":["chat"],'
+            '"missing_info":[],"subgoal_seeds":["send API result to chat"],'
+            '"task_relation":"new_task","narrative":"","next_narrative":"",'
+            '"main_goal":"send API result to chat","subgoals":[{"id":"sg1",'
+            '"label":"send API result to chat","required_slots":{"_operation":"send"},'
+            '"missing_slots":[],"status":"pending"}],'
+            '"tool_call":{"name":"chat.send","args":{"message":${jsonEncode(delivered)}}}}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 54,
+            'length': delivered.length,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('kirim hasil api tadi ke chat'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(router.dispatchSequence, ['chat.send']);
+    expect(router.dispatchLog.single.args['content'], delivered);
+  });
+
+  test('S0d3 API retrieval final response includes fetched payload', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"fetch.api.store","goal":"Fetch 3 data items from json example API",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["web"],'
+            '"missing_info":[],"subgoal_seeds":["fetch 3 data items"],'
+            '"requested_item_count":3,"bulk_selector":false,'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Fetch 3 data items from json example API",'
+            '"completion_criteria":["API data received"],'
+            '"tool_call":{"name":"web.api.list","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"List APIs","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"web.api.list"},'
+            '{"id":"sg2","label":"Call json example API","required_slots":{"_operation":"call","api":"json example"},"missing_slots":["api_id"],"status":"pending","toolHint":"web.api.call"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"web.api.call",'
+            '"args":{"api":"mr35oacg","endpoint_override":"?_limit=3"},'
+            '"risk":"safe","requires_confirmation":false},'
+            '"narrative":"Calling API now."}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'web.api.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'web.api.list',
+          data: {
+            'count': 1,
+            'apis': [
+              {
+                'id': 'mr35oacg',
+                'name': 'Sample Posts API',
+                'url': 'https://jsonplaceholder.typicode.com/posts/1',
+                'method': 'GET',
+                'dynamic_params': [],
+              },
+            ],
+          },
+        ),
+        'web.api.call': const ToolExecutionResult(
+          success: true,
+          toolName: 'web.api.call',
+          data: {
+            'api_name': 'Sample Posts API',
+            'status': 200,
+            'content_type': 'application/json; charset=utf-8',
+            'body': {
+              'userId': 1,
+              'id': 1,
+              'title':
+                  'sunt aut facere repellat provident occaecati excepturi optio reprehenderit',
+              'body': 'quia et suscipit',
+            },
+            'truncated': false,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('coba dong fetch api dari api store yg json example, 3 data aja'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Hasil API'));
+    expect(res.finalMessage, contains('Sample Posts API'));
+    expect(res.finalMessage, contains('sunt aut facere'));
+    expect(res.finalMessage, contains('"id": 1'));
+    expect(res.finalMessage, isNot(contains('berhasil')));
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['web.api.list', 'web.api.call']);
+  });
+
+  test('S0d4 verified note create does not duplicate from same tool hint', () async {
+    const content = '**Sample Posts API Result**\n\nTitle: sunt aut facere';
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"save.to.note","goal":"Save API result to a note",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.notes"],"tool_groups":["notes"],'
+            '"missing_info":[],"subgoal_seeds":["Save API result"],'
+            '"task_relation":"continuation","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Save API result to a note",'
+            '"completion_criteria":["Note created with API result content"],'
+            '"tool_call":{"name":"notes.create","args":{"title":"Sample Posts API Result - 02/07/2026","content":${jsonEncode(content)}}},'
+            '"subgoals":[{"id":"sg1","label":"Create note with API result",'
+            '"required_slots":{"_operation":"create","title":"Sample Posts API Result - 02/07/2026","content":"..."},'
+            '"missing_slots":[],"status":"pending","toolHint":"notes.create"}],'
+            '"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"notes.create",'
+            '"args":{"title":"Sample Posts API Result - 02/07/2026","content":"..."},'
+            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+      ],
+      'verbalize.success': ['Udah saya simpen ke catatan.'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'notes.create': const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.create',
+          data: {
+            'noteId': 'note_53149e6c',
+            'created': true,
+            'persisted': true,
+            'verifiedFields': 2,
+            'title': 'Sample Posts API Result - 02/07/2026',
+            'content': content,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('goof tolong simpen ke catetan dong'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(router.dispatchCountOf('notes.create'), 1);
+    expect(router.dispatchLog.single.args['content'], content);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+  });
+
+  test('S0d5 fresh request drops stale pending clarification context', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"files.list.notes","goal":"List notes folder contents",'
+            '"requires_tools":false,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["files"],'
+            '"missing_info":["follow up choice"],"subgoal_seeds":[],'
+            '"requested_item_count":null,"bulk_selector":false,'
+            '"task_relation":"none","strategy":"clarify",'
+            '"targets":[],"impacts":[],'
+            '"clarify_questions":["Folder notes kosong. Mau buat file baru di notes?"],'
+            '"main_goal":"List notes folder contents",'
+            '"completion_criteria":[],"subgoals":[],'
+            '"narrative":"","next_narrative":""}',
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"system.agents.create","goal":"Create agent Mars",'
+            '"requires_tools":true,"risk":"sensitive","detected_language":"id",'
+            '"selected_skill_ids":[],"tool_groups":["system"],'
+            '"missing_info":[],"subgoal_seeds":["create agent Mars"],'
+            '"requested_item_count":null,"bulk_selector":false,'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[{"subgoal_id":"sg1","operation":"create","entity_type":"agent","entity_label":"mars","selector":{"name":"mars"}}],'
+            '"impacts":[],"clarify_questions":[],'
+            '"main_goal":"Create agent Mars",'
+            '"completion_criteria":["Agent Mars exists"],'
+            '"tool_call":{"name":"agent.create","args":{"name":"mars"}},'
+            '"subgoals":[{"id":"sg1","label":"Create agent Mars",'
+            '"required_slots":{"_operation":"create","name":"mars"},'
+            '"missing_slots":[],"status":"pending","toolHint":"agent.create"}],'
+            '"narrative":"","next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"agent.create",'
+            '"args":{"name":"mars"},"risk":"sensitive",'
+            '"requires_confirmation":true},"narrative":""}',
+      ],
+      'verbalize.confirm': ['Buat agent mars?'],
+      'verbalize.preview': ['Agent baru bernama mars akan dibuat.'],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'agent.create': const ToolExecutionResult(
+          success: true,
+          toolName: 'agent.create',
+          data: {'id': 'mars-id', 'name': 'mars'},
+        ),
+      },
+    );
+    final engine = buildEngine(llm: llm, router: router);
+
+    final first = await engine.run(
+      req('isi folder notes sekarang apa aja?'),
+      provider: provider(),
+    );
+    final second = await engine.run(
+      req('boleh minta tolong buatin agent baru bernama mars?'),
+      provider: provider(),
+    );
+
+    expect(first.state, AgentRuntimeState.askingUser);
+    expect(second.state, AgentRuntimeState.waitingConfirmation);
+    expect(second.pendingTool, 'agent.create');
+    expect(router.dispatchSequence, isEmpty);
+
+    final secondClassifyPrompt = llm.callLog
+        .where((call) => call.phase == 'classify')
+        .last
+        .lastUserContent;
+    expect(secondClassifyPrompt, contains('agent baru bernama mars'));
+    expect(secondClassifyPrompt, isNot(contains('Original user request')));
+    expect(secondClassifyPrompt, isNot(contains('folder notes')));
+  });
+
+  test(
+    'S0e clarify uses user-facing clarify question, not missing slot label',
+    () async {
+      const question =
+          'Sudah beberapa kali aku kirim ulang ke chat ini, tapi belum muncul. Mau aku tampilkan datanya langsung di balasan ini?';
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"route":"agentic","direct_response":"",'
+              '"intent":"resend_jsonplaceholder_data_alternative",'
+              '"goal":"resend JSONPlaceholder data",'
+              '"requires_tools":false,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":[],"tool_groups":[],'
+              '"missing_info":["delivery method alternative"],'
+              '"subgoal_seeds":[],"task_relation":"continuation",'
+              '"strategy":"clarify","clarify_questions":[${jsonEncode(question)}],'
+              '"targets":[],"impacts":[],"main_goal":"resend JSONPlaceholder data",'
+              '"completion_criteria":[],"subgoals":[],"narrative":"",'
+              '"next_narrative":""}',
+        ],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('coba kirim ulang lagi'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.askingUser);
+      expect(res.finalMessage, question);
+      expect(res.finalMessage, isNot('delivery method alternative'));
+      expect(
+        res.events.any(
+          (event) =>
+              event.type == 'stream_bubble' &&
+              event.data?['kind'] == 'decision_question' &&
+              event.message == question,
+        ),
+        isFalse,
+      );
+      expect(router.dispatchSequence, isEmpty);
+    },
+  );
+
+  test(
+    'S0e2 raw missing_info is verbalized as ask_user, not stream bubble',
+    () async {
+      const question =
+          'Files module belum aktif. Mau aktifkan dulu supaya aku bisa baca struktur workspace, atau lanjut cek kemampuan saja?';
+      final llm = ScriptedLlmClient({
+        'classify': [
+          '{"route":"agentic","direct_response":"",'
+              '"intent":"system.capabilities_and_workspace",'
+              '"goal":"list capabilities and workspace tree",'
+              '"requires_tools":false,"risk":"safe","detected_language":"id",'
+              '"selected_skill_ids":["meow.system","meow.files"],'
+              '"tool_groups":["system","files"],'
+              '"missing_info":["Files module belum aktif"],'
+              '"subgoal_seeds":[],"task_relation":"none",'
+              '"strategy":"clarify","clarify_questions":[],'
+              '"targets":[],"impacts":[],"main_goal":"List kemampuan agent dan struktur workspace",'
+              '"completion_criteria":[],"subgoals":[],"narrative":"",'
+              '"next_narrative":""}',
+        ],
+        'verbalize.fallback_question': [question],
+      });
+      final router = ScriptedToolRouter(results: const {});
+
+      final res = await buildEngine(llm: llm, router: router).run(
+        req('kemampuan kamu bisa ngapain aja dan workspace file kamu gimana?'),
+        provider: provider(),
+      );
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.askingUser);
+      expect(res.finalMessage, question);
+      expect(router.dispatchSequence, isEmpty);
+      expect(
+        res.events.any(
+          (event) =>
+              event.type == 'stream_bubble' &&
+              event.data?['kind'] == 'decision_question',
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('S0f workspace schema plus file list runs as thin tool-hint chain', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"workspace.inspect_and_share",'
+            '"goal":"send workspace schema and file list to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files","meow.chat"],'
+            '"tool_groups":["system","files","chat"],"missing_info":[],'
+            '"subgoal_seeds":["schema","files","send"],'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"send workspace schema and file list",'
+            '"completion_criteria":["chat receives schema and file list"],'
+            '"tool_call":{"name":"system.workspace.schema","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Retrieve workspace schema","required_slots":{"_operation":"read"},"missing_slots":[],"status":"pending","toolHint":"system.workspace.schema"},'
+            '{"id":"sg2","label":"List workspace files","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.list"},'
+            '{"id":"sg3","label":"Send combined result to chat","required_slots":{"_operation":"send","content":"combined_markdown"},"missing_slots":["content"],"status":"pending","toolHint":"chat.send"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const delivered = '**Skema Workspace**\n\n**Daftar File & Folder**';
+    final router = ScriptedToolRouter(
+      results: {
+        'system.workspace.schema': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.workspace.schema',
+          data: {
+            'architecture': {
+              'identity': 'Identity lives in SQLite.',
+              'memory': 'Memory lives in SQLite.',
+              'workspace': 'Workspace folder is for user files.',
+            },
+          },
+        ),
+        'files.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.list',
+          data: {
+            'path': '/',
+            'count': 2,
+            'entries': [
+              {
+                'name': 'notes',
+                'type': 'directory',
+                'size': 128,
+                'modified': '2026-07-02T14:00:00',
+              },
+              {
+                'name': 'README.md',
+                'type': 'file',
+                'size': 64,
+                'modified': '2026-07-02T14:01:00',
+              },
+            ],
+          },
+        ),
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {
+            'agentId': 'a1',
+            'messageId': 82,
+            'delivered_content': delivered,
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, delivered);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, [
+      'system.workspace.schema',
+      'files.list',
+      'chat.send',
+    ]);
+    final sent = router.dispatchLog.last.args['content'].toString();
+    expect(sent, contains('Saya sudah menyelesaikan'));
+    expect(sent, contains('Skema Workspace'));
+    expect(sent, contains('Daftar File'));
+    expect(sent, contains('README.md'));
+  });
+
+  test('S0g tree placeholder is composed from files.tree result', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"list_workspace_tree","goal":"send workspace tree to chat",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.files"],"tool_groups":["files","chat"],'
+            '"missing_info":[],"subgoal_seeds":["tree","send"],'
+            '"task_relation":"new_task","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"send workspace tree",'
+            '"completion_criteria":["workspace tree sent to chat"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Baca struktur folder workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"Kirim daftar file ke chat","required_slots":{"_operation":"send","content":"tree output from sg1"},"missing_slots":["content"],"status":"pending","toolHint":"chat.send"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const tree = '.\n├── notes/\n└── README.md';
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.tree',
+          data: {'tree': tree, 'root': '.'},
+        ),
+        'chat.send': const ToolExecutionResult(
+          success: true,
+          toolName: 'chat.send',
+          data: {'agentId': 'a1', 'messageId': 90, 'delivered_content': tree},
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['files.tree', 'chat.send']);
+    final sent = router.dispatchLog.last.args['content'].toString();
+    expect(sent, isNot(contains('tree output from sg1')));
+    expect(sent, contains('Saya sudah menyelesaikan'));
+    expect(sent, contains('Struktur Workspace'));
+    expect(sent, contains('README.md'));
+  });
+
+  test('S0h retrieval-only tree and list finalizes with composed result', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"route":"agentic","direct_response":"",'
+            '"intent":"inspect_workspace_and_list_files",'
+            '"goal":"show workspace tree and file list",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.files"],"tool_groups":["files"],'
+            '"missing_info":[],"subgoal_seeds":["tree","list"],'
+            '"task_relation":"none","strategy":"direct_execute",'
+            '"targets":[],"impacts":[],"main_goal":"Memberikan gambaran struktur dan daftar file workspace",'
+            '"completion_criteria":["files.tree done","files.list done"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"dapatkan struktur pohon workspace","required_slots":{"_operation":"read"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"daftarkan semua file di workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.list"}'
+            '],"narrative":"","next_narrative":""}',
+      ],
+    });
+    const tree = '.\n├── notes/\n└── README.md';
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.tree',
+          data: {'tree': tree, 'root': '.'},
+        ),
+        'files.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'files.list',
+          data: {
+            'path': '/',
+            'count': 2,
+            'entries': [
+              {
+                'name': 'notes',
+                'type': 'directory',
+                'size': 128,
+                'modified': '2026-07-02T14:00:00',
+              },
+              {
+                'name': 'README.md',
+                'type': 'file',
+                'size': 64,
+                'modified': '2026-07-02T14:01:00',
+              },
+            ],
+          },
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('skema workspace kamu gimana? boleh kirim list file kesini?'),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('Saya sudah menyelesaikan'));
+    expect(res.finalMessage, contains('Struktur Workspace'));
+    expect(res.finalMessage, contains('Daftar File'));
+    expect(res.finalMessage, contains('README.md'));
+    expect(res.finalMessage, isNot(contains('Berikut ringkasan')));
+    expect(llm.phaseSequence, ['classify']);
+    expect(llm.countOf('selectTool'), 0);
+    expect(llm.countOf('review'), 0);
+    expect(router.dispatchSequence, ['files.tree', 'files.list']);
+  });
+
+  test('S0i disabled module ask_user stops before partial fallback work', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"system.capabilities_and_workspace","goal":"list capabilities and workspace tree",'
+            '"requires_tools":true,"risk":"safe","detected_language":"id",'
+            '"selected_skill_ids":["meow.system","meow.files"],'
+            '"tool_groups":["system","files"],"missing_info":[],'
+            '"subgoal_seeds":["read workspace tree","list capabilities"],'
+            '"task_relation":"none","narrative":"","next_narrative":"",'
+            '"main_goal":"List kemampuan agent dan struktur workspace",'
+            '"completion_criteria":["workspace tree returned","capabilities returned"],'
+            '"tool_call":{"name":"files.tree","args":{}},'
+            '"subgoals":['
+            '{"id":"sg1","label":"Ambil struktur workspace","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"files.tree"},'
+            '{"id":"sg2","label":"Ambil list capabilities","required_slots":{"_operation":"list"},"missing_slots":[],"status":"pending","toolHint":"system.tools.list"}'
+            ']}',
+      ],
+      'review': [
+        '{"status":"ask_user",'
+            '"question":"Files module sedang nonaktif. Mau enable dulu Files module agar aku bisa tampilkan struktur workspace, atau lanjut capability saja?",'
+            '"subgoal_update":{"id":"sg1","status":"in_progress","notes":"files.tree gagal karena module disabled"},'
+            '"narrative":"Files tree gagal karena Files module disabled.",'
+            '"next_narrative":""}',
+      ],
+      'selectTool': [
+        '{"status":"tool_required","tool":{"name":"system.tools.list","args":{},'
+            '"risk":"safe","requires_confirmation":false},"narrative":""}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'files.tree': const ToolExecutionResult(
+          success: false,
+          toolName: 'files.tree',
+          error: 'Files module is disabled or read not allowed.',
+        ),
+        'system.tools.list': const ToolExecutionResult(
+          success: true,
+          toolName: 'system.tools.list',
+          data: {'count': 126, 'tools': []},
+        ),
+      },
+    );
+
+    final res = await buildEngine(llm: llm, router: router).run(
+      req(
+        'kamu bisa ngapain aja dan struktur workspace files gimana?',
+        agentId: 'disabled-files-agent',
+      ),
+      provider: provider(),
+    );
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.askingUser);
+    expect(res.finalMessage.toLowerCase(), contains('files module'));
+    expect(router.dispatchSequence, ['files.tree']);
+    expect(llm.countOf('selectTool'), 0);
+  });
 
   // ── Scenario 1: simple read ────────────────────────────────────────────
   // BASELINE phases: [analyze, reflect, selectTool, review,
@@ -93,7 +1284,9 @@ void main() {
         '{"status":"done","final_response":"Battery is at 80%.",'
             '"subgoal_update":{"id":"sg1","status":"done"},"narrative":""}',
       ],
-      'verbalize.answer_from_tool_result': ['Your battery is at 80%, not charging.'],
+      'verbalize.answer_from_tool_result': [
+        'Your battery is at 80%, not charging.',
+      ],
       'verbalize.success': ['Done.'],
     });
     final router = ScriptedToolRouter(
@@ -119,26 +1312,16 @@ void main() {
     expect(
       res.events.any(
         (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message == 'Next I need to inspect the current battery reading.',
+            event.type == 'narrative' && event.data?['mode'] == 'pre_action',
       ),
-      isTrue,
+      isFalse,
     );
-    expect(
-      res.events.any(
-        (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message == 'I will read the current battery state now.',
-      ),
-      isTrue,
-    );
-    // POST-STAGE-2: a trivial, high-confidence, single safe-tool read skips
-    // BOTH the redundant `review` (Stage 1) and the `reflect` (Stage 2) phases.
-    // Simple read went 5 → 3 LLM calls. Destructive/multi-entity turns still
-    // reflect (see S2, S5).
-    expect(llm.phaseSequence, ['analyze', 'selectTool', 'verbalize.answer_from_tool_result']);
+    // Merged classify owns analyze/reflect/plan; retrieval skips reviewer.
+    expect(llm.phaseSequence, [
+      'classify',
+      'selectTool',
+      'verbalize.answer_from_tool_result',
+    ]);
     expect(llm.countOf('review'), 0);
     expect(llm.countOf('reflect'), 0);
   });
@@ -188,80 +1371,91 @@ void main() {
     expect(res.pendingTool, 'app.open');
     // Nothing executed before confirmation.
     expect(router.dispatchSequence, isEmpty);
-    // Stage 2 safety valve: a sensitive intent still gets the reflection pass
-    // (it is NOT skipped), so impact/slot analysis runs before any action.
-    expect(llm.countOf('reflect'), 1);
+    // Reflection/impact analysis is part of the merged classify response.
+    expect(llm.phaseSequence, [
+      'classify',
+      'selectTool',
+      'verbalize.confirm',
+      'verbalize.preview',
+    ]);
+    expect(llm.countOf('reflect'), 0);
   });
 
-  test('S2b resetAgentState clears pending confirmation and all ledgers', () async {
-    final ledgerDb = TaskLedgerDatabase(overrideDbPath: inMemoryDatabasePath);
-    addTearDown(ledgerDb.close);
-    final llm = ScriptedLlmClient({
-      'analyze': [
-        '{"intent":"app.open","goal":"open app","requires_tools":true,'
-            '"risk":"sensitive","missing_info":[],"subgoal_seeds":["open app"],'
-            '"task_relation":"none","narrative":""}',
-      ],
-      'reflect': [
-        '{"strategy":"direct_execute","goal_tree":{"main_goal":"open app",'
-            '"completion_criteria":["app opened"],"subgoals":[{"id":"sg1",'
-            '"label":"open app","required_slots":{},"missing_slots":[],'
-            '"status":"pending"}]},"narrative":""}',
-      ],
-      'plan': [
-        '{"main_goal":"open app","completion_criteria":["app opened"],'
-            '"subgoals":[{"id":"sg1","label":"open app","required_slots":{},'
-            '"missing_slots":[],"status":"pending"}],"narrative":""}',
-      ],
-      'selectTool': [
-        '{"status":"tool_required","tool":{"name":"app.open",'
-            '"args":{"package":"com.example"},"risk":"sensitive",'
-            '"requires_confirmation":true},"narrative":""}',
-      ],
-      'verbalize.confirm': ['Open the app?'],
-      'verbalize.preview': ['This would open the app.'],
-    });
-    final router = ScriptedToolRouter(results: const {});
-    final engine = buildEngine(llm: llm, router: router, ledgerDb: ledgerDb);
-    await ledgerDb.upsert(
-      TaskLedger(
-        id: 'stale_active',
-        agentId: 'a1',
-        source: LedgerSource.chat,
-        mainGoal: 'old multi-step task',
-        languageCode: 'en',
-        originalUserMessage: 'old task',
-        goalTree: GoalTree(
+  test(
+    'S2b resetAgentState clears pending confirmation and all ledgers',
+    () async {
+      final ledgerDb = TaskLedgerDatabase(overrideDbPath: inMemoryDatabasePath);
+      addTearDown(ledgerDb.close);
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"app.open","goal":"open app","requires_tools":true,'
+              '"risk":"sensitive","missing_info":[],"subgoal_seeds":["open app"],'
+              '"task_relation":"none","narrative":""}',
+        ],
+        'reflect': [
+          '{"strategy":"direct_execute","goal_tree":{"main_goal":"open app",'
+              '"completion_criteria":["app opened"],"subgoals":[{"id":"sg1",'
+              '"label":"open app","required_slots":{},"missing_slots":[],'
+              '"status":"pending"}]},"narrative":""}',
+        ],
+        'plan': [
+          '{"main_goal":"open app","completion_criteria":["app opened"],'
+              '"subgoals":[{"id":"sg1","label":"open app","required_slots":{},'
+              '"missing_slots":[],"status":"pending"}],"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.open",'
+              '"args":{"package":"com.example"},"risk":"sensitive",'
+              '"requires_confirmation":true},"narrative":""}',
+        ],
+        'verbalize.confirm': ['Open the app?'],
+        'verbalize.preview': ['This would open the app.'],
+      });
+      final router = ScriptedToolRouter(results: const {});
+      final engine = buildEngine(llm: llm, router: router, ledgerDb: ledgerDb);
+      await ledgerDb.upsert(
+        TaskLedger(
+          id: 'stale_active',
+          agentId: 'a1',
+          source: LedgerSource.chat,
           mainGoal: 'old multi-step task',
-          subgoals: [Subgoal(id: 'sg1', label: 'old step')],
+          languageCode: 'en',
+          originalUserMessage: 'old task',
+          goalTree: GoalTree(
+            mainGoal: 'old multi-step task',
+            subgoals: [Subgoal(id: 'sg1', label: 'old step')],
+          ),
         ),
-      ),
-    );
-    final archived = TaskLedger(
-      id: 'stale_archived',
-      agentId: 'a1',
-      source: LedgerSource.workflow,
-      mainGoal: 'old archived task',
-      languageCode: 'en',
-      originalUserMessage: 'old workflow task',
-      goalTree: GoalTree(
+      );
+      final archived = TaskLedger(
+        id: 'stale_archived',
+        agentId: 'a1',
+        source: LedgerSource.workflow,
         mainGoal: 'old archived task',
-        subgoals: [Subgoal(id: 'sg1', label: 'old workflow step')],
-      ),
-    );
-    await ledgerDb.upsert(archived);
-    await ledgerDb.archive('stale_archived', LedgerStatus.completed);
+        languageCode: 'en',
+        originalUserMessage: 'old workflow task',
+        goalTree: GoalTree(
+          mainGoal: 'old archived task',
+          subgoals: [Subgoal(id: 'sg1', label: 'old workflow step')],
+        ),
+      );
+      await ledgerDb.upsert(archived);
+      await ledgerDb.archive('stale_archived', LedgerStatus.completed);
 
-    final res = await engine.run(req('open the example app'), provider: provider());
-    expect(res.state, AgentRuntimeState.waitingConfirmation);
-    expect(engine.getPendingAction('a1'), isNotNull);
+      final res = await engine.run(
+        req('open the example app'),
+        provider: provider(),
+      );
+      expect(res.state, AgentRuntimeState.waitingConfirmation);
+      expect(engine.getPendingAction('a1'), isNotNull);
 
-    await engine.resetAgentState('a1');
+      await engine.resetAgentState('a1');
 
-    expect(engine.getPendingAction('a1'), isNull);
-    expect(await ledgerDb.findById('stale_active'), isNull);
-    expect(await ledgerDb.findById('stale_archived'), isNull);
-  });
+      expect(engine.getPendingAction('a1'), isNull);
+      expect(await ledgerDb.findById('stale_active'), isNull);
+      expect(await ledgerDb.findById('stale_archived'), isNull);
+    },
+  );
 
   // ── Scenario 3: ambiguous → clarify ────────────────────────────────────
   test('S3 ambiguous request asks a clarifying question', () async {
@@ -282,7 +1476,12 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('8'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['analyze']);
+    expect(llm.phaseSequence, ['classify']);
+    expect(
+      llm.callLog.single.combinedContent,
+      contains('HELPFUL ASK-USER STYLE'),
+    );
+    expect(llm.callLog.single.combinedContent, contains('examples'));
   });
 
   // ── Scenario 4: no capability → honest refusal ─────────────────────────
@@ -375,6 +1574,43 @@ void main() {
     expect(router.dispatchCountOf('notes.search'), 1);
   });
 
+  test('S8b empty lookup finalizes locally without reviewer loop', () async {
+    final llm = ScriptedLlmClient({
+      'classify': [
+        '{"intent":"notes.search","goal":"find notes","requires_tools":true,'
+            '"risk":"safe","detected_language":"en",'
+            '"selected_skill_ids":["meow.notes"],"tool_groups":["notes"],'
+            '"missing_info":[],"subgoal_seeds":["search notes"],'
+            '"task_relation":"none","narrative":"","next_narrative":"",'
+            '"main_goal":"find notes","completion_criteria":["search done"],'
+            '"tool_call":{"name":"notes.search","args":{"query":"quantum physics"}},'
+            '"subgoals":[{"id":"sg1","label":"search notes",'
+            '"required_slots":{"_operation":"search","tool":"notes.search"},'
+            '"missing_slots":[],"status":"pending","toolHint":"notes.search"}]}',
+      ],
+    });
+    final router = ScriptedToolRouter(
+      results: {
+        'notes.search': const ToolExecutionResult(
+          success: true,
+          toolName: 'notes.search',
+          data: {'count': 0, 'results': []},
+        ),
+      },
+    );
+
+    final res = await buildEngine(
+      llm: llm,
+      router: router,
+    ).run(req('find my notes about quantum physics'), provider: provider());
+
+    expect(res.success, true);
+    expect(res.state, AgentRuntimeState.done);
+    expect(res.finalMessage, contains('No notes'));
+    expect(router.dispatchSequence, ['notes.search']);
+    expect(llm.phaseSequence, ['classify']);
+  });
+
   // ── Scenario 9: failed tool → honest failure, not claimed done ─────────
   // The reviewer returns `failed`; the engine attempts ONE recovery rethink
   // (re-reflect + re-plan + re-loop), the retry fails again, recovery is
@@ -443,7 +1679,9 @@ void main() {
     expect(res.finalMessage.toLowerCase(), isNot(contains('created')));
     expect(
       res.events.any(
-        (event) => event.type == 'stream_bubble' && event.data?['kind'] == 'tool_failure',
+        (event) =>
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'tool_failure',
       ),
       true,
     );
@@ -494,15 +1732,21 @@ void main() {
         'notes.create': const ToolExecutionResult(
           success: true,
           toolName: 'notes.create',
-          data: {'noteId': 'note_1', 'created': true},
+          data: {
+            'noteId': 'note_1',
+            'created': true,
+            'persisted': true,
+            'verifiedFields': 1,
+          },
         ),
       },
     );
     final emitted = <RuntimeEvent>[];
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('create 3 notes A, B, C'), provider: provider(), onEvent: emitted.add);
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('create 3 notes A, B, C'),
+      provider: provider(),
+      onEvent: emitted.add,
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
@@ -512,17 +1756,10 @@ void main() {
     expect(
       res.events.any(
         (event) =>
-            event.type == 'narrative' &&
-            event.data?['mode'] == 'pre_action' &&
-            event.message == 'Next I need to create note B.',
+            event.type == 'stream_bubble' &&
+            event.data?['kind'] == 'next_action',
       ),
-      isTrue,
-    );
-    expect(
-      res.events.any(
-        (event) => event.type == 'stream_bubble' && event.data?['kind'] == 'next_action',
-      ),
-      true,
+      false,
     );
   });
 
@@ -646,10 +1883,10 @@ void main() {
         ),
       },
     );
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('delete all notes with draft in the title'), provider: provider());
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('delete all notes with draft in the title'),
+      provider: provider(),
+    );
 
     // Bulk delete with two drafts → parks for confirmation (sensitive tool).
     expect(res.state, AgentRuntimeState.waitingConfirmation);
@@ -690,8 +1927,12 @@ void main() {
             '"args":{"operations":[{"op":"replace","path":"/agents","value":[]}]},'
             '"risk":"sensitive","requires_confirmation":true},"narrative":""}',
       ],
-      'verbalize.confirm': ['Delete agent Coder? This will affect the Code Review workflow.'],
-      'verbalize.preview': ['Coder is used by Code Review workflow. It will need a new agent.'],
+      'verbalize.confirm': [
+        'Delete agent Coder? This will affect the Code Review workflow.',
+      ],
+      'verbalize.preview': [
+        'Coder is used by Code Review workflow. It will need a new agent.',
+      ],
     });
     final router = ScriptedToolRouter(
       results: {
@@ -714,7 +1955,7 @@ void main() {
     expect(res.state, AgentRuntimeState.waitingConfirmation);
     expect(res.pendingTool, 'system.config.patch');
     expect(res.finalMessage.toLowerCase(), contains('workflow'));
-    expect(llm.countOf('reflect'), 1);
+    expect(llm.countOf('reflect'), 0);
   });
 
   // ── Scenario 16: retrieval terminal short-circuit ──────────────────────
@@ -772,6 +2013,56 @@ void main() {
     expect(llm.countOf('review'), 0);
   });
 
+  test(
+    'S16a generic retrieval verbalization falls back to result data',
+    () async {
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"system.agents.list","goal":"list agents",'
+              '"requires_tools":true,"risk":"safe","tool_groups":["system"],'
+              '"missing_info":[],"subgoal_seeds":["list agents"],'
+              '"task_relation":"none","narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"system.config.read",'
+              '"args":{},"risk":"safe","requires_confirmation":false},'
+              '"narrative":""}',
+        ],
+        'verbalize.answer_from_tool_result': ['Done.'],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'system.config.read': const ToolExecutionResult(
+            success: true,
+            toolName: 'system.config.read',
+            data: {
+              'config': {
+                'agents': [
+                  {'id': 'a1', 'name': 'Mina Chan'},
+                  {'id': 'a2', 'name': 'Kai'},
+                ],
+              },
+              'schemaVersion': 1,
+              'valid': true,
+            },
+          ),
+        },
+      );
+
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('what agents do I have?'), provider: provider());
+
+      expect(res.success, true);
+      expect(res.state, AgentRuntimeState.done);
+      expect(res.finalMessage, contains('Mina Chan'));
+      expect(res.finalMessage, contains('Kai'));
+      expect(router.dispatchCountOf('system.config.read'), 1);
+      expect(llm.countOf('review'), 0);
+    },
+  );
+
   test('S16b recovery read cannot complete an update subgoal', () async {
     final longCode = 'BEGIN-${List.filled(1000, 'x').join()}-END';
     final llm = ScriptedLlmClient({
@@ -816,21 +2107,27 @@ void main() {
         'miniapp.patch': const ToolExecutionResult(
           success: true,
           toolName: 'miniapp.patch',
-          data: {'id': 'calorie_calculator', 'patched': true, 'persisted': true},
+          data: {
+            'id': 'calorie_calculator',
+            'patched': true,
+            'persisted': true,
+          },
         ),
       },
     );
 
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('redesign Calorie Calculator with a modern layout'), provider: provider());
+    final res = await buildEngine(llm: llm, router: router).run(
+      req('redesign Calorie Calculator with a modern layout'),
+      provider: provider(),
+    );
 
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(router.dispatchSequence, ['miniapp.read', 'miniapp.patch']);
-    expect(llm.countOf('review'), 2);
-    final selectorCalls = llm.callLog.where((call) => call.phase == 'selectTool').toList();
+    expect(llm.countOf('review'), 1);
+    final selectorCalls = llm.callLog
+        .where((call) => call.phase == 'selectTool')
+        .toList();
     expect(selectorCalls[1].lastUserContent, contains('-END'));
     expect(selectorCalls[1].lastUserContent, isNot(contains('…(+')));
   });
@@ -871,7 +2168,11 @@ void main() {
                 'description': 'Read current battery level.',
                 'available': true,
               },
-              {'name': 'notes.create', 'description': 'Create a note.', 'available': true},
+              {
+                'name': 'notes.create',
+                'description': 'Create a note.',
+                'available': true,
+              },
             ],
           },
         ),
@@ -885,47 +2186,53 @@ void main() {
     expect(res.success, true);
     expect(res.state, AgentRuntimeState.done);
     expect(router.dispatchSequence, ['system.tools.list']);
-    expect(res.finalMessage.toLowerCase(), contains('belum punya tool kontrol media'));
-  });
-
-  test('S18 unavailable capability cannot turn into follow-up question', () async {
-    final llm = ScriptedLlmClient({
-      'analyze': [
-        '{"intent":"media.play","goal":"play a song","requires_tools":true,'
-            '"risk":"safe","tool_groups":["app"],"missing_info":[],'
-            '"subgoal_seeds":["play song"],"task_relation":"none",'
-            '"narrative":""}',
-      ],
-      'selectTool': [
-        '{"status":"tool_required","tool":{"name":"app.resolve",'
-            '"args":{"query":"music player"},"risk":"safe",'
-            '"requires_confirmation":false},"narrative":""}',
-      ],
-      'review': [
-        '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
-            '"subgoal_update":{"id":"sg1","status":"in_progress"},'
-            '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
-      ],
-    });
-    final router = ScriptedToolRouter(
-      results: {
-        'app.resolve': const ToolExecutionResult(
-          success: false,
-          toolName: 'app.resolve',
-          error: 'media control unavailable: no tool can play songs',
-        ),
-      },
+    expect(
+      res.finalMessage.toLowerCase(),
+      contains('belum punya tool kontrol media'),
     );
-    final res = await buildEngine(
-      llm: llm,
-      router: router,
-    ).run(req('coba play lagu katanya bisa'), provider: provider());
-
-    expect(res.success, false);
-    expect(res.state, AgentRuntimeState.failed);
-    expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
-    expect(router.dispatchSequence, ['app.resolve']);
   });
+
+  test(
+    'S18 unavailable capability cannot turn into follow-up question',
+    () async {
+      final llm = ScriptedLlmClient({
+        'analyze': [
+          '{"intent":"media.play","goal":"play a song","requires_tools":true,'
+              '"risk":"safe","tool_groups":["app"],"missing_info":[],'
+              '"subgoal_seeds":["play song"],"task_relation":"none",'
+              '"narrative":""}',
+        ],
+        'selectTool': [
+          '{"status":"tool_required","tool":{"name":"app.resolve",'
+              '"args":{"query":"music player"},"risk":"safe",'
+              '"requires_confirmation":false},"narrative":""}',
+        ],
+        'review': [
+          '{"status":"ask_user","question":"Lagu apa yang mau diputar?",'
+              '"subgoal_update":{"id":"sg1","status":"in_progress"},'
+              '"narrative":"Maaf, ternyata aku belum bisa mengontrol media."}',
+        ],
+      });
+      final router = ScriptedToolRouter(
+        results: {
+          'app.resolve': const ToolExecutionResult(
+            success: false,
+            toolName: 'app.resolve',
+            error: 'media control unavailable: no tool can play songs',
+          ),
+        },
+      );
+      final res = await buildEngine(
+        llm: llm,
+        router: router,
+      ).run(req('coba play lagu katanya bisa'), provider: provider());
+
+      expect(res.success, false);
+      expect(res.state, AgentRuntimeState.failed);
+      expect(res.finalMessage.toLowerCase(), isNot(contains('lagu apa')));
+      expect(router.dispatchSequence, ['app.resolve']);
+    },
+  );
 
   test('S19 missing ecosystem module returns an install action', () async {
     final llm = ScriptedLlmClient({
@@ -1043,7 +2350,7 @@ void main() {
     expect(res.state, AgentRuntimeState.askingUser);
     expect(res.finalMessage, contains('full recognized set'));
     expect(router.dispatchSequence, isEmpty);
-    expect(llm.phaseSequence, ['analyze']);
+    expect(llm.phaseSequence, ['classify']);
   });
 
   test('S10 analyzer detected_language refines the reply language', () async {

@@ -92,8 +92,8 @@ class NotesRepository {
     return updated;
   }
 
-  Future<void> deleteNote(String id) async {
+  Future<int> deleteNote(String id) async {
     final db = await NotesDatabase.instance.database;
-    await db.delete('notes', where: 'id = ?', whereArgs: [id]);
+    return db.delete('notes', where: 'id = ?', whereArgs: [id]);
   }
 }

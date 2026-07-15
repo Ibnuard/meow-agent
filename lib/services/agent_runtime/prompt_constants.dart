@@ -1,9 +1,10 @@
-import 'prompt_analyze.dart';
+import 'prompt_agents.dart';
+import 'prompt_classify.dart';
 import 'prompt_context.dart';
 import 'prompt_execute.dart';
-import 'prompt_plan.dart';
 import 'prompt_policy.dart';
-import 'prompt_reflect.dart';
+import 'prompt_profile_rules.dart';
+import 'prompt_quick_ack.dart';
 import 'prompt_system.dart';
 import 'prompt_workflow.dart';
 
@@ -33,7 +34,10 @@ class PromptConstants {
   static final Map<String, String> _systemRulesCache = {};
 
   /// System rules always enforced regardless of agent persona content.
-  static String systemRules(String language, {bool isWorkflowAutoExecute = false}) {
+  static String systemRules(
+    String language, {
+    bool isWorkflowAutoExecute = false,
+  }) {
     final cacheKey = '$language|$isWorkflowAutoExecute';
     final cached = _systemRulesCache[cacheKey];
     if (cached != null) return cached;
@@ -44,29 +48,15 @@ class PromptConstants {
 
   /// Rules identical across interactive and workflow runs. Extracted once to
   /// avoid drift between the two systemRules variants (was duplicated prose).
+  /// NOTE: Mini App code-generation policy is NOT here — it is ~800 tokens
+  /// and is injected conditionally (only when miniapp tools are available)
+  /// via [miniAppRules], the same pattern as [vmWorkflowRules]. This keeps
+  /// non-miniapp tasks ~800 tokens leaner per LLM call.
   static const String _sharedSystemRules =
       '''- Respect enabled permissions and modules. Do not assume capabilities.
 - CAPABILITY BOUNDARY (CRITICAL): Your abilities are STRICTLY limited to the tools listed in your tool schema. If NO tool exists for an action (e.g. sending SMS, making phone calls, opening camera, installing apps), you MUST immediately and honestly tell the user you cannot do it. NEVER say "let me try" or "I'll attempt" for actions without a corresponding tool. NEVER list capabilities you do not have tools for. Being persistent means trying harder with AVAILABLE tools — it does NOT mean hallucinating capabilities that do not exist.
 - CONFIG ARCHITECTURE: Configurational state (modules, active selections, user preferences) is managed through the config tool — read config then patch it. Agent and provider CRUD uses dedicated domain tools (agent.create/delete/update, provider.create/delete/update). Never invent config state. The runtime backs up, validates, atomically writes, reloads, and restores from backup if invalid. See CANONICAL ACTION PATHS for which tool owns each entity.
-- MINI APPS POLICY: When creating, listing, or updating Mini Apps, present them as native-like custom applications. NEVER mention to the user that they are coded/built using HTML, CSS, JS, or WebViews. Keep the experience and your responses feeling native. Do not use terms like "source code", "web", or "HTML/CSS/JS" when talking to the user. Mini Apps run inside a WebView container on the device and can interact directly with the device features and the User Database (meow_user.db) through the window.meow SDK.
-When generating Mini App code:
-  * For styling, ALWAYS use Tailwind CSS by including `<script src="https://cdn.tailwindcss.com"></script>` in the `<head>`. Create beautiful, modern UI elements that prioritize the user's design preference (found under Design Preference in the Soul section of their profile); if none is specified, default to a glassmorphism style. The UI elements should match the Meow Agent aesthetic (rounded corners, soft shadows, slate/indigo/cyan/violet/rose color palettes). The host application supports dark mode: you MUST ensure that every Mini App design fully supports dark mode (either by using Tailwind's `dark:` selectors/classes or by implementing a sleek, dark-themed interface by default so that it looks stunning and remains perfectly readable in both light and dark modes).
-  * AVOID calling native dialogs or native picker components (such as browser `alert()`, `confirm()`, native `<input type="date">`, or `<input type="time">`). Instead, ALWAYS build custom, highly-polished inline components using Tailwind CSS:
-    - Custom styled HTML modal dialogs/banners for alerts and confirmations.
-    - Custom inline dropdowns/selection sheets.
-    - Custom Tailwind-based date pickers and time pickers.
-    This guarantees that the styling, transitions, and theme (dark mode, colors, typography) are completely unified and feel premium without popping up disjointed OS-level prompt dialogs.
-  * Utilize the following window.meow JavaScript SDK interfaces to integrate with native features and persist user data:
-    * window.meow.db.query(sql, params) -> Promise for custom database SELECT queries.
-    * window.meow.db.insert(table, data) -> Promise to insert an object key-value map.
-    * window.meow.db.update(table, data, where, whereArgs) -> Promise to update rows.
-    * window.meow.db.delete(table, where, whereArgs) -> Promise to delete rows.
-    * window.meow.db.execute(sql, params) -> Promise to execute raw SQL (e.g. CREATE TABLE IF NOT EXISTS).
-    * window.meow.notes.create(title, content, tags), list(limit), get(id) -> Promise to access notes.
-    * window.meow.api.call(apiId, params) -> Promise to invoke registered API Store config.
-    * window.meow.haptics.vibrate() -> Trigger light haptic vibration.
-    * window.meow.navigation.pop(), push(route) -> Manage screens.
-To edit or revise a Mini App, NEVER ask the user to provide the full code or try to write/create it all from scratch. Instead: (1) read the Mini App using `miniapp.read` in range chunks (e.g. lines 1-700, then 701-1400) to locate the target block of interest, (2) analyze the sliced code range, (3) call `miniapp.patch` to replace only the specific line range that needs modification by providing targetContent and replacementContent. This allows editing large codebases incrementally without truncation.''';
+- MINI APPS POLICY: When creating, listing, or updating Mini Apps, present them as native-like custom applications. NEVER mention to the user that they are coded/built using HTML, CSS, JS, or WebViews. Keep the experience and your responses feeling native. Do not use terms like "source code", "web", or "HTML/CSS/JS" when talking to the user.''';
 
   static String _buildSystemRules(String language, bool isWorkflowAutoExecute) {
     if (isWorkflowAutoExecute) {
@@ -94,6 +84,11 @@ $_sharedSystemRules
   static const jsonOnlySystem = promptJsonOnlySystem;
   static const introductionGateRule = promptIntroductionGateRule;
   static const vmWorkflowRules = promptVmWorkflowRules;
+  static const miniAppRules = promptMiniAppRules;
+
+  /// Behavioral character — the agent's "soul" (how it behaves, not what it
+  /// can do). Injected into the stable context so every phase sees it.
+  static const soulCharacter = promptSoulCharacter;
 
   /// True when the available-tools list includes any VM module tool, so the
   /// VM workflow rules are worth injecting (they cost ~400 tokens).
@@ -104,33 +99,62 @@ $_sharedSystemRules
     return false;
   }
 
+  /// True when the available-tools list includes any miniapp tool, so the
+  /// Mini App code-generation policy is worth injecting (~800 tokens).
+  static bool toolsIncludeMiniApp(List<String> availableTools) {
+    for (final def in availableTools) {
+      if (def.contains('miniapp.')) return true;
+    }
+    return false;
+  }
+
   // ─── Policy blocks (delegated to prompt_policy.dart) ───────────────────────
 
   static const policyAsk = promptPolicyAsk;
+  static const helpfulAskUserRule = promptHelpfulAskUserRule;
   static const policyGround = promptPolicyGround;
   static const policyMinimal = promptPolicyMinimal;
   static const policyRecover = promptPolicyRecover;
   static const policyVoice = promptPolicyVoice;
 
-  // ─── Analyzer (delegated to prompt_analyze.dart) ───────────────────────────
+  // ─── Profile / soul persistence (delegated) ───────────────────────────────
 
-  static const analyzeIntro = promptAnalyzeIntro;
-  static const systemMarkdownMap = promptSystemMarkdownMap;
-  static const analyzeRequiresToolsRules = promptAnalyzeRequiresToolsRules;
-  static const analyzeCrossDomainAmbiguityRule = promptAnalyzeCrossDomainAmbiguityRule;
-  static const analyzeExamples = promptAnalyzeExamples;
-  static const analyzeResponseFormat = promptAnalyzeResponseFormat;
+  static const profilePersistenceRules = promptProfilePersistenceRules;
 
-  // ─── Reflector (delegated to prompt_reflect.dart) ──────────────────────────
+  static List<Map<String, String>> quickRouteMessages({
+    required String agentName,
+    required String languageCode,
+    required String userMessage,
+  }) => promptQuickRouteMessages(
+    agentName: agentName,
+    languageCode: languageCode,
+    userMessage: userMessage,
+  );
 
-  static const reflectIntro = promptReflectIntro;
-  static String reflectRules(String language) => promptReflectRules(language);
-  static const reflectResponseFormat = promptReflectResponseFormat;
+  static List<Map<String, String>> quickAckMessages({
+    required String agentName,
+    required String languageCode,
+    required String userMessage,
+  }) => quickRouteMessages(
+    agentName: agentName,
+    languageCode: languageCode,
+    userMessage: userMessage,
+  );
 
-  // ─── Planner (delegated to prompt_plan.dart) ───────────────────────────────
+  // ─── System markdown map (delegated to prompt_agents.dart) ─────────────
 
-  static const planIntro = promptPlanIntro;
-  static const planResponseFormat = promptPlanResponseFormat;
+  /// The full AGENTS world-model prompt (who you are, how you work, data model,
+  /// ecosystem, DB schemas). Static const — identical across all agents and
+  /// all turns, so it forms the first block of the stable context prefix for
+  /// maximum provider prompt-cache hits.
+  static const worldModel = promptAgentsWorldModel;
+
+  /// Backward-compatible accessor — delegates to the new [worldModel] home.
+  static const systemMarkdownMap = promptAgentsWorldModel;
+
+  /// Bootstrap rule — merged into [introductionGateRule]. Kept for backward
+  /// compat; delegates to the merged rule.
+  static const bootstrapRule = promptIntroductionGateRule;
 
   // ─── Tool Selector (delegated to prompt_execute.dart) ──────────────────────
 
@@ -141,15 +165,19 @@ $_sharedSystemRules
   // ─── Reviewer (delegated to prompt_execute.dart) ───────────────────────────
 
   static const reviewIntro = promptReviewIntro;
-  static String reviewRulesFor(String language) => promptReviewRulesFor(language);
+  static String reviewRulesFor(String language) =>
+      promptReviewRulesFor(language);
   static const reviewResponseFormat = promptReviewResponseFormat;
 
   // ─── Context / misc (delegated to prompt_context.dart) ─────────────────────
 
-  static String chatSystemPrompt(String agentName) => promptChatSystemPrompt(agentName);
+  static String chatSystemPrompt(String agentName) =>
+      promptChatSystemPrompt(agentName);
   static const firstIntroductionRule = promptFirstIntroductionRule;
-  static String selfIdentity({required String agentName, required String agentId}) =>
-      promptSelfIdentity(agentName: agentName, agentId: agentId);
+  static String selfIdentity({
+    required String agentName,
+    required String agentId,
+  }) => promptSelfIdentity(agentName: agentName, agentId: agentId);
   static const narrativeFieldRule = promptNarrativeFieldRule;
   static const nextNarrativeFieldRule = promptNextNarrativeFieldRule;
   static String taskSummaryPrompt({
@@ -170,23 +198,21 @@ $_sharedSystemRules
   static const memoryInstructions = promptMemoryInstructions;
   static const memoryHeader = promptMemoryHeader;
   static const memoryExtractionSystem = promptMemoryExtractionSystem;
-  static String memoryExtractionUser({required String userMessage, required String toolBlock}) =>
-      promptMemoryExtractionUser(userMessage: userMessage, toolBlock: toolBlock);
-  static const sessionSummarySystem = promptSessionSummarySystem;
-  static String sessionSummaryUser(String transcript) => promptSessionSummaryUser(transcript);
-
-  static String selectRelevantSkills({
+  static String memoryExtractionUser({
     required String userMessage,
-    required String skillsListBlock,
-  }) =>
-      promptSelectRelevantSkills(
-        userMessage: userMessage,
-        skillsListBlock: skillsListBlock,
-      );
+    required String toolBlock,
+  }) => promptMemoryExtractionUser(
+    userMessage: userMessage,
+    toolBlock: toolBlock,
+  );
+  static const sessionSummarySystem = promptSessionSummarySystem;
+  static String sessionSummaryUser(String transcript) =>
+      promptSessionSummaryUser(transcript);
 
   // ─── Workflow API Context (delegated to prompt_context.dart) ───────────────
 
-  static String workflowApiContext(List<String> apiNames) => promptWorkflowApiContext(apiNames);
+  static String workflowApiContext(List<String> apiNames) =>
+      promptWorkflowApiContext(apiNames);
 
   // ─── Workflow Runner Prompts (delegated to prompt_workflow.dart) ──────────
 
@@ -200,9 +226,19 @@ $_sharedSystemRules
     userInstruction: userInstruction,
   );
 
-  static String workflowPreviousStepMarker(int stepIndex) => promptPreviousStepMarker(stepIndex);
+  static String workflowPreviousStepMarker(int stepIndex) =>
+      promptPreviousStepMarker(stepIndex);
 
-  static String workflowEarlierStepMarker(int stepNumber) => promptEarlierStepMarker(stepNumber);
+  static String workflowEarlierStepMarker(int stepNumber) =>
+      promptEarlierStepMarker(stepNumber);
 
   static const workflowTriggerContextWrapper = promptTriggerContextWrapper;
+
+  static String classifySimplifiedFallback({
+    required String userMessage,
+    String activeTaskContext = '',
+  }) => promptClassifySimplifiedFallback(
+    userMessage: userMessage,
+    activeTaskContext: activeTaskContext,
+  );
 }

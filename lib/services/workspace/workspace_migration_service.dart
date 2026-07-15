@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
+import '../../core/storage/app_settings_repository.dart';
+import '../../core/storage/meow_database.dart';
 import 'workspace_paths.dart';
 
 /// Migrates workspace files from internal app storage to external Documents.
@@ -13,8 +13,9 @@ class WorkspaceMigrationService {
 
   /// Check if migration has already been completed.
   static Future<bool> isMigrated() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_migrationKey) ?? false;
+    final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+    final val = await settingsRepo.get(_migrationKey);
+    return val == 'true';
   }
 
   /// Run migration for all agents.
@@ -27,8 +28,8 @@ class WorkspaceMigrationService {
     }
 
     // Mark migration complete.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_migrationKey, true);
+    final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+    await settingsRepo.set(_migrationKey, 'true');
   }
 
   /// Migrate a single agent's workspace from internal to external.
@@ -64,7 +65,7 @@ class WorkspaceMigrationService {
 
   /// Force re-migration (for debugging/testing).
   static Future<void> resetMigrationFlag() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_migrationKey);
+    final settingsRepo = AppSettingsRepository(MeowDatabase.instance);
+    await settingsRepo.remove(_migrationKey);
   }
 }

@@ -62,6 +62,21 @@ class AgentSkillsRepository {
   final MeowDatabase _db;
   final _changeController = StreamController<void>.broadcast();
 
+  /// Per-agent active-skills cache. The runtime queries active skills on
+  /// EVERY turn (runtime_engine.dart:625) via a JOIN — this cache avoids that
+  /// redundant query when skills haven't changed. Invalidated on any write
+  /// (save/toggle/delete) via [_changeController] and by [invalidate].
+  final _activeSkillsCache = <String, List<AgentSkill>>{};
+
+  /// Clear the cached skills for [agentId] (or all agents when null).
+  void invalidate([String? agentId]) {
+    if (agentId == null) {
+      _activeSkillsCache.clear();
+    } else {
+      _activeSkillsCache.remove(agentId);
+    }
+  }
+
   Stream<List<AgentSkill>> watchAll() async* {
     yield await getAll();
     await for (final _ in _changeController.stream) {
@@ -113,6 +128,9 @@ class AgentSkillsRepository {
   }
 
   Future<List<AgentSkill>> getActiveSkillsForAgent(String agentId) async {
+    if (_activeSkillsCache.containsKey(agentId)) {
+      return _activeSkillsCache[agentId]!;
+    }
     final db = await _db.database;
     final rows = await db.rawQuery('''
       SELECT s.* FROM agent_skills s
@@ -120,7 +138,9 @@ class AgentSkillsRepository {
       WHERE a.agent_id = ? AND s.is_enabled = 1
       ORDER BY s.created_at DESC
     ''', [agentId]);
-    return rows.map((r) => AgentSkill.fromRow(r)).toList();
+    final skills = rows.map((r) => AgentSkill.fromRow(r)).toList();
+    _activeSkillsCache[agentId] = skills;
+    return skills;
   }
 
   Future<void> save(AgentSkill skill) async {
@@ -152,6 +172,10 @@ class AgentSkillsRepository {
         });
       }
     });
+    // Invalidate cache for all affected agents before notifying.
+    for (final agentId in skill.assignedAgentIds) {
+      _activeSkillsCache.remove(agentId);
+    }
     _changeController.add(null);
   }
 
@@ -169,6 +193,7 @@ class AgentSkillsRepository {
         whereArgs: [id],
       );
     });
+    _activeSkillsCache.clear();
     _changeController.add(null);
   }
 
@@ -180,6 +205,7 @@ class AgentSkillsRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    _activeSkillsCache.clear();
     _changeController.add(null);
   }
 

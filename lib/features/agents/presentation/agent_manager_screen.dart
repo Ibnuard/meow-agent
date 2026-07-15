@@ -430,6 +430,16 @@ class _AgentManagerScreenState extends ConsumerState<AgentManagerScreen> {
                       value: _selectedModelFor(providers),
                       options: _modelOptionsFor(providers),
                       onChanged: (v) => setState(() => _selectedModel = v),
+                      footer: _selectedProviderId == null
+                          ? null
+                          : MeowSecondaryButton(
+                              label: s.addOtherModel,
+                              icon: Icons.add_rounded,
+                              onPressed: () {
+                                Navigator.of(context).pop();
+                                context.push('/providers/$_selectedProviderId/edit');
+                              },
+                            ),
                     ),
                   ],
                 ],

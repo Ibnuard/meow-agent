@@ -127,10 +127,373 @@ class AppStrings {
       ? 'Pilih bahasa untuk tampilan aplikasi, respons Meow Agent, dan template agen baru.'
       : 'Choose language for the app UI, Meow Agent responses, and new agent templates.';
   String get llmDebugging => isId ? 'Debug LLM (Dev)' : 'LLM Debugging (Dev)';
+  String get runtimeBenchmarkTitle =>
+      isId ? 'Benchmark Runtime (Dev)' : 'Runtime Benchmark (Dev)';
+  String get runtimeBenchmarkSubtitle => isId
+      ? 'Jalankan real LLM call terhadap runtime engine dengan tool result ter-script. Skor menunjukkan case mana yang lolos dan gagal.'
+      : 'Run real LLM calls against the runtime engine with scripted tool results. The score shows which cases pass and fail.';
+  String get runtimeBenchmarkGatesTitle =>
+      isId ? 'Gate Akurasi' : 'Accuracy Gates';
+  String get runtimeBenchmarkCasesTitle =>
+      isId ? 'Kasus Benchmark' : 'Benchmark Cases';
+  String get runtimeBenchmarkRunAll => isId ? 'Jalankan Semua' : 'Run All';
+  String get runtimeBenchmarkRunOne => isId ? 'Jalankan Case' : 'Run Case';
+  String get runtimeBenchmarkNoProvider => isId
+      ? 'Tambahkan provider LLM dulu sebelum menjalankan benchmark.'
+      : 'Add an LLM provider before running the benchmark.';
+  String get runtimeBenchmarkProviderLabel =>
+      isId ? 'Provider Benchmark' : 'Benchmark Provider';
+  String get runtimeBenchmarkModelLabel =>
+      isId ? 'Model Benchmark' : 'Benchmark Model';
+  String get runtimeBenchmarkDefaultModel =>
+      isId ? 'Model default' : 'Default model';
+  String runtimeBenchmarkScoreSummary(int passed, int total, int score) => isId
+      ? '$passed/$total lolos - skor $score'
+      : '$passed/$total passed - score $score';
+  String runtimeBenchmarkTimingSummary(
+    int completed,
+    int totalMs,
+    int averageMs,
+  ) => isId
+      ? '$completed case selesai - total $totalMs ms - rata-rata $averageMs ms/case'
+      : '$completed cases completed - total $totalMs ms - average $averageMs ms/case';
+  String get runtimeBenchmarkStatusIdle => isId ? 'Belum jalan' : 'Idle';
+  String get runtimeBenchmarkStatusRunning => isId ? 'Sedang jalan' : 'Running';
+  String get runtimeBenchmarkStatusPassed => isId ? 'Lolos' : 'Passed';
+  String get runtimeBenchmarkStatusFailed => isId ? 'Gagal' : 'Failed';
+  String get runtimeBenchmarkStatusError => isId ? 'Error' : 'Error';
+  String get runtimeBenchmarkStateLabel => isId ? 'State' : 'State';
+  String get runtimeBenchmarkStatusLabel => isId ? 'Status' : 'Status';
+  String get runtimeBenchmarkScoreLabel => isId ? 'Skor' : 'Score';
+  String get runtimeBenchmarkToolsLabel => isId ? 'Tool' : 'Tools';
+  String get runtimeBenchmarkToolTraceLabel =>
+      isId ? 'Trace tool' : 'Tool trace';
+  String get runtimeBenchmarkLlmLabel => isId ? 'LLM' : 'LLM';
+  String get runtimeBenchmarkPhasesLabel => isId ? 'Phase' : 'Phases';
+  String runtimeBenchmarkLlmUsage(
+    int calls,
+    int inputTokens,
+    int outputTokens,
+  ) => isId
+      ? '$calls call - in $inputTokens / out $outputTokens token'
+      : '$calls calls - in $inputTokens / out $outputTokens tokens';
+  String get runtimeBenchmarkReasonLabel => isId ? 'Catatan' : 'Note';
+  String get runtimeBenchmarkMessageLabel =>
+      isId ? 'Pesan akhir' : 'Final message';
+  String runtimeBenchmarkDurationMs(int ms) => isId ? '${ms}ms' : '${ms}ms';
+  String runtimeBenchmarkGate(String key) => switch (key) {
+    'canonicalArgs' =>
+      isId
+          ? 'Argumen tool dinormalisasi ke kontrak kanonik sebelum dispatch.'
+          : 'Tool arguments are normalized to the canonical contract before dispatch.',
+    'postExecuteProbe' =>
+      isId
+          ? 'Setiap mutasi sukses harus punya bukti result yang positif dan cocok dengan argumen.'
+          : 'Every successful mutation must have positive result proof that matches its arguments.',
+    'doneGate' =>
+      isId
+          ? 'Status done hanya diterima setelah goal tree dan bukti tool sama-sama mendukung.'
+          : 'Done status is accepted only when the goal tree and tool evidence both support it.',
+    'toolNarrowing' =>
+      isId
+          ? 'Tool surface harus dipersempit dari intent dan skill agar model tidak memilih tool liar.'
+          : 'The tool surface must be narrowed from intent and skill so the model cannot wander.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseTitle(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId ? 'Profil: nama dan panggilan' : 'Profile: name and nickname',
+    'databaseZeroRows' =>
+      isId ? 'Database: mutasi nol baris' : 'Database: zero-row mutation',
+    'notePayloadIntegrity' =>
+      isId ? 'Catatan: integritas payload' : 'Notes: payload integrity',
+    'shortFollowUp' => isId ? 'Follow-up pendek' : 'Short follow-up',
+    'capabilityBoundary' => isId ? 'Batas kemampuan' : 'Capability boundary',
+    'simpleBattery' => isId ? 'Baca baterai' : 'Battery read',
+    'createNote' => isId ? 'Buat catatan' : 'Create note',
+    'noCapabilitySms' =>
+      isId ? 'Batas kemampuan SMS' : 'SMS capability boundary',
+    'ambiguousTimer' =>
+      isId ? 'Timer ambigu tanpa tool' : 'Ambiguous timer without tool',
+    'initialAskUserGate' => isId ? 'Ask user dulu' : 'Ask user first',
+    'multiNote' => isId ? 'Multi catatan' : 'Multiple notes',
+    'indonesianBattery' =>
+      isId ? 'Baca baterai Indonesia' : 'Indonesian battery read',
+    'listAgents' => isId ? 'Daftar agen' : 'List agents',
+    'emptySearch' => isId ? 'Pencarian kosong jujur' : 'Honest empty search',
+    'failedNote' => isId ? 'Tool catatan gagal' : 'Failed note tool',
+    'directResponse' =>
+      isId ? 'Jawaban langsung tanpa tool' : 'Direct response without tool',
+    'staleHistoryIsolation' =>
+      isId ? 'History lama tidak kebawa' : 'Stale history isolation',
+    'workflowList' =>
+      isId ? 'Daftar workflow grounded' : 'Grounded workflow list',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Workflow: aksi sensitif diblokir'
+          : 'Workflow: sensitive action blocked',
+    _ => key,
+  };
+  String runtimeBenchmarkCasePrompt(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Input: nama gw Nunu nah panggilannya King.'
+          : 'Input: my name is Nunu and my nickname is King.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Input: update baris database yang seharusnya cocok satu target.'
+          : 'Input: update a database row that should match one target.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Input: buat catatan dengan judul dan isi eksplisit.'
+          : 'Input: create a note with explicit title and body.',
+    'shortFollowUp' =>
+      isId
+          ? 'Input: update yang tadi, pakai konteks task aktif.'
+          : 'Input: update the previous one, using active task context.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Input: minta aksi yang tidak punya tool terdaftar.'
+          : 'Input: request an action with no registered tool.',
+    'simpleBattery' =>
+      isId ? 'Input: berapa sisa baterai?' : 'Input: how much battery is left?',
+    'createNote' =>
+      isId
+          ? 'Input: buat catatan Shopping List berisi milk and eggs.'
+          : 'Input: create a Shopping List note with milk and eggs.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Input: kirim SMS, sementara tidak ada tool SMS.'
+          : 'Input: send an SMS while no SMS tool exists.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Input: set timer tanpa detail dan tanpa tool timer.'
+          : 'Input: set timer with no details and no timer tool.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Input: buat catatan tanpa judul atau isi.'
+          : 'Input: create a note without title or content.',
+    'multiNote' =>
+      isId
+          ? 'Input: buat tiga catatan dari satu instruksi.'
+          : 'Input: create three notes from one instruction.',
+    'indonesianBattery' =>
+      isId
+          ? 'Input: berapa baterai aku sekarang?'
+          : 'Input: Indonesian battery question.',
+    'listAgents' =>
+      isId
+          ? 'Input: tanya daftar agen yang terpasang.'
+          : 'Input: ask which agents are installed.',
+    'emptySearch' =>
+      isId
+          ? 'Input: cari catatan yang hasilnya kosong.'
+          : 'Input: search notes with an empty result.',
+    'failedNote' =>
+      isId
+          ? 'Input: buat catatan, tetapi tool gagal.'
+          : 'Input: create a note, but the tool fails.',
+    'directResponse' =>
+      isId
+          ? 'Input: pertanyaan identitas yang tidak butuh tool.'
+          : 'Input: identity question that needs no tool.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Input: sapaan pendek setelah history lama tentang soul/profile.'
+          : 'Input: short greeting after old soul/profile history.',
+    'workflowList' =>
+      isId
+          ? 'Input: minta daftar workflow yang terpasang.'
+          : 'Input: ask for configured workflows.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Input: workflow background mencoba aksi sensitif tanpa allow-sensitive.'
+          : 'Input: background workflow attempts a sensitive action without allow-sensitive.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseExpected(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Ekspektasi: dispatch field name=Nunu dan nickname=King; result field/value cocok.'
+          : 'Expected: dispatch field name=Nunu and nickname=King; result field/value match.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Ekspektasi: updated/deleted=0 tidak dianggap verified.'
+          : 'Expected: updated/deleted=0 is not considered verified.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Ekspektasi: noteId, created/updated/deleted, dan payload echo cocok dengan request.'
+          : 'Expected: noteId, created/updated/deleted, and echoed payload match the request.',
+    'shortFollowUp' =>
+      isId
+          ? 'Ekspektasi: task_relation tidak memutus task aktif tanpa bukti konteks baru.'
+          : 'Expected: task_relation does not drop the active task without evidence of a new context.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Ekspektasi: runtime gagal jujur tanpa bertanya detail yang tidak bisa menciptakan tool.'
+          : 'Expected: runtime fails honestly without asking for details that cannot create a tool.',
+    'simpleBattery' =>
+      isId
+          ? 'Ekspektasi: device.battery dipanggil dan angka hasil disebut.'
+          : 'Expected: device.battery is called and the result number is mentioned.',
+    'createNote' =>
+      isId
+          ? 'Ekspektasi: notes.create selesai dengan bukti persisted.'
+          : 'Expected: notes.create completes with persisted proof.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Ekspektasi: tidak klaim SMS terkirim dan tidak dispatch tool SMS.'
+          : 'Expected: no SMS sent claim and no SMS tool dispatch.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Ekspektasi: tidak dispatch tool untuk request yang mustahil/ambigu.'
+          : 'Expected: no tool dispatch for an impossible or ambiguous request.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Ekspektasi: keputusan ask_user menghentikan loop sebelum tool dipanggil.'
+          : 'Expected: ask_user decision stops the loop before any tool call.',
+    'multiNote' =>
+      isId
+          ? 'Ekspektasi: bertanya klarifikasi atau membuat beberapa catatan.'
+          : 'Expected: asks clarification or creates multiple notes.',
+    'indonesianBattery' =>
+      isId
+          ? 'Ekspektasi: bahasa Indonesia tetap memilih device.battery.'
+          : 'Expected: Indonesian input still selects device.battery.',
+    'listAgents' =>
+      isId
+          ? 'Ekspektasi: agent.list dipakai dan jawaban menyebut data hasil.'
+          : 'Expected: agent.list is used and the answer cites returned data.',
+    'emptySearch' =>
+      isId
+          ? 'Ekspektasi: hasil kosong diterima tanpa retry loop.'
+          : 'Expected: empty result is accepted without a retry loop.',
+    'failedNote' =>
+      isId
+          ? 'Ekspektasi: kegagalan tool tidak dinarasikan sebagai sukses.'
+          : 'Expected: tool failure is not narrated as success.',
+    'directResponse' =>
+      isId
+          ? 'Ekspektasi: dijawab langsung tanpa dispatch tool.'
+          : 'Expected: answered directly without tool dispatch.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Ekspektasi: recent chat lama tidak memengaruhi sapaan pendek.'
+          : 'Expected: stale recent chat does not influence a short greeting.',
+    'workflowList' =>
+      isId
+          ? 'Ekspektasi: workflow.list dipakai dan jawaban menyebut workflow dari result.'
+          : 'Expected: workflow.list is used and the answer cites returned workflows.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Ekspektasi: workflow masuk state blockedSensitive sebelum tool sensitif dispatch.'
+          : 'Expected: workflow enters blockedSensitive before sensitive tool dispatch.',
+    _ => key,
+  };
+  String runtimeBenchmarkCaseVerification(String key) => switch (key) {
+    'profileNameNickname' =>
+      isId
+          ? 'Bukti: test system tool membaca ulang SQLite dan golden runtime memverifikasi final save.'
+          : 'Evidence: system tool test re-reads SQLite and runtime golden verifies the final save.',
+    'databaseZeroRows' =>
+      isId
+          ? 'Bukti: post-execute validator menolak count nol dan completion gate menolak key non-positif.'
+          : 'Evidence: post-execute validator rejects zero counts and completion gate rejects non-positive keys.',
+    'notePayloadIntegrity' =>
+      isId
+          ? 'Bukti: result tool mengembalikan noteId, status mutasi, dan echo payload untuk dicocokkan.'
+          : 'Evidence: tool results return noteId, mutation status, and echoed payload for comparison.',
+    'shortFollowUp' =>
+      isId
+          ? 'Bukti: tool narrowing memakai keyword intent sebelum fallback konteks follow-up pendek.'
+          : 'Evidence: tool narrowing uses intent keywords before short-follow-up context fallback.',
+    'capabilityBoundary' =>
+      isId
+          ? 'Bukti: done gate dan reviewer butuh bukti tool, bukan klaim sukses dari model.'
+          : 'Evidence: done gate and reviewer require tool evidence, not success claims from the model.',
+    'simpleBattery' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi device.battery dan final message memuat 72.'
+          : 'Evidence: dispatch sequence contains device.battery and final message includes 72.',
+    'createNote' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi notes.create dan state done.'
+          : 'Evidence: dispatch sequence contains notes.create and state is done.',
+    'noCapabilitySms' =>
+      isId
+          ? 'Bukti: tidak ada tool bernama SMS dan pesan akhir tidak mengklaim terkirim.'
+          : 'Evidence: no SMS-named tool and final message does not claim sent.',
+    'ambiguousTimer' =>
+      isId
+          ? 'Bukti: dispatch sequence kosong.'
+          : 'Evidence: dispatch sequence is empty.',
+    'initialAskUserGate' =>
+      isId
+          ? 'Bukti: state askingUser dan dispatch sequence kosong.'
+          : 'Evidence: state is askingUser and dispatch sequence is empty.',
+    'multiNote' =>
+      isId
+          ? 'Bukti: state askingUser diterima, atau minimal dua notes.create saat done.'
+          : 'Evidence: askingUser is accepted, or at least two notes.create calls when done.',
+    'indonesianBattery' =>
+      isId
+          ? 'Bukti: dispatch sequence berisi device.battery.'
+          : 'Evidence: dispatch sequence contains device.battery.',
+    'listAgents' =>
+      isId
+          ? 'Bukti: agent.list dipakai dan nama dari result muncul di jawaban.'
+          : 'Evidence: agent.list is used and returned names appear in the answer.',
+    'emptySearch' =>
+      isId
+          ? 'Bukti: notes.search hanya dipanggil satu kali.'
+          : 'Evidence: notes.search is called exactly once.',
+    'failedNote' =>
+      isId
+          ? 'Bukti: pesan akhir tidak mengandung klaim created/saved/successfully.'
+          : 'Evidence: final message contains no created/saved/successfully claim.',
+    'directResponse' =>
+      isId
+          ? 'Bukti: state done dan dispatch sequence kosong.'
+          : 'Evidence: state is done and dispatch sequence is empty.',
+    'staleHistoryIsolation' =>
+      isId
+          ? 'Bukti: dispatch kosong dan pesan akhir tidak menyebut profile/soul lama.'
+          : 'Evidence: no dispatch and final message does not mention stale profile/soul context.',
+    'workflowList' =>
+      isId
+          ? 'Bukti: workflow.list dipanggil dan title dari result muncul.'
+          : 'Evidence: workflow.list is called and returned titles appear.',
+    'workflowSensitiveBlocked' =>
+      isId
+          ? 'Bukti: pendingTool ada, tetapi dispatch sequence tetap kosong.'
+          : 'Evidence: pendingTool is set while dispatch sequence remains empty.',
+    _ => key,
+  };
   String get aboutApp => isId ? 'Tentang Aplikasi' : 'About App';
   String get aboutBody => isId
       ? 'AI companion Android-native dengan multi-agent, app automation, workflow otomatis, notifikasi cerdas, dan modular tools.\n\nVersi 1.0.0'
       : 'Android-native AI companion with multi-agent, app automation, automated workflows, smart notifications, and modular tools.\n\nVersion 1.0.0';
+  String get checkForUpdates =>
+      isId ? 'Periksa Pembaruan' : 'Check for Updates';
+  String get checkingForUpdates =>
+      isId ? 'Memeriksa pembaruan...' : 'Checking for updates...';
+  String get updateAvailable =>
+      isId ? 'Pembaruan Tersedia' : 'Update Available';
+  String get updateNotAvailable =>
+      isId ? 'Aplikasi Sudah Terbaru' : 'App is Up to Date';
+  String get updateFailed =>
+      isId ? 'Gagal memeriksa pembaruan' : 'Failed to check for updates';
+  String get download => isId ? 'Unduh' : 'Download';
+  String get later => isId ? 'Nanti' : 'Later';
+
+  String updateAvailableDesc(String version) => isId
+      ? 'Versi baru ($version) telah dirilis. Apakah Anda ingin mengunduhnya sekarang?'
+      : 'A new version ($version) is available. Do you want to download it now?';
+
+  String updateNotAvailableDesc(String version) => isId
+      ? 'Anda sudah menggunakan versi terbaru ($version).'
+      : 'You are already using the latest version ($version).';
+
   String get notificationSound =>
       isId ? 'Suara Notifikasi' : 'Notification Sound';
   String get notificationSoundDesc => isId
@@ -178,8 +541,24 @@ class AppStrings {
   String get modelListHint => 'gpt-4o-mini';
   String get modelListRequired =>
       isId ? 'Model wajib diisi' : 'Model is required';
-  String get modelListHelper =>
-      isId ? 'Tambahkan model satu per satu.' : 'Add models one by one.';
+  String get modelListHelper => isId
+      ? 'Tambahkan manual atau ambil otomatis dari /models.'
+      : 'Add models manually or fetch them from /models.';
+  String get fetchModels => isId ? 'Ambil /models' : 'Fetch /models';
+  String get fetchingModels =>
+      isId ? 'Mengambil model...' : 'Fetching models...';
+  String get selectFetchedModels => isId ? 'Pilih Model' : 'Select Models';
+  String fetchedModelsSubtitle(int count) => isId
+      ? '$count model ditemukan dari /models'
+      : '$count models found from /models';
+  String get noFetchedModels => isId
+      ? 'Tidak ada model yang ditemukan dari endpoint /models.'
+      : 'No models were found from the /models endpoint.';
+  String get fetchModelsFailed => isId
+      ? 'Gagal mengambil daftar model dari /models.'
+      : 'Failed to fetch models from /models.';
+  String addSelectedModels(int count) =>
+      isId ? 'Tambah $count model' : 'Add $count models';
   String modelTestValid(String model) =>
       isId ? 'Model "$model" tersedia ✓' : 'Model "$model" is available ✓';
   String modelTestInvalid(String model) => isId
@@ -190,6 +569,7 @@ class AppStrings {
   String providerModelsCount(int count) =>
       isId ? '$count model' : '$count models';
   String get chooseModel => isId ? 'Pilih model' : 'Choose model';
+  String get addOtherModel => isId ? 'Tambah model lain' : 'Add another model';
   String get advanced => isId ? 'Lanjutan' : 'Advanced';
   String advancedSubtitle(String tokens, bool autoCompact) => isId
       ? 'Konteks $tokens token, auto-compact ${autoCompact ? 'aktif' : 'mati'}'
@@ -326,53 +706,79 @@ class AppStrings {
   String get skillCreate => isId ? 'Buat Skill Baru' : 'Create New Skill';
   String get skillEdit => isId ? 'Edit Skill' : 'Edit Skill';
   String get skillTitleLabel => isId ? 'Judul Skill' : 'Skill Title';
-  String get skillTitleHint => isId ? 'Masukkan judul skill' : 'Enter skill title';
-  String get skillTitleRequired => isId ? 'Judul skill wajib diisi' : 'Skill title is required';
-  String get skillContentLabel => isId ? 'Konten Skill (Markdown)' : 'Skill Content (Markdown)';
+  String get skillTitleHint =>
+      isId ? 'Masukkan judul skill' : 'Enter skill title';
+  String get skillTitleRequired =>
+      isId ? 'Judul skill wajib diisi' : 'Skill title is required';
+  String get skillContentLabel =>
+      isId ? 'Konten Skill (Markdown)' : 'Skill Content (Markdown)';
   String get skillContentHint => isId
       ? 'Tulis instruksi/skill di sini menggunakan Markdown'
       : 'Write instruction/skill here using Markdown';
-  String get skillContentRequired => isId ? 'Konten skill wajib diisi' : 'Skill content is required';
-  String get skillGithubUrlLabel => isId ? 'GitHub URL (Opsional)' : 'GitHub URL (Optional)';
+  String get skillContentRequired =>
+      isId ? 'Konten skill wajib diisi' : 'Skill content is required';
+  String get skillGithubUrlLabel =>
+      isId ? 'GitHub URL (Opsional)' : 'GitHub URL (Optional)';
   String get skillGithubUrlHint => 'e.g. https://github.com/...';
   String get skillFetch => isId ? 'Ambil dari GitHub' : 'Fetch from GitHub';
   String get skillFetching => isId ? 'Mengambil...' : 'Fetching...';
-  String get skillFetchSuccess => isId ? 'Berhasil mengambil konten skill.' : 'Successfully fetched skill content.';
-  String get skillFetchError => isId ? 'Gagal mengambil konten dari URL.' : 'Failed to fetch content from URL.';
+  String get skillFetchSuccess => isId
+      ? 'Berhasil mengambil konten skill.'
+      : 'Successfully fetched skill content.';
+  String get skillFetchError => isId
+      ? 'Gagal mengambil konten dari URL.'
+      : 'Failed to fetch content from URL.';
   String get skillImport => isId ? 'Impor File (.md)' : 'Import File (.md)';
-  String get skillImportSuccess => isId ? 'Berhasil mengimpor file.' : 'Successfully imported file.';
-  String get skillImportError => isId ? 'Gagal mengimpor file.' : 'Failed to import file.';
+  String get skillImportSuccess =>
+      isId ? 'Berhasil mengimpor file.' : 'Successfully imported file.';
+  String get skillImportError =>
+      isId ? 'Gagal mengimpor file.' : 'Failed to import file.';
   String get skillAssignees => isId ? 'Penerima Skill' : 'Assignees';
   String get skillAssigneesDesc => isId
       ? 'Pilih agen yang menggunakan skill ini'
       : 'Select agents that will use this skill';
   String get skillEnabledLabel => isId ? 'Aktifkan Skill' : 'Enable Skill';
-  String get skillSaveSuccess => isId ? 'Skill berhasil disimpan.' : 'Skill successfully saved.';
+  String get skillSaveSuccess =>
+      isId ? 'Skill berhasil disimpan.' : 'Skill successfully saved.';
   String get skillDeleteConfirm => isId ? 'Hapus Skill?' : 'Delete Skill?';
   String get skillDeleteConfirmDesc => isId
       ? 'Apakah Anda yakin ingin menghapus skill ini?'
       : 'Are you sure you want to delete this skill?';
   String get skillDeleteButton => isId ? 'Hapus Skill' : 'Delete Skill';
   String get skillTabManual => isId ? 'Manual & Impor' : 'Manual & Import';
-  String get skillTabGithub => isId ? 'Otomatis via GitHub' : 'Automatic via GitHub';
-  String get skillGithubUrlRequired => isId ? 'URL GitHub wajib diisi' : 'GitHub URL is required';
-  String get skillDownloadedContentPreview => isId ? 'Konten Terunduh (Preview)' : 'Downloaded Content (Preview)';
-  String get skillBulkImportTitle => isId ? 'Pilih Skill untuk Diimpor' : 'Select Skills to Import';
-  String get skillBulkImportNoSelection => isId ? 'Pilih setidaknya satu skill.' : 'Select at least one skill.';
-  String get skillBulkImportSearching => isId ? 'Memindai repositori...' : 'Scanning repository...';
-  String skillBulkImportButton(int count) => isId ? 'Impor ($count) Skill' : 'Import ($count) Skills';
-  String skillBulkImportSuccess(int count) => isId ? 'Berhasil mengimpor $count skill.' : 'Successfully imported $count skills.';
+  String get skillTabGithub =>
+      isId ? 'Otomatis via GitHub' : 'Automatic via GitHub';
+  String get skillGithubUrlRequired =>
+      isId ? 'URL GitHub wajib diisi' : 'GitHub URL is required';
+  String get skillDownloadedContentPreview =>
+      isId ? 'Konten Terunduh (Preview)' : 'Downloaded Content (Preview)';
+  String get skillBulkImportTitle =>
+      isId ? 'Pilih Skill untuk Diimpor' : 'Select Skills to Import';
+  String get skillBulkImportNoSelection =>
+      isId ? 'Pilih setidaknya satu skill.' : 'Select at least one skill.';
+  String get skillBulkImportSearching =>
+      isId ? 'Memindai repositori...' : 'Scanning repository...';
+  String skillBulkImportButton(int count) =>
+      isId ? 'Impor ($count) Skill' : 'Import ($count) Skills';
+  String skillBulkImportSuccess(int count) => isId
+      ? 'Berhasil mengimpor $count skill.'
+      : 'Successfully imported $count skills.';
   String get miniAppDashboardTitle => isId ? 'Mini App' : 'Mini App';
-  String get miniAppDashboardEmpty => isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
+  String get miniAppDashboardEmpty =>
+      isId ? 'Belum ada Mini App.' : 'No Mini Apps found.';
   String get miniAppDashboardEmptyDesc => isId
       ? 'Minta agen untuk membuat Mini App pertamamu lewat chat!'
       : 'Ask the agent to create your first Mini App in chat!';
-  String get miniAppDeleteConfirm => isId ? 'Hapus Mini App?' : 'Delete Mini App?';
+  String get miniAppDeleteConfirm =>
+      isId ? 'Hapus Mini App?' : 'Delete Mini App?';
   String miniAppDeleteConfirmDesc(String name) => isId
       ? 'Apakah kamu yakin ingin menghapus Mini App "$name" secara permanen?'
       : 'Are you sure you want to permanently delete Mini App "$name"?';
-  String get miniAppDeleteSuccess => isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
-  String get miniAppDeleteError => isId ? 'Mini App tidak dapat dihapus.' : 'The Mini App could not be deleted.';
+  String get miniAppDeleteSuccess =>
+      isId ? 'Mini App berhasil dihapus.' : 'Mini App successfully deleted.';
+  String get miniAppDeleteError => isId
+      ? 'Mini App tidak dapat dihapus.'
+      : 'The Mini App could not be deleted.';
   String get miniAppMaxHomeCountError => isId
       ? 'Maksimal 4 Mini App yang dapat ditampilkan di layar utama.'
       : 'A maximum of 4 Mini Apps can be shown on the home screen.';
@@ -974,6 +1380,7 @@ class AppStrings {
       : 'Module actions and agent runs will appear here.';
 
   String get copyResult => isId ? 'Salin Hasil' : 'Copy Result';
+  String get copyAllResults => isId ? 'Salin Semua Hasil' : 'Copy All Results';
   String get save => isId ? 'Simpan' : 'Save';
   String get copiedToClipboard =>
       isId ? 'Disalin ke clipboard.' : 'Copied to clipboard.';

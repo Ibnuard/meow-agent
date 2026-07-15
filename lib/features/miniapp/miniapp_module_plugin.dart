@@ -34,7 +34,7 @@ class MiniAppModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'miniapp.create',
       description:
-          'Create a new custom local Mini App. This tool never overwrites an existing Mini App; use miniapp.patch for every edit or redesign.',
+          'Create a new custom local Mini App. This tool never overwrites an existing Mini App; use miniapp.patch for every edit or redesign. Durable Mini App data must use window.meow.db (shared User Database), and UI must adapt to host light/dark theme tokens rather than forcing dark mode.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
@@ -42,7 +42,7 @@ class MiniAppModulePlugin extends ModulePlugin {
         'name': 'string (required, user-facing title, e.g. Expense Tracker)',
         'icon': 'string (optional, icon asset or character code)',
         'codeHtml':
-            'string (required, full UI and logic definition containing window.meow SDK integration)',
+            'string (required, full UI and logic definition containing window.meow SDK integration; persistent apps should create/read/write user data through window.meow.db and style with injected theme variables or dark: selectors)',
       },
       operation: 'create',
       targetEntity: 'miniapp',
@@ -70,18 +70,24 @@ class MiniAppModulePlugin extends ModulePlugin {
     ToolDefinition(
       name: 'miniapp.patch',
       description:
-          'Edit an installed Mini App after reading it. Prefer expectedRevision plus startLine/endLine for safe range replacement without echoing old code. targetContent remains available for small search-and-replace patches. Never use miniapp.create as an edit fallback.',
+          'Edit an installed Mini App after reading it with miniapp.read. '
+          'THREE modes (pick ONE):\n'
+          '1. FULL REWRITE (easiest, recommended for low models): Set expectedRevision + replacementContent only (omit startLine, endLine, targetContent). The entire app code is replaced with replacementContent. Always read first to get the current revision and full code.\n'
+          '2. RANGE REPLACE: Set expectedRevision + startLine + endLine + replacementContent. Replaces the exact line range with replacementContent.\n'
+          '3. SEARCH-REPLACE: Set targetContent + replacementContent (optionally with startLine/endLine to narrow). Finds targetContent in the code and replaces it. Whitespace-insensitive matching.\n'
+          'Never use miniapp.create as an edit fallback. Preserve window.meow.db persistence and dynamic host theme support.',
       risk: 'safe',
       requiresConfirmation: false,
       inputSchema: {
         'app': 'string (required, user-facing Mini App name or internal ID)',
-        'startLine': 'integer (optional, 1-based start line of the search range)',
-        'endLine': 'integer (optional, 1-based end line of the search range, inclusive)',
         'expectedRevision':
-            'string (recommended, revision returned by miniapp.read; required when targetContent is omitted)',
+            'string (required, revision returned by miniapp.read; prevents blind overwrites)',
+        'startLine': 'integer (optional, 1-based start line for range/search mode)',
+        'endLine': 'integer (optional, 1-based end line for range/search mode, inclusive)',
         'targetContent':
-            'string (optional, exact substring/lines to find; omit when replacing the explicit line range with expectedRevision)',
-        'replacementContent': 'string (required, the new content)',
+            'string (optional, exact substring to find for search-replace mode; omit for full rewrite or range mode)',
+        'replacementContent':
+            'string (required, the new content — full HTML for rewrite mode, or the replacement block for range/search mode)',
       },
       operation: 'update',
       targetEntity: 'miniapp',
@@ -195,6 +201,7 @@ class MiniAppModulePlugin extends ModulePlugin {
               'startLine': actualStart,
               'endLine': actualEnd,
               'totalLines': totalLines,
+              'codeInspection': _inspectCode(codeHtml),
             },
           );
 
@@ -235,6 +242,7 @@ class MiniAppModulePlugin extends ModulePlugin {
           }
 
           final formattedCode = _formatHtml(codeHtml);
+          final codeInspection = _inspectCode(formattedCode);
 
           final createdAt = DateTime.now().toIso8601String();
           await db.insert('miniapps', {
@@ -269,6 +277,7 @@ class MiniAppModulePlugin extends ModulePlugin {
               'created': true,
               'persisted': true,
               'revision': _revisionFor(formattedCode),
+              'codeInspection': codeInspection,
             },
             actions: [
               ResultAction(
@@ -288,23 +297,25 @@ class MiniAppModulePlugin extends ModulePlugin {
               .toString()
               .trim();
           final targetContent = (request.args['targetContent'] ?? '').toString();
-          final replacementContent = (request.args['replacementContent'] ?? '').toString();
+          final replacementContent =
+              (request.args['replacementContent'] ?? '').toString();
           final hasTarget = targetContent.trim().isNotEmpty;
+          final hasRange = startLineVal != null && endLineVal != null;
+          final isFullRewrite = !hasTarget && !hasRange;
 
-          if (!hasTarget &&
-              (expectedRevision.isEmpty || startLineVal == null || endLineVal == null)) {
+          if (replacementContent.trim().isEmpty) {
             return ToolExecutionResult(
               success: false,
               toolName: request.name,
-              error:
-                  'Provide targetContent, or provide expectedRevision with explicit startLine and endLine for safe range replacement.',
+              error: 'replacementContent is required.',
             );
           }
 
           final requestedStart = startLineVal == null
               ? null
               : int.tryParse(startLineVal.toString());
-          final requestedEnd = endLineVal == null ? null : int.tryParse(endLineVal.toString());
+          final requestedEnd =
+              endLineVal == null ? null : int.tryParse(endLineVal.toString());
           if ((startLineVal != null && requestedStart == null) ||
               (endLineVal != null && requestedEnd == null)) {
             return ToolExecutionResult(
@@ -320,12 +331,21 @@ class MiniAppModulePlugin extends ModulePlugin {
           final id = row['id'].toString();
           final codeHtml = (row['code_html'] ?? '').toString();
           final currentRevision = _revisionFor(codeHtml);
-          if (expectedRevision.isNotEmpty && expectedRevision != currentRevision) {
+          if (expectedRevision.isEmpty) {
             return ToolExecutionResult(
               success: false,
               toolName: request.name,
               error:
-                  'Mini App changed after it was read. Read the current range again before patching.',
+                  'expectedRevision is required. Read the Mini App with miniapp.read first to get the current revision.',
+              data: {'id': id, 'name': row['name']},
+            );
+          }
+          if (expectedRevision != currentRevision) {
+            return ToolExecutionResult(
+              success: false,
+              toolName: request.name,
+              error:
+                  'Mini App changed after it was read. Read the current code again before patching.',
               data: {
                 'id': id,
                 'name': row['name'],
@@ -335,6 +355,71 @@ class MiniAppModulePlugin extends ModulePlugin {
               },
             );
           }
+          // Full-rewrite mode: replace entire code with replacementContent.
+          // This is the easiest path for low models — just read, modify, send back.
+          if (isFullRewrite) {
+            final formattedCode = _formatHtml(replacementContent);
+            final codeInspection = _inspectCode(formattedCode);
+
+            if (formattedCode.trim().isEmpty) {
+              return ToolExecutionResult(
+                success: false,
+                toolName: request.name,
+                error: 'A patch cannot leave the Mini App definition empty.',
+                data: {'id': id, 'name': row['name']},
+              );
+            }
+
+            if (formattedCode == codeHtml) {
+              return ToolExecutionResult(
+                success: false,
+                toolName: request.name,
+                error: 'The requested patch would not change the Mini App.',
+                data: {'id': id, 'name': row['name']},
+              );
+            }
+
+            final updatedCount = await db.update(
+              'miniapps',
+              {'code_html': formattedCode},
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+
+            MiniAppRepository.notifyChange();
+            final persisted = await db.query(
+              'miniapps',
+              columns: ['code_html'],
+              where: 'id = ?',
+              whereArgs: [id],
+            );
+            if (updatedCount != 1 ||
+                persisted.length != 1 ||
+                persisted.first['code_html'] != formattedCode) {
+              return ToolExecutionResult(
+                success: false,
+                toolName: request.name,
+                error: 'Mini App patch could not be verified.',
+                data: {'id': id, 'name': row['name']},
+              );
+            }
+
+            return ToolExecutionResult(
+              success: true,
+              toolName: request.name,
+              data: {
+                'id': id,
+                'name': row['name'],
+                'patched': true,
+                'persisted': true,
+                'mode': 'full_rewrite',
+                'previousRevision': currentRevision,
+                'revision': _revisionFor(formattedCode),
+                'codeInspection': codeInspection,
+              },
+            );
+          }
+
           final lines = codeHtml.split('\n');
           final totalLines = lines.length;
           final startLine = requestedStart ?? 1;
@@ -397,6 +482,7 @@ class MiniAppModulePlugin extends ModulePlugin {
           final beforeLines = lines.sublist(0, startLine - 1);
           final afterLines = lines.sublist(endLine);
           final updatedCodeHtml = [...beforeLines, updatedBlock, ...afterLines].join('\n');
+          final codeInspection = _inspectCode(updatedCodeHtml);
 
           if (updatedCodeHtml.trim().isEmpty) {
             return ToolExecutionResult(
@@ -453,6 +539,7 @@ class MiniAppModulePlugin extends ModulePlugin {
               'revision': _revisionFor(updatedCodeHtml),
               'startLine': startLine,
               'endLine': endLine,
+              'codeInspection': codeInspection,
             },
           );
 
@@ -596,6 +683,84 @@ class MiniAppModulePlugin extends ModulePlugin {
     return hash.toRadixString(16).padLeft(16, '0');
   }
 
+  Map<String, Object> _inspectCode(String code) {
+    final lower = code.toLowerCase();
+
+    // --- Meow SDK detection ---
+    // Tolerant: allow whitespace around dots that _formatHtml may introduce.
+    final usesMeowSdk = lower.contains('window.meow') ||
+        RegExp(r'meow\s*\.', caseSensitive: false).hasMatch(code);
+
+    // --- User database detection ---
+    // Must detect: window.meow.db.query(...), meow.db.insert(...),
+    // await meow.db.execute(...), const db = window.meow.db; db.query(...).
+    // Allow optional whitespace around dots since _formatHtml can insert
+    // newlines between tokens (e.g. "meow.db.query\n(").
+    final usesUserDatabase = RegExp(
+      r'meow\s*\.\s*db\s*[\.\[\(]'   // meow.db. or meow.db[ or meow.db(
+      r'|'
+      r'meow\s*\.\s*db\b',           // bare reference: const db = meow.db
+      caseSensitive: false,
+    ).hasMatch(code);
+
+    final initializesTables =
+        lower.contains('create table if not exists') || lower.contains('create table');
+
+    // --- Read path detection ---
+    // Match meow.db.query/rawQuery/getAll/select and also aliased patterns
+    // like `db.query(...)` where db was assigned from meow.db.
+    final readsDatabase = RegExp(
+      r'meow\s*\.\s*db\s*\.\s*(?:query|rawQuery|getAll|select|getItem)\s*\('
+      r'|'
+      // Aliased: .db.query(...) — matches when meow.db assignment exists.
+      r'\.db\s*\.\s*(?:query|rawQuery|getAll|select|getItem)\s*\(',
+      caseSensitive: false,
+    ).hasMatch(code);
+
+    // --- Write path detection ---
+    final writesDatabase = RegExp(
+      r'meow\s*\.\s*db\s*\.\s*(?:insert|update|delete|execute|run|setItem|put)\s*\('
+      r'|'
+      r'\.db\s*\.\s*(?:insert|update|delete|execute|run|setItem|put)\s*\(',
+      caseSensitive: false,
+    ).hasMatch(code);
+
+    final usesThemeTokens = code.contains('--color-') ||
+        lower.contains('meow.theme') ||
+        lower.contains('dark:') ||
+        lower.contains('classlist.add(\'dark\'') ||
+        lower.contains('classlist.add("dark"');
+    final warns = <String>[
+      if (!usesMeowSdk)
+        'No window.meow SDK usage detected. Device/data integration may not work.',
+      if (!usesUserDatabase)
+        'No window.meow.db usage detected. Data will NOT persist in the user database (meow_user.db). '
+        'Use window.meow.db.execute/query/insert to store data in the user DB — this is separate from the system DB.',
+      if (usesUserDatabase && !initializesTables)
+        'Database usage detected but no CREATE TABLE setup was found. '
+        'Ensure the table exists in the user DB (meow_user.db) — use db.create_table or window.meow.db.execute("CREATE TABLE...").',
+      if (usesUserDatabase && !readsDatabase)
+        'Database usage detected but no query/read path was found. '
+        'Add window.meow.db.query() calls to load data from the user DB on startup.',
+      if (writesDatabase && !readsDatabase)
+        'Database writes detected without a read-back path to keep UI in sync.',
+      if (!usesThemeTokens)
+        'No dynamic theme integration detected. Use host CSS variables or Tailwind dark: selectors.',
+      if (lower.contains('localstorage') || lower.contains('sessionstorage'))
+        'Browser storage detected. Use window.meow.db for durable data — localStorage does not persist across Mini App sessions.',
+    ];
+
+    return {
+      'usesMeowSdk': usesMeowSdk,
+      'usesUserDatabase': usesUserDatabase,
+      'initializesTables': initializesTables,
+      'readsDatabase': readsDatabase,
+      'writesDatabase': writesDatabase,
+      'usesThemeTokens': usesThemeTokens,
+      'warnings': warns,
+    };
+  }
+
   int _countOccurrences(String source, String target) {
     var count = 0;
     var offset = 0;
@@ -641,8 +806,8 @@ class MiniAppModulePlugin extends ModulePlugin {
     int totalLines,
     String currentRevision,
   ) {
-    final preview = actualBlock.length > 300
-        ? '${actualBlock.substring(0, 300)}... (${actualBlock.length - 300} more chars)'
+    final preview = actualBlock.length > 600
+        ? '${actualBlock.substring(0, 600)}... (${actualBlock.length - 600} more chars)'
         : actualBlock;
 
     final hint = _extractSearchHint(actualBlock);
@@ -659,14 +824,19 @@ class MiniAppModulePlugin extends ModulePlugin {
           'ACTUAL CONTENT in range:\n'
           '$preview\n'
           '\n'
-          'To retry safely, read the intended range and call miniapp.patch with its revision, startLine, endLine, and replacementContent.',
+          'RECOVERY OPTIONS:\n'
+          '1. EASIEST: Use full-rewrite mode — call miniapp.patch with just '
+          'expectedRevision and replacementContent (the complete new code). '
+          'No startLine/endLine/targetContent needed.\n'
+          '2. Read the intended range and retry with exact targetContent '
+          'matching the actual content shown above.',
       data: {
         'id': id,
         'startLine': startLine,
         'endLine': endLine,
         'totalLines': totalLines,
         'currentRevision': currentRevision,
-        'recommendedMode': 'revision_range',
+        'recommendedMode': 'full_rewrite',
         'hint': hint,
         'actualContentPreview': preview,
       },

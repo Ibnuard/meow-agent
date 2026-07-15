@@ -11,6 +11,7 @@ class LlmRequestUsage {
     required this.model,
     required this.inputTokens,
     this.outputTokens,
+    this.cachedTokens,
     required this.messageCount,
     required this.createdAt,
   });
@@ -19,6 +20,7 @@ class LlmRequestUsage {
   final String model;
   final int inputTokens;
   final int? outputTokens;
+  final int? cachedTokens;
   final int messageCount;
   final DateTime createdAt;
 }
@@ -56,15 +58,35 @@ class OpenAiCompatibleClient {
   /// on mobile. Receive timeout is generous because long completions stream
   /// slowly; connect/send are tighter since they should be near-instant.
   static Dio _defaultDio() => Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(seconds: 120),
-          sendTimeout: const Duration(seconds: 30),
-        ),
-      );
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 300),
+      sendTimeout: const Duration(seconds: 60),
+    ),
+  );
 
   static const int _maxUsageRecords = 80;
   static final List<LlmRequestUsage> _usageRecords = [];
+
+  /// Session-scoped prompt cache key. Set once per conversation turn flow
+  /// so the provider can reuse the cached prompt prefix across multi-phase
+  /// LLM calls (analyze → reflect → plan → execute).
+  /// See REVIEWED.md Level 1: Provider Prompt Caching.
+  static String _sessionCacheKey = '';
+
+  /// Initialize prompt caching for the current conversation.
+  /// Call this at the start of [AgentRuntimeEngine.run] with a stable
+  /// identifier (agentId + conversation segment). When set and the provider
+  /// config has [LlmProviderConfig.supportsPromptCaching], every subsequent
+  /// request carries the `prompt_cache_key` header.
+  static void initSession(String sessionId) {
+    _sessionCacheKey = sessionId;
+  }
+
+  /// Clear the session cache key (e.g. on conversation reset).
+  static void clearSession() {
+    _sessionCacheKey = '';
+  }
 
   static List<LlmRequestUsage> get usageRecords =>
       List.unmodifiable(_usageRecords);
@@ -90,6 +112,32 @@ class OpenAiCompatibleClient {
     if (_usageRecords.length > _maxUsageRecords) {
       _usageRecords.removeRange(0, _usageRecords.length - _maxUsageRecords);
     }
+  }
+
+  /// Build headers for a request, injecting prompt_cache_key when the
+  /// provider supports caching and a session key has been set.
+  Map<String, dynamic> _buildHeaders(LlmProviderConfig config) {
+    final headers = <String, dynamic>{
+      'Authorization': 'Bearer ${config.apiKey}',
+      'Content-Type': 'application/json',
+    };
+    if (config.supportsPromptCaching && _sessionCacheKey.isNotEmpty) {
+      headers['prompt_cache_key'] = _sessionCacheKey;
+    }
+    return headers;
+  }
+
+  /// Extract cached token count from provider response usage data.
+  /// OpenAI-compatible providers return this under
+  /// `usage.prompt_tokens_details.cached_tokens`.
+  static int? _extractCachedTokens(Map? usage) {
+    if (usage == null) return null;
+    final details = usage['prompt_tokens_details'];
+    if (details is Map) {
+      final cached = details['cached_tokens'];
+      if (cached is int) return cached;
+    }
+    return null;
   }
 
   Uri _resolve(String baseUrl, String path) {
@@ -197,16 +245,13 @@ class OpenAiCompatibleClient {
       }
     }
 
-    final response = await _dio.postUri<Map<String, dynamic>>(
-      _resolve(config.baseUrl, '/chat/completions'),
-      data: {'model': config.model, 'messages': wireMessages},
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
+    final response = await _postWithRetry<Map<String, dynamic>>(
+      () => _dio.postUri<Map<String, dynamic>>(
+        _resolve(config.baseUrl, '/chat/completions'),
+        data: {'model': config.model, 'messages': wireMessages},
+        options: Options(headers: _buildHeaders(config)),
+        cancelToken: cancelToken,
       ),
-      cancelToken: cancelToken,
     );
 
     final data = response.data;
@@ -232,11 +277,62 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimatedInputTokens,
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: messages.length,
         createdAt: DateTime.now(),
       ),
     );
     return _normalizeContent(content);
+  }
+
+  /// Execute a POST request with a bounded retry on transient network/HTTP
+  /// failures (connection reset, receive timeout, 429 Too Many Requests, 5xx).
+  ///
+  /// Without this a single dropped packet or a momentary provider 503 aborts
+  /// the entire agent turn — even though the very next attempt would likely
+  /// succeed. We retry up to [_maxChatRetries] times with exponential backoff,
+  /// reusing the provider prompt-cache key so retried calls still benefit from
+  /// prefix caching. Non-transient failures (4xx auth/validation) propagate
+  /// immediately, and a cancelled request is never retried.
+  static const int _maxChatRetries = 2;
+
+  Future<Response<T>> _postWithRetry<T>(
+    Future<Response<T>> Function() request,
+  ) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await request();
+      } on DioException catch (e) {
+        if (!_isTransientDioError(e) || attempt >= _maxChatRetries) rethrow;
+        // Backoff: 500ms, 1500ms — long enough for a transient provider
+        // blip to clear without making a stalled turn feel hung.
+        final backoffMs = (500 * (attempt + 1)) + (attempt * 1000);
+        await Future.delayed(Duration(milliseconds: backoffMs));
+        attempt++;
+      }
+    }
+  }
+
+  /// True for errors worth retrying: timeouts, connection resets, and provider
+  /// rate-limit/server errors. False for auth failures, bad requests, and
+  /// cancellations.
+  bool _isTransientDioError(DioException e) {
+    switch (e.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.connectionError:
+        return true;
+      case DioExceptionType.badResponse:
+        final status = e.response?.statusCode ?? 0;
+        // 429 Too Many Requests and 5xx server errors are transient.
+        return status == 429 || (status >= 500 && status < 600);
+      case DioExceptionType.cancel:
+      case DioExceptionType.badCertificate:
+      case DioExceptionType.unknown:
+        return false;
+    }
   }
 
   /// Native function calling path. Sends `tools` as an API parameter and
@@ -253,26 +349,27 @@ class OpenAiCompatibleClient {
     CancelToken? cancelToken,
   }) async {
     final estimatedInputTokens = estimateMessagesTokens(
-      messages.map((m) => Map<String, String>.from(
-        m.map((k, v) => MapEntry(k, v.toString())),
-      )).toList(),
+      messages
+          .map(
+            (m) => Map<String, String>.from(
+              m.map((k, v) => MapEntry(k, v.toString())),
+            ),
+          )
+          .toList(),
     );
 
-    final response = await _dio.postUri<Map<String, dynamic>>(
-      _resolve(config.baseUrl, '/chat/completions'),
-      data: {
-        'model': config.model,
-        'messages': messages,
-        'tools': tools,
-        'tool_choice': toolChoice,
-      },
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
+    final response = await _postWithRetry<Map<String, dynamic>>(
+      () => _dio.postUri<Map<String, dynamic>>(
+        _resolve(config.baseUrl, '/chat/completions'),
+        data: {
+          'model': config.model,
+          'messages': messages,
+          'tools': tools,
+          'tool_choice': toolChoice,
         },
+        options: Options(headers: _buildHeaders(config)),
+        cancelToken: cancelToken,
       ),
-      cancelToken: cancelToken,
     );
 
     final data = response.data;
@@ -293,6 +390,7 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimatedInputTokens,
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: messages.length,
         createdAt: DateTime.now(),
       ),
@@ -357,12 +455,7 @@ class OpenAiCompatibleClient {
           },
         ],
       },
-      options: Options(
-        headers: {
-          'Authorization': 'Bearer ${config.apiKey}',
-          'Content-Type': 'application/json',
-        },
-      ),
+      options: Options(headers: _buildHeaders(config)),
       cancelToken: cancelToken,
     );
 
@@ -389,11 +482,56 @@ class OpenAiCompatibleClient {
         model: config.model,
         inputTokens: estimateTokens(prompt),
         outputTokens: completionTokens is int ? completionTokens : null,
+        cachedTokens: _extractCachedTokens(usage),
         messageCount: 1,
         createdAt: DateTime.now(),
       ),
     );
     return _normalizeContent(content);
+  }
+
+  Future<List<String>> fetchModels({
+    required String baseUrl,
+    required String apiKey,
+    CancelToken? cancelToken,
+  }) async {
+    final response = await _dio.getUri<dynamic>(
+      _resolve(baseUrl, '/models'),
+      options: Options(
+        headers: {
+          'Authorization': 'Bearer $apiKey',
+          'Content-Type': 'application/json',
+        },
+      ),
+      cancelToken: cancelToken,
+    );
+    return _extractModelIds(response.data);
+  }
+
+  static List<String> _extractModelIds(dynamic data) {
+    final rawItems = switch (data) {
+      {'data': final List items} => items,
+      {'models': final List items} => items,
+      {'items': final List items} => items,
+      final List items => items,
+      _ => const <dynamic>[],
+    };
+
+    final out = <String>[];
+    void add(dynamic value) {
+      final trimmed = value?.toString().trim() ?? '';
+      if (trimmed.isEmpty || out.contains(trimmed)) return;
+      out.add(trimmed);
+    }
+
+    for (final item in rawItems) {
+      if (item is String) {
+        add(item);
+      } else if (item is Map) {
+        add(item['id'] ?? item['name'] ?? item['model']);
+      }
+    }
+    return out;
   }
 
   /// Lightweight credential test: lists models and returns true on 2xx.

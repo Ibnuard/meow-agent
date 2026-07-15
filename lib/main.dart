@@ -74,16 +74,19 @@ Future<void> main() async {
     modules: moduleEntryRepo,
   );
 
-  // Pre-load prefs from app_settings so the theme/language providers can
-  // initialize synchronously on the first frame (no flash of default state).
-  final initialTheme = await settingsRepo.get('prefs.theme') ?? 'system';
-  final initialLang = await settingsRepo.get('prefs.language') ?? 'system';
-  final initialActiveAgentId = await settingsRepo.get('active.agent_id');
+  // Pre-load all prefs from app_settings so that LocalStorageService and the
+  // theme/language providers can initialize synchronously on the first frame.
+  final allSettings = await settingsRepo.getAll();
+  final localStorageService = LocalStorageService(settingsRepo, allSettings);
+
+  final initialTheme = allSettings['prefs.theme'] ?? 'system';
+  final initialLang = allSettings['prefs.language'] ?? 'system';
+  final initialActiveAgentId = allSettings['active.agent_id'];
 
   runApp(
     ProviderScope(
       overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
+        localStorageProvider.overrideWithValue(localStorageService),
         initialThemeModeProvider.overrideWithValue(initialTheme),
         initialAppLanguageProvider.overrideWithValue(initialLang),
         initialActiveAgentIdProvider.overrideWithValue(initialActiveAgentId),

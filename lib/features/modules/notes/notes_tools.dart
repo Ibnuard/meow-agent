@@ -1,6 +1,7 @@
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/workspace/workspace_file_service.dart';
 import '../data/module_repository.dart';
+import 'notes_models.dart';
 import 'notes_repository.dart';
 
 /// Executes notes-related tool calls.
@@ -30,7 +31,7 @@ class NotesTools {
     }
     try {
       final title = (args['title'] as String? ?? '').trim();
-      final content = (args['content'] as String? ?? '').trim();
+      final content = _contentFromArgs(args);
       if (title.isEmpty) {
         return const ToolExecutionResult(
           success: false,
@@ -46,10 +47,24 @@ class NotesTools {
         tags: tags,
         source: source,
       );
+      final persisted = await _repo.getNote(note.id);
+      final verifiedFields = _verifiedNoteFields(persisted, {
+        'title': title,
+        'content': content,
+        'source': source,
+        if (tags.isNotEmpty) 'tags': tags,
+      });
       return ToolExecutionResult(
         success: true,
         toolName: 'notes.create',
-        data: {'noteId': note.id, 'created': true},
+        data: {
+          'noteId': note.id,
+          'created': true,
+          'persisted': persisted != null,
+          'verifiedFields': verifiedFields,
+          'title': persisted?.title ?? note.title,
+          'content': persisted?.content ?? note.content,
+        },
         actions: const [
           ResultAction(
             label: 'Open Notes',
@@ -66,6 +81,14 @@ class NotesTools {
         error: e.toString(),
       );
     }
+  }
+
+  String _contentFromArgs(Map<String, dynamic> args) {
+    for (final key in const ['content', 'body', 'message', 'text']) {
+      final value = args[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != '...' && value != '…') return value;
+    }
+    return '';
   }
 
   Future<ToolExecutionResult> executeListRecent(
@@ -217,17 +240,39 @@ class NotesTools {
       final title = args['title'] as String?;
       final content = args['content'] as String?;
       final tags = (args['tags'] as List?)?.cast<String>();
-      await _repo.updateNote(
+      final expected = <String, Object?>{};
+      if (title != null) expected['title'] = title;
+      if (content != null) expected['content'] = content;
+      if (tags != null) expected['tags'] = tags;
+      if (expected.isEmpty) {
+        return const ToolExecutionResult(
+          success: false,
+          toolName: 'notes.update',
+          error: 'At least one field must be provided.',
+        );
+      }
+      final updated = await _repo.updateNote(
         noteId,
         title: title,
         content: content,
         tags: tags,
       );
-      return const ToolExecutionResult(
+      final persisted = await _repo.getNote(updated.id);
+      final verifiedFields = _verifiedNoteFields(persisted, expected);
+      return ToolExecutionResult(
         success: true,
         toolName: 'notes.update',
-        data: {'updated': true},
-        actions: [
+        data: {
+          'updated': true,
+          'noteId': updated.id,
+          'persisted': persisted != null,
+          'verifiedFields': verifiedFields == expected.length
+              ? verifiedFields
+              : 0,
+          'title': persisted?.title ?? updated.title,
+          'content': persisted?.content ?? updated.content,
+        },
+        actions: const [
           ResultAction(
             label: 'Open Notes',
             icon: 'note_outlined',
@@ -268,10 +313,16 @@ class NotesTools {
         );
       }
       final updated = await _repo.updateNote(noteId, pinned: pinned);
+      final persisted = await _repo.getNote(updated.id);
       return ToolExecutionResult(
         success: true,
         toolName: toolName,
-        data: {'noteId': updated.id, 'pinned': updated.pinned},
+        data: {
+          'updated': true,
+          'noteId': updated.id,
+          'pinned': persisted?.pinned ?? updated.pinned,
+          'stateVerified': persisted?.pinned == pinned,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -305,10 +356,16 @@ class NotesTools {
         );
       }
       final updated = await _repo.updateNote(noteId, archived: archived);
+      final persisted = await _repo.getNote(updated.id);
       return ToolExecutionResult(
         success: true,
         toolName: toolName,
-        data: {'noteId': updated.id, 'archived': updated.archived},
+        data: {
+          'updated': true,
+          'noteId': updated.id,
+          'archived': persisted?.archived ?? updated.archived,
+          'stateVerified': persisted?.archived == archived,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -349,14 +406,16 @@ class NotesTools {
       }
       final separator = (args['separator'] as String?) ?? '\n\n';
       final newContent = existing.content + separator + content;
-      final updated =
-          await _repo.updateNote(noteId, content: newContent);
+      final updated = await _repo.updateNote(noteId, content: newContent);
+      final persisted = await _repo.getNote(updated.id);
       return ToolExecutionResult(
         success: true,
         toolName: 'notes.append',
         data: {
+          'updated': true,
           'noteId': updated.id,
-          'totalLength': updated.content.length,
+          'totalLength': persisted?.content.length ?? updated.content.length,
+          'stateVerified': persisted?.content == newContent,
         },
       );
     } catch (e) {
@@ -385,11 +444,23 @@ class NotesTools {
           error: 'noteId is required.',
         );
       }
-      await _repo.deleteNote(noteId);
-      return const ToolExecutionResult(
+      final deleted = await _repo.deleteNote(noteId);
+      if (deleted <= 0) {
+        return ToolExecutionResult(
+          success: false,
+          toolName: 'notes.delete',
+          error: 'Note not found: $noteId',
+        );
+      }
+      final persisted = await _repo.getNote(noteId);
+      return ToolExecutionResult(
         success: true,
         toolName: 'notes.delete',
-        data: {'deleted': true},
+        data: {
+          'deleted': deleted,
+          'noteId': noteId,
+          'absent': persisted == null,
+        },
       );
     } catch (e) {
       return ToolExecutionResult(
@@ -474,6 +545,42 @@ class NotesTools {
         toolName: 'notes.export',
         error: e.toString(),
       );
+    }
+  }
+
+  int _verifiedNoteFields(Note? note, Map<String, Object?> expected) {
+    if (note == null || expected.isEmpty) return 0;
+    var verified = 0;
+    for (final entry in expected.entries) {
+      if (_valuesMatch(_noteValue(note, entry.key), entry.value)) verified++;
+    }
+    return verified == expected.length ? verified : 0;
+  }
+
+  bool _valuesMatch(Object? actual, Object? expected) {
+    if (actual == expected) return true;
+    if (actual is List && expected is List) {
+      if (actual.length != expected.length) return false;
+      for (var i = 0; i < actual.length; i++) {
+        if (actual[i] != expected[i]) return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  Object? _noteValue(Note note, String key) {
+    switch (key) {
+      case 'title':
+        return note.title;
+      case 'content':
+        return note.content;
+      case 'tags':
+        return note.tags;
+      case 'source':
+        return note.source;
+      default:
+        return null;
     }
   }
 }

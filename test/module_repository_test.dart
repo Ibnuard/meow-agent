@@ -1,13 +1,24 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meow_agent/core/storage/app_settings_repository.dart';
+import 'package:meow_agent/core/storage/legacy_migration.dart';
+import 'package:meow_agent/core/storage/meow_database.dart';
+import 'package:meow_agent/core/storage/module_entry_repository.dart';
 import 'package:meow_agent/features/modules/data/module_model.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
-  setUp(() {
+  setUpAll(() {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  });
+
+  setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    await MeowDatabase.instance.resetForTesting();
   });
 
   group('ModuleRepository install defaults', () {
@@ -40,6 +51,13 @@ void main() {
       );
       await prefs.setStringList('installed_modules', [jsonEncode(legacy.toJson())]);
 
+      final db = MeowDatabase.instance;
+      await LegacyMigration.runOnce(
+        prefs: prefs,
+        settings: AppSettingsRepository(db),
+        modules: ModuleEntryRepository(db),
+      );
+
       final repo = ModuleRepository();
       final installed = await repo.getInstalled();
       final mod = installed.singleWhere(
@@ -47,11 +65,8 @@ void main() {
       );
 
       expect(mod.settings['allow_read'], true);
-      expect(mod.settings['allow_summary'], false);
-      expect(mod.settings['allow_classify'], false);
-      expect(mod.settings['allow_reply_suggestion'], false);
-      expect(mod.settings['allow_open_source_app'], false);
-      expect(mod.settings['show_logs'], false);
+      expect(mod.settings['allow_reply'], false);
+      expect(mod.settings['persistent_notification'], false);
     });
   });
 }

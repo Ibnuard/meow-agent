@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meow_agent/features/modules/attachments/attachment_module.dart';
 import 'package:meow_agent/features/modules/data/module_repository.dart';
@@ -128,6 +129,45 @@ void main() {
 
     expect(result.success, isTrue);
     expect(result.data?['description'], 'vision answer');
+  });
+
+  test('maps provider 404 from image vision to capability boundary', () async {
+    final result = await plugin.dispatch(
+      ToolCallRequest(
+        name: 'attachment.describe_image',
+        args: const {'index': 0, 'prompt': 'What is in this image?'},
+        risk: 'safe',
+        requiresConfirmation: false,
+      ),
+      ModuleToolContext(
+        agentName: 'Agent',
+        agentId: 'agent-1',
+        moduleRepository: ModuleRepository(),
+        attachments: const [
+          AttachedFile(path: 'image.png', name: 'image.png', sizeBytes: 42),
+        ],
+        modelSupportsVision: true,
+        describeImage: ({required image, required prompt}) async {
+          throw DioException(
+            requestOptions: RequestOptions(path: '/chat/completions'),
+            response: Response(
+              requestOptions: RequestOptions(path: '/chat/completions'),
+              statusCode: 404,
+            ),
+            type: DioExceptionType.badResponse,
+          );
+        },
+      ),
+    );
+
+    expect(result.success, isFalse);
+    expect(result.error, isNot(contains('DioException')));
+    expect(result.data?['errorCode'], 'vision_model_unsupported');
+    expect(result.data?['failureKind'], 'capability_boundary');
+    expect(result.data?['messageKey'], 'runtime_vision_model_unsupported');
+    expect(result.data?['visionRequired'], isTrue);
+    expect(result.data?['visionSupported'], isFalse);
+    expect(result.data?['httpStatus'], 404);
   });
 
   test(

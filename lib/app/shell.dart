@@ -7,7 +7,9 @@ import 'package:go_router/go_router.dart';
 
 import '../features/chat/data/chat_runtime_manager.dart';
 import '../features/chat/data/unread_service.dart';
+import '../features/modules/data/app_control_service.dart';
 import '../features/settings/data/app_language_provider.dart';
+import '../features/settings/data/update_service.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -15,7 +17,7 @@ import 'theme.dart';
 ///
 /// Theme-aware: uses light surface in light mode, dark navy in dark mode.
 /// The dock floats above the system gesture area with proper safe-area padding.
-class AppShell extends ConsumerWidget {
+class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key, required this.child});
 
   final Widget child;
@@ -52,16 +54,221 @@ class AppShell extends ConsumerWidget {
     ),
   ];
 
+  @override
+  ConsumerState<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends ConsumerState<AppShell> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkUpdates();
+    });
+  }
+
+  Future<void> _checkUpdates() async {
+    final updateService = ref.read(updateServiceProvider);
+    final result = await updateService.checkForUpdate();
+    if (result.isUpdateAvailable && mounted) {
+      _showUpdateDialog(result);
+    }
+  }
+
+  void _showUpdateDialog(UpdateCheckResult result) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        final isDark = Theme.of(dialogCtx).brightness == Brightness.dark;
+        final cs = Theme.of(dialogCtx).colorScheme;
+        final extras = dialogCtx.extras;
+        final langPref = ref.watch(appLanguageProvider);
+        final strings = AppStrings(resolveLanguageCode(langPref));
+
+
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 340),
+            decoration: BoxDecoration(
+              color: isDark ? extras.card : Colors.white,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: isDark ? extras.subtleBorder : const Color(0xFFEFF3FA),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Color(0xFF3B82F6),
+                          Color(0xFF8B5CF6),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.system_update_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          strings.updateAvailable,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          strings.updateAvailableDesc(result.latestVersion),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: cs.onSurface,
+                            height: 1.5,
+                          ),
+                        ),
+                        if (result.releaseNotes != null && result.releaseNotes!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 120),
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.black.withValues(alpha: 0.2)
+                                  : const Color(0xFFF3F4F6),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: SingleChildScrollView(
+                              physics: const BouncingScrollPhysics(),
+                              child: Text(
+                                result.releaseNotes!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontFamily: 'monospace',
+                                  color: cs.onSurfaceVariant,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogCtx),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              side: BorderSide(
+                                color: isDark ? extras.subtleBorder : const Color(0xFFD1D5DB),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: Text(
+                              strings.later,
+                              style: TextStyle(
+                                color: cs.onSurfaceVariant,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(dialogCtx);
+                              if (result.downloadUrl != null) {
+                                ref.read(appControlServiceProvider).openUrl(result.downloadUrl!);
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B82F6),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: Text(
+                              strings.download,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   int _currentIndex(BuildContext context) {
     final location = GoRouterState.of(context).uri.toString();
-    final idx = _tabs.indexWhere(
+    final idx = AppShell._tabs.indexWhere(
       (t) => !t.isFeatured && location == t.route,
     );
     return idx;
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final extras = context.extras;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentIndex = _currentIndex(context);
@@ -76,8 +283,6 @@ class AppShell extends ConsumerWidget {
 
     final liftFromBottom = bottomInset > 0 ? bottomInset + 8 : 16.0;
 
-    // Set system UI overlay style based on theme so virtual nav buttons
-    // are visible in both light and dark modes.
     final overlayStyle = isDark
         ? const SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
@@ -100,7 +305,7 @@ class AppShell extends ConsumerWidget {
       value: overlayStyle,
       child: Scaffold(
         extendBody: true,
-        body: child,
+        body: widget.child,
         bottomNavigationBar: Padding(
           padding: EdgeInsets.fromLTRB(18, 0, 18, liftFromBottom),
           child: SizedBox(
@@ -119,15 +324,15 @@ class AppShell extends ConsumerWidget {
                     isDark: isDark,
                     child: Row(
                       children: [
-                        for (var i = 0; i < _tabs.length; i++)
+                        for (var i = 0; i < AppShell._tabs.length; i++)
                           Expanded(
-                            child: _tabs[i].isFeatured
+                            child: AppShell._tabs[i].isFeatured
                                 ? const SizedBox.shrink()
                                 : _RegularTab(
-                                    item: _tabs[i],
-                                    label: _labelFor(_tabs[i], strings),
+                                    item: AppShell._tabs[i],
+                                    label: _labelFor(AppShell._tabs[i], strings),
                                     selected: i == currentIndex,
-                                    onTap: () => context.go(_tabs[i].route),
+                                    onTap: () => context.go(AppShell._tabs[i].route),
                                   ),
                           ),
                       ],
@@ -163,16 +368,12 @@ class AppShell extends ConsumerWidget {
     return item.label;
   }
 
-  /// Returns true if any agent has a running runtime session.
-  /// Watching the manager triggers a rebuild when sessions update.
   bool _hasAnyActiveSession(WidgetRef ref) {
     final mgr = ref.watch(chatRuntimeManagerProvider);
-    // _sessions is private; read via sessionFor with a sentinel won't work.
-    // We expose state by relying on notifyListeners() rebuilding the widget.
-    // Iterate via the manager's own snapshot helper.
     return mgr.hasAnyRunning;
   }
 }
+
 
 class _NavItem {
   const _NavItem({

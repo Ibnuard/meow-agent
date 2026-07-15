@@ -9,6 +9,7 @@ import '../../agents/data/agent_model.dart';
 import '../../agents/data/agent_repository.dart';
 import '../../settings/data/app_language_provider.dart';
 import 'workflow_builtin_vars.dart';
+import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
 import 'workflow_scheduler.dart';
@@ -147,9 +148,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (_selectedAgentId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            sSave.workflowSelectAgentFirst,
-          ),
+          content: Text(sSave.workflowSelectAgentFirst),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -250,9 +249,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         variables: const {}, // legacy field; built-ins handle everything now.
         templateId: _templateId,
       );
+      await WorkflowScheduler.cancel(widget.workflow!);
       await _repo.update(updated);
-      await WorkflowScheduler.cancel(updated);
       await WorkflowScheduler.schedule(updated);
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      await WorkflowScheduler.registerKeepAlive();
     } else {
       final workflow = WorkflowModel(
         id: 'wf_${const Uuid().v4().substring(0, 8)}',
@@ -273,12 +274,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       );
       final success = await _repo.create(workflow);
       if (!success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(sSave.wfMaxWorkflows)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(sSave.wfMaxWorkflows)));
         return;
       }
       await WorkflowScheduler.schedule(workflow);
+      await WorkflowForegroundService.ensureSchedulerRunning();
+      await WorkflowScheduler.registerKeepAlive();
     }
 
     if (mounted) Navigator.pop(context, true);
@@ -303,6 +306,8 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     if (!confirm) return;
     await WorkflowScheduler.cancel(wf);
     await _repo.delete(wf.id);
+    await WorkflowForegroundService.ensureSchedulerRunning();
+    await WorkflowScheduler.registerKeepAlive();
     if (mounted) Navigator.pop(context, true);
   }
 
@@ -386,9 +391,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            _isEdit ? s.workflowEditTitle : s.workflowNewTitle,
-          ),
+          title: Text(_isEdit ? s.workflowEditTitle : s.workflowNewTitle),
           actions: [
             if (_isEdit)
               IconButton(
@@ -422,12 +425,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
               _sectionLabel(s.workflowSectionTitle, cs),
               const SizedBox(height: 8),
-              _buildInput(
-                _titleCtrl,
-                s.workflowTitleHint,
-                cs,
-                extras,
-              ),
+              _buildInput(_titleCtrl, s.workflowTitleHint, cs, extras),
               const SizedBox(height: 20),
 
               _sectionLabel(s.workflowSectionTrigger, cs),
@@ -547,7 +545,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     );
   }
 
-  Widget _buildAdvancedSettings(ColorScheme cs, MeowExtras extras, AppStrings s) {
+  Widget _buildAdvancedSettings(
+    ColorScheme cs,
+    MeowExtras extras,
+    AppStrings s,
+  ) {
     return Container(
       decoration: BoxDecoration(
         color: extras.card,
@@ -976,7 +978,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   // ─── Variables Section ──────────────────────────────────────────────────────
 
-  Widget _buildVariablesSection(ColorScheme cs, MeowExtras extras, AppStrings s) {
+  Widget _buildVariablesSection(
+    ColorScheme cs,
+    MeowExtras extras,
+    AppStrings s,
+  ) {
     final langCode = s.code;
     final visibleVars = _visibleBuiltIns();
     final previewVars = visibleVars.take(6).toList();
@@ -986,10 +992,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
       children: [
         Row(
           children: [
-            _sectionLabel(
-              s.workflowBuiltinVars,
-              cs,
-            ),
+            _sectionLabel(s.workflowBuiltinVars, cs),
             const Spacer(),
             TextButton.icon(
               onPressed: () => _showBuiltInVariableSheet(cs, extras, s),
@@ -1072,8 +1075,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         case BuiltInCategory.step:
           return _steps.isNotEmpty;
         case BuiltInCategory.triggerNotification:
-          return _triggerType == TriggerType.event &&
-              _eventKind == EventTriggerKind.notificationKeyword;
+          return _triggerType == TriggerType.schedule ||
+              _triggerType == TriggerType.interval ||
+              (_triggerType == TriggerType.event &&
+                  _eventKind == EventTriggerKind.notificationKeyword);
         case BuiltInCategory.triggerAppOpen:
           return _triggerType == TriggerType.event &&
               _eventKind == EventTriggerKind.appOpened;
@@ -1260,7 +1265,11 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         children: [
                           // ─── @api: row (same style as other vars) ──────────
                           Padding(
-                            padding: const EdgeInsets.only(left: 4, top: 4, bottom: 8),
+                            padding: const EdgeInsets.only(
+                              left: 4,
+                              top: 4,
+                              bottom: 8,
+                            ),
                             child: Text(
                               'API',
                               style: TextStyle(
@@ -1277,15 +1286,27 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                             },
                             borderRadius: BorderRadius.circular(14),
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8,
+                                horizontal: 4,
+                              ),
                               child: Row(
                                 children: [
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                      vertical: 5,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF06B6D4).withValues(alpha: 0.08),
+                                      color: const Color(
+                                        0xFF06B6D4,
+                                      ).withValues(alpha: 0.08),
                                       borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                                      border: Border.all(
+                                        color: const Color(
+                                          0xFF06B6D4,
+                                        ).withValues(alpha: 0.18),
+                                      ),
                                     ),
                                     child: const Text(
                                       '@api:',
@@ -1303,7 +1324,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                                       s.isId
                                           ? 'Panggil API tersimpan (ketik @api: lalu nama API)'
                                           : 'Call stored API (type @api: then API name)',
-                                      style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: cs.onSurfaceVariant,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1315,12 +1339,14 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                           // ─── Built-in variable categories ───────────────────
                           ...grouped.entries.map((entry) {
                             return Theme(
-                              data: Theme.of(ctx).copyWith(
-                                dividerColor: Colors.transparent,
-                              ),
+                              data: Theme.of(
+                                ctx,
+                              ).copyWith(dividerColor: Colors.transparent),
                               child: ExpansionTile(
                                 initiallyExpanded: true,
-                                tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+                                tilePadding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
                                 childrenPadding: const EdgeInsets.only(
                                   left: 4,
                                   right: 4,
@@ -1464,12 +1490,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         if (_eventKind == EventTriggerKind.notificationKeyword) ...[
           _sectionLabel(s.workflowKeyword, cs),
           const SizedBox(height: 8),
-          _buildInput(
-            _keywordCtrl,
-            s.workflowKeywordHint,
-            cs,
-            extras,
-          ),
+          _buildInput(_keywordCtrl, s.workflowKeywordHint, cs, extras),
           const SizedBox(height: 10),
           _notificationTriggerInfoCard(cs, extras, s),
         ],
@@ -1716,18 +1737,19 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
         final suggestions = trigger == null
             ? const <BuiltInVariable>[]
             : isApiQuery
-                ? const <BuiltInVariable>[]
-                : _visibleBuiltIns()
-                      .where(
-                        (v) => v.key.toLowerCase().contains(
-                          trigger.query.toLowerCase(),
-                        ),
-                      )
-                      .take(6)
-                      .toList();
+            ? const <BuiltInVariable>[]
+            : _visibleBuiltIns()
+                  .where(
+                    (v) => v.key.toLowerCase().contains(
+                      trigger.query.toLowerCase(),
+                    ),
+                  )
+                  .take(6)
+                  .toList();
 
         // API suggestions when user types @api: or @api
-        final showApiHint = trigger != null &&
+        final showApiHint =
+            trigger != null &&
             !isApiQuery &&
             'api'.contains(trigger.query.toLowerCase()) &&
             trigger.query.isNotEmpty;
@@ -1876,16 +1898,25 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 },
                 borderRadius: BorderRadius.circular(999),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF06B6D4).withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(999),
-                    border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.24)),
+                    border: Border.all(
+                      color: const Color(0xFF06B6D4).withValues(alpha: 0.24),
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.cloud_rounded, size: 12, color: Color(0xFF06B6D4)),
+                      const Icon(
+                        Icons.cloud_rounded,
+                        size: 12,
+                        color: Color(0xFF06B6D4),
+                      ),
                       const SizedBox(width: 5),
                       Text(
                         '@api:',
@@ -1899,7 +1930,10 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                       const SizedBox(width: 5),
                       Text(
                         s.wfApiCallLabel,
-                        style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -1915,7 +1949,9 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                 decoration: BoxDecoration(
                   color: extras.card,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.18)),
+                  border: Border.all(
+                    color: const Color(0xFF06B6D4).withValues(alpha: 0.18),
+                  ),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.08),
@@ -1941,25 +1977,46 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
                         padding: const EdgeInsets.only(bottom: 6),
                         child: InkWell(
                           onTap: () {
-                            final safeName = api.name.replaceAll(RegExp(r'\s+'), '_');
-                            _replaceVariableTrigger(ctrl, trigger, 'api:$safeName');
+                            final safeName = api.name.replaceAll(
+                              RegExp(r'\s+'),
+                              '_',
+                            );
+                            _replaceVariableTrigger(
+                              ctrl,
+                              trigger,
+                              'api:$safeName',
+                            );
                             onChanged?.call(ctrl.text);
                             localSetState(() {});
                           },
                           borderRadius: BorderRadius.circular(10),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF06B6D4).withValues(alpha: 0.06),
+                              color: const Color(
+                                0xFF06B6D4,
+                              ).withValues(alpha: 0.06),
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFF06B6D4).withValues(alpha: 0.15)),
+                              border: Border.all(
+                                color: const Color(
+                                  0xFF06B6D4,
+                                ).withValues(alpha: 0.15),
+                              ),
                             ),
                             child: Row(
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: _methodColor(api.method).withValues(alpha: 0.15),
+                                    color: _methodColor(
+                                      api.method,
+                                    ).withValues(alpha: 0.15),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
@@ -2002,12 +2059,18 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
 
   static Color _methodColor(String method) {
     switch (method.toUpperCase()) {
-      case 'GET': return const Color(0xFF22C55E);
-      case 'POST': return const Color(0xFF3B82F6);
-      case 'PUT': return const Color(0xFFF59E0B);
-      case 'PATCH': return const Color(0xFF8B5CF6);
-      case 'DELETE': return const Color(0xFFEF4444);
-      default: return const Color(0xFF64748B);
+      case 'GET':
+        return const Color(0xFF22C55E);
+      case 'POST':
+        return const Color(0xFF3B82F6);
+      case 'PUT':
+        return const Color(0xFFF59E0B);
+      case 'PATCH':
+        return const Color(0xFF8B5CF6);
+      case 'DELETE':
+        return const Color(0xFFEF4444);
+      default:
+        return const Color(0xFF64748B);
     }
   }
 
@@ -2134,9 +2197,7 @@ class _WorkflowEditorScreenState extends ConsumerState<WorkflowEditorScreen> {
     return MeowDropdown<String>(
       value: selectedValue,
       enabled: agents.isNotEmpty,
-      hint: agents.isEmpty
-          ? s.workflowNoAgentsYet
-          : s.workflowChooseAgent,
+      hint: agents.isEmpty ? s.workflowNoAgentsYet : s.workflowChooseAgent,
       sheetTitle: s.workflowChooseAgentTitle,
       searchHint: s.workflowSearchAgentsLong,
       emptyText: s.workflowNoAgentsFound,
@@ -2418,10 +2479,7 @@ class _ConditionPreset {
 
   static List<_ConditionPreset> all(AppStrings s) {
     return [
-      _ConditionPreset(
-        label: s.workflowAlwaysRun,
-        value: null,
-      ),
+      _ConditionPreset(label: s.workflowAlwaysRun, value: null),
       _ConditionPreset(
         label: s.wfConditionOnlyIfPrevSuccess,
         value: 'prev.isNotEmpty',

@@ -1,131 +1,52 @@
-import '../../features/settings/data/app_language_provider.dart';
 import 'action_map.dart';
 import 'goal_tree.dart';
-import 'pending_action.dart';
 import 'prompt_constants.dart';
 import 'runtime_models.dart';
 
 /// Builds prompt strings for each phase of the runtime loop.
 class PromptTemplates {
-  /// Analyze user intent.
-  static String analyzePrompt({
-    required String userMessage,
-    required AgentWorkspace workspace,
-    required List<String> availableTools,
-    required String languageCode,
-    List<Map<String, String>> recentMessages = const [],
-    PendingAction? pendingAction,
-    String recentToolMemory = '',
-    bool isWorkflowAutoExecute = false,
-    String activeTaskContext = '',
+  /// Build a stable context prefix that is byte-identical across all phases
+  /// in a single turn (analyze, selectTool, review). When passed as
+  /// [LlmJsonCaller.call]'s `stableContext` parameter, the provider can
+  /// cache this prefix and reuse it across multi-phase LLM calls.
+  ///
+  /// ORDER MATTERS for prompt caching: the world model is a static `const`
+  /// (identical across ALL agents and ALL turns) so it goes FIRST. This makes
+  /// the prefix maximally shared — a provider that caches the world-model
+  /// block on turn 1 reuses it on every subsequent turn and every phase
+  /// without re-processing it. The per-agent parts (self-identity, soul,
+  /// skills) come after.
+  ///
+  /// Contains: world model + self-identity + soul + skills.
+  /// Tool definitions are NOT included here because the analyze phase
+  /// doesn't have them (they arrive later after tool narrowing).
+  ///
+  /// See REVIEWED.md Level 2: Stable Prompt Prefix.
+  static String buildStableContext({
+    required String soul,
+    required String skills,
     String agentName = '',
     String agentId = '',
   }) {
-    final historyBlock = recentMessages.isNotEmpty
-        ? recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')
-        : 'No prior conversation.';
-
-    final pendingBlock = pendingAction != null
-        ? '\nPENDING ACTION (user was previously asked to confirm this):\n'
-              'Tool: ${pendingAction.toolName}\n'
-              'Args: ${pendingAction.toolArgs}\n'
-              'Summary: ${pendingAction.userFacingSummary}\n'
-              'Debug: ${pendingAction.debugDescriptor}\n\n'
-              '${PromptConstants.pendingActionInstructions}\n'
-              'If the user asks for a different action instead of confirming/rejecting/previewing this pending action, set task_relation="new_task" and analyze the new request on its own.'
-        : '';
-
-    final memoryBlock = recentToolMemory.isNotEmpty
-        ? '\n\n${PromptConstants.memoryHeader}\n$recentToolMemory\n\n'
-              '${PromptConstants.memoryInstructions}'
-        : '';
-
-    final sourceModeBlock = isWorkflowAutoExecute
-        ? '\n\nWORKFLOW EXECUTION MODE:\n'
-              '- This run is a scheduled workflow. There is no user available for real-time interaction.\n'
-              '- The user pre-approved sensitive actions when creating this workflow.\n'
-              '- ALWAYS set requires_tools=true if the prompt describes an action (open app, send intent, etc.).\n'
-              '- NEVER set requires_tools=false to ask for permission — execute directly via the appropriate tool.\n'
-              '- If a required detail is genuinely missing, set requires_tools=false and put the failure reason in missing_info, but do NOT phrase it as a confirmation question.\n'
-        : '';
-
-    final activeTaskBlock = activeTaskContext.isNotEmpty
-        ? '\n\nACTIVE TASK CONTEXT (a task is already in flight for this agent):\n'
-              '$activeTaskContext\n\n'
-              'Use this context to set task_relation before anything else. If the new user message is a standalone request or unrelated action, set task_relation="new_task". '
-              'If it edits or refines the same goal (a parameter, name, or scope change), set task_relation="revision". '
-              'If it just answers a clarify/affirms ("ok", "yes", "lanjut"), set task_relation="continuation".'
-        : '';
-
-    final language = languageLabelFromCode(languageCode);
-
-    final selfIdentityBlock = agentName.isEmpty
+    final selfIdentity = agentName.isEmpty
         ? ''
-        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
+        : PromptConstants.selfIdentity(agentName: agentName, agentId: agentId);
+    final skillsBlock = skills.isEmpty ? '' : '\n$skills\n';
+    return '''${PromptConstants.worldModel}
 
-    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
-        ? '\n${PromptConstants.vmWorkflowRules}\n'
-        : '';
+${PromptConstants.soulCharacter}
 
-    return '''${PromptConstants.analyzeIntro}
-
-${PromptConstants.systemRules(language, isWorkflowAutoExecute: isWorkflowAutoExecute)}
-
-${PromptConstants.systemMarkdownMap}
-$selfIdentityBlock$vmBlock
+$selfIdentity
 Identity context (user profile stored in database):
-${workspace.soul}
-${workspace.skills.isEmpty ? '' : '\n${workspace.skills}\n'}
-Available tools:
-${availableTools.join('\n')}
-
-Recent conversation:
-$historyBlock
-$pendingBlock$memoryBlock$sourceModeBlock$activeTaskBlock
-
-User message: "$userMessage"
-
-${PromptConstants.policyAsk}
-
-${PromptConstants.analyzeRequiresToolsRules}
-
-${PromptConstants.analyzeCrossDomainAmbiguityRule}
-
-${PromptConstants.analyzeExamples}
-
-${PromptConstants.analyzeResponseFormat}''';
+$soul
+$skillsBlock''';
   }
 
-  /// Create execution plan.
-  static String planPrompt({
-    required Map<String, dynamic> analysis,
-    required List<String> availableTools,
-    List<String> resolvedTargetLabels = const [],
-  }) {
-    final resolvedBlock = resolvedTargetLabels.isEmpty
-        ? ''
-        : '\nResolved targets (snapshot-matched, authoritative):\n'
-              '${resolvedTargetLabels.map((l) => '- $l').join('\n')}\n'
-              'Emit ONE subgoal per resolved target above. Use these labels '
-              'verbatim. Do NOT invent additional targets.\n';
-    // VM workflow rules (ext4 vs FUSE, scaffolder cwd) — the planner builds the
-    // goal tree and must know that scaffold/install/serve steps belong inside
-    // agent_workspace_dir, not /root or files.create. Without this the plan can
-    // route a "build a Vite project" task through the wrong filesystem and the
-    // executor can't recover.
-    final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
-        ? '\n${PromptConstants.vmWorkflowRules}\n'
-        : '';
-    return '''${PromptConstants.planIntro}
-$vmBlock
-Analysis result:
-${_jsonString(analysis)}
-$resolvedBlock
-Available tools:
-${availableTools.join('\n')}
 
-${PromptConstants.planResponseFormat}''';
-  }
+
+
+
+
 
   /// Select next tool or decide final response.
   static String selectToolPrompt({
@@ -193,17 +114,26 @@ ${PromptConstants.planResponseFormat}''';
     final vmBlock = PromptConstants.toolsIncludeVm(availableTools)
         ? '\n${PromptConstants.vmWorkflowRules}\n'
         : '';
+    final miniAppBlock = PromptConstants.toolsIncludeMiniApp(availableTools)
+        ? '\n${PromptConstants.miniAppRules}\n'
+        : '';
+    final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
+        .toString()
+        .trim();
+    final selectedSkillBlock = selectedSkillContext.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.selectToolIntro}
-${agentName.isEmpty ? '' : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n'}
 ${PromptConstants.policyMinimal}
-$literalInstructionBlock$vmBlock
+    $literalInstructionBlock$vmBlock$miniAppBlock
 ${_actionMapBlock(availableTools)}
 Execution plan:
 ${_jsonString(plan)}
+$selectedSkillBlock
 
 Current step: $currentStep
 Previous results (this turn):
-${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}
+${_formatPreviousResults(previousResults)}
 $historyBlock$goalBlock$memoryBlock$sourceModeBlock
 Available tools:
 ${availableTools.join('\n')}
@@ -224,9 +154,6 @@ ${PromptConstants.selectToolResponseFormat}''';
     String agentName = '',
     String agentId = '',
   }) {
-    final selfIdentityBlock = agentName.isEmpty
-        ? ''
-        : '\n${PromptConstants.selfIdentity(agentName: agentName, agentId: agentId)}\n';
     final goalBlock = goalTree == null || goalTree.isEmpty
         ? ''
         : '\nGoal tree state (BEFORE this review):\n${goalTree.toCompactString()}\n'
@@ -239,10 +166,16 @@ ${PromptConstants.selectToolResponseFormat}''';
               'final_response or summary, ground it strictly on this; do NOT '
               'invent items, names, numbers, or jokes not present here):\n'
               '${recentMessages.map((m) => '${m['role']}: ${m['content']}').join('\n')}\n';
-    final previousResultsBlock = '\nPrevious results (this turn):\n'
-        '${previousResults.isEmpty ? 'None yet.' : previousResults.map(_jsonString).join('\n')}\n';
+    final previousResultsBlock =
+        '\nPrevious results (this turn):\n'
+        '${_formatPreviousResults(previousResults)}\n';
+    final selectedSkillContext = (plan['_selected_skill_context'] ?? '')
+        .toString()
+        .trim();
+    final selectedSkillBlock = selectedSkillContext.isEmpty
+        ? ''
+        : '\nSelected skill context:\n$selectedSkillContext\n';
     return '''${PromptConstants.reviewIntro}
-$selfIdentityBlock
 ${PromptConstants.policyGround}
 
 ${PromptConstants.policyRecover}
@@ -253,6 +186,7 @@ Original user request: "$userMessage"
 
 Execution plan:
 ${_jsonString(plan)}
+$selectedSkillBlock
 $previousResultsBlock$historyBlock$goalBlock
 Current step: $currentStep
 
@@ -273,7 +207,54 @@ ${PromptConstants.reviewResponseFormat}''';
   }
 
   static String _jsonString(Map<String, dynamic> json) {
-    return json.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+    return json.entries
+        .where((e) => !e.key.startsWith('_'))
+        .map((e) => '  ${e.key}: ${e.value}')
+        .join('\n');
+  }
+
+  /// Render the per-turn previous-results list into a bounded prompt block.
+  ///
+  /// Without this the accumulated history is re-serialized in full into every
+  /// selector and reviewer prompt, growing unbounded up to `maxSteps×3` entries
+  /// and inflating tokens (and confusing the model) as a complex task
+  /// progresses. Keep the most recent [_fullResultsWindow] entries in full
+  /// (the selector/reviewer need their structured data to chain steps), and
+  /// compress older entries into one-line summaries — enough to recall what
+  /// already happened without re-doing it, without the cost.
+  static const int _fullResultsWindow = 4;
+
+  static String _formatPreviousResults(
+    List<Map<String, dynamic>> previousResults,
+  ) {
+    if (previousResults.isEmpty) return 'None yet.';
+    if (previousResults.length <= _fullResultsWindow) {
+      return previousResults.map(_jsonString).join('\n');
+    }
+    final older = previousResults.sublist(
+      0,
+      previousResults.length - _fullResultsWindow,
+    );
+    final recent = previousResults.sublist(
+      previousResults.length - _fullResultsWindow,
+    );
+    final olderSummary = older.map((e) {
+      final step = e['step'] ?? '?';
+      final tool = e['tool'] ?? '?';
+      final note = (e['note'] ?? '').toString().trim();
+      final result = e['result'];
+      String outcome;
+      if (result is Map) {
+        outcome = result.containsKey('error')
+            ? 'failed'
+            : (result['success'] == false ? 'failed' : 'ok');
+      } else {
+        outcome = note.isEmpty ? 'ok' : 'ok';
+      }
+      return '  - step $step: $tool → $outcome'
+          '${note.isEmpty ? '' : ' ($note)'}';
+    }).join('\n');
+    return 'Earlier (compressed):\n$olderSummary\n\nLatest:\n${recent.map(_jsonString).join('\n')}';
   }
 
   /// Render the canonical action map block, filtered to only the domains
@@ -287,10 +268,9 @@ ${PromptConstants.reviewResponseFormat}''';
   static String _actionMapBlock(List<String> availableTools) {
     final domains = <String>{};
     for (final def in availableTools) {
-      final firstLine = def.split('\n').firstWhere(
-            (l) => l.trim().isNotEmpty,
-            orElse: () => '',
-          );
+      final firstLine = def
+          .split('\n')
+          .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '');
       // Tool names look like "system.config.patch" or "app_agent.click".
       // Extract the leading token before the first dot.
       final match = RegExp(r'([a-z_]+)\.').firstMatch(firstLine);

@@ -75,7 +75,9 @@ class ToolPermissionCheck {
     final setting = req?.settingLabel;
     final settingPart = setting == null ? '' : ' Setting: "$setting".';
     final androidPerm = req?.androidPermission;
-    final androidPart = androidPerm == null
+    final androidPart =
+        androidPerm == null ||
+            reason != ToolPermissionBlockReason.androidPermissionDenied
         ? ''
         : ' Android permission "${androidPerm.name}" is not granted.';
     return '${ToolPermissionPolicy.permissionDeniedCode}: $reasonName. '

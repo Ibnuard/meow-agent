@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -5,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../services/agent_runtime/i18n_fallback.dart';
 import '../../../services/agent_runtime/language_detector.dart';
-import '../../../services/agent_runtime/narrative_narrator.dart';
 import '../../../services/agent_runtime/runtime_engine.dart';
 import '../../../services/agent_runtime/runtime_models.dart';
 import '../../../services/agent_runtime/task_ledger.dart';
@@ -219,8 +219,10 @@ class ChatRuntimeManager extends ChangeNotifier {
     final data = event.data ?? const <String, dynamic>{};
     final kind = data['kind']?.toString();
     if (kind == 'analysis_summary' ||
+        kind == 'plan_summary' ||
         kind == 'decision_summary' ||
-        kind == 'next_action') {
+        kind == 'next_action' ||
+        kind == 'tool_insight') {
       return;
     }
     final previous = _streamBubbleWrites[agentId] ?? Future<void>.value();
@@ -409,7 +411,7 @@ class ChatRuntimeManager extends ChangeNotifier {
 
     if (provider == null || !provider.isComplete) {
       // Fallback: agent's provider disappeared mid-flight → surface with action.
-      final lang = _languageForUserMessage(userMessage);
+      final lang = await _languageForUserMessage(agentId, userMessage);
       final sentUserMsg = userMsg.copyWith(
         deliveryStatus: ChatMessageDeliveryStatus.sent,
         clearErrorMessage: true,
@@ -456,10 +458,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         debugMessages: [],
         clearPending: true,
         clearLiveCheckpoints: true,
-        narrativeMessage: NarrativeNarrator.narrate(
-          'understanding',
-          _languageForUserMessage(userMessage),
-        ),
+        clearNarrative: true,
       ),
     );
 
@@ -473,6 +472,11 @@ class ChatRuntimeManager extends ChangeNotifier {
         agents.where((a) => a.id == agentId).firstOrNull ??
         (agents.isNotEmpty ? agents.first : null);
     final agentName = agent?.name ?? '';
+    final sessionId = ref
+        .read(chatSessionServiceProvider)
+        .currentSessionId(agentId);
+    final runId =
+        'run-${userMsg.id ?? userMsg.clientId ?? DateTime.now().microsecondsSinceEpoch}';
 
     try {
       var runtimeRecentMessages = recentMessages;
@@ -480,9 +484,6 @@ class ChatRuntimeManager extends ChangeNotifier {
         // Only feed persisted messages for the active session. The chat UI may
         // still show an in-memory transcript after /reset, but /reset clears
         // this session's stored rows; /new-session and /resume switch ids.
-        final sessionId = ref
-            .read(chatSessionServiceProvider)
-            .currentSessionId(agentId);
         final latest = await history.loadLatest(agentId, sessionId: sessionId);
         runtimeRecentMessages = latest
             .where(
@@ -499,6 +500,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           agentName: agentName,
           userMessage: userMessage,
           recentMessages: runtimeRecentMessages,
+          metadata: {'session_id': sessionId},
           attachments: attachments,
         ),
         provider: provider,
@@ -509,11 +511,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           if (_cancelledSends.contains(agentId)) return;
 
           if (event.type == 'stream_bubble') {
-            _queueStreamBubble(
-              agentId: agentId,
-              runId: 'run-${userMsg.id ?? userMsg.clientId ?? event.id}',
-              event: event,
-            );
+            _queueStreamBubble(agentId: agentId, runId: runId, event: event);
           }
 
           // LLM-driven narrative bubble: ONLY update when an explicit
@@ -822,8 +820,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         final notifier = ref.read(chatMessagesProvider(agentId).notifier);
         final visible = ref.read(chatMessagesProvider(agentId)).messages;
         final visibleIndex = visible.indexWhere(
-          (candidate) =>
-              message.id != null && candidate.id == message.id,
+          (candidate) => message.id != null && candidate.id == message.id,
         );
         if (visibleIndex >= 0) notifier.removeAt(visibleIndex);
         break;
@@ -844,7 +841,7 @@ class ChatRuntimeManager extends ChangeNotifier {
     final provider = await _resolveProvider(agentId);
     if (provider == null || !provider.isComplete) {
       // Fallback: provider disappeared after confirmation was requested.
-      final lang = engine.languageCode;
+      final lang = await _runtimeFallbackLanguage(agentId);
       final fallbackMsg = ChatMessage(
         role: 'assistant',
         content: I18nFallback.get('provider_unavailable', lang),
@@ -887,10 +884,7 @@ class ChatRuntimeManager extends ChangeNotifier {
         debugMessages: [],
         clearPending: true,
         clearLiveCheckpoints: true,
-        narrativeMessage: NarrativeNarrator.narrate(
-          'executing',
-          engine.languageCode,
-        ),
+        clearNarrative: true,
       ),
     );
 
@@ -912,6 +906,9 @@ class ChatRuntimeManager extends ChangeNotifier {
         agents.where((a) => a.id == agentId).firstOrNull ??
         (agents.isNotEmpty ? agents.first : null);
     final agentName = agent?.name ?? '';
+    final sessionId = ref
+        .read(chatSessionServiceProvider)
+        .currentSessionId(agentId);
     var receivedLedgerEvent = false;
 
     try {
@@ -921,6 +918,7 @@ class ChatRuntimeManager extends ChangeNotifier {
           agentName: agentName,
           userMessage: '',
           recentMessages: const [],
+          metadata: {'session_id': sessionId},
         ),
         provider: provider,
         toolName: tool,
@@ -1037,11 +1035,10 @@ class ChatRuntimeManager extends ChangeNotifier {
       );
       // Persist cumulative token usage stats for this agent.
       ref.read(tokenUsageServiceProvider).saveFromSession(agentId);
-      final hasLedgerMsg =
-          shouldPersistTaskLedgerSnapshot(
-            boundaryLedger,
-            awaitingConfirmation: isNextConfirm,
-          );
+      final hasLedgerMsg = shouldPersistTaskLedgerSnapshot(
+        boundaryLedger,
+        awaitingConfirmation: isNextConfirm,
+      );
       persistedMessages
         ..clear()
         ..addAll(
@@ -1194,12 +1191,45 @@ class ChatRuntimeManager extends ChangeNotifier {
     );
   }
 
-  /// Extract LLM-supplied narrative payload from a [RuntimeEvent].
-  /// Returns null when the event is not a narrative event.
+  /// Extract user-facing LLM text from a [RuntimeEvent].
+  ///
+  /// The live narrator is for natural, non-technical model output. Runtime
+  /// state changes, tool calls, JSON payloads, and raw result data stay in the
+  /// debug log; narrative/next-narrative fields are safe to surface.
   String? _narrativeFromEvent(RuntimeEvent event) {
-    if (event.type != 'narrative') return null;
-    final msg = event.message.trim();
-    return msg.isEmpty ? null : msg;
+    if (event.type == 'narrative') {
+      return _cleanNarrativeCandidate(event.message);
+    }
+
+    if (event.type != 'llm_decision') return null;
+    final data = event.data;
+    if (data == null) return null;
+    const narrativeKeys = [
+      'next_narrative',
+      'narrative',
+      'clarify_questions',
+      'question',
+    ];
+    for (final key in narrativeKeys) {
+      final candidate = _cleanNarrativeCandidate(data[key]);
+      if (candidate != null) return candidate;
+    }
+    return null;
+  }
+
+  String? _cleanNarrativeCandidate(Object? value) {
+    if (value is List) {
+      for (final item in value) {
+        final candidate = _cleanNarrativeCandidate(item);
+        if (candidate != null) return candidate;
+      }
+      return null;
+    }
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+    if (text.startsWith('{') || text.startsWith('[')) return null;
+    if (text.contains('"status"') || text.contains('"tool"')) return null;
+    return text.length > 800 ? '${text.substring(0, 800).trim()}...' : text;
   }
 
   TaskLedger? _taskLedgerFromEvent(RuntimeEvent event) {
@@ -1213,16 +1243,33 @@ class ChatRuntimeManager extends ChangeNotifier {
     }
   }
 
-  /// Detect the user's language for narrative localization.
-  /// Falls back to the engine-level languageCode if detection is uncertain.
-  String _languageForUserMessage(String message) {
-    if (message.trim().isEmpty) return engine.languageCode;
+  /// Runtime fallback language for UI-side transient narrator text.
+  ///
+  /// Keep this aligned with [AgentRuntimeEngine.run]: fresh ambiguous runtime
+  /// copy defaults to English, while an explicit agent soul preference wins.
+  Future<String> _runtimeFallbackLanguage(String agentId) async {
+    try {
+      final preferred = (await engine.soulRepo?.get(
+        agentId,
+      ))?.preferredLanguage?.trim();
+      if (preferred != null && preferred.isNotEmpty) return preferred;
+    } catch (_) {
+      // Non-critical UI narrator fallback; the engine will log soul read errors.
+    }
+    return 'en';
+  }
+
+  /// Detect the user's language for narrator localization.
+  /// Falls back to runtime language priority if detection is uncertain.
+  Future<String> _languageForUserMessage(String agentId, String message) async {
+    final fallback = await _runtimeFallbackLanguage(agentId);
+    if (message.trim().isEmpty) return fallback;
     final detector = LanguageDetector();
     final detected = detector.detect(
       userMessage: message,
-      fallbackCode: engine.languageCode,
+      fallbackCode: fallback,
     );
-    return detected.confidence >= 0.5 ? detected.code : engine.languageCode;
+    return detected.confidence >= 0.5 ? detected.code : fallback;
   }
 
   /// Extract the deferred chat message content from a successful system.rtb

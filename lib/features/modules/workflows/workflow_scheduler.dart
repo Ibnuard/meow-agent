@@ -1,11 +1,17 @@
 import 'dart:async';
 
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../../../core/storage/app_settings_repository.dart';
+import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_database.dart';
 import 'workflow_foreground_service.dart';
 import 'workflow_model.dart';
 import 'workflow_repository.dart';
+import 'workflow_runner.dart';
 
 /// Unique task name for WorkManager periodic workflows.
 const workManagerTaskName = 'meow_workflow_interval';
@@ -86,7 +92,10 @@ class WorkflowScheduler {
   static Future<void> registerKeepAlive() async {
     final repo = WorkflowRepository();
     final hasEnabled = (await repo.listEnabled()).isNotEmpty;
-    if (!hasEnabled) return;
+    if (!hasEnabled) {
+      await cancelKeepAlive();
+      return;
+    }
 
     await Workmanager().registerPeriodicTask(
       'meow_keep_alive',
@@ -95,11 +104,13 @@ class WorkflowScheduler {
       constraints: Constraints(networkType: NetworkType.notRequired),
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
+    await WorkflowForegroundService.registerNativeKeepAlive();
   }
 
   /// Cancel the keep-alive task (when all workflows are disabled).
   static Future<void> cancelKeepAlive() async {
     await Workmanager().cancelByUniqueName('meow_keep_alive');
+    await WorkflowForegroundService.cancelNativeKeepAlive();
   }
 
   /// Calculate the next fire time for a schedule trigger.
@@ -147,13 +158,10 @@ class WorkflowScheduler {
 
       if (wf.trigger.type == TriggerType.interval) {
         final intervalSecs = (wf.trigger.intervalMinutes ?? 60) * 60;
-        if (wf.lastRun == null) {
-          untilFire = Duration.zero;
-        } else {
-          final elapsed = now.difference(wf.lastRun!).inSeconds;
-          final remaining = intervalSecs - elapsed;
-          untilFire = Duration(seconds: remaining > 0 ? remaining : 0);
-        }
+        final lastTime = wf.lastRun ?? wf.createdAt;
+        final elapsed = now.difference(lastTime).inSeconds;
+        final remaining = intervalSecs - elapsed;
+        untilFire = Duration(seconds: remaining > 0 ? remaining : 0);
       } else if (wf.trigger.type == TriggerType.schedule) {
         final next = nextFireTime(wf.trigger);
         if (next != null) {
@@ -174,30 +182,74 @@ class WorkflowScheduler {
 }
 
 /// Top-level callback for AlarmManager (must be static/top-level).
-/// Runs in a separate isolate — reschedules the next occurrence and
-/// ensures the persistent scheduler service is alive.
+/// Runs in a separate isolate — executes due workflows and reschedules.
 @pragma('vm:entry-point')
 Future<void> _alarmCallback() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Create standalone local storage using SQLite settings
+  final db = MeowDatabase.instance;
+  final settingsRepo = AppSettingsRepository(db);
+  final allSettings = await settingsRepo.getAll();
+  final storage = LocalStorageService(settingsRepo, allSettings);
+
+  final container = ProviderContainer(
+    overrides: [localStorageProvider.overrideWithValue(storage)],
+  );
+
+  // Execute due workflows
+  final runner = container.read(workflowRunnerProvider);
+  await runner.checkAndRun();
+  await runner.waitUntilIdle();
+
+  // Reschedule next schedule occurrence
   final repo = WorkflowRepository();
   final workflows = await repo.listEnabled();
-
   for (final wf in workflows) {
     if (wf.trigger.type != TriggerType.schedule) continue;
     await WorkflowScheduler.schedule(wf);
   }
 
-  // Ensure persistent foreground service is alive.
+  // Ensure persistent foreground service is alive
   await WorkflowForegroundService.ensureRunning();
 }
 
 /// Top-level WorkManager dispatcher.
-/// Acts as a restart fallback: if the app process was killed, WorkManager
-/// fires periodically and restarts the persistent foreground service.
+/// Runs in background isolates. Executes interval workflows or keep-alive checks.
 @pragma('vm:entry-point')
 void _workManagerDispatcher() {
   Workmanager().executeTask((taskName, inputData) async {
-    // Restart the persistent scheduler notification to keep the process alive.
+    WidgetsFlutterBinding.ensureInitialized();
     await WorkflowForegroundService.ensureRunning();
+
+    // Create standalone local storage using SQLite settings
+    final db = MeowDatabase.instance;
+    final settingsRepo = AppSettingsRepository(db);
+    final allSettings = await settingsRepo.getAll();
+    final storage = LocalStorageService(settingsRepo, allSettings);
+
+    final container = ProviderContainer(
+      overrides: [localStorageProvider.overrideWithValue(storage)],
+    );
+
+    final runner = container.read(workflowRunnerProvider);
+
+    if (taskName == 'meow_keep_alive') {
+      await runner.checkAndRun();
+    } else {
+      final workflowId = inputData?['workflowId'] as String?;
+      if (workflowId != null) {
+        final repo = WorkflowRepository();
+        final wf = await repo.read(workflowId);
+        if (wf != null && wf.enabled) {
+          runner.enqueue(wf);
+        }
+      } else {
+        await runner.checkAndRun();
+      }
+    }
+
+    await runner.waitUntilIdle();
     return true;
   });
 }

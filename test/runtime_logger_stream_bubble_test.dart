@@ -48,40 +48,43 @@ void main() {
       });
     });
 
-    test('deduplicates only the same semantic checkpoint', () {
-      final logger = RuntimeLogger();
+    test(
+      'drops low-value progress bubbles and deduplicates semantic repeats',
+      () {
+        final logger = RuntimeLogger();
 
-      expect(
-        logger.logStreamBubble(
-          kind: 'tool_insight',
-          phase: 'review',
-          message: 'One row was inserted.',
-          evidenceRefs: const ['result:1'],
-          contextPolicy: 'exclude',
-        ),
-        true,
-      );
-      expect(
-        logger.logStreamBubble(
-          kind: 'tool_insight',
-          phase: 'review',
-          message: '  One row was inserted.  ',
-          evidenceRefs: const ['result:1'],
-          contextPolicy: 'exclude',
-        ),
-        false,
-      );
-      expect(
-        logger.logStreamBubble(
-          kind: 'next_action',
-          phase: 'select_tool',
-          message: 'One row was inserted. Next I will add Venus.',
-          evidenceRefs: const ['selection:2'],
-          contextPolicy: 'exclude',
-        ),
-        true,
-      );
-      expect(logger.events, hasLength(2));
-    });
+        expect(
+          logger.logStreamBubble(
+            kind: 'analysis_summary',
+            phase: 'analyze',
+            message: 'I will update the nickname.',
+            evidenceRefs: const ['analysis:1'],
+            contextPolicy: 'exclude',
+          ),
+          false,
+        );
+        expect(
+          logger.logStreamBubble(
+            kind: 'tool_failure',
+            phase: 'review',
+            message: 'Storage is full.',
+            evidenceRefs: const ['result:1'],
+            contextPolicy: 'exclude',
+          ),
+          true,
+        );
+        expect(
+          logger.logStreamBubble(
+            kind: 'warning',
+            phase: 'review',
+            message: 'Storage is full.',
+            evidenceRefs: const ['selection:2'],
+            contextPolicy: 'exclude',
+          ),
+          false,
+        );
+        expect(logger.events, hasLength(1));
+      },
+    );
   });
 }

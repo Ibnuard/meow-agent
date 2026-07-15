@@ -172,6 +172,11 @@ class FilesModulePlugin extends ModulePlugin {
       operation: 'create',
       targetEntity: 'file',
       selectorArgs: ['to'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['copied', 'to', 'persisted'],
+      ),
     ),
     ToolDefinition(
       name: 'files.append',
@@ -186,6 +191,11 @@ class FilesModulePlugin extends ModulePlugin {
       operation: 'update',
       targetEntity: 'file',
       selectorArgs: ['path'],
+      verificationProbe: ToolVerificationProbe(
+        kind: 'tool_result_data',
+        entityType: 'file',
+        expectedDataKeys: ['path', 'size', 'stateVerified'],
+      ),
     ),
     ToolDefinition(
       name: 'files.metadata',

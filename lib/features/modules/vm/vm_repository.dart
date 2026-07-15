@@ -1,9 +1,10 @@
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/storage/app_settings_repository.dart';
 import '../../../core/storage/local_storage_service.dart';
+import '../../../core/storage/meow_database.dart';
 import 'vm_models.dart';
 
 const _kVmRuntimeSnapshotKey = 'vm.runtime.snapshot';
@@ -51,19 +52,21 @@ class VmRootfsPreset {
 }
 
 class VmRuntimeRepository {
-  const VmRuntimeRepository({SharedPreferences? prefs}) : _prefs = prefs;
+  const VmRuntimeRepository({LocalStorageService? storage}) : _storage = storage;
 
-  final SharedPreferences? _prefs;
+  final LocalStorageService? _storage;
 
-  Future<SharedPreferences> _instance({bool reload = true}) async {
-    final prefs = _prefs ?? await SharedPreferences.getInstance();
-    if (reload) await prefs.reload();
-    return prefs;
+  Future<LocalStorageService> _getStorage() async {
+    if (_storage != null) return _storage;
+    final db = MeowDatabase.instance;
+    final settingsRepo = AppSettingsRepository(db);
+    final allSettings = await settingsRepo.getAll();
+    return LocalStorageService(settingsRepo, allSettings);
   }
 
   Future<VmRuntimeSnapshot> readSnapshot() async {
-    final prefs = await _instance();
-    final raw = prefs.getString(_kVmRuntimeSnapshotKey);
+    final storage = await _getStorage();
+    final raw = storage.readString(_kVmRuntimeSnapshotKey);
     if (raw == null || raw.isEmpty) {
       return VmRuntimeSnapshot.unavailable(
         message: 'Native VM runtime is not connected yet.',
@@ -81,8 +84,8 @@ class VmRuntimeRepository {
   }
 
   Future<void> saveSnapshot(VmRuntimeSnapshot snapshot) async {
-    final prefs = await _instance(reload: false);
-    await prefs.setString(
+    final storage = await _getStorage();
+    await storage.writeString(
       _kVmRuntimeSnapshotKey,
       jsonEncode(snapshot.toJson()),
     );
@@ -90,8 +93,8 @@ class VmRuntimeRepository {
 
   /// Read all known plugin states keyed by plugin id.
   Future<Map<String, VmPluginState>> readPluginStates() async {
-    final prefs = await _instance();
-    final raw = prefs.getString(_kVmPluginStatesKey);
+    final storage = await _getStorage();
+    final raw = storage.readString(_kVmPluginStatesKey);
     if (raw == null || raw.isEmpty) return {};
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
@@ -107,18 +110,18 @@ class VmRuntimeRepository {
   }
 
   Future<void> savePluginState(VmPluginState state) async {
-    final prefs = await _instance(reload: false);
+    final storage = await _getStorage();
     final current = await readPluginStates();
     current[state.pluginId] = state;
     final encoded = current.map(
       (key, value) => MapEntry(key, value.toJson()),
     );
-    await prefs.setString(_kVmPluginStatesKey, jsonEncode(encoded));
+    await storage.writeString(_kVmPluginStatesKey, jsonEncode(encoded));
   }
 }
 
 final vmRuntimeRepositoryProvider = Provider<VmRuntimeRepository>((ref) {
-  return VmRuntimeRepository(prefs: ref.watch(sharedPreferencesProvider));
+  return VmRuntimeRepository(storage: ref.watch(localStorageProvider));
 });
 
 final vmRuntimeSnapshotProvider = FutureProvider<VmRuntimeSnapshot>((ref) {
